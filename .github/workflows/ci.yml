@@ -65,6 +65,89 @@ jobs:
       - name: import ligase
         run: python -c "import ligase; print(ligase.__version__)"
 
+  # The HIV-1 reference demo, with the real tools over the real reads.
+  #
+  # CLAUDE.md makes this pipeline the project's validation spine -- "every
+  # feature must work end to end on this pipeline" -- so it has to be CI's
+  # business and not only the author's. Before this job existed the five
+  # acceptance tests in tests/test_demo.py skipped on every run, for want of
+  # an aligner and of the gitignored data/, and a regression in the pipeline
+  # would have reached main green.
+  #
+  # Linux only: the demo's worth is that the real pipeline runs at all, not
+  # that it runs on two operating systems, and an aligner on the macOS
+  # runner costs minutes to buy little.
+  demo:
+    name: demo (HIV-1 pipeline, real tools)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        # A login shell, so the micromamba environment activated below --
+        # the one holding minimap2, samtools and bcftools -- is still on
+        # PATH in later steps. Without this the tools vanish between steps
+        # and the demo goes straight back to skipping.
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Versions are pinned in .github/demo-tools.yml, which says why these
+      # come from bioconda rather than from apt.
+      - name: install minimap2, samtools, bcftools
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: .github/demo-tools.yml
+          cache-environment: true
+
+      # The accessions and their checksums live in the fetch script, so its
+      # hash is the right cache key: edit the manifest and the data is
+      # fetched again, change anything else and it is not. Only the fetched
+      # inputs are cached, never anything derived from them.
+      #
+      # On a hit the script still verifies every file against its pinned
+      # checksum, from disk, and downloads nothing -- not even HXB2, the one
+      # input that comes from a rate-limited API rather than from ENA.
+      - name: cache the fetched data
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/reads
+            data/refs
+          key: ligase-data-PRJNA517147-${{ hashFiles('scripts/fetch_test_data.sh') }}
+
+      # PRJNA517147 and not the smaller project: tests/test_demo.py names
+      # four of this project's runs, and the demo pipeline reads from this
+      # directory. About 103 MB, which is the price of the demo being real.
+      - name: fetch the test data
+        run: scripts/fetch_test_data.sh --project PRJNA517147
+
+      - name: pip install -e .
+        run: pip install -e ".[dev]"
+
+      # One BAM whose header a real aligner wrote, for the type tests that
+      # check what minimap2 actually emits rather than what the SAM
+      # specification says. Derived, so deliberately not cached: it costs
+      # one run's alignment.
+      - name: build the demo alignment
+        run: scripts/make_demo_alignment.sh
+
+      # The whole suite rather than tests/test_demo.py alone: with the data
+      # and the tools in place, the tests in test_types.py and
+      # test_pipeline.py that want real HXB2 and a real BAM stop skipping
+      # too.
+      #
+      # LIGASE_DEMO_REQUIRED turns each of those skips into a failure. This
+      # job exists because `sssss` read as success, so a green run here has
+      # to mean the pipeline ran -- not that it was politely declined.
+      - name: pytest (the demo must run, not skip)
+        run: pytest
+        env:
+          LIGASE_DEMO_REQUIRED: "1"
+
   docs:
     name: docs (mkdocs build --strict)
     runs-on: ubuntu-24.04

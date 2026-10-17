@@ -1,0 +1,21 @@
+# The tools the HIV-1 reference demo shells out to, pinned by version.
+#
+# These come from bioconda rather than from apt, because a step's cache key
+# includes its tools' versions: an aligner that changes underneath us would
+# recompute every alignment, and a changed alignment would surface as a
+# Ligase bug rather than as the tool upgrade it is. apt cannot be pinned
+# durably -- an exact `=version` disappears from the Ubuntu archive on a
+# point update, and an unpinned one moves whenever the archive does --
+# while a conda package, once published, is immutable.
+#
+# These are the versions the demo was signed off on in M3. Bumping one is a
+# deliberate act: expect every cached alignment to be recomputed, and read
+# the tool's release notes before assuming a changed call is our fault.
+name: ligase-demo
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - minimap2=2.31
+  - samtools=1.24
+  - bcftools=1.24

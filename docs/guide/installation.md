@@ -8,6 +8,7 @@
 | Rust | a stable toolchain ([rustup](https://rustup.rs)) |
 | A C compiler | `cc`, for the bundled SQLite |
 | curl | for fetching test data |
+| minimap2, samtools, bcftools | only to run the HIV-1 reference demo |
 
 Rust is needed because installing builds the engine from source. There are no
 pre-built wheels yet.
@@ -65,6 +66,21 @@ All seven should pass on a clean checkout. If `clippy` complains about a
 missing doc comment on something you just added, that is deliberate — the
 workspace sets `missing_docs` to warn and CI runs clippy with `-D warnings`,
 so public items without documentation fail the build.
+
+!!! warning "`pytest` passing is not the pipeline working"
+    Nine tests need the demo's tools or its data: the five acceptance tests
+    in `tests/test_demo.py`, and four in `test_types.py` and
+    `test_pipeline.py` that want the real HXB2 or a BAM a real aligner
+    wrote. They skip where either is missing, so a green `pytest` on a bare
+    checkout says nothing about the pipeline. To insist instead:
+
+    ```bash
+    LIGASE_DEMO_REQUIRED=1 pytest
+    ```
+
+    Under that variable each of those skips becomes a failure naming what
+    was missing. The `demo` job in CI sets it, which is what stops a green
+    build from meaning "politely declined".
 
 ### Rebuilding after a Rust change
 
@@ -135,6 +151,32 @@ upstream must not break your build. A real change to the sequence still fails,
 loudly.
 
 FASTQs come from ENA over HTTPS, so no SRA toolkit is required — only `curl`.
+
+### The tools the demo runs
+
+The reference pipeline shells out to three external tools. The rest of
+Ligase does not need them; the demo and the nine tests that drive it do.
+
+| Tool | Version the demo is signed off on |
+|---|---|
+| minimap2 | 2.31 |
+| samtools | 1.24 |
+| bcftools | 1.24 |
+
+```bash
+brew install minimap2 samtools bcftools              # macOS
+
+micromamba install -c conda-forge -c bioconda \
+    minimap2=2.31 samtools=1.24 bcftools=1.24        # anywhere
+```
+
+Which versions you have matters more here than it usually would. A step's
+cache key includes its tools' versions, so upgrading minimap2 invalidates
+every alignment it produced — correctly, since a new aligner may genuinely
+align differently. That is also why CI pins all three from bioconda in
+`.github/demo-tools.yml` rather than taking whatever `apt` offers: an
+aligner that moved on its own would present as a Ligase regression, and the
+job is there to catch Ligase regressions.
 
 ## Build the docs
 

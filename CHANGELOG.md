@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+**CI runs the HIV-1 reference demo.** The pipeline CLAUDE.md calls the
+project's validation spine is exercised on every push and pull request now,
+and not only on the author's machine.
+
+- A `demo` job installs minimap2 2.31, samtools 1.24 and bcftools 1.24 from
+  bioconda — pinned in `.github/demo-tools.yml`, since a step's cache key
+  includes its tools' versions and an aligner that moved on its own would
+  present as a Ligase regression — fetches the four PRJNA517147 runs the
+  demo names, builds one real alignment and runs the whole Python suite
+  against them. Fetched inputs are cached between runs under the hash of
+  `scripts/fetch_test_data.sh`, which is where the accessions and their
+  checksums live: edit the manifest and the data is fetched again, change
+  anything else and it is not.
+- `LIGASE_DEMO_REQUIRED` turns a skip for want of a tool or a fetched file
+  into a failure that names what was missing. The nine tests driving the
+  real pipeline — the five M3 acceptance tests, plus four wanting real HXB2
+  or a BAM a real aligner wrote — skipped on every CI run until now, and a
+  skip read as success. The one pipeline every milestone is signed off on
+  was the one thing CI never ran.
+
 **M3 — Execution and the content-addressed cache.** A checked pipeline now
 runs: in parallel, cached, one branch per sample.
 
@@ -217,6 +237,11 @@ functionality yet; the engine's only behaviour is reporting its own version.
 - Dual MIT / Apache-2.0 licensing.
 
 ### Changed
+
+- `docs/guide/installation.md` lists minimap2, samtools and bcftools among
+  the requirements, with the versions the demo is signed off on and how to
+  insist the tests actually run them. The demo has always needed all three
+  and nothing said so.
 
 - The error classes moved to `ligase.errors` under a new `CheckError` base,
   so `StepTypeError` can sit beside `DimensionError` without being one.
