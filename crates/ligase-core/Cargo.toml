@@ -15,6 +15,7 @@ readme = "../../README.md"
 workspace = true
 
 [dependencies]
+blake3 = { workspace = true }
 flate2 = { workspace = true }
 md-5 = { workspace = true }
 # No "fasta": FASTA is scanned by hand so a three-gigabase reference can be
@@ -26,6 +27,8 @@ noodles = { workspace = true, features = [
   "sam",
   "vcf",
 ] }
+rayon = { workspace = true }
+rusqlite = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

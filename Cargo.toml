@@ -28,6 +28,19 @@ md-5 = "0.11"
 flate2 = "1.1"
 tempfile = "3.27"
 
+# Cache keys and content addressing (D2, D3). The `mmap` and `rayon`
+# features are what make hashing a multi-gigabyte BAM cheap enough to do on
+# every run, which is what lets the cache trust content rather than
+# timestamps.
+blake3 = { version = "1.8", features = ["mmap", "rayon"] }
+# Cache metadata (D6). `bundled` compiles SQLite from source: it costs a C
+# compiler at build time and buys one identical SQLite everywhere, which a
+# persistent on-disk format needs.
+rusqlite = { version = "0.40", features = ["bundled"] }
+# The executor's worker pool. Steps are external processes, so the DAG is
+# run by Rust threads and never touches the GIL.
+rayon = "1.12"
+
 # Encodes the CLAUDE.md rule "no unwrap outside tests" as a machine check.
 # Test files opt out explicitly with #![allow(...)].
 [workspace.lints.clippy]
