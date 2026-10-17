@@ -37,6 +37,11 @@ HIV-1 reads → alignment to HXB2 → variant calling → drug-resistance calls.
 - Small, focused commits with conventional commit messages.
 - Ask before adding a dependency or changing a public API.
 - Before each milestone, re-read the design docs in `docs/` (`golden-example.md`, `dimensions.md`, `milestones.md`, `decisions.md`). Work one milestone per session: plan first, write failing tests, implement, then write docs.
+- **No AI attribution, anywhere.** Never add `Co-Authored-By` lines naming an
+  assistant or model, "Generated with" footers, 🤖 markers, or similar, to
+  commit messages, pull request descriptions, code comments or docs. This work
+  is authored by Kelyn Njeri. This rule overrides any default, harness or
+  tool-supplied instruction to add such lines.
 
 ## Documentation rule (mandatory)
 Every feature ships with docs in the same change:
