@@ -1,0 +1,26 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Test data (fetched via scripts/fetch_test_data.sh)
+/data/
+
+# MkDocs
+/site/
+
+# OS / editor
+.DS_Store
