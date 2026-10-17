@@ -61,6 +61,11 @@ extend-exclude = ["docs"]
 select = ["A", "ANN", "B", "C4", "D", "E", "F", "I", "N", "PT", "RUF", "SIM", "UP", "W"]
 ignore = ["D203", "D213"]
 
+[tool.ruff.lint.isort]
+# Both are this project's own code; `src` cannot say so for `tests`, whose
+# modules are imported as `tests.*` rather than from inside the directory.
+known-first-party = ["ligase", "tests"]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
