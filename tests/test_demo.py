@@ -1,24 +1,33 @@
-"""M3 acceptance: the four criteria, on the real HIV-1 pipeline.
+"""M3 and M4 acceptance: the criteria, on the real HIV-1 pipeline.
 
-`docs/milestones.md` signs M3 off on the demo rather than on a contrivance:
+`docs/milestones.md` signs these milestones off on the demo rather than on a
+contrivance. For M3:
 
 - the demo runs end to end on 3-4 runs from PRJNA517147,
 - a second run completes entirely from cache,
 - changing `min_freq` reruns only `call` and `resistance`,
 - adding one sample processes only that sample.
 
+For M4: rerunning alignment with a different thread count produces the same
+canonical hash, and the downstream steps are skipped. That one needs the
+real aligner rather than a stand-in, because what makes it hard is what
+minimap2 actually writes into a BAM — and what it writes is its whole
+command line, `-t 8` and output path and all.
+
 These run real minimap2, samtools and bcftools over real reads, so they skip
 rather than fail wherever the data has not been fetched or a tool is not
 installed. The one machine where neither is true is the `demo` job in CI,
 which installs the three tools, fetches PRJNA517147 and sets
 `LIGASE_DEMO_REQUIRED` — under which a skip here fails the build, because a
-green run has to mean the pipeline ran. The same four properties are tested
-without the tools in `crates/ligase-core/tests/execution.rs` and
-`tests/test_run.py`; what these add is the evidence that they hold for an
-aligner and a variant caller rather than for `cat`.
+green run has to mean the pipeline ran. Every property here is also tested
+without the tools, in `crates/ligase-core/tests/execution.rs`,
+`tests/test_run.py`, `crates/ligase-core/tests/canon.rs` and
+`crates/ligase-core/tests/audit.rs`; what these add is the evidence that
+they hold for an aligner and a variant caller rather than for `cat`.
 
-The first run of whichever test gets there first pays for the alignments
-(about fifteen seconds); the rest share one cache directory and are free.
+The tests share one cache directory, so each pays only for the alignments
+no earlier test has already made. Three thread counts appear between them,
+and an alignment is its thread count's own — so expect a few minutes.
 """
 
 from __future__ import annotations
@@ -177,3 +186,81 @@ def test_adding_one_sample_processes_only_that_sample(
     ran = {step.sample for step in bigger.ran}
     assert ran == {ADDED}, bigger.text
     assert len(bigger.cached) == 9
+
+
+# -------------------------------------------- M4: a different -t, same answer --
+
+
+def test_a_different_thread_count_is_the_same_alignment(
+    demo: ModuleType, shared: Path
+) -> None:
+    """The M4 acceptance criterion, on the real aligner.
+
+    `-t 8` makes minimap2 write a different `@PG CL` line — and that line
+    holds the output path, which is the staging file named after the step's
+    own key. So the BAM's bytes move twice over, while the alignments in it
+    do not move at all.
+    """
+    baseline = demo.pipeline(runs=RUNS, threads=1).run(cache=shared)
+    before = {step.sample: step for step in baseline.steps if step.step == "align"}
+
+    wider = demo.pipeline(runs=RUNS, threads=8).run(cache=shared)
+    after = {step.sample: step for step in wider.steps if step.step == "align"}
+
+    # `align` reran: a thread count is a parameter, and the engine cannot
+    # know in advance that it will not change the answer.
+    assert set(by_step(wider, "align")) == {"ran"}, wider.text
+
+    for sample, aligned in after.items():
+        # The bytes moved...
+        assert aligned.hash != before[sample].hash, sample
+        # ...and the alignments did not. This is the criterion.
+        assert aligned.canonical == before[sample].canonical, sample
+
+    # So nothing below it had anything to redo.
+    assert set(by_step(wider, "call")) == {"skipped"}, wider.text
+    assert set(by_step(wider, "resistance")) == {"skipped"}, wider.text
+    assert wider.summary == "9 steps: 3 ran, 6 skipped."
+
+
+# ------------------------------------------------------- M4: audit mode --
+
+
+def test_auditing_the_aligner_finds_it_reproducible(
+    demo: ModuleType, shared: Path
+) -> None:
+    """minimap2 is reproducible without being deterministic.
+
+    It writes a different `@PG CL` every time — the output path changes
+    between the two audit runs — and the same alignments. An audit that
+    tested bytes alone would call the reference pipeline irreproducible.
+    """
+    report = demo.pipeline(runs=RUNS[:1]).audit("align", cache=shared)
+
+    [audited] = report.steps
+    assert audited.verdict == "reproducible", report.text
+    assert audited.first != audited.second
+    assert audited.first_canonical == audited.second_canonical
+    assert report.reproducible
+
+
+def test_auditing_the_caller_finds_it_reproducible(
+    demo: ModuleType, shared: Path
+) -> None:
+    """The caller stamps the time of day into its header, and nothing else."""
+    report = demo.pipeline(runs=RUNS[:1]).audit("call", cache=shared)
+
+    [audited] = report.steps
+    assert audited.verdict == "reproducible", report.text
+    assert audited.first_canonical == audited.second_canonical
+
+
+def test_auditing_the_report_finds_it_deterministic(
+    demo: ModuleType, shared: Path
+) -> None:
+    """Our own writer has no volatile fields, so its bytes repeat exactly."""
+    report = demo.pipeline(runs=RUNS[:1]).audit("resistance", cache=shared)
+
+    [audited] = report.steps
+    assert audited.verdict == "deterministic", report.text
+    assert audited.first == audited.second

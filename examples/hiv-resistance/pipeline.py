@@ -68,9 +68,21 @@ GENES = (
 
 
 @lg.step(tool=("minimap2", "samtools"))
-def align(reads: Reads, ref: Reference) -> Alignment:
-    """Align one sample's reads against the reference."""
-    return lg.sh("minimap2 -ax sr {ref} {reads.r1} {reads.r2} | samtools sort -o {out}")
+def align(reads: Reads, ref: Reference, threads: int = 4) -> Alignment:
+    """Align one sample's reads against the reference.
+
+    `threads` is how many cores the aligner may use. It is a parameter like
+    any other, so changing it reruns this step — the engine cannot know in
+    advance that it will not change the answer. What it does know, once the
+    step has rerun, is whether the *result* changed: a BAM is hashed by what
+    it means rather than by its bytes, and the `@PG` line where minimap2
+    records `-t 8` is not part of what it means. So the alignments come out
+    the same, and nothing below here is recomputed.
+    """
+    return lg.sh(
+        "minimap2 -t {threads} -ax sr {ref} {reads.r1} {reads.r2} "
+        "| samtools sort -@ {threads} -o {out}"
+    )
 
 
 @lg.step(tool="bcftools")
@@ -117,6 +129,7 @@ def _codon_of(position: int) -> tuple[str | None, int | None]:
 def pipeline(
     runs: Sequence[str] | None = None,
     min_freq: float = 0.01,
+    threads: int = 4,
 ) -> lg.Pipeline:
     """Build the demo over some or all of the fetched runs.
 
@@ -124,6 +137,9 @@ def pipeline(
         runs: Which runs to include, e.g. `["SRR8525904"]`. All of the
             fetched ones by default.
         min_freq: The minimum allele fraction a variant must reach.
+        threads: How many cores the aligner may use. Changing it reruns
+            `align` and nothing below it, which is what semantic hashing
+            buys.
 
     Returns:
         The pipeline, built and ready to check. Nothing has run.
@@ -146,7 +162,9 @@ def pipeline(
 
     return lg.Pipeline(
         [
-            resistance(call(align(sample, hxb2), hxb2, min_freq=min_freq))
+            resistance(
+                call(align(sample, hxb2, threads=threads), hxb2, min_freq=min_freq)
+            )
             for sample in chosen
         ]
     )
