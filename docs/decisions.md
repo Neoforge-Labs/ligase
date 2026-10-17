@@ -115,3 +115,33 @@ made the stored list disagree with the file.
 The same reasoning keeps `reference` out of what a step requires of an
 interval file: its contigs cannot be declared, so demanding them would be an
 unsatisfiable check.
+
+## D15 — An error identifies its node, not just its step
+
+Per-sample fan-out makes one written step into one step per sample, so a
+report that knows only step names understates every cohort-wide problem. Two
+consequences follow, and both are about what a user does next rather than
+about catching more.
+
+The summary counts the **places** that failed rather than the names they
+share. "4 errors in 1 step" describes a localised problem you fix by looking
+at one sample; "4 errors in 4 steps" describes a cohort-wide one you fix by
+rethinking the pipeline. Reporting the second as the first is not a cosmetic
+understatement.
+
+An error **names its node**, as the sample where the graph can work one out,
+in the heading rather than on a line of its own — the sample says which step
+this is, so it belongs with the step. A step spanning a whole cohort gets no
+name: labelling it after one of its samples would send a user to the wrong
+data, which is worse than saying nothing.
+
+Identical problems are then stated once, with every affected sample **named**
+rather than counted, because a user who must expand something to find out
+which samples failed has a shorter report rather than a better one. Two rules
+keep that honest: an error with no name is never collapsed, since there would
+be nothing to list it under; and grouping is on the problem's full text, so a
+sample that failed differently keeps its own paragraph.
+
+Collapsing applies to the rendered report, not to the error list.
+`pipe.errors()` stays one error per failing node, because counting affected
+samples — or retrying one of them — wants that granularity.

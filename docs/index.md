@@ -65,19 +65,21 @@ pipe.check()        # type-checks every step. Nothing runs.
 
 ```console
 $ ligase check
-checked 2 steps in pipeline.py
+checked 8 steps in pipeline.py
 
-DimensionError in step `call`:
+DimensionError in step `call` (sample SRR32217714):
   aln.reference = HXB2 (from step `align`)
   ref.reference = hg38 (from FASTA contigs: data/refs/hg38.fasta)
-  Contig `1`: same name and length but different sequence (MD5 a965a71a against 44e7acaf).
+  Contig `K03455.1` is not in hg38.
   These must match. Did you pass the wrong reference?
+  The same problem affects 3 other samples: SRR32217715, SRR32217716, SRR32217726.
 
-1 error in 1 step.
+4 errors in 4 steps.
 ```
 
-The step bodies never ran, and `aln.reference` came out of a step that does
-not exist yet.
+The step bodies never ran, `aln.reference` came out of a step that does not
+exist yet, and a problem that hit the whole cohort is stated once with every
+affected sample named.
 
 Caching and execution arrive in M3. See [milestones](milestones.md) for the
 order and the acceptance test for each step.

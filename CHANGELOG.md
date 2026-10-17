@@ -62,9 +62,10 @@ a graph from the signatures alone and type-checked before any of it runs.
   pipeline (1) from one that could not be checked at all (2), so it works as
   a CI gate. With no argument it reads `pipeline.py`.
 - New decision records: **D12** (steps defer; the graph is built from
-  signatures), **D13** (the graph decides requirements and blames the origin)
-  and **D14** (contig order is compared only between sequence dictionaries).
-- 115 Rust tests and 73 Python tests, including both M2 acceptance criteria:
+  signatures), **D13** (the graph decides requirements and blames the origin),
+  **D14** (contig order is compared only between sequence dictionaries) and
+  **D15** (an error identifies its node, not just its step).
+- 122 Rust tests and 77 Python tests, including both M2 acceptance criteria:
   the golden example's shape builds a graph with every step body raising if
   it runs, and `ligase check` reports every error in one pass. The demo graph
   is also built against the real HXB2 reference and a real minimap2
@@ -185,6 +186,22 @@ functionality yet; the engine's only behaviour is reporting its own version.
 
 ### Fixed
 
+- The check summary counts the steps that failed rather than the step *names*
+  that failed. Under per-sample fan-out one written step is many steps, so
+  four samples failing the same way reported "4 errors in 1 step" — a
+  cohort-wide problem described as a localised one, which calls for a
+  completely different response.
+- An error at a fan-out step now names its sample in the heading, as
+  `DimensionError in step `call` (sample SRR32217714):`, and carries it as
+  `error.scope`. Four byte-identical messages left no way to tell one problem
+  from four, or to see which samples were affected.
+- A problem that affects several samples is stated once in the report, with
+  every affected sample named on a line of its own rather than counted. A
+  sample whose problem differs keeps its own paragraph, and an error that
+  cannot name itself is never collapsed, since there would be nothing to list
+  it under. `pipe.errors()` is not collapsed either — one error per failing
+  step, each with its own scope; `pipe.report().text` is the collapsed form
+  the command line prints.
 - Two datasets neither of which is the reference no longer agree *vacuously*
   when their contig names share nothing. Containment ignores contigs the
   other side lacks, so a `chr1`-named VCF against a bare-named VCF had

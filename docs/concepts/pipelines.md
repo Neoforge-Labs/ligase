@@ -39,12 +39,12 @@ milliseconds:
 $ ligase check
 checked 2 steps in pipeline.py
 
-DimensionError in step `call`:
+DimensionError in step `call` (sample SRR32217714):
   aln.organism = HIV-1 (from step `align`)
   ref.organism = human (declared)
   These must match. Did you pass data from the wrong organism?
 
-DimensionError in step `call`:
+DimensionError in step `call` (sample SRR32217714):
   aln.reference = HXB2 (from step `align`)
   ref.reference = hg38 (from FASTA contigs: refs/hg38.fasta)
   Contig `1`: same name and length but different sequence (MD5 a965a71a against 44e7acaf).
@@ -148,6 +148,59 @@ in one graph — and one shared reference node, because it is one file. The
 graph is fully expanded before anything runs, which is what lets the
 executor schedule it; running the chains in parallel and caching each sample
 separately is [M3](../milestones.md).
+
+Fan-out changes what a report has to say. One written `call` step is now one
+step *per sample*, so an error has to name which one, and a count of failing
+steps has to count places rather than names:
+
+```console
+$ ligase check
+checked 8 steps in pipeline.py
+
+DimensionError in step `call` (sample SRR32217714):
+  aln.reference = HXB2 (from step `align`)
+  ref.reference = hg38 (from FASTA contigs: data/refs/hg38.fasta)
+  Contig `K03455.1` is not in hg38.
+  These must match. Did you pass the wrong reference?
+  The same problem affects 3 other samples: SRR32217715, SRR32217716, SRR32217726.
+
+4 errors in 4 steps.
+```
+
+Three things are going on in that output, and each of them is the difference
+between a report you can act on and one you cannot.
+
+The heading names the sample, because under fan-out the node *is* the sample.
+Without it those four errors are byte-identical and you cannot tell whether
+you are looking at one problem or four.
+
+The count is of steps that failed, not of step names that failed. "4 errors
+in 4 steps" says a cohort-wide problem; "4 errors in 1 step" — which is what
+a count by name gives you — says a localised one, and the two call for
+completely different responses.
+
+The problem itself is stated once. On four hundred samples the alternative is
+four hundred identical paragraphs. Every affected sample is still *named*
+rather than counted, so you never have to expand anything to find out who was
+hit, and a sample whose problem differs keeps its own paragraph rather than
+being folded in:
+
+```console
+ContigNamingError in step `call` (sample SRR32217726):
+  aln.contig_naming = chr-prefixed (UCSC style) (from step `align`)
+  ref.contig_naming = bare (Ensembl/NCBI style) (from FASTA deflines: refs/hg38.fasta)
+  The contigs are otherwise identical. Add a renaming step, or use one naming style throughout.
+```
+
+In Python the collapsing is not applied to the list — `pipe.errors()` has one
+error per failing step, each with its own `scope` — so the question you
+actually have is one comprehension away:
+
+```python
+>>> affected = {error.scope[1] for error in pipe.errors() if error.scope}
+>>> sorted(affected)
+['SRR32217714', 'SRR32217715', 'SRR32217716', 'SRR32217726']
+```
 
 ## What is not here yet
 

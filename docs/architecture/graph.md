@@ -176,6 +176,75 @@ points at the BAM, and says that it reaches `merge` through `call`.
 require it produces one error rather than five. A report nobody reads to the
 end is a report that does not work.
 
+## Reporting under fan-out
+
+Per-sample fan-out makes one written step into many steps, and two things
+that were adequate for a single chain stop being adequate.
+
+### An error carries its node, and its node's name
+
+`CheckError` gains `node: Option<usize>` and `scope: Option<Scope>`, both
+stamped by `Graph::check` and both `None` for a single step checked with
+`check_step`, which has nothing to distinguish it from itself.
+
+```rust
+pub struct Scope { pub kind: &'static str, pub value: String }
+```
+
+`Graph::scope(node)` derives it from the step's **output** sample set, when
+that set holds exactly one sample. A step whose output spans a whole cohort
+gets nothing: labelling it after one of its samples would send a user to look
+at the wrong data, which is worse than saying nothing. Where the output kind
+cannot carry a sample set at all — an interval-producing step — the inputs
+are asked instead, and only answer if every one of them that can speak to it
+names the *same* single sample.
+
+The scope goes in the heading, `DimensionError in step `call` (sample
+SRR32217714):`, rather than on a line of its own. The error shape M1
+specified is step, both values, where each came from, a leading question; the
+sample says *which* step, so it belongs with the step.
+
+### The summary counts places, not names
+
+`summarise` used to deduplicate the step *names* it saw, so four failing
+`call` nodes reported "4 errors in 1 step". That is not a cosmetic
+understatement: "1 step" describes a localised failure you fix by looking at
+one sample, and "4 steps" describes a cohort-wide one you fix by rethinking
+the pipeline. It now deduplicates on the node, falling back to the name when
+there is none.
+
+The count is still of *places* rather than of errors, so one node with two
+problems correctly reads "2 errors in 1 step".
+
+### One problem is stated once, and every sample is named
+
+`check::render` groups errors whose text is identical once the scope is
+removed, prints the first in full, and adds one line naming the rest:
+
+```text
+  The same problem affects 3 other samples: SRR32217715, SRR32217716, SRR32217726.
+```
+
+Named, not counted. A user who has to expand something to find out which
+samples failed has a shorter report rather than a better one, so every name
+is listed however many there are — four hundred accessions is a long line and
+four hundred identical paragraphs is an unusable report.
+
+Two rules keep the collapsing honest:
+
+- **An error that cannot name itself is never collapsed.** With no scope
+  there is nothing to put on the "also affects" line, so hiding one error
+  behind an identical-looking one would leave a user unable to tell them
+  apart. Those print separately.
+- **A sample whose problem differs keeps its own paragraph.** Grouping is on
+  the full text of the problem, so a sample that failed for another reason
+  can never be folded into the majority.
+
+Collapsing is a property of the rendered report, not of the error list.
+`Graph::check` and `pipe.errors()` return one error per failing node, each
+with its own scope, because that is the granularity a program wants —
+counting affected samples, or retrying one of them in M3.
+
 ## Intervals, and the order that is not an order
 
 `DataKind::Intervals` was held back from M1 on purpose: the reference demo
@@ -301,6 +370,11 @@ check the same way.
   step cannot yet say "I need the sample set" on its own behalf.
 - **One graph per pipeline.** Two pipelines over the same inputs build two
   graphs and load nothing twice, but check the shared inputs twice over.
+- **A scope is only ever a sample.** `Scope::kind` is a `&'static str` so
+  that other discriminators could be added, but nothing produces one yet. A
+  fan-out node whose sample set is unknown therefore has no name, and its
+  errors are reported separately rather than collapsed — correct, but less
+  readable than it could be.
 
 ## Related
 

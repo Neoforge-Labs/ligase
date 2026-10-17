@@ -80,12 +80,26 @@ them without raising, which is usually what you want in a notebook:
 >>> for error in pipe.errors():
 ...     print(error)
 ...     print()
-DimensionError in step `call`:
+DimensionError in step `call` (sample SRR32217714):
   aln.reference = HXB2 (from step `align`)
   ref.reference = hg38 (from FASTA contigs: data/refs/hg38.fasta)
   Contig `1`: same name and length but different sequence (MD5 a965a71a against 44e7acaf).
   These must match. Did you pass the wrong reference?
 ```
+
+The sample is in the heading because one written step is many steps once you
+fan out, and `error.scope` is the same thing in a form you can compute with:
+
+```python
+>>> error.scope
+('sample', 'SRR32217714')
+>>> sorted({e.scope[1] for e in pipe.errors() if e.scope})
+['SRR32217714', 'SRR32217715', 'SRR32217716']
+```
+
+It is `None` for a step that stands for no single sample — one that spans a
+whole cohort, say. Naming such a step after one of its samples would send you
+to look at the wrong thing.
 
 `aln.reference` came out of a step that has not run. The dimensions of a
 step's output are worked out from its inputs, so a mistake made at the top of
@@ -127,6 +141,27 @@ pipe = lg.Pipeline(samples.map(lambda s: call(align(s, hxb2), hxb2)))
 >>> len(pipe)       # 3 samples + 1 reference + 3 aligns + 3 calls
 10
 ```
+
+When every sample fails the same way, the report says so once and names them
+all:
+
+```console
+$ ligase check
+checked 6 steps in pipeline.py
+
+DimensionError in step `call` (sample SRR32217714):
+  aln.reference = HXB2 (from step `align`)
+  ref.reference = hg38 (from FASTA contigs: data/refs/hg38.fasta)
+  Contig `K03455.1` is not in hg38.
+  These must match. Did you pass the wrong reference?
+  The same problem affects 2 other samples: SRR32217715, SRR32217716.
+
+3 errors in 3 steps.
+```
+
+`pipe.errors()` is not collapsed — one error per failing step, each with its
+own sample. `pipe.report().text` is the collapsed form the command line
+prints, if you want to show it somewhere yourself.
 
 Mates are paired by filename — `<sample>_1`/`<sample>_2` or
 `<sample>_R1`/`<sample>_R2`, with anything after the marker dropped, so
