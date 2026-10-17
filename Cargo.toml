@@ -1,0 +1,26 @@
+[workspace]
+members = ["crates/ligase-core", "crates/ligase-py"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+authors = ["Kelyn Njeri <kelyn.njeri@gmail.com>"]
+repository = "https://github.com/Neoforge-Labs/ligase"
+keywords = ["bioinformatics", "pipeline", "reproducibility", "genomics"]
+categories = ["science"]
+
+[workspace.dependencies]
+ligase = { path = "crates/ligase-core", version = "0.1.0" }
+pyo3 = "0.30"
+
+# Encodes the CLAUDE.md rule "no unwrap outside tests" as a machine check.
+# Test files opt out explicitly with #![allow(...)].
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[workspace.lints.rust]
+missing_docs = "warn"

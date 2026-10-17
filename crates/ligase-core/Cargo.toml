@@ -1,0 +1,15 @@
+[package]
+name = "ligase"
+description = "Type-safe, reproducible computational biology pipelines (core engine)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+
+[lints]
+workspace = true

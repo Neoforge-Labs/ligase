@@ -1,0 +1,74 @@
+[build-system]
+requires = ["maturin>=1.15,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "ligase-bio"
+description = "Type-safe, reproducible computational biology pipelines"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+authors = [{ name = "Kelyn Njeri", email = "kelyn.njeri@gmail.com" }]
+keywords = ["bioinformatics", "pipeline", "reproducibility", "genomics", "provenance"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Typing :: Typed",
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/Neoforge-Labs/ligase"
+Changelog = "https://github.com/Neoforge-Labs/ligase/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = [
+  "maturin>=1.15,<2.0",
+  "mypy>=1.11",
+  "pytest>=8",
+  "ruff>=0.6",
+]
+docs = [
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.5",
+]
+
+[tool.maturin]
+manifest-path = "crates/ligase-py/Cargo.toml"
+module-name = "ligase._core"
+python-source = "python"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["python", "tests"]
+# Design docs under docs/ are the specification, not shipped source.
+# Recent ruff formats Python inside fenced Markdown blocks, which would
+# rewrite docs/golden-example.md -- whose shape is deliberately fixed.
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["A", "ANN", "B", "C4", "D", "E", "F", "I", "N", "PT", "RUF", "SIM", "UP", "W"]
+ignore = ["D203", "D213"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Test function names describe the behaviour; a docstring would just repeat it.
+"tests/*" = ["D103"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["python", "tests"]
+mypy_path = "python"
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]

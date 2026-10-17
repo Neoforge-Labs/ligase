@@ -1,0 +1,3 @@
+"""Type stubs for the compiled Rust extension module `ligase._core`."""
+
+def version() -> str: ...

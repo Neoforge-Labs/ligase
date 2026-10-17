@@ -1,0 +1,23 @@
+[package]
+name = "ligase-py"
+description = "Python bindings for the Ligase core engine"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+# Imported from Python as `ligase._core`; the public surface lives in
+# python/ligase/__init__.py.
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+ligase = { workspace = true }
+pyo3 = { workspace = true, features = ["extension-module", "abi3-py311"] }
+
+[lints]
+workspace = true
