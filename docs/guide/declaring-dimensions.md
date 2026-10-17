@@ -197,8 +197,10 @@ Or do not raise at all:
 ...     print(error)
 ```
 
-`dimension_errors` returns a list and never raises, which is what `ligase
-check` will use in M2 to report a whole pipeline in one pass.
+`dimension_errors` returns a list and never raises. For a whole pipeline
+rather than one step, use
+[`lg.Pipeline(...).errors()`](building-a-pipeline.md#check-it), which also
+knows what each step requires of the ones before it.
 
 ## Overriding what was inferred
 
@@ -228,7 +230,39 @@ ref = lg.reference("refs/mystery.fa", build="hg38")
 That is deliberate. A label that could override identity would be a way to
 silence the check, and the check is the product.
 
+## Intervals: the format is the dimension
+
+A BED or GFF carries its coordinate convention, and that convention is the
+whole reason the type exists:
+
+```python
+>>> lg.intervals("data/regions.bed").dimension("coordinates").value
+'0-based half-open'
+>>> lg.intervals("data/genes.gff3").dimension("coordinates").value
+'1-based closed'
+```
+
+It is taken from the filename, and never guessed. Pass `format=` when the
+name does not say:
+
+```python
+>>> lg.intervals("data/regions.txt")
+LoadError: cannot parse data/regions.txt: cannot tell whether this is a bed or
+a gff from its name; pass the format explicitly
+>>> regions = lg.intervals("data/regions.txt", format="bed")
+```
+
+Guessing would shift every interval by one base, which nothing downstream
+would notice — the same reason a FASTQ in the Phred+33/+64 overlap reports
+its encoding as unknown.
+
+`organism` and `build` are declared, as for any other type. Contigs are not
+declarable at all: they come from the records, and there is no way to state
+them, which is why no step ever demands that an interval file know its
+reference.
+
 ## Next
 
 - [Types and dimensions](../concepts/types-and-dimensions.md) — the concepts
+- [Building a pipeline](building-a-pipeline.md) — checking a whole graph
 - [Type system architecture](../architecture/type-system.md) — the internals

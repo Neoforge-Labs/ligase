@@ -61,3 +61,57 @@ MD5 arrives via `md-5`. That is not a security choice: MD5 is what the SAM
 specification prescribes for the `@SQ M5` contig checksum, so we must compute
 exactly that digest to compare against it. Cache keys use BLAKE3 (D3); the two
 are unrelated.
+
+## D12 — Steps defer; the graph is built from signatures
+
+`@lg.step` reads a function's signature once and replaces the function with a
+`Step`. Calling it records the call and returns a handle; the body never runs
+while a graph is being built. The return annotation is therefore the only
+statement of what a step produces, and an unannotated parameter is refused at
+decoration time — it would be an edge the graph does not contain, which means
+an input nothing is ever compared with.
+
+The handle is `cast` to the data type the step declares, which is a
+deliberate lie to the type checker and buys static checking of the pipeline's
+wiring: a mis-wired `call(align(...), calls)` is an error in the editor, not
+only at `check()`. `lg.handle()` is the typed way back to the real object.
+
+The rejected alternative was a handle that genuinely subclasses the data
+types. It would have needed graph identity stored on each dataset, and a
+dataset that knows which graph it belongs to cannot be used in two.
+
+## D13 — The graph decides requirements and blames the origin
+
+`docs/dimensions.md` allows an unknown dimension unless a downstream step
+requires it. Only a graph can answer that, so `required_pair` — which reads
+requirements off the pair of kinds a step joins — becomes the default, and
+the graph adds what the table cannot know: where the gap started.
+
+An undeclared-dimension error therefore names the *input* that has to declare
+it, the step that requires it, and the route between them, and is reported
+once however many steps the gap travels through. Pointing only at the step
+would send a user to a file they cannot change; one error per step the value
+passes through would make the report unreadable, and a report nobody finishes
+is a report that does not work.
+
+A step handed the wrong *kind* of data is reported instead of that step's
+dimension errors rather than alongside them. Those bindings are not what the
+step declared, so comparing their dimensions would describe a pipeline the
+user never wrote.
+
+## D14 — Contig order is compared only between sequence dictionaries
+
+`OrderDiffers` exists because GATK requires two sequence dictionaries to
+agree on order ([D10](#d10-references-relate-by-containment)). A BED's
+contigs come from its records, which have an order too — whatever order the
+intervals were sorted in. Comparing it would report a contig order mismatch
+for an ordinary BED that happens to list contig 2 before contig 1.
+
+So `ReferenceId` records whether its contig list is a `Dictionary` or merely
+`Observed`, and order is compared only between two dictionaries. The rejected
+alternative, sorting record-derived contigs before storing them, would have
+made the stored list disagree with the file.
+
+The same reasoning keeps `reference` out of what a step requires of an
+interval file: its contigs cannot be declared, so demanding them would be an
+unsatisfiable check.

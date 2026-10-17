@@ -1,0 +1,166 @@
+# Pipelines and the graph
+
+## What it is
+
+A Ligase pipeline is a graph of steps, built from the *signatures* of
+decorated Python functions and checked before any of them runs.
+
+```python
+@lg.step(tool="minimap2")
+def align(reads: Reads, ref: Reference) -> Alignment:
+    return lg.sh("minimap2 -ax sr {ref} {reads.r1} {reads.r2} | samtools sort -o {out}")
+```
+
+`@lg.step` reads that signature once, when the module is imported. Two
+parameters take data; one returns data. That is enough to know what `align`
+consumes and produces — and it is all Ligase ever looks at, because calling
+`align(reads, hxb2)` **does not run the function**. It records the call and
+hands back a handle on an alignment that does not exist yet.
+
+Chain the handles, hand the last one to `lg.Pipeline`, and you have a graph:
+
+```python
+pipe = lg.Pipeline(samples.map(lambda s: resistance(call(align(s, hxb2), hxb2))))
+pipe.check()      # type-checks every step. Nothing runs.
+```
+
+## Why it exists
+
+A workflow manager runs your steps and tells you afterwards. If step four
+was handed the wrong reference, you find out when step four finishes — or,
+worse, you do not find out at all, because it finished successfully and
+produced plausible numbers for the wrong genome.
+
+Deferring the bodies turns that around. The graph exists before the compute
+does, so the question "do these steps fit together?" can be answered in
+milliseconds:
+
+```console
+$ ligase check
+checked 2 steps in pipeline.py
+
+DimensionError in step `call`:
+  aln.organism = HIV-1 (from step `align`)
+  ref.organism = human (declared)
+  These must match. Did you pass data from the wrong organism?
+
+DimensionError in step `call`:
+  aln.reference = HXB2 (from step `align`)
+  ref.reference = hg38 (from FASTA contigs: refs/hg38.fasta)
+  Contig `1`: same name and length but different sequence (MD5 a965a71a against 44e7acaf).
+  These must match. Did you pass the wrong reference?
+
+2 errors in 1 step.
+```
+
+Two mistakes, both found, before a single read was aligned.
+
+## Dimensions travel through the graph
+
+`align` was never run, so where did `aln.organism` come from?
+
+A step's output carries the dimensions of its inputs. The reference went in,
+so the reference comes out; the reads' sample identity and pairing come out
+with it. The provenance says which step it came through:
+
+```python
+>>> aligned = align(reads, hxb2)
+>>> pipe = lg.Pipeline(call(aligned, hxb2))
+>>> for name, value in lg.handle(aligned).dataset.dimensions.items():
+...     print(f"{name} = {value.value} ({value.source})")
+organism = HIV-1 (from step `align`)
+reference = HXB2 (from step `align`)
+contig_naming = bare (Ensembl/NCBI style) (from step `align`)
+coordinates = 1-based closed (from step `align`)
+sample_set = [reads_phred33] (from step `align`)
+pairing = paired-end (from step `align`)
+```
+
+This is an alignment Ligase has worked out the properties of without
+producing it. `coordinates` is the one dimension it did not inherit:
+alignments are 1-based closed by specification and nothing upstream of one
+has a coordinate system at all, so the step is where the convention appears.
+
+## Unknown until somebody asks
+
+The catalogue has a rule that only a graph can enforce:
+
+> Unknown dimensions are allowed only if no downstream step requires them.
+
+A BAM with no `@RG` lines does not know its sample. Feed it through one
+`call` step and nothing cares, because nothing in that pipeline joins two
+sample sets together:
+
+```python
+>>> lg.Pipeline(call(aln, hxb2)).report().summary
+'no problems found.'
+```
+
+Merge two sets of calls, though, and the sample identity suddenly matters —
+mixing up which column belongs to which patient is the kind of error that
+produces entirely plausible results. Now it is reported, against the file
+you have to change:
+
+```text
+UndeclaredDimensionError in step `merge`:
+  sample_set is unknown in data/sample.bam (no @RG lines with an SM tag in the header)
+  It reaches `merge` through step `call`.
+  `merge` needs sample_set to agree. Declare it where you load the data.
+```
+
+Notice what that message does. You are looking at a step called `merge`, but
+the thing to fix is a BAM two steps upstream, and the error says so and says
+how the one reaches the other. Reported once, however many steps the gap
+travels through — a single missing declaration is one thing to fix, not one
+error per step it passes.
+
+## Intervals, and the dimension that was waiting for them
+
+`coordinates` has been in the catalogue from the start and had almost
+nothing to do: SAM, BAM and VCF are all 1-based closed. Intervals are where
+it earns its place, because BED is 0-based half-open and GFF is 1-based
+closed, and nothing in the file tells you which a tool expected.
+
+```python
+>>> regions = lg.intervals("data/regions.bed")
+>>> pipe = lg.Pipeline(restrict(call(aligned, hxb2), regions))
+>>> pipe.check()
+DimensionError in step `restrict`:
+  v.coordinates = 1-based closed (from step `call`)
+  regions.coordinates = 0-based half-open (from BED coordinate convention: data/regions.bed)
+  These must match. Did you mean to convert between coordinate systems?
+```
+
+No checksum would have caught that. Both files are valid, both describe the
+same contigs of the same reference, and every result is off by one base.
+
+## Per-sample fan-out
+
+`lg.samples()` globs a directory, pairs the mates and loads each sample:
+
+```python
+samples = lg.samples("data/*.fastq.gz", paired=True)
+pipe = lg.Pipeline(samples.map(lambda s: resistance(call(align(s, hxb2), hxb2))))
+```
+
+`map` applies the chain once per sample, so three samples give three chains
+in one graph — and one shared reference node, because it is one file. The
+graph is fully expanded before anything runs, which is what lets the
+executor schedule it; running the chains in parallel and caching each sample
+separately is [M3](../milestones.md).
+
+## What is not here yet
+
+The graph is built and checked. Nothing executes it: `pipe.run()`,
+`pipe.methods()` and `ligase run` arrive with the milestones that implement
+them, and `lg.sh()` — the body of a step — is part of execution.
+
+Conversions are still v2. `check()` reports that a BED and a VCF disagree
+about coordinates; it does not go looking for the conversion that would fix
+it ([D5](../decisions.md)).
+
+## Next
+
+- [Building a pipeline](../guide/building-a-pipeline.md) — how to write one
+- [Graph architecture](../architecture/graph.md) — how it works inside
+- [Types and dimensions](types-and-dimensions.md) — what travels along an edge

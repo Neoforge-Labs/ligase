@@ -9,6 +9,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+**M2 — The dependency graph.** A pipeline of annotated steps is now built as
+a graph from the signatures alone and type-checked before any of it runs.
+
+- `@lg.step` reads a function's signature once, at import, and defers the
+  body: calling a step records the call and returns a handle. The return
+  annotation is the only statement of what a step produces, so a missing one
+  — or an unannotated parameter, which would be a connection the graph never
+  checks — is refused as the module is imported rather than at check time. A
+  `Step` is typed so that a type checker follows the pipeline too and catches
+  a mis-wired one while you are still editing.
+- `lg.Pipeline(outputs)` walks the handles into a graph, sharing a node where
+  one file was passed to two steps. `pipe.check()` raises the first problem
+  with every other one attached; `pipe.errors()` returns them without
+  raising; `pipe.report()` adds the summary line.
+- A step's output carries the dimensions of its inputs, re-sourced as coming
+  from that step, so a value renders as `from step `align`` and a mistake
+  found three steps downstream can still be traced to the file that caused
+  it. A derived alignment therefore knows its pairing from the reads it was
+  built from, which M1 could only report as unknown. Coordinates are
+  introduced rather than inherited, since nothing upstream of an alignment
+  has them.
+- Requirements now come from the graph, which is what the catalogue's rule
+  always meant: an unknown dimension is allowed unless a downstream step
+  requires it. A sample set nothing joins on is nobody's problem. When a step
+  does require one, the error names the input that has to declare it, the
+  step that needs it and the route between them, once, however many steps the
+  gap travels through.
+- `StepTypeError` for a step wired to the wrong kind of data, reported
+  instead of that step's dimension errors rather than alongside them — those
+  bindings are not what the step declared. It is a `CheckError` but not a
+  `DimensionError`, because the fix is a different argument rather than a
+  declaration.
+- `lg.samples(pattern, paired=True)` globs, pairs mates by filename and loads
+  each sample; `.map()` applies a chain of steps to every one of them, so one
+  written pipeline expands into one graph per sample. Mates are matched
+  anywhere in the name, so Illumina's `SAMPLE_R1_001.fastq.gz` gives the
+  sample `SAMPLE`. A file whose mate cannot be identified is an error rather
+  than a guess, and a lone mate is an error rather than a single-end sample:
+  pairing two samples' files produces results for a mixture of two people and
+  nothing crashes.
+- `lg.intervals()` and the `Intervals` type load BED, GFF3 and GTF, which is
+  where the `coordinates` dimension starts doing real work — BED is 0-based
+  half-open, GFF is 1-based closed, and feeding one to a tool that expected
+  the other is off by a base and looks plausible. Contigs come from the
+  records, carrying no length and no checksum, and are compared against a
+  reference by name. Their order is never compared: records have no sequence
+  dictionary, and reporting their incidental order would be a false alarm.
+- `ligase check [pipeline.py]` type-checks a pipeline file from the command
+  line, reporting every error in one pass. The module is imported, the way a
+  Snakefile is; the step bodies are not run. Exit codes separate a wrong
+  pipeline (1) from one that could not be checked at all (2), so it works as
+  a CI gate. With no argument it reads `pipeline.py`.
+- New decision records: **D12** (steps defer; the graph is built from
+  signatures), **D13** (the graph decides requirements and blames the origin)
+  and **D14** (contig order is compared only between sequence dictionaries).
+- 114 Rust tests and 71 Python tests, including both M2 acceptance criteria:
+  the golden example's shape builds a graph with every step body raising if
+  it runs, and `ligase check` reports every error in one pass.
+
 **M1 — Types and dimensions.** Biological data now carries the dimensions of
 what is inside it, and `check_step` refuses to connect steps whose dimensions
 disagree — before any compute runs.
@@ -99,6 +158,14 @@ functionality yet; the engine's only behaviour is reporting its own version.
 
 ### Changed
 
+- The error classes moved to `ligase.errors` under a new `CheckError` base,
+  so `StepTypeError` can sit beside `DimensionError` without being one.
+  `DimensionError` and its subclasses keep every name and attribute they had,
+  and `except DimensionError` still catches every disagreement about data;
+  `except CheckError` additionally catches a step wired to the wrong kind.
+- `CheckError::dimension()` in the core is now an `Option<Dimension>`: a
+  step-type error blames no dimension, and storing one anyway would mean
+  choosing a lie for the Python layer to report.
 - CLAUDE.md gained an engineering rule: re-read the design docs before each
   milestone, and work one milestone per session as plan, failing tests,
   implementation, docs.
@@ -114,8 +181,22 @@ functionality yet; the engine's only behaviour is reporting its own version.
   **D10** (references relate by containment) and **D11** (`noodles` for format
   I/O, and the MSRV follows it).
 
+### Fixed
+
+- Two datasets neither of which is the reference no longer agree *vacuously*
+  when their contig names share nothing. Containment ignores contigs the
+  other side lacks, so a `chr1`-named VCF against a bare-named VCF had
+  nothing left in common to disagree about and reported no error at all. A
+  comparison pass that matched nothing can no longer claim agreement;
+  normalising the names finds the overlap and reports the naming mismatch it
+  always should have. Genuinely disjoint data — a chr20-only VCF against a
+  chr21-only one — still agrees, because both are correct.
+
 ### Dependencies
 
+- None added. The CLI uses `argparse` from the standard library, globbing
+  uses `glob`, and BED and GFF are parsed by hand: only the first column is
+  needed, and `noodles`' BED reader is generic over the field count.
 - `noodles` 0.118 for SAM, BAM, VCF and FASTQ. Pure Rust, so wheels build
   without a C htslib — unlike `rust-htslib`. FASTA is scanned by hand instead,
   because `noodles` materialises each sequence and a three-gigabase reference

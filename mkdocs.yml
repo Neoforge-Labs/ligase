@@ -47,12 +47,15 @@ nav:
   - Concepts:
       - Project layout: concepts/project-layout.md
       - Types and dimensions: concepts/types-and-dimensions.md
+      - Pipelines and the graph: concepts/pipelines.md
   - Guide:
       - Installation: guide/installation.md
       - Declaring dimensions: guide/declaring-dimensions.md
+      - Building a pipeline: guide/building-a-pipeline.md
   - Architecture:
       - Workspace: architecture/workspace.md
       - Type system: architecture/type-system.md
+      - Graph: architecture/graph.md
   - Design:
       - Golden example: golden-example.md
       - Dimensions: dimensions.md

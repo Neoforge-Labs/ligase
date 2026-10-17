@@ -14,7 +14,8 @@ crates/ligase-core/src/
   load/fasta.rs     streaming FASTA scan with computed MD5
   load/alignment.rs SAM and BAM headers
   load/variants.rs  VCF headers
-  load/reads.rs     FASTQ pairing and quality encoding
+  load/reads.rs     FASTQ pairing, quality encoding, grouping into samples
+  load/intervals.rs BED and GFF records
 
 crates/ligase-py/src/lib.rs   thin PyO3 translation, no logic
 python/ligase/__init__.py     loaders, exception hierarchy, docstrings
@@ -166,12 +167,16 @@ pub const fn required_pair(left: DataKind, right: DataKind) -> &'static [Dimensi
 | Reads ↔ Reads | `sample_set`, `pairing` |
 | Reads ↔ Alignment / Variants | `sample_set` |
 | Reads ↔ Reference | *nothing* |
+| Intervals ↔ anything but Reads | `coordinates` |
+| Reads ↔ Intervals | *nothing* |
 | anything ↔ ResistanceReport | *nothing* |
 
 `docs/dimensions.md` says unknown dimensions are allowed only if no
-downstream step requires them. Without the graph (M2) there is no downstream,
-so "required" comes from the kinds being joined; M2 will drive it from the
-DAG instead and this table becomes the default.
+downstream step requires them. Checking one step in isolation has no
+downstream, so `check_step` takes "required" from the kinds being joined. A
+whole pipeline does have one: [the graph](graph.md) uses `disagreements()`
+and `requires()` to decide for itself, attributing a gap to the input that
+has to declare it, and this table is its default.
 
 Three entries deserve their reasoning spelled out:
 
@@ -185,6 +190,11 @@ Three entries deserve their reasoning spelled out:
 - **`quality_encoding` is required nowhere.** The catalogue gives no way to
   declare it, so requiring it would be an unsatisfiable check — the user
   could not comply.
+- **`reference` is required nowhere for intervals.** The same reasoning. A
+  BED's contigs come from its records, so an empty one knows none and
+  `build=` is a display label that cannot carry contigs. `coordinates` is
+  required instead: it is a property of the format, so it is always known
+  and always satisfiable.
 
 The bias throughout is toward demanding less. Under-demanding loses a check
 that another dimension usually catches anyway; over-demanding produces false
@@ -236,11 +246,15 @@ Two rendering details that are easy to get wrong:
 The undeclared message puts the **unknown** side first regardless of binding
 order, because that is the side the user has to change.
 
-`check_step` returns every error rather than the first. M2 requires
-`ligase check` to report all type errors in one pass, and fixing errors one
-per overnight run is the problem Ligase exists to remove. The Python
-`check_step` raises the first but attaches all of them to `.errors`;
-`dimension_errors` returns the list without raising.
+`check_step` returns every error rather than the first. `ligase check` has
+to report all type errors in one pass, and fixing errors one per overnight
+run is the problem Ligase exists to remove. The Python `check_step` raises
+the first but attaches all of them to `.errors`; `dimension_errors` returns
+the list without raising.
+
+`dimension` is an `Option<Dimension>`. A `StepType` error — a step handed a
+VCF where it declared a FASTA — blames no dimension, and storing one anyway
+would mean choosing a lie for the Python layer to report.
 
 ## Loading
 
@@ -331,11 +345,10 @@ computed independently, on a header a real aligner produced.
 - **Contig order is compared strictly** even for a contained subset. Tools
   differ on whether they care; reporting it separately lets a caller decide,
   but a pipeline that legitimately reorders will see an error it must handle.
-- **BED and GFF are absent.** The reference demo does not use intervals and
-  their dimensions are almost entirely declared. They arrive with the graph
-  in M2, which is also where `coordinates` starts doing real work — a 0-based
-  half-open BED against a 1-based closed VCF is the mismatch that dimension
-  exists for.
+- **Contig order is only compared between dictionaries.** `ReferenceId`
+  records whether its contigs came from a sequence dictionary or were merely
+  *observed* in records, and `Observed` lists are never compared for order.
+  See [the graph](graph.md#intervals-and-the-order-that-is-not-an-order).
 - **No conversion graph yet.** `check_step` reports a mismatch; it does not
   search for a `liftover` or a renaming step that would fix it. That is v2,
   by [D5](../decisions.md) and [D8](../decisions.md).

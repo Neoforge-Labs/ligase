@@ -35,24 +35,52 @@ DimensionError in step `call`:
 
 ## Status
 
-**Pre-alpha**, building towards v0.1. Milestones **M0 (scaffold)** and
-**M1 (types and dimensions)** are complete.
+**Pre-alpha**, building towards v0.1. Milestones **M0 (scaffold)**,
+**M1 (types and dimensions)** and **M2 (the graph)** are complete.
 
-You can load a FASTA, FASTQ, SAM/BAM or VCF, see the dimensions inferred from
-its headers, and have a step refused before it runs:
+You can write a pipeline of annotated steps, have the whole graph
+type-checked without running any of it, and be told every mistake at once:
 
 ```python
 import ligase as lg
+from ligase.types import Alignment, Reads, Reference, Variants
+
+
+@lg.step(tool="minimap2")
+def align(reads: Reads, ref: Reference) -> Alignment:
+    return lg.sh("minimap2 -ax sr {ref} {reads.r1} {reads.r2} | samtools sort -o {out}")
+
+
+@lg.step(tool="bcftools")
+def call(aln: Alignment, ref: Reference, min_freq: float = 0.01) -> Variants:
+    return lg.sh("bcftools mpileup -f {ref} {aln} | bcftools call -mv -Oz -o {out}")
+
 
 hxb2 = lg.reference("data/refs/HXB2.fasta", organism="HIV-1", build="HXB2")
-aln = lg.alignment("data/alignments/SRR32217714.bam")
+samples = lg.samples("data/runs/*.fastq.gz", paired=True)
 
-lg.check_step("call", {"aln": aln, "ref": hxb2})   # raises if they disagree
+pipe = lg.Pipeline(samples.map(lambda s: call(align(s, hxb2), hxb2)))
+pipe.check()        # type-checks every step. Nothing runs.
 ```
 
-The graph that chains steps and checks a whole pipeline in one pass arrives in
-M2; caching and execution in M3. See [milestones](milestones.md) for the order
-and the acceptance test for each step.
+```console
+$ ligase check
+checked 2 steps in pipeline.py
+
+DimensionError in step `call`:
+  aln.reference = HXB2 (from step `align`)
+  ref.reference = hg38 (from FASTA contigs: data/refs/hg38.fasta)
+  Contig `1`: same name and length but different sequence (MD5 a965a71a against 44e7acaf).
+  These must match. Did you pass the wrong reference?
+
+1 error in 1 step.
+```
+
+The step bodies never ran, and `aln.reference` came out of a step that does
+not exist yet.
+
+Caching and execution arrive in M3. See [milestones](milestones.md) for the
+order and the acceptance test for each step.
 
 ## Where to go
 
@@ -64,7 +92,10 @@ and the acceptance test for each step.
 | See the target API | [Golden example](golden-example.md) |
 | Understand why data carries dimensions | [Types and dimensions](concepts/types-and-dimensions.md) |
 | Declare dimensions and read the errors | [Declaring dimensions](guide/declaring-dimensions.md) |
+| Write a pipeline and check it | [Building a pipeline](guide/building-a-pipeline.md) |
+| Understand why steps are never run to build a graph | [Pipelines and the graph](concepts/pipelines.md) |
 | Know how the checker works inside | [Type system](architecture/type-system.md) |
+| Know how the graph works inside | [Graph](architecture/graph.md) |
 | Know which dimensions exist and how they are inferred | [Dimensions](dimensions.md) |
 | Follow the build order | [Milestones](milestones.md) |
 | Understand a design choice | [Decisions](decisions.md) |

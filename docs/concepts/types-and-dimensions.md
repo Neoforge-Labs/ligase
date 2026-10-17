@@ -135,16 +135,44 @@ cries wolf gets bypassed, and a bypassed checker catches nothing. Correct
 input that gets rejected is not a safe failure — it is how users learn to stop
 trusting the tool.
 
+## Coordinates, and the type that needed them
+
+`coordinates` sat in the catalogue doing almost nothing for a milestone,
+because SAM, BAM and VCF are all 1-based closed and a lossless re-encoding
+between containers changes nothing ([D9](../decisions.md)).
+
+`Intervals` is what it was waiting for. BED is 0-based half-open and GFF is
+1-based closed, and feeding one to a tool that expected the other produces
+results that are off by exactly one base and look entirely plausible:
+
+```python
+>>> regions = lg.intervals("data/regions.bed")
+>>> regions.dimension("coordinates").value
+'0-based half-open'
+```
+
+An interval file's contigs come from its records, so they carry no length and
+no checksum — a BED records neither, and inventing them would be the lie this
+whole system guards against. They are still compared against a reference *by
+name*, which is enough to catch a `chr`-prefixed BED against a bare reference,
+or an interval on a contig the reference does not have.
+
+Their order, on the other hand, is not compared at all. The contigs of a
+sequence dictionary have a meaningful order — GATK requires two dictionaries
+to agree on it — but the contigs of a BED's records appear in whatever order
+the intervals were sorted in. Reporting that as a contig order mismatch would
+be a false alarm, and false alarms are how a correctness tool gets switched
+off.
+
 ## What is not here yet
 
-M1 gives you types, dimensions and `check_step` on individual steps. The graph
-that chains steps and checks a whole pipeline in one pass arrives in M2; BED
-and GFF interval types arrive with it. Conversions — a typed `liftover` that
-the engine could *search for* to fix a mismatch automatically — are v2, and
-the design note is [D5](../decisions.md).
+Dimensions are checked where steps meet. They are not *converted*: a typed
+`liftover` that the engine could **search for** to fix a mismatch
+automatically is v2, and the design note is [D5](../decisions.md).
 
 ## Next
 
 - [Declaring dimensions](../guide/declaring-dimensions.md) — how to use this
+- [Pipelines and the graph](pipelines.md) — how dimensions travel between steps
 - [Type system architecture](../architecture/type-system.md) — how it works
 - [Dimensions](../dimensions.md) — the full catalogue
