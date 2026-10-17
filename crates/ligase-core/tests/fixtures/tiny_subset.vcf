@@ -1,0 +1,5 @@
+##fileformat=VCFv4.3
+##reference=tiny_bare.fasta
+##contig=<ID=1,length=20,md5=a965a71aa3690f605935c54d320905ab>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample_a
+1	5	.	A	G	30	PASS	.	GT	0/1

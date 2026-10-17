@@ -1,0 +1,6 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:1	LN:20	M5:a965a71aa3690f605935c54d320905ab	SP:synthetic
+@SQ	SN:9	LN:20	M5:1e951d6407850a72537be6a648d724be	SP:synthetic
+@RG	ID:rg0	SM:sample_a	PL:ILLUMINA
+@PG	ID:ligase-fixture	PN:ligase-fixture	VN:0.0.0
+read1	0	1	1	60	10M	*	0	0	ACGTACGTAC	IIIIIIIIII	RG:Z:rg0

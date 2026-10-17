@@ -1,0 +1,4 @@
+@HD	VN:1.6	SO:coordinate
+@RG	ID:rg0	SM:sample_a	PL:ILLUMINA
+@PG	ID:ligase-fixture	PN:ligase-fixture	VN:0.0.0
+read1	4	*	0	0	*	*	0	0	ACGTACGTAC	IIIIIIIIII	RG:Z:rg0
