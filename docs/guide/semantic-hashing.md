@@ -1,0 +1,223 @@
+# Semantic hashing and `ligase audit`
+
+Semantic hashing needs nothing from you: it is how every step's inputs are
+hashed. This page is about seeing it work, and about the one command that
+asks a question it cannot answer on its own.
+
+Everything below uses the reference demo. Fetch its data first if you have
+not:
+
+```bash
+scripts/fetch_test_data.sh --project PRJNA517147
+```
+
+## Watching a rerun stop
+
+The demo's aligner takes a thread count:
+
+```python
+@lg.step(tool=("minimap2", "samtools"))
+def align(reads: Reads, ref: Reference, threads: int = 4) -> Alignment:
+    return lg.sh(
+        "minimap2 -t {threads} -ax sr {ref} {reads.r1} {reads.r2} "
+        "| samtools sort -@ {threads} -o {out}"
+    )
+```
+
+Run the demo, then run it again with more threads:
+
+```bash
+ligase run examples/hiv-resistance/pipeline.py
+```
+
+```python
+import importlib.util
+
+spec = importlib.util.spec_from_file_location(
+    "demo", "examples/hiv-resistance/pipeline.py"
+)
+demo = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(demo)
+
+report = demo.pipeline(threads=8).run()
+print(report.text)
+```
+
+```text
+ran       `align` (sample SRR8525904)   3.3s
+ran       `align` (sample SRR8525908)   6.9s
+ran       `align` (sample SRR8525920)   3.7s
+ran       `align` (sample SRR8525942)   6.0s
+skipped   `call` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+skipped   `resistance` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+
+12 steps: 4 ran, 8 skipped.
+```
+
+`align` reran — `threads` is one of its parameters — and produced BAMs whose
+bytes differ from the first run's, because `minimap2` writes `-t 8` and the
+output path into its `@PG` line. The alignments did not change, so the
+variant calling and the reports below were not redone.
+
+Every step reports both hashes, so you can see that for yourself:
+
+```python
+for step in report.steps:
+    print(f"{step.outcome:8} {step.step:12} {step.hash[:12]}  {step.canonical[:12]}")
+```
+
+- `hash` is the output's bytes, which is also its name in the store.
+- `canonical` is what the output *means*. This is what the steps below were
+  keyed on.
+
+Two runs that agree on `canonical` skip everything downstream, however far
+their `hash` diverged.
+
+## Auditing a step
+
+`ligase audit` runs a step twice and tells you whether it agrees with
+itself. Use it when you are about to publish, when a collaborator cannot
+reproduce a number, or when a tool is new to you and you want to know what
+it does with a seed.
+
+```bash
+ligase audit align examples/hiv-resistance/pipeline.py --sample SRR8525904
+```
+
+```text
+auditing `align` for SRR8525904 in examples/hiv-resistance/pipeline.py
+
+reproducible     `align` (sample SRR8525904)
+    the bytes differ            36696dacb83d / a96bfeff4e26
+    what they mean does not     43c4c32bbd53
+
+1 step: 1 reproducible.
+```
+
+Three verdicts, and the middle one is the point:
+
+| Verdict | What it means | What to do |
+|---|---|---|
+| `deterministic` | The two runs wrote the same bytes. | Nothing. |
+| `reproducible` | The bytes differ; the result does not. | Nothing. This is every tool that signs its own work. |
+| `not reproducible` | The two runs disagree about the result. | Find the unseeded randomness. |
+
+A tool that stamps the time of day into its output is `reproducible`, not
+broken — and an audit that tested bytes alone would report the entire
+reference pipeline as irreproducible, which is how a check gets ignored.
+
+```bash
+ligase audit resistance examples/hiv-resistance/pipeline.py --sample SRR8525904
+```
+
+```text
+deterministic    `resistance` (sample SRR8525904)
+    the same bytes both times   75724d8c3179
+
+1 step: 1 deterministic.
+```
+
+### Under fan-out
+
+One written step is one step per sample, so `ligase audit align` audits
+every one of them and names each:
+
+```bash
+ligase audit align examples/hiv-resistance/pipeline.py
+```
+
+That is two runs of the aligner per sample, taken in turn — timings from
+runs fighting each other for cores would say more about the machine than
+about the step. `--sample SRR8525904` narrows it to one.
+
+### From Python
+
+```python
+report = pipe.audit("align")
+
+if not report.reproducible:
+    for step in report.unreproducible:
+        print(f"{step.step} for {step.sample} does not repeat")
+        print(f"  {step.first_canonical} then {step.second_canonical}")
+```
+
+`report.verdict` is the worst verdict any node got, because one
+irreproducible sample in a cohort is an irreproducible step.
+
+### What an audit does and does not touch
+
+The pipeline is run first, normally and through the cache, so that the step
+being audited has its inputs — that part is an ordinary run and is recorded
+like one. The two audit runs then write into scratch files that are deleted,
+and **nothing from them is recorded**. An audit observes; it does not put a
+result from a step known to wobble into your cache.
+
+A step that fails is reported as a failure rather than given a verdict, and
+the exit code is 1 for a finding (a step that does not repeat, or one that
+failed) and 2 for a mistake in the command, such as a step name nothing is
+called:
+
+```console
+$ ligase audit allign examples/hiv-resistance/pipeline.py
+ligase: no step named `allign` in examples/hiv-resistance/pipeline.py; it has `align`, `call`, `resistance`
+```
+
+## Making your own step reproducible
+
+If an audit says `not reproducible`, the cause is almost always a number
+nobody wrote down.
+
+**Seed everything, as a parameter.** A seed is an ordinary typed parameter,
+so it is hashed like any other and the engine will rerun the step when you
+change it:
+
+```python
+@lg.step(tool="some-sampler")
+def subsample(reads: Reads, fraction: float = 0.1, seed: int = 20260101) -> Reads:
+    return lg.sh("some-sampler --seed {seed} --fraction {fraction} {reads.r1} -o {out}")
+```
+
+A step that draws on a seed it did not declare is not reproducible, and no
+cache can make it so.
+
+**Check the tool's own flags.** Many tools are deterministic only when told
+to be, or only at a fixed batch size.
+
+**Remember what is already handled.** You do not need to strip timestamps,
+sort a BAM for comparability, or normalise line wrapping — a format's
+volatile fields are
+[already known](../concepts/semantic-hashing.md#so-a-file-is-hashed-by-what-it-means),
+and `samtools view -b` of a SAM hashes the same as the SAM
+([D9](../decisions.md#d9-coordinates-are-semantics-not-encoding)).
+
+## Seeing what it cost
+
+```python
+report = pipe.run()
+print(report.hashed, report.prefiltered, report.canonicalised)
+```
+
+- `hashed` — files read and hashed.
+- `prefiltered` — files whose hash was already known from their size and
+  mtime.
+- `canonicalised` — files parsed to find out what they mean.
+
+On a second run all three of these are what you would hope:
+
+```python
+again = pipe.run()
+assert again.hashed == 0
+assert again.canonicalised == 0
+```
+
+What a file means is remembered against the hash of its bytes, so it is
+parsed once and then never again — not on the next run, and not when a
+different step produces the same bytes.
+
+## When a cache goes cold on its own
+
+A change to the canonicalisation rules retires every canonical hash made
+under the old ones, and the step entries built from them. You will see a run
+that recomputes everything after upgrading Ligase. Nothing is lost: all of
+it is derived, and recomputing is merely slow
+([D19](../decisions.md#d19-a-cache-from-another-version-is-discarded-not-migrated)).

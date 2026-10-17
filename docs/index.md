@@ -111,12 +111,34 @@ cached    `resistance` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
 ```
 
 Change `min_freq` and only `call` and `resistance` come back. Add a sample
-and only that sample is processed. Edit a step so that it reruns but produces
-the same output, and everything below it is skipped.
+and only that sample is processed.
 
-Semantic hashing arrives in M4 and provenance in M5. See
-[milestones](milestones.md) for the order and the acceptance test for each
-step.
+Run the aligner again on eight cores instead of one and it reruns — a thread
+count is a parameter, and nothing can know in advance that it will not
+change an answer — but the alignments come out the same, so nothing below it
+is recomputed:
+
+```console
+$ ligase run
+ran       `align` (sample SRR8525904)   3.3s
+ran       `align` (sample SRR8525908)   6.9s
+ran       `align` (sample SRR8525920)   3.7s
+ran       `align` (sample SRR8525942)   6.0s
+skipped   `call` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+skipped   `resistance` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+
+12 steps: 4 ran, 8 skipped.
+```
+
+"The same" is not byte equality — `minimap2` writes `-t 8` and the output
+path into the BAM's `@PG` line — but what the file
+[means](concepts/semantic-hashing.md): its records sorted and the fields
+recording when and how it was made dropped. And when you want the opposite
+question answered, `ligase audit <step>` runs a step twice and says whether
+it repeats.
+
+Provenance arrives in M5. See [milestones](milestones.md) for the order and
+the acceptance test for each step.
 
 ## Where to go
 
@@ -134,8 +156,11 @@ step.
 | Know how the checker works inside | [Type system](architecture/type-system.md) |
 | Know how the graph works inside | [Graph](architecture/graph.md) |
 | Understand why a step did or did not rerun | [Running, and not running](concepts/caching.md) |
+| Know why two different files can be the same result | [What a file means](concepts/semantic-hashing.md) |
+| Check that a step repeats itself | [Semantic hashing and `ligase audit`](guide/semantic-hashing.md) |
 | Know how a run is scheduled | [Execution](architecture/execution.md) |
 | Know how the cache and its keys work | [Cache](architecture/cache.md) |
+| Know how a canonical form is built | [Canonicalisation](architecture/canonicalisation.md) |
 | Know which dimensions exist and how they are inferred | [Dimensions](dimensions.md) |
 | Follow the build order | [Milestones](milestones.md) |
 | Understand a design choice | [Decisions](decisions.md) |

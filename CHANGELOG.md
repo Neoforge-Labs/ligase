@@ -9,6 +9,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+**M4 — Semantic hashing and audit mode.** A step's inputs are now hashed by
+what they *mean* rather than by which bytes they happen to hold, so a rerun
+that changes nothing scientific stops where it started.
+
+- Outputs are **canonicalised before hashing** (D4): records sorted,
+  volatile headers stripped. Rerunning the demo's aligner with `threads=8`
+  instead of `threads=1` reruns `align` — a thread count is a parameter, and
+  nothing can know in advance that it will not change an answer — and then
+  skips the eight steps below it, because the alignments are the same.
+- This closes a hole rather than only widening a test. `minimap2` records
+  its command line in `@PG CL`, that command line contains the output path,
+  and the output path is the staging file named after the step's own key —
+  so a step's output bytes contained its own key, and *any* change to a
+  step, a comment included, cascaded to the bottom of the pipeline. Early
+  cutoff could not get past the first real tool (**D22**).
+- The canonical form is **a property of the type, not of the step**. A BAM,
+  a VCF, a FASTA, a FASTQ, a BED and a resistance report each have their own
+  rules, parsed by `noodles` where the encoding matters. Which formats sort
+  their records and which keep their order follows D14, already decided for
+  the dimension checker: a sequence dictionary's order is semantic, a BED's
+  is not.
+- A `samtools view -b` of a SAM hashes the same as the SAM, as D9 requires:
+  re-encoding is not a biological change, so it must not cost a cache.
+- **Numeric tolerance.** A field may declare one, and VCF `QUAL` declares
+  0.1 Phred — a floating-point accumulation whose last digits move with the
+  order the terms were added in. Everything else is exact. A tolerance is
+  expressed by quantising, because "within ε" is not transitive and so
+  cannot be an equality a hash expresses (**D20**).
+- A file that does not parse as its type **falls back to its bytes**,
+  domain-separated so the two can never collide (**D21**). Bytes are the
+  stricter test, so the fallback can cost a rerun and can never serve a
+  wrong answer; every parser is strict for the same reason.
+- `ligase audit <step>` and `pipe.audit("step")` run a step twice and report
+  one of three verdicts: `deterministic` (the same bytes), `reproducible`
+  (different bytes, the same result) or `not reproducible`. Two would not
+  do — a tool that stamps the time of day into its output is reproducible,
+  and an audit that tested bytes alone would report the whole reference
+  pipeline as broken. Under fan-out every node of the step is audited, with
+  `--sample` to narrow. An audit records nothing: its two runs write into
+  scratch files that are deleted.
+- Every step in a run report now carries both hashes — `hash` for the bytes,
+  which is the object's name in the store, and `canonical` for what they
+  mean, which is what the steps below were keyed on.
+  `report.canonicalised` counts the files that had to be parsed.
+- What a file means is remembered against the hash of its bytes, so it is
+  parsed once in its life — not again on the next run, after a copy, or when
+  another step produces it identically. A second run still reads nothing,
+  and now parses nothing either.
+- The demo's `align` takes a `threads` parameter, which is what the
+  milestone's acceptance test turns on.
+- New docs: `concepts/semantic-hashing.md`, `guide/semantic-hashing.md`,
+  `architecture/canonicalisation.md`, and decision records **D20** (a
+  tolerance is a quantisation), **D21** (canonicalisation falls back to the
+  bytes) and **D22** (a tool's signature is not part of its result).
+- `INPUT_POLICY` is `canonical` rather than `raw` and `KEY_VERSION` is 2, so
+  step entries written by an older Ligase retire themselves. The file hashes
+  survive: a file's byte hash is a fact about the file however keys are
+  made. A third version, `CANON_VERSION`, clears the canonical hashes and
+  the keys built from them when the rules change (D19).
+
 **CI runs the HIV-1 reference demo.** The pipeline CLAUDE.md calls the
 project's validation spine is exercised on every push and pull request now,
 and not only on the author's machine.

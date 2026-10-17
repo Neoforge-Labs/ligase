@@ -163,18 +163,34 @@ wrong answer — and
 stops the rerun going any further. For a function with no source to read (a
 REPL, an `exec`), the compiled code object stands in.
 
-## Where M4 attaches
+## What an input's hash is a hash of
 
-Inputs enter as content hashes tagged with the policy that produced them,
-`INPUT_POLICY = "raw"` — the hash of the bytes.
+Inputs enter as content hashes tagged with the policy that produced them.
+Since M4 that is `INPUT_POLICY = "canonical"`: the hash of what a file
+*means* rather than of its bytes
+([D4](../decisions.md#d4-semantic-hashing)) — sorted records, volatile
+headers such as `@PG` lines and timestamps stripped, as
+[canonicalisation](canonicalisation.md) defines per type.
 
-[Semantic hashing](../milestones.md) canonicalises an output before hashing
-it ([D4](../decisions.md#d4-semantic-hashing)): sorted records, volatile
-headers such as `@PG` lines and timestamps stripped. That is a different
-policy over the same shape, so M4 changes the tag and bumps `KEY_VERSION`,
-and the old entries retire themselves. Nothing in the shape of
-`Ingredients` has to move, which was the point of putting the tag in before
-needing it.
+It arrived exactly as this page said it would, which is worth recording
+because it was the point of putting the tag in before needing it: the policy
+name changed, `KEY_VERSION` went to 2, the old entries retired themselves,
+and nothing in the shape of `Ingredients` moved. `Runner::key` asks
+`Cache::semantic_hash(kind, path)` where it asked `Cache::content_hash`.
+
+Three things sit in `meta` now rather than two, and they are cleared
+differently. A layout change drops the tables; a key-format change deletes
+the step entries; a change to the canonicalisation rules
+(`CANON_VERSION`) deletes the canonical hashes **and** the step entries
+built from them. The `files` table survives all three, because a file's byte
+hash is a fact about the file however keys are made.
+
+The **store** still names objects after their bytes, deliberately: an
+object's name is a claim about its contents that anyone can check with
+`b3sum`. The canonical hash is a derived fact held beside it, in the
+`canonical` table, keyed on the byte hash rather than on a path — so a file
+moved, copied, or produced identically by another step is parsed once in its
+life.
 
 ## What is not here
 

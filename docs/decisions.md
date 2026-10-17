@@ -232,3 +232,84 @@ and reading it is the one failure a cache must never have.
 
 Nothing is migrated because nothing needs to be: every byte in the cache is
 derived, recomputing is merely slow, and being wrong is not.
+
+## D20 — A tolerance is a quantisation
+
+`CLAUDE.md` allows a numeric type to declare a tolerance for equality. The
+only way a hash can express one is to **quantise**: put the value in a
+bucket of that width and hash the bucket.
+
+"Within ε" is not transitive. `a` near `b` and `b` near `c` does not make
+`a` near `c`, so it is not an equivalence relation — and a hash can only
+ever express an equivalence relation. The rejected alternative, true
+ε-equality, cannot be hashed at all: it would need every value compared with
+every other, which is the opposite of what a content-addressed cache is for.
+
+The honest consequence, which belongs in the open rather than in a footnote:
+two values closer together than the tolerance can still fall either side of
+a bucket edge and hash differently. A tolerance therefore means "the same
+bucket", not "within ε". It removes the common case — a last digit that
+moved — and does not promise more than that.
+
+Exactness stays the default. `QUAL` in a VCF declares a tolerance of a tenth
+of a Phred unit, because it is the field with the motive: a floating-point
+accumulation whose last digits move with the order the terms were added in.
+A tenth of a Phred unit is two orders of magnitude below the smallest
+threshold anyone filters on, so it cannot merge two qualities a user would
+treat differently. Nothing else declares one, because a tolerance nobody has
+measured would be a guess baked into every cache key, and the project's bias
+runs the other way: a cache that is too cold costs time, one that is too
+warm is wrong.
+
+## D21 — Canonicalisation falls back to the bytes
+
+A file that does not parse as its type hashes as its bytes, tagged as such,
+with the tag inside the digest so the two can never collide.
+
+Canonicalisation means parsing, and parsing fails on real inputs: a
+truncated BAM, a `.vcf.gz` that is not gzipped, a file still being written, a
+`.bam` holding something else entirely. Refusing to hash such a file would
+mean a format problem surfacing as an engine failure, in a layer that has no
+business judging whether a file is valid — that is M6's job, and it has a
+whole milestone because it is not a line of code.
+
+The direction is what makes this safe. Bytes are the **stricter** test, so
+the fallback can cost a rerun and can never serve a wrong answer. Falling
+back the other way — guessing at a canonical form from a partial parse —
+would mean two files that differ in the part that could not be read hashing
+the same.
+
+For the same reason every parser here is strict. A canonicaliser that read
+what it could and ignored the rest would be the dangerous kind of lenient:
+it would reduce a file to the fields it managed to understand, and two files
+differing only outside that set would agree. So a FASTA with no `>` line, a
+BED row with two columns, a VCF record with seven, and a report row that
+does not fit its header are all failures that fall back, rather than
+partial successes.
+
+## D22 — A tool's signature is not part of its result
+
+Every tool in the reference pipeline records how it was run, inside the file
+it produces. `minimap2` writes `@PG CL:minimap2 -t 8 -ax sr ...`;
+`bcftools` writes `##bcftools_callCommand=call -mv ...; Date=Sat Oct 17
+21:14:12 2026`. These are dropped before hashing.
+
+The reason is stronger than tidiness. The command line a tool records
+contains its output path; a step's output path is the staging file, named
+after the step's own key. So before M4 **a step's output bytes contained
+that step's own key**, and any change to the step at all — a parameter, a
+tool version, a comment — moved its bytes, which moved the key of the step
+below, whose bytes moved in turn. Early cutoff, which M3 documented as
+falling out of content addressing, could not get past the first real tool.
+
+The rejected alternative was to make the staging path stable so that the
+`@PG` line would repeat. It fails for two reasons: the timestamps remain,
+and two nodes sharing a staging path could not run at once — which would
+cost the per-sample fan-out the whole project is built around.
+
+Dropping these fields has a cost worth naming: a cache hit can no longer
+prove which command produced an object, because the field that said so is
+not in the hash. That is the right place for the loss. A hash answers "is
+this the same result?"; "how was this produced?" is provenance, it is M5,
+and it wants its own storage and its own lifetime
+([cache](architecture/cache.md#what-is-not-here)).

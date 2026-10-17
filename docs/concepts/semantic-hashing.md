@@ -1,0 +1,155 @@
+# What a file means, and what bytes it holds
+
+A step reruns when something that could change its result has changed. The
+question "has it changed?" is answered by hashing, and hashing has to be
+asked about the right thing.
+
+Bytes are the obvious answer and the wrong one. Here is why, in the words of
+the tools themselves.
+
+## Every real tool signs its work
+
+Run `minimap2` and look at the header of the BAM it wrote:
+
+```text
+@PG  ID:minimap2  PN:minimap2  VN:2.31-r1302  CL:minimap2 -t 8 -ax sr refs/HXB2.fasta SRR8525904_1.fastq.gz SRR8525904_2.fastq.gz
+```
+
+`bcftools` does the same, with the time of day beside it:
+
+```text
+##bcftools_callCommand=call -mv --ploidy 1 -Oz -o /tmp/out.vcf.gz; Date=Sat Oct 17 21:14:12 2026
+```
+
+Neither line is a result. Both are in the file, so both are in its bytes —
+and a cache that compares bytes thinks two runs that computed exactly the
+same alignments produced different things.
+
+It is worse than untidy. Look at what is inside that `CL:` — the output
+path. Ligase writes a step's output into a staging file named after the
+step's own key, so **the bytes of a step's output contain the step's own
+key**. Change anything about `align` at all, even a comment, and its bytes
+move; the step below is keyed on those bytes, so it reruns, and *its* bytes
+move too. The rerun reaches the bottom of the pipeline however identical
+the science. [Early cutoff](caching.md#why-outputs-are-named-after-their-contents)
+could not survive contact with a real aligner.
+
+## So a file is hashed by what it means
+
+Before an output is hashed it is **canonicalised**: its records are sorted,
+and the fields that record *when and how* it was made rather than *what is
+in it* are dropped
+([D4](../decisions.md#d4-semantic-hashing)). What is hashed is what is
+left.
+
+```console
+$ ligase run                       # after `threads=1`
+$ ligase run                       # with threads=8
+ran       `align` (sample SRR8525904)   3.3s
+ran       `align` (sample SRR8525908)   6.9s
+ran       `align` (sample SRR8525920)   3.7s
+ran       `align` (sample SRR8525942)   6.0s
+skipped   `call` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+skipped   `resistance` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+
+12 steps: 4 ran, 8 skipped.
+```
+
+`align` reran, and it had to: a thread count is a parameter of the step, and
+nothing can know in advance that `-t 8` will not change an answer. What the
+engine *can* know, once the step has rerun, is whether the answer changed —
+and it did not, so the eight steps below it had nothing to do.
+
+## The canonical form belongs to the type, not to the step
+
+A BAM, a VCF and a FASTA each have their own notion of what they say and
+their own volatile fields, so each has its own canonical form. Which one
+applies comes from the [type](types-and-dimensions.md) the data carries, not
+from the step that produced it — so two steps writing alignments are
+compared the same way, and the rules for a format live in one place.
+
+| Type | Dropped as volatile | Records |
+|---|---|---|
+| `Reads` | the description after a read's name | sorted |
+| `Reference` | descriptions, line wrapping, case | in order |
+| `Alignment` | `@PG`, `@HD`, `@CO` | sorted |
+| `Variants` | dates, sources, `##reference` paths, tool command lines | sorted |
+| `Intervals` | `track`, `browser` and comment lines | sorted |
+| `ResistanceReport` | — | header kept, rows sorted |
+
+## Why some formats sort and others do not
+
+Because that question was already answered, by
+[D14](../decisions.md#d14-contig-order-is-compared-only-between-sequence-dictionaries),
+for the dimension checker: a **sequence dictionary's** contig order is
+semantic, since GATK requires two of them to agree on it, while a BED's
+record order is whatever order the intervals happened to be sorted in.
+
+So a reference's contigs and a BAM's `@SQ` lines keep their order, and
+alignment records, variant records, intervals, reads and report rows are
+sorted. The same line, drawn once, in two places.
+
+## A tolerance, where a number cannot be expected to repeat
+
+`QUAL` in a VCF is a Phred-scaled floating-point accumulation, and the order
+the terms were added in can move its last digits. A variant called at
+`215.376` on one machine and `215.375` on another is the same finding.
+
+So a numeric field may declare a **tolerance**, and `QUAL` declares one of a
+tenth of a Phred unit — two orders of magnitude below the smallest threshold
+anyone filters on, so it cannot merge two qualities a user would treat
+differently. Everything else is exact: a tolerance nobody has measured would
+be a guess baked into every cache key, and a cache that is too cold costs
+time while one that is too warm is wrong.
+
+A tolerance is expressed by **quantising** — putting the value in a bucket of
+that width and hashing the bucket — and that has a consequence worth knowing
+([D20](../decisions.md#d20-a-tolerance-is-a-quantisation)): two values closer
+together than the tolerance can still fall either side of a bucket edge.
+
+## When the file is not what its name says
+
+Canonicalising means parsing, and parsing can fail: a truncated BAM, a
+`.vcf.gz` that is not gzipped, a file still being written. Such a file falls
+back to the hash of its bytes, tagged as such
+([D21](../decisions.md#d21-canonicalisation-falls-back-to-the-bytes)). Bytes
+are the stricter test, so the fallback can cost a rerun but can never serve
+a wrong answer.
+
+Every parser is strict for the same reason: one that read what it could and
+ignored the rest would let two files that differ in the skipped part agree,
+which is the one failure a cache must never have.
+
+## What it costs
+
+One pass over each file, once. What a file means is remembered against the
+hash of its bytes, so a file is parsed the first time it is seen and never
+again — not on the next run, not after it is copied, not when another step
+produces it identically:
+
+```console
+$ ligase run                       # nothing has changed
+12 steps: 12 from cache.
+```
+
+No file was read and none was parsed. The
+[prefilter](caching.md#what-the-cache-cannot-see) still does the first part of that job,
+and the canonical hashes sit behind it.
+
+## Asking the question directly
+
+Semantic hashing answers "did this change?" by not running things. The
+opposite question — "would this come out the same if I ran it again?" —
+needs something that *does*:
+
+```console
+$ ligase audit align --sample SRR8525904
+reproducible     `align` (sample SRR8525904)
+    the bytes differ            36696dacb83d / a96bfeff4e26
+    what they mean does not     43c4c32bbd53
+
+1 step: 1 reproducible.
+```
+
+See [auditing a step](../guide/semantic-hashing.md#auditing-a-step) for what
+the three verdicts mean and when to reach for them.

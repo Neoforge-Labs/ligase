@@ -132,6 +132,9 @@ DimensionError in step `call` (sample SRR8525904):
 `ligase run` exits 0 when everything worked, 1 when a step failed or the
 pipeline has errors, and 2 when the pipeline could not be read at all.
 
+To ask whether a step repeats itself rather than whether it needs rerunning,
+see [`ligase audit`](semantic-hashing.md#auditing-a-step).
+
 ## Read the report
 
 ```python

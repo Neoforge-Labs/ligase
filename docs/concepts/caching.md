@@ -95,11 +95,12 @@ nothing to do. The report distinguishes the two cases on purpose: `cached`
 means nothing above it ran, `skipped` means something did and came out the
 same.
 
-Today "the same" means byte-identical, which is a strict test that a
-timestamp in a header is enough to fail.
-[Semantic hashing](../milestones.md) in M4 widens it to *scientifically*
-identical — sorted records, volatile headers stripped — so that rerunning an
-aligner with a different thread count stops the rerun too.
+"The same" means *scientifically* the same, not byte-identical:
+[semantic hashing](semantic-hashing.md) sorts an output's records and drops
+the fields that say when and how it was made before hashing it. With bytes
+the example above would not work at all on a real aligner, because
+`minimap2` writes its own command line — including the output path — into
+the BAM's `@PG` line.
 
 ## Why every sample is its own work
 

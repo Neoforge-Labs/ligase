@@ -49,17 +49,20 @@ nav:
       - Types and dimensions: concepts/types-and-dimensions.md
       - Pipelines and the graph: concepts/pipelines.md
       - Running, and not running: concepts/caching.md
+      - What a file means: concepts/semantic-hashing.md
   - Guide:
       - Installation: guide/installation.md
       - Declaring dimensions: guide/declaring-dimensions.md
       - Building a pipeline: guide/building-a-pipeline.md
       - Running a pipeline: guide/running-a-pipeline.md
+      - Semantic hashing and auditing: guide/semantic-hashing.md
   - Architecture:
       - Workspace: architecture/workspace.md
       - Type system: architecture/type-system.md
       - Graph: architecture/graph.md
       - Execution: architecture/execution.md
       - Cache: architecture/cache.md
+      - Canonicalisation: architecture/canonicalisation.md
   - Design:
       - Golden example: golden-example.md
       - Dimensions: dimensions.md

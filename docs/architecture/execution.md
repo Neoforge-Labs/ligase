@@ -156,14 +156,20 @@ has after an edit: *did my change reach anything?* "Everything cached" and
 "the step reran and changed nothing, so the rest was unnecessary" are very
 different pieces of news.
 
+"Changed nothing" means the output's **canonical** form is unchanged, not
+its bytes ([canonicalisation](canonicalisation.md)). With bytes, `skipped`
+was a verdict almost no real tool could earn: `minimap2` records its command
+line in `@PG`, that command line holds the output path, and the output path
+is the staging file named after the step's own key — so a step's bytes moved
+whenever its key did. Every `StepResult` therefore carries both hashes, and
+the one below it is keyed on the second.
+
 ## What is deliberately absent
 
-**Semantic hashing** (M4). `skipped` currently requires byte-identical
-output, which a timestamp in a header is enough to defeat. The key carries a
-policy tag so that widening it does not reshape anything
-([cache](cache.md#where-m4-attaches)).
-
 **Provenance** (M5). Nothing here records why a result is what it is.
+Running a step twice to find out whether it is reproducible is
+`audit.rs`, which borrows `exec::produce` and `exec::inputs_of` rather than
+repeating them ([canonicalisation](canonicalisation.md#audit-mode)).
 
 **Cluster execution** ([D8](../decisions.md#d8-out-of-scope-for-v01)). The
 scheduler assumes one machine and a shared filesystem. The ready-queue shape
