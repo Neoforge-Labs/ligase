@@ -80,26 +80,16 @@ them without raising, which is usually what you want in a notebook:
 >>> for error in pipe.errors():
 ...     print(error)
 ...     print()
-DimensionError in step `call` (sample SRR32217714):
+DimensionError in step `call`:
   aln.reference = HXB2 (from step `align`)
   ref.reference = hg38 (from FASTA contigs: data/refs/hg38.fasta)
   Contig `1`: same name and length but different sequence (MD5 a965a71a against 44e7acaf).
   These must match. Did you pass the wrong reference?
 ```
 
-The sample is in the heading because one written step is many steps once you
-fan out, and `error.scope` is the same thing in a form you can compute with:
-
-```python
->>> error.scope
-('sample', 'SRR32217714')
->>> sorted({e.scope[1] for e in pipe.errors() if e.scope})
-['SRR32217714', 'SRR32217715', 'SRR32217716']
-```
-
-It is `None` for a step that stands for no single sample — one that spans a
-whole cohort, say. Naming such a step after one of its samples would send you
-to look at the wrong thing.
+One `call` step, so the heading is just the step. Once you fan out, one
+written step is many steps and the heading says which — see
+[many samples](#many-samples) below.
 
 `aln.reference` came out of a step that has not run. The dimensions of a
 step's output are worked out from its inputs, so a mistake made at the top of
@@ -160,8 +150,25 @@ DimensionError in step `call` (sample SRR32217714):
 ```
 
 `pipe.errors()` is not collapsed — one error per failing step, each with its
-own sample. `pipe.report().text` is the collapsed form the command line
-prints, if you want to show it somewhere yourself.
+own sample in `error.scope`, which is the heading in a form you can compute
+with:
+
+```python
+>>> error.scope
+('sample', 'SRR32217714')
+>>> sorted({e.scope[1] for e in pipe.errors() if e.scope})
+['SRR32217714', 'SRR32217715', 'SRR32217716']
+```
+
+`pipe.report().text` is the collapsed form the command line prints, if you
+want to show it somewhere yourself.
+
+`scope` is `None` whenever the step's own name already identifies it, which
+is every step in a pipeline without fan-out. Where a name is shared, the
+discriminator is whatever actually separates those steps — `('sample', ...)`
+under fan-out, `('file', ...)` for same-named steps over different data from
+one sample — and `None` if nothing does, because a suffix that repeats would
+look like an identifier without being one.
 
 Mates are paired by filename — `<sample>_1`/`<sample>_2` or
 `<sample>_R1`/`<sample>_R2`, with anything after the marker dropped, so

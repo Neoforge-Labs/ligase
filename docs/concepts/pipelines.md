@@ -39,12 +39,12 @@ milliseconds:
 $ ligase check
 checked 2 steps in pipeline.py
 
-DimensionError in step `call` (sample SRR32217714):
+DimensionError in step `call`:
   aln.organism = HIV-1 (from step `align`)
   ref.organism = human (declared)
   These must match. Did you pass data from the wrong organism?
 
-DimensionError in step `call` (sample SRR32217714):
+DimensionError in step `call`:
   aln.reference = HXB2 (from step `align`)
   ref.reference = hg38 (from FASTA contigs: refs/hg38.fasta)
   Contig `1`: same name and length but different sequence (MD5 a965a71a against 44e7acaf).
@@ -173,6 +173,19 @@ between a report you can act on and one you cannot.
 The heading names the sample, because under fan-out the node *is* the sample.
 Without it those four errors are byte-identical and you cannot tell whether
 you are looking at one problem or four.
+
+It appears only when it is needed. A step whose name belongs to one step is
+not annotated at all — the error reads `in step \`call\`:`, as the examples
+above do, because there was nothing you were struggling to identify. And
+where a name is shared but the samples do not differ, the sample is not what
+tells those steps apart, so something that does is used instead:
+
+```console
+ContigNamingError in step `call` (file data/alignments/run_b.bam):
+```
+
+If nothing separates them cleanly, nothing is added. A suffix that repeats
+looks exactly like an identifier while being none.
 
 The count is of steps that failed, not of step names that failed. "4 errors
 in 4 steps" says a cohort-wide problem; "4 errors in 1 step" — which is what

@@ -181,7 +181,7 @@ end is a report that does not work.
 Per-sample fan-out makes one written step into many steps, and two things
 that were adequate for a single chain stop being adequate.
 
-### An error carries its node, and its node's name
+### An error carries its node, and its node's name — when the name is needed
 
 `CheckError` gains `node: Option<usize>` and `scope: Option<Scope>`, both
 stamped by `Graph::check` and both `None` for a single step checked with
@@ -191,18 +191,48 @@ stamped by `Graph::check` and both `None` for a single step checked with
 pub struct Scope { pub kind: &'static str, pub value: String }
 ```
 
-`Graph::scope(node)` derives it from the step's **output** sample set, when
-that set holds exactly one sample. A step whose output spans a whole cohort
-gets nothing: labelling it after one of its samples would send a user to look
-at the wrong data, which is worse than saying nothing. Where the output kind
-cannot carry a sample set at all — an interval-producing step — the inputs
-are asked instead, and only answer if every one of them that can speak to it
-names the *same* single sample.
-
-The scope goes in the heading, `DimensionError in step `call` (sample
-SRR32217714):`, rather than on a line of its own. The error shape M1
+The scope goes in the heading — `DimensionError in step `call` (sample
+SRR32217714):` — rather than on a line of its own. The error shape M1
 specified is step, both values, where each came from, a leading question; the
 sample says *which* step, so it belongs with the step.
+
+**It is added only where the step's own name is ambiguous.** That condition
+is the whole of it, and getting it wrong in either direction is a bug:
+
+- A name belonging to one step needs nothing. `docs/golden-example.md` fixes
+  the shape as `in step `call`:` and the project treats it as fixed, so a
+  suffix identifying nothing a user was struggling to identify is noise on
+  the commonest path — and the most common pipeline has no fan-out at all.
+- A name belonging to several needs something that tells *those several*
+  apart. The sample is the right answer under fan-out. It is not the right
+  answer for two same-named steps fed different alignments of one sample:
+  both headings would read `(sample sample_a)`, which looks exactly like an
+  identifier while being none. That is the original bug in a smaller disguise.
+
+So `Graph::scopes` groups the reachable step nodes by name, and for each name
+held by more than one node asks each `Discriminator` in turn for a value,
+taking the first that gives every node in the group a *distinct* one:
+
+```rust
+enum Discriminator { Sample, File }
+```
+
+`Sample` is the step's output sample set where it holds exactly one sample —
+or, where the output kind cannot carry one at all (an interval-producing
+step), the inputs, and only if every one that can speak to it names the same
+sample. A step spanning a whole cohort yields nothing, because labelling it
+after one of its samples would send a user to the wrong data.
+
+`File` is the first file the node was built from, depth-first through the
+arguments in signature order, so a step two hops from any file still names
+the one its own first input came from.
+
+If no discriminator separates the group, nothing is added. No suffix beats a
+misleading one.
+
+Ambiguity is judged over the nodes **being checked**, not over the whole
+graph, so a twin built for a second pipeline in the same module does not
+start annotating this one's.
 
 ### The summary counts places, not names
 
@@ -370,11 +400,15 @@ check the same way.
   step cannot yet say "I need the sample set" on its own behalf.
 - **One graph per pipeline.** Two pipelines over the same inputs build two
   graphs and load nothing twice, but check the shared inputs twice over.
-- **A scope is only ever a sample.** `Scope::kind` is a `&'static str` so
-  that other discriminators could be added, but nothing produces one yet. A
-  fan-out node whose sample set is unknown therefore has no name, and its
-  errors are reported separately rather than collapsed — correct, but less
-  readable than it could be.
+- **There are two discriminators, and a group gets one or none.** A name
+  shared by nodes that neither the sample nor a file separates is left
+  unannotated, so those errors are reported separately rather than
+  collapsed — correct, but less readable than it could be. `Scope::kind` is
+  a `&'static str` so a third could be added.
+- **Ambiguity is per check, so the same error can render two ways.** Checking
+  one pipeline where `call` is unique gives `in step `call`:`; checking a
+  pipeline where it is not gives a suffix. That is the point, but it means
+  the rendering of an error depends on the company it keeps.
 
 ## Related
 

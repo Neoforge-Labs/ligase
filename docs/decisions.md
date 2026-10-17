@@ -129,11 +129,23 @@ at one sample; "4 errors in 4 steps" describes a cohort-wide one you fix by
 rethinking the pipeline. Reporting the second as the first is not a cosmetic
 understatement.
 
-An error **names its node**, as the sample where the graph can work one out,
-in the heading rather than on a line of its own — the sample says which step
-this is, so it belongs with the step. A step spanning a whole cohort gets no
-name: labelling it after one of its samples would send a user to the wrong
-data, which is worse than saying nothing.
+An error **names its node** in the heading rather than on a line of its own,
+since the name says which step this is and so belongs with the step. It is
+added only where the step's own name is ambiguous — more than one node in the
+pipeline being checked shares it — and then only with something that tells
+*those* nodes apart.
+
+Both halves of that condition matter. `docs/golden-example.md` fixes the
+shape as `in step `call`:` and the project treats it as fixed, so a suffix on
+a step nobody could confuse is noise on the commonest path. And the sample is
+not always the discriminator: two same-named steps fed different alignments
+of one sample would both read `(sample sample_a)`, which looks exactly like
+an identifier while being none. Discriminators are therefore tried in order —
+the sample, then the first file the step was built from — and the first that
+gives every node in the group a distinct value wins. If none does, nothing is
+added, because no suffix beats a misleading one. A step spanning a whole
+cohort likewise gets no sample: labelling it after one of them would send a
+user to the wrong data.
 
 Identical problems are then stated once, with every affected sample **named**
 rather than counted, because a user who must expand something to find out

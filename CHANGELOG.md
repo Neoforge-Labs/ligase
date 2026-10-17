@@ -65,7 +65,7 @@ a graph from the signatures alone and type-checked before any of it runs.
   signatures), **D13** (the graph decides requirements and blames the origin),
   **D14** (contig order is compared only between sequence dictionaries) and
   **D15** (an error identifies its node, not just its step).
-- 122 Rust tests and 77 Python tests, including both M2 acceptance criteria:
+- 126 Rust tests and 79 Python tests, including both M2 acceptance criteria:
   the golden example's shape builds a graph with every step body raising if
   it runs, and `ligase check` reports every error in one pass. The demo graph
   is also built against the real HXB2 reference and a real minimap2
@@ -194,7 +194,12 @@ functionality yet; the engine's only behaviour is reporting its own version.
 - An error at a fan-out step now names its sample in the heading, as
   `DimensionError in step `call` (sample SRR32217714):`, and carries it as
   `error.scope`. Four byte-identical messages left no way to tell one problem
-  from four, or to see which samples were affected.
+  from four, or to see which samples were affected. The name is added only
+  where the step's own name is ambiguous, and only with something that tells
+  those steps apart: a step nobody could confuse keeps exactly the shape
+  `docs/golden-example.md` specifies, and same-named steps over one sample
+  fall back to the file that distinguishes them rather than repeating a
+  sample that does not.
 - A problem that affects several samples is stated once in the report, with
   every affected sample named on a line of its own rather than counted. A
   sample whose problem differs keeps its own paragraph, and an error that
