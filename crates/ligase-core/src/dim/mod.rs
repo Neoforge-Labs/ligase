@@ -13,7 +13,7 @@ mod reference;
 use std::fmt;
 use std::path::PathBuf;
 
-pub use reference::{Contig, ReferenceId, Relation, Verdict, relate};
+pub use reference::{Contig, ContigOrder, ReferenceId, Relation, Verdict, relate};
 
 /// Where a dimension's value came from.
 #[derive(Clone, Debug, PartialEq, Eq)]

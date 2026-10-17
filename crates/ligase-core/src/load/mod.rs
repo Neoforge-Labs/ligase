@@ -7,6 +7,7 @@
 
 mod alignment;
 mod fasta;
+mod intervals;
 mod reads;
 mod variants;
 
@@ -20,6 +21,7 @@ use flate2::bufread::MultiGzDecoder;
 
 pub use alignment::alignment;
 pub use fasta::reference;
+pub use intervals::{IntervalFormat, intervals};
 pub use reads::reads;
 pub use variants::variants;
 

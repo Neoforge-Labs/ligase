@@ -65,6 +65,53 @@ fn reference(path: &str, label: Option<&str>, contigs: Vec<Contig>) -> Dataset {
     Dataset::new(DataKind::Reference, Some(PathBuf::from(path)), dimensions)
 }
 
+/// Genomic intervals, as inferred from a BED's records.
+///
+/// Contigs come from records, so they carry no length and no checksum, and
+/// their order is not compared.
+fn bed(path: &str, names: &[&str]) -> Dataset {
+    let contigs = names
+        .iter()
+        .map(|name| Contig {
+            name: (*name).to_owned(),
+            length: None,
+            md5: None,
+        })
+        .collect();
+    let reference = ReferenceId::from_records(None, contigs);
+    let naming = reference.naming();
+    let dimensions = Dimensions {
+        reference: Dim::known(reference, inferred(path, "BED records")),
+        contig_naming: Dim::known(naming, inferred(path, "BED records")),
+        coordinates: Dim::known(
+            CoordinateSystem::ZeroBasedHalfOpen,
+            inferred(path, "BED coordinate convention"),
+        ),
+        ..Dimensions::default()
+    };
+    Dataset::new(DataKind::Intervals, Some(PathBuf::from(path)), dimensions)
+}
+
+/// Variant calls, as inferred from a VCF header.
+fn variants(path: &str, contigs: Vec<Contig>, samples: &[&str]) -> Dataset {
+    let reference = ReferenceId::new(None, contigs);
+    let naming = reference.naming();
+    let dimensions = Dimensions {
+        reference: Dim::known(reference, inferred(path, "VCF ##contig lines")),
+        contig_naming: Dim::known(naming, inferred(path, "VCF ##contig lines")),
+        coordinates: Dim::known(
+            CoordinateSystem::OneBasedClosed,
+            inferred(path, "VCF coordinate convention"),
+        ),
+        sample_set: Dim::known(
+            SampleSet::new(samples.iter().map(|s| (*s).to_owned()).collect()),
+            inferred(path, "VCF header sample columns"),
+        ),
+        ..Dimensions::default()
+    };
+    Dataset::new(DataKind::Variants, Some(PathBuf::from(path)), dimensions)
+}
+
 /// Two contigs, as the tiny fixtures and the demo reference both have.
 fn two_contigs() -> Vec<Contig> {
     vec![contig("1", M1), contig("2", M2)]
@@ -485,4 +532,61 @@ fn contig_naming_renders_for_humans() {
     );
     assert_eq!(ContigNaming::Bare.describe(), "bare (Ensembl/NCBI style)");
     assert_eq!(ContigNaming::Mixed.describe(), "mixed");
+}
+
+// ------------------------------------------------------------ coordinates --
+
+#[test]
+fn a_coordinate_mismatch_names_both_conventions() {
+    // The mismatch the `coordinates` dimension exists for: 0-based half-open
+    // intervals against 1-based closed calls. Nothing crashes, no checksum
+    // disagrees, and every result is off by one base.
+    let errors = check_step(
+        "restrict",
+        &[
+            bind("v", variants("out/calls.vcf", two_contigs(), &["sample_a"])),
+            bind("regions", bed("data/regions.bed", &["1", "2"])),
+        ],
+    );
+
+    assert_eq!(errors.len(), 1, "expected exactly one error: {errors:#?}");
+    assert_eq!(errors[0].kind(), ErrorKind::Dimension);
+    assert_eq!(errors[0].dimension(), Dimension::Coordinates);
+    assert_eq!(
+        errors[0].to_string(),
+        "\
+DimensionError in step `restrict`:
+  v.coordinates = 1-based closed (from VCF coordinate convention: out/calls.vcf)
+  regions.coordinates = 0-based half-open (from BED coordinate convention: \
+data/regions.bed)
+  These must match. Did you mean to convert between coordinate systems?"
+    );
+}
+
+#[test]
+fn intervals_are_never_asked_to_declare_a_reference() {
+    // An interval file's contigs come from its records, so an empty one
+    // knows none and the user has no way to declare them. Demanding it would
+    // be an unsatisfiable check.
+    let empty = Dataset::new(
+        DataKind::Intervals,
+        Some(PathBuf::from("data/empty.bed")),
+        Dimensions {
+            coordinates: Dim::known(
+                CoordinateSystem::ZeroBasedHalfOpen,
+                inferred("data/empty.bed", "BED coordinate convention"),
+            ),
+            ..Dimensions::default()
+        },
+    );
+
+    let errors = check_step(
+        "restrict",
+        &[
+            bind("ref", reference("refs/tiny.fasta", None, two_contigs())),
+            bind("regions", empty),
+        ],
+    );
+
+    assert!(errors.is_empty(), "errors were: {errors:#?}");
 }

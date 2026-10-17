@@ -32,18 +32,57 @@ pub struct Contig {
     pub md5: Option<String>,
 }
 
+/// Whether a contig list's order carries meaning.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContigOrder {
+    /// The order a sequence dictionary states: FASTA deflines, SAM `@SQ`
+    /// lines, VCF `##contig` lines. GATK requires two dictionaries to agree
+    /// on it, so a difference is worth reporting.
+    Dictionary,
+    /// The order contigs happened to appear in a file's *records* — a BED's
+    /// intervals, a GFF's features. There is no dictionary here, so the
+    /// order means nothing and must never be compared. Reporting it would be
+    /// a false alarm, and false alarms are how a correctness tool gets
+    /// switched off.
+    Observed,
+}
+
 /// The identity of a reference: its contigs, plus an optional human label.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReferenceId {
     label: Option<String>,
     contigs: Vec<Contig>,
+    order: ContigOrder,
 }
 
 impl ReferenceId {
-    /// Build a reference identity from its contigs, in file order.
+    /// Build a reference identity from a sequence dictionary, in file order.
     #[must_use]
     pub fn new(label: Option<String>, contigs: Vec<Contig>) -> Self {
-        Self { label, contigs }
+        Self {
+            label,
+            contigs,
+            order: ContigOrder::Dictionary,
+        }
+    }
+
+    /// Build a reference identity from contigs observed in records.
+    ///
+    /// Used for BED and GFF, whose contigs come from the records rather than
+    /// from a header. Their order is not compared.
+    #[must_use]
+    pub fn from_records(label: Option<String>, contigs: Vec<Contig>) -> Self {
+        Self {
+            label,
+            contigs,
+            order: ContigOrder::Observed,
+        }
+    }
+
+    /// Whether this contig list's order carries meaning.
+    #[must_use]
+    pub const fn order(&self) -> ContigOrder {
+        self.order
     }
 
     /// The declared or recorded label, if any. Display only.
@@ -278,7 +317,10 @@ where
         }
     }
 
-    if matched.windows(2).any(|pair| pair[0] >= pair[1]) {
+    // Order is compared only between two sequence dictionaries. Contigs
+    // observed in records have no dictionary order to disagree about.
+    let ordered = left.order == ContigOrder::Dictionary && right.order == ContigOrder::Dictionary;
+    if ordered && matched.windows(2).any(|pair| pair[0] >= pair[1]) {
         return Verdict::OrderDiffers {
             left: names(left),
             right: names(right),

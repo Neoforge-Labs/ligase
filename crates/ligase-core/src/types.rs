@@ -6,9 +6,9 @@ use crate::dim::{Dimension, Dimensions};
 
 /// What kind of biological data a dataset holds.
 ///
-/// These are the types in the golden example. Intervals (BED/GFF) arrive with
-/// the graph in M2: the reference demo does not use them, and their dimensions
-/// are almost entirely declared rather than inferred.
+/// These are the types in the golden example, plus intervals: the reference
+/// demo does not use them, but they are where the `coordinates` dimension
+/// earns its keep.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DataKind {
     /// Unaligned sequencing reads (FASTQ).
@@ -19,6 +19,8 @@ pub enum DataKind {
     Alignment,
     /// Variant calls (VCF).
     Variants,
+    /// Genomic intervals (BED/GFF).
+    Intervals,
     /// An interpreted drug-resistance report.
     ResistanceReport,
 }
@@ -32,6 +34,7 @@ impl DataKind {
             Self::Reference => "Reference",
             Self::Alignment => "Alignment",
             Self::Variants => "Variants",
+            Self::Intervals => "Intervals",
             Self::ResistanceReport => "ResistanceReport",
         }
     }
@@ -77,6 +80,14 @@ impl DataKind {
                 | Dimension::SampleSet,
             ) => true,
             (Self::Variants, _) => false,
+
+            // An interval file describes regions, not samples: no sample
+            // set, no pairing, no quality scores.
+            (
+                Self::Intervals,
+                Dimension::Reference | Dimension::ContigNaming | Dimension::Coordinates,
+            ) => true,
+            (Self::Intervals, _) => false,
 
             (Self::ResistanceReport, Dimension::SampleSet) => true,
             (Self::ResistanceReport, _) => false,

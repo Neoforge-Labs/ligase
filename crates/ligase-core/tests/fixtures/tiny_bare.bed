@@ -1,0 +1,5 @@
+track name="fixture" description="ligase fixture"
+# a comment
+1	0	10	region1	0	+
+1	10	20	region2	0	+
+2	5	15	region3	0	+

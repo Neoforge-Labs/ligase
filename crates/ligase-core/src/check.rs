@@ -215,6 +215,7 @@ pub const fn required_pair(left: DataKind, right: DataKind) -> &'static [Dimensi
     use DataKind as K;
 
     const REF: &[Dimension] = &[Dimension::Reference];
+    const COORDINATES: &[Dimension] = &[Dimension::Coordinates];
     const REF_AND_SAMPLES: &[Dimension] = &[Dimension::Reference, Dimension::SampleSet];
     const SAMPLES: &[Dimension] = &[Dimension::SampleSet];
     const SAMPLES_AND_PAIRING: &[Dimension] = &[Dimension::SampleSet, Dimension::Pairing];
@@ -227,8 +228,23 @@ pub const fn required_pair(left: DataKind, right: DataKind) -> &'static [Dimensi
         // Reads carry no reference yet -- introducing one is what `align`
         // does -- so a reference tells us nothing about them.
         (K::Reads, K::Reference) | (K::Reference, K::Reads) => NONE,
+        // Unaligned reads and genomic intervals share nothing at all.
+        (K::Reads, K::Intervals) | (K::Intervals, K::Reads) => NONE,
         (K::Reads, K::Reads) => SAMPLES_AND_PAIRING,
         (K::Reads, _) | (_, K::Reads) => SAMPLES,
+
+        // Coordinates, and only coordinates. Both sides always know their own
+        // convention, because it is a property of the format -- so this is a
+        // demand the user can always satisfy, and it is the one mismatch that
+        // no checksum comparison would catch.
+        //
+        // `reference` is deliberately *not* required here. An interval file's
+        // contigs come from its records, so an empty one knows none, and
+        // there is no way for a user to declare them. Requiring something
+        // nobody can supply is an unsatisfiable check, and the catalogue
+        // already treats that as worse than a missed one. It is still
+        // *checked* whenever both sides state it, which is the normal case.
+        (K::Intervals, _) | (_, K::Intervals) => COORDINATES,
 
         (K::Reference, _) | (_, K::Reference) => REF,
 

@@ -102,6 +102,45 @@ def fastq(name: str, qualities: list[str]) -> None:
     write(HERE / name, "\n".join(lines) + "\n")
 
 
+def bed(name: str, intervals: list[tuple[str, int, int]], header: bool) -> None:
+    """Write a BED whose intervals are 0-based half-open.
+
+    An optional ``track`` line and a ``#`` comment are included so the loader
+    is tested against the lines a real BED carries but a parser must skip.
+    """
+    lines: list[str] = []
+    if header:
+        lines += ['track name="fixture" description="ligase fixture"', "# a comment"]
+    for index, (cname, start, end) in enumerate(intervals, start=1):
+        lines.append(f"{cname}\t{start}\t{end}\tregion{index}\t0\t+")
+    write(HERE / name, "\n".join(lines) + "\n" if lines else "")
+
+
+def gff(
+    name: str,
+    regions: list[tuple[str, str]],
+    features: list[tuple[str, int, int]],
+    fasta_section: bool,
+) -> None:
+    """Write a GFF3 whose features are 1-based closed.
+
+    ``##sequence-region`` is the only place a GFF records a contig length, and
+    it is only trustworthy as a length when the region starts at 1.
+    """
+    lines = ["##gff-version 3"]
+    for cname, seq in regions:
+        lines.append(f"##sequence-region {cname} 1 {len(seq)}")
+    for index, (cname, start, end) in enumerate(features, start=1):
+        lines.append(
+            f"{cname}\tligase-fixture\tgene\t{start}\t{end}\t.\t+\t.\tID=gene{index}"
+        )
+    if fasta_section:
+        # Everything after this directive is sequence, not features. A parser
+        # that keeps reading would take `>1` for a contig named `>1`.
+        lines += ["##FASTA", ">1 contig one", C1]
+    write(HERE / name, "\n".join(lines) + "\n")
+
+
 def main() -> None:
     """Regenerate every fixture."""
     print("references:")
@@ -165,6 +204,32 @@ def main() -> None:
     # Mid-range only: consistent with either encoding, so inference must
     # return unknown rather than guess.
     fastq("reads_ambiguous_1.fastq", ["AAAAAAAAAA", "BBBBBBBBBB"])
+
+    print("intervals:")
+    # Bare names, 0-based half-open: contained in tiny_bare.fasta.
+    bed("tiny_bare.bed", [("1", 0, 10), ("1", 10, 20), ("2", 5, 15)], header=True)
+    # The same regions under chr-prefixed names: a naming error, not a
+    # different reference.
+    bed("tiny_prefixed.bed", [("chr1", 0, 10), ("chr2", 5, 15)], header=False)
+    # Contig two before contig one. Records have no sequence dictionary, so
+    # this must NOT be reported as a contig order mismatch.
+    bed("tiny_reordered.bed", [("2", 5, 15), ("1", 0, 10)], header=False)
+    # A contig in no reference: the containment failure case.
+    bed("tiny_unknown_contig.bed", [("1", 0, 10), ("9", 0, 10)], header=False)
+    # No records at all: the reference is unknown, not empty.
+    bed("tiny_empty.bed", [], header=True)
+    # 1-based closed, with lengths from ##sequence-region.
+    gff(
+        "tiny_bare.gff",
+        [("1", C1), ("2", C2)],
+        [("1", 1, 10), ("2", 6, 15)],
+        fasta_section=False,
+    )
+    # No directives, so names come from records and no length is known. The
+    # trailing ##FASTA section must not be read as features.
+    gff("tiny_no_region.gff", [], [("1", 1, 10)], fasta_section=True)
+    # A GTF: same coordinate convention, different extension.
+    gff("tiny_bare.gtf", [], [("1", 1, 10), ("2", 6, 15)], fasta_section=False)
 
     print()
     print("checksums (SAM @SQ M5 / VCF ##contig md5):")
