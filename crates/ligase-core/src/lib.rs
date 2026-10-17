@@ -42,6 +42,8 @@
 pub mod check;
 pub mod dim;
 pub mod graph;
+pub mod hash;
+pub mod key;
 pub mod load;
 pub mod types;
 
