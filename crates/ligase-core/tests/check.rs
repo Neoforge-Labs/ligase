@@ -148,7 +148,7 @@ fn a_reference_mismatch_reads_like_the_golden_example() {
 
     assert_eq!(errors.len(), 1, "expected exactly one error: {errors:#?}");
     assert_eq!(errors[0].kind(), ErrorKind::Dimension);
-    assert_eq!(errors[0].dimension(), Dimension::Reference);
+    assert_eq!(errors[0].dimension(), Some(Dimension::Reference));
     assert_eq!(
         errors[0].to_string(),
         "\
@@ -183,7 +183,7 @@ fn a_contig_naming_mismatch_is_a_distinct_error() {
 
     assert_eq!(errors.len(), 1, "expected exactly one error: {errors:#?}");
     assert_eq!(errors[0].kind(), ErrorKind::ContigNaming);
-    assert_eq!(errors[0].dimension(), Dimension::ContigNaming);
+    assert_eq!(errors[0].dimension(), Some(Dimension::ContigNaming));
     assert_eq!(
         errors[0].to_string(),
         "\
@@ -251,7 +251,7 @@ fn an_undeclared_required_dimension_asks_the_user_to_declare_it() {
         .filter(|error| error.kind() == ErrorKind::Undeclared)
         .collect();
     assert_eq!(undeclared.len(), 1, "got: {errors:#?}");
-    assert_eq!(undeclared[0].dimension(), Dimension::SampleSet);
+    assert_eq!(undeclared[0].dimension(), Some(Dimension::SampleSet));
     assert_eq!(
         undeclared[0].to_string(),
         "\
@@ -308,7 +308,7 @@ fn a_known_dimension_is_checked_even_when_it_is_not_required() {
 
     let errors = check_step("align", &[bind("reads", reads), bind("ref", reference)]);
     assert_eq!(errors.len(), 1, "got: {errors:#?}");
-    assert_eq!(errors[0].dimension(), Dimension::Organism);
+    assert_eq!(errors[0].dimension(), Some(Dimension::Organism));
     assert!(errors[0].to_string().contains("wrong organism"));
 }
 
@@ -339,7 +339,7 @@ fn organism_comparison_ignores_case_and_surrounding_space() {
     assert!(
         errors
             .iter()
-            .all(|error| error.dimension() != Dimension::Organism),
+            .all(|error| error.dimension() != Some(Dimension::Organism)),
         "got: {errors:#?}"
     );
 }
@@ -362,7 +362,7 @@ fn dimensions_that_do_not_apply_to_a_kind_are_not_checked() {
     assert!(
         errors
             .iter()
-            .all(|error| error.dimension() != Dimension::QualityEncoding),
+            .all(|error| error.dimension() != Some(Dimension::QualityEncoding)),
         "got: {errors:#?}"
     );
 }
@@ -433,13 +433,13 @@ fn every_error_is_reported_in_one_pass() {
 
     let errors = check_step("resistance", &[bind("aln", aln), bind("v", vcf)]);
 
-    let dimensions: Vec<Dimension> = errors.iter().map(|error| error.dimension()).collect();
+    let dimensions: Vec<Option<Dimension>> = errors.iter().map(|error| error.dimension()).collect();
     assert!(
-        dimensions.contains(&Dimension::Reference),
+        dimensions.contains(&Some(Dimension::Reference)),
         "got: {dimensions:?}"
     );
     assert!(
-        dimensions.contains(&Dimension::SampleSet),
+        dimensions.contains(&Some(Dimension::SampleSet)),
         "got: {dimensions:?}"
     );
 }
@@ -479,7 +479,7 @@ fn sample_sets_must_match_in_order() {
 
     let sample_errors: Vec<_> = errors
         .iter()
-        .filter(|error| error.dimension() == Dimension::SampleSet)
+        .filter(|error| error.dimension() == Some(Dimension::SampleSet))
         .collect();
     assert_eq!(sample_errors.len(), 1, "got: {errors:#?}");
     assert!(
@@ -551,7 +551,7 @@ fn a_coordinate_mismatch_names_both_conventions() {
 
     assert_eq!(errors.len(), 1, "expected exactly one error: {errors:#?}");
     assert_eq!(errors[0].kind(), ErrorKind::Dimension);
-    assert_eq!(errors[0].dimension(), Dimension::Coordinates);
+    assert_eq!(errors[0].dimension(), Some(Dimension::Coordinates));
     assert_eq!(
         errors[0].to_string(),
         "\
@@ -585,6 +585,55 @@ fn intervals_are_never_asked_to_declare_a_reference() {
         &[
             bind("ref", reference("refs/tiny.fasta", None, two_contigs())),
             bind("regions", empty),
+        ],
+    );
+
+    assert!(errors.is_empty(), "errors were: {errors:#?}");
+}
+
+// ------------------------------------------- naming between two datasets --
+
+#[test]
+fn two_datasets_sharing_no_contig_names_are_still_checked_for_naming() {
+    // Regression. Neither side is the reference, so contigs the other lacks
+    // are ignored by containment -- which once meant a `chr1` against `1`
+    // mismatch between two VCFs agreed *vacuously*: there was nothing in
+    // common left to disagree about. Normalising the names finds the overlap.
+    let errors = check_step(
+        "merge",
+        &[
+            bind("a", variants("out/bare.vcf", two_contigs(), &["sample_a"])),
+            bind(
+                "b",
+                variants(
+                    "out/prefixed.vcf",
+                    vec![contig("chr1", M1), contig("chr2", M2)],
+                    &["sample_a"],
+                ),
+            ),
+        ],
+    );
+
+    assert_eq!(errors.len(), 1, "errors were: {errors:#?}");
+    assert_eq!(errors[0].kind(), ErrorKind::ContigNaming);
+}
+
+#[test]
+fn two_datasets_covering_different_contigs_are_not_a_mismatch() {
+    // The other side of that fix. A chr20-only VCF and a chr21-only VCF are
+    // both correct against the same reference, and saying otherwise would be
+    // a false alarm.
+    let errors = check_step(
+        "merge",
+        &[
+            bind(
+                "a",
+                variants("out/one.vcf", vec![contig("1", M1)], &["sample_a"]),
+            ),
+            bind(
+                "b",
+                variants("out/two.vcf", vec![contig("2", M2)], &["sample_a"]),
+            ),
         ],
     );
 

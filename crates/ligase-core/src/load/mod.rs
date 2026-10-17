@@ -22,7 +22,7 @@ use flate2::bufread::MultiGzDecoder;
 pub use alignment::alignment;
 pub use fasta::reference;
 pub use intervals::{IntervalFormat, intervals};
-pub use reads::reads;
+pub use reads::{reads, samples};
 pub use variants::variants;
 
 /// Dimensions the user states, for the ones a file cannot record.
@@ -52,6 +52,11 @@ pub enum LoadError {
         path: PathBuf,
         /// The underlying error.
         source: io::Error,
+    },
+    /// Files could not be grouped into samples.
+    Pairing {
+        /// What went wrong, phrased for a user.
+        detail: String,
     },
     /// The file was read but did not parse as the expected format.
     Format {
@@ -85,6 +90,9 @@ impl fmt::Display for LoadError {
             Self::Format { path, detail } => {
                 write!(f, "cannot parse {}: {detail}", path.display())
             }
+            Self::Pairing { detail } => {
+                write!(f, "cannot group reads into samples: {detail}")
+            }
         }
     }
 }
@@ -93,7 +101,7 @@ impl Error for LoadError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
-            Self::Format { .. } => None,
+            Self::Format { .. } | Self::Pairing { .. } => None,
         }
     }
 }

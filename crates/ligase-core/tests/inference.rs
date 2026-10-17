@@ -357,3 +357,119 @@ fn real_hxb2_fasta_loads_with_the_expected_identity() {
         Some(&ContigNaming::Bare)
     );
 }
+
+// ---------------------------------------------------- grouping into samples --
+
+/// A directory of FASTQ files, copied from a fixture so the names can vary.
+fn fastqs(names: &[&str]) -> (tempfile::TempDir, Vec<std::path::PathBuf>) {
+    let dir = tempfile::tempdir().unwrap();
+    let body = std::fs::read(fixture("reads_phred33_1.fastq")).unwrap();
+    let paths = names
+        .iter()
+        .map(|name| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, &body).unwrap();
+            path
+        })
+        .collect();
+    (dir, paths)
+}
+
+#[test]
+fn samples_pair_mates_by_filename() {
+    let (_dir, paths) = fastqs(&["patient_a_1.fastq", "patient_a_2.fastq"]);
+    let samples = load::samples(&paths, true, &Declared::default()).unwrap();
+
+    assert_eq!(samples.len(), 1);
+    assert_eq!(
+        samples[0]
+            .dimensions()
+            .sample_set
+            .value()
+            .unwrap()
+            .as_slice(),
+        ["patient_a"]
+    );
+    assert_eq!(
+        samples[0].dimensions().pairing.value(),
+        Some(&Pairing::Paired)
+    );
+}
+
+#[test]
+fn samples_keep_the_order_their_first_file_appeared_in() {
+    let (_dir, paths) = fastqs(&["b_1.fastq", "b_2.fastq", "a_1.fastq", "a_2.fastq"]);
+    let samples = load::samples(&paths, true, &Declared::default()).unwrap();
+
+    let ids: Vec<&str> = samples
+        .iter()
+        .map(|sample| sample.dimensions().sample_set.value().unwrap().as_slice()[0].as_str())
+        .collect();
+    assert_eq!(ids, ["b", "a"]);
+}
+
+#[test]
+fn an_illumina_lane_suffix_does_not_become_part_of_the_sample_name() {
+    // `SAMPLE_R1_001.fastq.gz` is what a sequencer writes. The marker is not
+    // a suffix, and `_001` is a chunk index rather than part of the sample.
+    let (_dir, paths) = fastqs(&["patient_a_R1_001.fastq", "patient_a_R2_001.fastq"]);
+    let samples = load::samples(&paths, true, &Declared::default()).unwrap();
+
+    assert_eq!(samples.len(), 1);
+    assert_eq!(
+        samples[0]
+            .dimensions()
+            .sample_set
+            .value()
+            .unwrap()
+            .as_slice(),
+        ["patient_a"]
+    );
+}
+
+#[test]
+fn a_lone_mate_is_an_error_rather_than_a_single_end_sample() {
+    let (_dir, paths) = fastqs(&["patient_a_1.fastq"]);
+    let error = load::samples(&paths, true, &Declared::default())
+        .expect_err("a missing mate must not pass silently");
+
+    let message = error.to_string();
+    assert!(message.contains("patient_a"), "{message}");
+    assert!(message.contains("paired=False"), "{message}");
+}
+
+#[test]
+fn a_file_with_no_mate_marker_is_an_error_rather_than_a_guess() {
+    // Mis-pairing two samples' files produces results for a mixture of two
+    // people and nothing crashes, so this must never be guessed at.
+    let (_dir, paths) = fastqs(&["patient_a.fastq", "patient_b.fastq"]);
+    let error = load::samples(&paths, true, &Declared::default())
+        .expect_err("an unmarked file must not be paired by position");
+
+    assert!(
+        error.to_string().contains("cannot tell which mate"),
+        "{error}"
+    );
+}
+
+#[test]
+fn two_files_claiming_the_same_mate_is_an_error() {
+    let (_dir, paths) = fastqs(&["patient_a_1.fastq", "patient_a_R1.fastq"]);
+    // `patient_a_R1` reduces to sample `patient_a`, mate one, which
+    // `patient_a_1` already filled.
+    let error = load::samples(&paths, true, &Declared::default()).expect_err("ambiguous mates");
+
+    assert!(error.to_string().contains("same mate"), "{error}");
+}
+
+#[test]
+fn single_end_mode_takes_each_file_as_its_own_sample() {
+    let (_dir, paths) = fastqs(&["patient_a.fastq", "patient_b.fastq"]);
+    let samples = load::samples(&paths, false, &Declared::default()).unwrap();
+
+    assert_eq!(samples.len(), 2);
+    assert_eq!(
+        samples[0].dimensions().pairing.value(),
+        Some(&Pairing::Single)
+    );
+}

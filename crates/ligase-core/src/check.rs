@@ -10,12 +10,15 @@
 //!   results.
 //!
 //! `docs/dimensions.md` says unknown dimensions are allowed only if no
-//! downstream step requires them. Without the graph (M2) there is no
-//! downstream yet, so "required" comes from the kinds being joined. The split
-//! is what lets the golden example work: `lg.samples()` takes no organism,
-//! and `align` is the step that *introduces* the reference, so demanding a
-//! declared organism on the FASTQs would break a documented API for no
-//! safety gain.
+//! downstream step requires them. Checking one step in isolation has no
+//! downstream, so [`check_step`] takes "required" from the kinds being
+//! joined. A whole pipeline does have one: [`crate::graph`] uses
+//! [`disagreements`] and [`requires`] to decide for itself, and attributes a
+//! gap to the input that has to declare it rather than to the step that
+//! tripped over it. The split is what lets the golden example work:
+//! `lg.samples()` takes no organism, and `align` is the step that
+//! *introduces* the reference, so demanding a declared organism on the
+//! FASTQs would break a documented API for no safety gain.
 //!
 //! Erring toward demands would be the worse failure. A checker that cries
 //! wolf gets bypassed, and a bypassed checker catches nothing.
@@ -49,6 +52,8 @@ pub enum ErrorKind {
     ContigOrder,
     /// A dimension the step requires is unknown.
     Undeclared,
+    /// A step was handed a kind of data it does not declare.
+    StepType,
 }
 
 impl ErrorKind {
@@ -60,6 +65,7 @@ impl ErrorKind {
             Self::ContigNaming => "ContigNamingError",
             Self::ContigOrder => "ContigOrderError",
             Self::Undeclared => "UndeclaredDimensionError",
+            Self::StepType => "StepTypeError",
         }
     }
 
@@ -71,6 +77,7 @@ impl ErrorKind {
             Self::ContigNaming => "contig_naming",
             Self::ContigOrder => "contig_order",
             Self::Undeclared => "undeclared",
+            Self::StepType => "step_type",
         }
     }
 }
@@ -84,7 +91,7 @@ impl ErrorKind {
 pub struct CheckError {
     kind: ErrorKind,
     step: String,
-    dimension: Dimension,
+    dimension: Option<Dimension>,
     lines: Vec<String>,
     detail: Option<String>,
     conclusion: String,
@@ -103,9 +110,12 @@ impl CheckError {
         &self.step
     }
 
-    /// The dimension that disagrees.
+    /// The dimension that disagrees, for the errors that are about one.
+    ///
+    /// `None` for a [`ErrorKind::StepType`] error: a step handed a VCF where
+    /// it declared a FASTA has no dimension to blame.
     #[must_use]
-    pub const fn dimension(&self) -> Dimension {
+    pub const fn dimension(&self) -> Option<Dimension> {
         self.dimension
     }
 }
@@ -140,34 +150,41 @@ pub fn check_step(step: &str, bindings: &[Binding]) -> Vec<CheckError> {
     errors
 }
 
+/// Only the disagreements: values that are both stated and do not agree.
+///
+/// This is the half of [`check_step`] that needs no notion of what is
+/// required. [`crate::graph`] uses it because it decides requirements from
+/// the pipeline rather than from the pair of kinds in front of it.
+#[must_use]
+pub fn disagreements(step: &str, bindings: &[Binding]) -> Vec<CheckError> {
+    let mut errors = Vec::new();
+    for dimension in Dimension::ALL {
+        let Some(applicable) = joined_on(bindings, dimension) else {
+            continue;
+        };
+        compare_known(step, dimension, &applicable, &mut errors);
+    }
+    errors
+}
+
+/// Whether a step joining these inputs demands this dimension be *known*.
+///
+/// The default [`required_pair`] table, read over the inputs that the
+/// dimension applies to at all.
+#[must_use]
+pub fn requires(bindings: &[Binding], dimension: Dimension) -> bool {
+    joined_on(bindings, dimension).is_some_and(|applicable| is_required(dimension, &applicable))
+}
+
 fn check_dimension(
     step: &str,
     bindings: &[Binding],
     dimension: Dimension,
     errors: &mut Vec<CheckError>,
 ) {
-    let applicable: Vec<&Binding> = bindings
-        .iter()
-        .filter(|binding| binding.dataset.kind().applies(dimension))
-        .collect();
-
-    // Nothing is being joined on this dimension, so nothing is required.
-    if applicable.len() < 2 {
+    let Some(applicable) = joined_on(bindings, dimension) else {
         return;
-    }
-
-    // Contig naming is derived from the reference, so checking the reference
-    // subsumes it. Two errors for one root cause is noise. It is still
-    // checked on its own when the reference is not known on both sides.
-    if dimension == Dimension::ContigNaming
-        && applicable
-            .iter()
-            .filter(|binding| binding.dataset.dimensions().reference.is_known())
-            .count()
-            >= 2
-    {
-        return;
-    }
+    };
 
     let (known, unknown): (Vec<&Binding>, Vec<&Binding>) = applicable
         .iter()
@@ -185,6 +202,51 @@ fn check_dimension(
             None => errors.push(undeclared_all(step, dimension, &unknown)),
         }
     }
+
+    compare_known(step, dimension, &applicable, errors);
+}
+
+/// The inputs this dimension is actually joined on, if it is joined at all.
+///
+/// `None` when fewer than two inputs can speak to the dimension — nothing is
+/// being compared, so nothing is required either.
+fn joined_on(bindings: &[Binding], dimension: Dimension) -> Option<Vec<&Binding>> {
+    let applicable: Vec<&Binding> = bindings
+        .iter()
+        .filter(|binding| binding.dataset.kind().applies(dimension))
+        .collect();
+
+    if applicable.len() < 2 {
+        return None;
+    }
+
+    // Contig naming is derived from the reference, so checking the reference
+    // subsumes it. Two errors for one root cause is noise. It is still
+    // checked on its own when the reference is not known on both sides.
+    if dimension == Dimension::ContigNaming
+        && applicable
+            .iter()
+            .filter(|binding| binding.dataset.dimensions().reference.is_known())
+            .count()
+            >= 2
+    {
+        return None;
+    }
+
+    Some(applicable)
+}
+
+fn compare_known(
+    step: &str,
+    dimension: Dimension,
+    applicable: &[&Binding],
+    errors: &mut Vec<CheckError>,
+) {
+    let known: Vec<&Binding> = applicable
+        .iter()
+        .copied()
+        .filter(|binding| binding.dataset.dimensions().is_known(dimension))
+        .collect();
 
     if let Some((pivot, rest)) = known.split_first() {
         errors.extend(
@@ -302,7 +364,7 @@ fn compare(
     Some(CheckError {
         kind,
         step: step.to_owned(),
-        dimension,
+        dimension: Some(dimension),
         lines: vec![
             value_line(left, dimension, None),
             value_line(right, dimension, None),
@@ -335,7 +397,7 @@ fn compare_reference(step: &str, left: &Binding, right: &Binding) -> Option<Chec
         } => Some(CheckError {
             kind: ErrorKind::ContigNaming,
             step: step.to_owned(),
-            dimension: Dimension::ContigNaming,
+            dimension: Some(Dimension::ContigNaming),
             // Rendered from each binding's own naming dimension, so the
             // lines always correspond to the bindings as listed.
             lines: vec![naming_line(left), naming_line(right)],
@@ -346,7 +408,7 @@ fn compare_reference(step: &str, left: &Binding, right: &Binding) -> Option<Chec
         Verdict::OrderDiffers { .. } => Some(CheckError {
             kind: ErrorKind::ContigOrder,
             step: step.to_owned(),
-            dimension: Dimension::Reference,
+            dimension: Some(Dimension::Reference),
             lines: vec![order_line(left), order_line(right)],
             detail: None,
             conclusion: "The contigs agree but their order differs. Tools that require a \
@@ -386,7 +448,7 @@ fn reference_error(step: &str, left: &Binding, right: &Binding, detail: String) 
     CheckError {
         kind: ErrorKind::Dimension,
         step: step.to_owned(),
-        dimension: Dimension::Reference,
+        dimension: Some(Dimension::Reference),
         lines: vec![
             value_line(left, Dimension::Reference, suffixes.0.as_deref()),
             value_line(right, Dimension::Reference, suffixes.1.as_deref()),
@@ -500,7 +562,7 @@ fn undeclared(
     CheckError {
         kind: ErrorKind::Undeclared,
         step: step.to_owned(),
-        dimension,
+        dimension: Some(dimension),
         lines,
         detail: None,
         conclusion: format!(
@@ -513,7 +575,7 @@ fn undeclared_all(step: &str, dimension: Dimension, unknown: &[&Binding]) -> Che
     CheckError {
         kind: ErrorKind::Undeclared,
         step: step.to_owned(),
-        dimension,
+        dimension: Some(dimension),
         lines: unknown
             .iter()
             .map(|binding| unknown_line(binding, dimension))
@@ -543,4 +605,106 @@ const fn unreachable() -> bool {
     // A wrong answer here would mean silently skipping a reference check, so
     // return the value that reports a disagreement rather than hiding one.
     false
+}
+
+// ------------------------------------------------- errors the graph builds --
+
+/// A step was handed a kind of data it does not declare.
+///
+/// Reported instead of the step's dimension errors, not alongside them: the
+/// bindings are not what the step declared, so comparing their dimensions
+/// would describe a pipeline the user never wrote.
+#[must_use]
+pub fn step_type_error(
+    step: &str,
+    param: &str,
+    expected: DataKind,
+    found: DataKind,
+    origin: &str,
+) -> CheckError {
+    CheckError {
+        kind: ErrorKind::StepType,
+        step: step.to_owned(),
+        dimension: None,
+        lines: vec![
+            format!("`{step}` declares {param}: {}", expected.name()),
+            format!("{param} was given {} (from {origin})", found.name()),
+        ],
+        detail: None,
+        conclusion: format!(
+            "These must match. Did you pass the wrong value, or annotate `{step}` \
+             with the wrong type?"
+        ),
+    }
+}
+
+/// A dimension a step requires is unknown, attributed to where the gap began.
+///
+/// `docs/dimensions.md` allows an unknown dimension unless a downstream step
+/// requires it, so this error exists only because some step does. It names
+/// the step that requires it and the data that has to declare it, which for
+/// a value that travelled through the graph are two different places —
+/// pointing only at the step would send the user to a file they cannot fix.
+#[must_use]
+pub fn undeclared_at(
+    step: &str,
+    dimension: Dimension,
+    origin: &str,
+    reason: &str,
+    through: &[&str],
+) -> CheckError {
+    let detail = match through {
+        [] => None,
+        steps => Some(format!(
+            "It reaches `{step}` through {}.",
+            list_steps(steps)
+        )),
+    };
+    CheckError {
+        kind: ErrorKind::Undeclared,
+        step: step.to_owned(),
+        dimension: Some(dimension),
+        lines: vec![format!("{dimension} is unknown in {origin} ({reason})")],
+        detail,
+        conclusion: format!(
+            "`{step}` needs {dimension} to agree. Declare it where you load the data."
+        ),
+    }
+}
+
+/// `step `a``, or `steps `a` and `b``, or `steps `a`, `b` and `c``.
+fn list_steps(steps: &[&str]) -> String {
+    let quoted: Vec<String> = steps.iter().map(|step| format!("`{step}`")).collect();
+    match quoted.split_last() {
+        None => String::new(),
+        Some((last, [])) => format!("step {last}"),
+        Some((last, rest)) => format!("steps {} and {last}", rest.join(", ")),
+    }
+}
+
+/// One line summarising a check, for a command-line report.
+///
+/// The wording lives here with the errors themselves, so the Rust tests own
+/// it and a caller in any language reports a check the same way.
+#[must_use]
+pub fn summarise(errors: &[CheckError]) -> String {
+    if errors.is_empty() {
+        return "no problems found.".to_owned();
+    }
+
+    let mut steps: Vec<&str> = errors.iter().map(CheckError::step).collect();
+    steps.sort_unstable();
+    steps.dedup();
+
+    format!(
+        "{} {} in {} {}.",
+        errors.len(),
+        plural(errors.len(), "error", "errors"),
+        steps.len(),
+        plural(steps.len(), "step", "steps")
+    )
+}
+
+const fn plural(count: usize, one: &'static str, many: &'static str) -> &'static str {
+    if count == 1 { one } else { many }
 }

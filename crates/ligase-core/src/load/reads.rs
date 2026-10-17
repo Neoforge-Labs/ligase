@@ -1,6 +1,6 @@
 //! FASTQ: pairing, sample name, and quality encoding from the score range.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use noodles::fastq;
 
@@ -87,7 +87,130 @@ pub fn reads(r1: &Path, r2: Option<&Path>, declared: &Declared) -> Result<Datase
     ))
 }
 
-/// The sample name from the filename, with a mate suffix removed.
+/// Group FASTQ files into samples, pairing mates by filename.
+///
+/// Mis-pairing two samples' files is exactly the silent wrongness Ligase
+/// exists to catch: nothing crashes, and every result belongs to a mixture of
+/// two people. So a file whose mate cannot be identified is an error rather
+/// than a guess, and a lone mate is an error rather than a single-end sample.
+///
+/// `paths` are taken in the order given, and the samples come back in the
+/// order their first file appeared.
+pub fn samples(
+    paths: &[PathBuf],
+    paired: bool,
+    declared: &Declared,
+) -> Result<Vec<Dataset>, LoadError> {
+    if !paired {
+        return paths
+            .iter()
+            .map(|path| reads(path, None, declared))
+            .collect();
+    }
+
+    let mut groups: Vec<(String, Option<PathBuf>, Option<PathBuf>)> = Vec::new();
+
+    for path in paths {
+        let Some((key, mate)) = mate(&stem(path)) else {
+            return Err(LoadError::Pairing {
+                detail: format!(
+                    "cannot tell which mate {} is; name paired files \
+                     `<sample>_1` and `<sample>_2`, or `<sample>_R1` and `<sample>_R2`",
+                    path.display()
+                ),
+            });
+        };
+
+        let group = match groups.iter_mut().find(|(seen, ..)| *seen == key) {
+            Some(group) => group,
+            None => {
+                groups.push((key, None, None));
+                // `last_mut` cannot be None: a group was just pushed.
+                match groups.last_mut() {
+                    Some(group) => group,
+                    None => continue,
+                }
+            }
+        };
+
+        let slot = match mate {
+            Mate::One => &mut group.1,
+            Mate::Two => &mut group.2,
+        };
+        if let Some(existing) = slot {
+            return Err(LoadError::Pairing {
+                detail: format!(
+                    "sample `{}` has two files for the same mate: {} and {}",
+                    group.0,
+                    existing.display(),
+                    path.display()
+                ),
+            });
+        }
+        *slot = Some(path.clone());
+    }
+
+    groups
+        .into_iter()
+        .map(|(key, first, second)| match (first, second) {
+            (Some(r1), Some(r2)) => reads(&r1, Some(&r2), declared),
+            (Some(lone), None) | (None, Some(lone)) => Err(LoadError::Pairing {
+                detail: format!(
+                    "sample `{key}` has only one of its two mates ({}); \
+                     pass paired=False for single-end reads",
+                    lone.display()
+                ),
+            }),
+            // A group exists only because a file was filed under it.
+            (None, None) => Err(LoadError::Pairing {
+                detail: format!("sample `{key}` has no files"),
+            }),
+        })
+        .collect()
+}
+
+/// Which of a pair a file holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mate {
+    /// The first mate: `_1`, `_R1`.
+    One,
+    /// The second mate: `_2`, `_R2`.
+    Two,
+}
+
+/// Every marker that names a mate, longest first.
+const MARKERS: [(&str, Mate); 6] = [
+    ("_R1", Mate::One),
+    ("_R2", Mate::Two),
+    ("_r1", Mate::One),
+    ("_r2", Mate::Two),
+    ("_1", Mate::One),
+    ("_2", Mate::Two),
+];
+
+/// The sample name and which mate, from a filename stem.
+///
+/// The marker is not always a suffix — Illumina writes
+/// `SAMPLE_R1_001.fastq.gz` — so everything from the marker onwards is
+/// dropped. The *last* marker wins, so `rep1_R1` is mate one of `rep1`
+/// rather than mate one of `rep`.
+fn mate(stem: &str) -> Option<(String, Mate)> {
+    let mut best: Option<(usize, Mate)> = None;
+
+    for (marker, which) in MARKERS {
+        // A marker at position zero would leave no sample name behind, so a
+        // file called `_1.fastq` is not mate one of nothing.
+        if let Some(at) = stem.rfind(marker).filter(|at| *at > 0)
+            && best.is_none_or(|(seen, _)| at > seen)
+        {
+            best = Some((at, which));
+        }
+    }
+
+    best.map(|(at, which)| (stem[..at].to_owned(), which))
+}
+
+/// The sample name from the filename, with any mate marker removed.
 ///
 /// `docs/dimensions.md` allows a FASTQ's sample set to come "from
 /// filename/declared". A filename is weak evidence, so the provenance says
@@ -95,12 +218,7 @@ pub fn reads(r1: &Path, r2: Option<&Path>, declared: &Declared) -> Result<Datase
 /// it.
 fn sample_name(path: &Path) -> String {
     let base = stem(path);
-    for suffix in ["_R1", "_R2", "_r1", "_r2", "_1", "_2"] {
-        if let Some(trimmed) = base.strip_suffix(suffix) {
-            return trimmed.to_owned();
-        }
-    }
-    base
+    mate(&base).map_or(base, |(name, _)| name)
 }
 
 /// The lowest and highest quality bytes in the sampled records.

@@ -41,6 +41,7 @@
 
 pub mod check;
 pub mod dim;
+pub mod graph;
 pub mod load;
 pub mod types;
 

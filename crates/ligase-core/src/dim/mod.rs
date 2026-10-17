@@ -54,7 +54,7 @@ impl Source {
 
 /// Render a path relative to the working directory when it sits underneath
 /// it, so messages stay short and comparable between machines.
-fn display_path(path: &std::path::Path) -> String {
+pub(crate) fn display_path(path: &std::path::Path) -> String {
     std::env::current_dir()
         .ok()
         .and_then(|cwd| path.strip_prefix(cwd).ok())
@@ -278,13 +278,28 @@ pub enum CoordinateSystem {
 }
 
 impl CoordinateSystem {
+    /// Both conventions, for listing them in an error message.
+    pub const ALL: [Self; 2] = [Self::ZeroBasedHalfOpen, Self::OneBasedClosed];
+
     /// How to render this for a user.
+    ///
+    /// Doubles as the name the Python API accepts: there is no second
+    /// spelling to keep in step, and the string a user writes is the string
+    /// an error shows them.
     #[must_use]
     pub const fn describe(self) -> &'static str {
         match self {
             Self::ZeroBasedHalfOpen => "0-based half-open",
             Self::OneBasedClosed => "1-based closed",
         }
+    }
+
+    /// Look a convention up by the name [`Self::describe`] gives it.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|system| system.describe() == name.trim())
     }
 }
 

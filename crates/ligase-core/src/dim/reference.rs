@@ -219,6 +219,22 @@ pub enum Verdict {
     },
 }
 
+/// What one pass of comparison found.
+///
+/// [`Outcome::Disjoint`] is not a verdict and is never reported. It exists
+/// because two datasets that share no contigs *under their names as written*
+/// may still be the same contigs spelled differently, and a pass that agreed
+/// vacuously would hide that. Having found nothing in common, it cannot
+/// claim agreement either.
+enum Outcome {
+    /// They agree under the requested relation.
+    Agree,
+    /// Nothing was compared: the two sides name no contig in common.
+    Disjoint,
+    /// A real disagreement.
+    Differs(Verdict),
+}
+
 /// Compare `left` against `right` under `relation`.
 ///
 /// Comparison runs twice: once on the names as written, and if that fails,
@@ -227,17 +243,24 @@ pub enum Verdict {
 /// what makes `chr1` against `1` a distinct error.
 #[must_use]
 pub fn relate(left: &ReferenceId, right: &ReferenceId, relation: Relation) -> Verdict {
-    if compare(left, right, relation, Cow::Borrowed) == Verdict::Agree {
+    if matches!(
+        compare(left, right, relation, Cow::Borrowed),
+        Outcome::Agree
+    ) {
         return Verdict::Agree;
     }
 
     match compare(left, right, relation, normalise) {
-        Verdict::Agree => Verdict::NamingDiffers {
+        Outcome::Agree => Verdict::NamingDiffers {
             left: left.naming(),
             right: right.naming(),
             example: naming_example(left, right),
         },
-        other => other,
+        // No contig in common even after normalising: two datasets covering
+        // different regions. A chr20-only VCF and a chr21-only VCF are both
+        // correct, and reporting that as a mismatch would be a false alarm.
+        Outcome::Disjoint => Verdict::Agree,
+        Outcome::Differs(verdict) => verdict,
     }
 }
 
@@ -264,7 +287,7 @@ fn compare<'a, F>(
     right: &'a ReferenceId,
     relation: Relation,
     key: F,
-) -> Verdict
+) -> Outcome
 where
     F: Fn(&'a str) -> Cow<'a, str>,
 {
@@ -280,19 +303,19 @@ where
         match index.get(&key(&contig.name)) {
             Some((position, other)) => {
                 if let Some(detail) = disagreement(contig, other) {
-                    return Verdict::ContigConflict {
+                    return Outcome::Differs(Verdict::ContigConflict {
                         name: contig.name.clone(),
                         detail,
-                    };
+                    });
                 }
                 matched.push(*position);
             }
             None if relation == Relation::Compatible => {}
             None => {
-                return Verdict::MissingContig {
+                return Outcome::Differs(Verdict::MissingContig {
                     name: contig.name.clone(),
                     from: right.describe(),
-                };
+                });
             }
         }
     }
@@ -310,10 +333,10 @@ where
             .iter()
             .find(|contig| !left_keys.contains(&key(&contig.name)))
         {
-            return Verdict::MissingContig {
+            return Outcome::Differs(Verdict::MissingContig {
                 name: extra.name.clone(),
                 from: left.describe(),
-            };
+            });
         }
     }
 
@@ -321,13 +344,25 @@ where
     // observed in records have no dictionary order to disagree about.
     let ordered = left.order == ContigOrder::Dictionary && right.order == ContigOrder::Dictionary;
     if ordered && matched.windows(2).any(|pair| pair[0] >= pair[1]) {
-        return Verdict::OrderDiffers {
+        return Outcome::Differs(Verdict::OrderDiffers {
             left: names(left),
             right: names(right),
-        };
+        });
     }
 
-    Verdict::Agree
+    // Two datasets with nothing in common were not compared, so this pass
+    // cannot claim they agree. Normalising the names may yet find the
+    // overlap -- that is how a `chr1` against `1` mismatch between two
+    // datasets, neither of which is the reference, gets caught at all.
+    if relation == Relation::Compatible
+        && matched.is_empty()
+        && !left.contigs.is_empty()
+        && !right.contigs.is_empty()
+    {
+        return Outcome::Disjoint;
+    }
+
+    Outcome::Agree
 }
 
 fn names(reference: &ReferenceId) -> Vec<String> {

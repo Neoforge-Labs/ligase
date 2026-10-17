@@ -26,6 +26,16 @@ pub enum DataKind {
 }
 
 impl DataKind {
+    /// Every kind, so the Python layer can enumerate them.
+    pub const ALL: [Self; 6] = [
+        Self::Reads,
+        Self::Reference,
+        Self::Alignment,
+        Self::Variants,
+        Self::Intervals,
+        Self::ResistanceReport,
+    ];
+
     /// The name used in messages and in the Python API.
     #[must_use]
     pub const fn name(self) -> &'static str {
@@ -37,6 +47,15 @@ impl DataKind {
             Self::Intervals => "Intervals",
             Self::ResistanceReport => "ResistanceReport",
         }
+    }
+
+    /// Look a kind up by the name [`Self::name`] gives it.
+    ///
+    /// Used by the Python layer to turn a step's type annotation into a
+    /// kind, so the two surfaces cannot drift apart.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.name() == name)
     }
 
     /// Whether a dimension means anything for this kind.

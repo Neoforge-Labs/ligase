@@ -255,7 +255,7 @@ fn a_bed_against_a_one_based_vcf_is_a_coordinate_mismatch() {
 
     let coordinate: Vec<&_> = errors
         .iter()
-        .filter(|error| error.dimension() == Dimension::Coordinates)
+        .filter(|error| error.dimension() == Some(Dimension::Coordinates))
         .collect();
     assert_eq!(coordinate.len(), 1, "errors were: {errors:#?}");
     assert_eq!(coordinate[0].kind(), ErrorKind::Dimension);
@@ -290,7 +290,7 @@ fn a_gff_against_a_vcf_agrees_on_coordinates() {
     assert!(
         errors
             .iter()
-            .all(|error| error.dimension() != Dimension::Coordinates),
+            .all(|error| error.dimension() != Some(Dimension::Coordinates)),
         "errors were: {errors:#?}"
     );
 }
@@ -308,7 +308,7 @@ fn a_bed_is_contained_in_a_reference_that_holds_more() {
     assert!(
         errors
             .iter()
-            .all(|error| error.dimension() != Dimension::Reference),
+            .all(|error| error.dimension() != Some(Dimension::Reference)),
         "a BED naming a subset of the reference's contigs is correct input: \
          {errors:#?}"
     );
@@ -357,7 +357,7 @@ fn a_bed_naming_a_contig_the_reference_lacks_is_a_reference_error() {
 
     assert_eq!(errors.len(), 1, "errors were: {errors:#?}");
     assert_eq!(errors[0].kind(), ErrorKind::Dimension);
-    assert_eq!(errors[0].dimension(), Dimension::Reference);
+    assert_eq!(errors[0].dimension(), Some(Dimension::Reference));
     assert!(
         errors[0].to_string().contains("Contig `9` is not in"),
         "{}",

@@ -71,7 +71,7 @@ fn a_bam_aligned_to_a_different_reference_fails_check_with_a_dimension_error() {
 
     assert_eq!(errors.len(), 1, "got: {errors:#?}");
     assert_eq!(errors[0].kind(), ErrorKind::Dimension);
-    assert_eq!(errors[0].dimension(), Dimension::Reference);
+    assert_eq!(errors[0].dimension(), Some(Dimension::Reference));
 
     let message = errors[0].to_string();
     assert!(
@@ -111,7 +111,7 @@ fn a_chr1_versus_1_mismatch_raises_an_error_distinct_from_a_reference_mismatch()
     // different dimension, and a message that points at the real fix.
     assert_eq!(errors[0].kind(), ErrorKind::ContigNaming);
     assert_ne!(errors[0].kind(), ErrorKind::Dimension);
-    assert_eq!(errors[0].dimension(), Dimension::ContigNaming);
+    assert_eq!(errors[0].dimension(), Some(Dimension::ContigNaming));
     assert!(
         errors[0].to_string().contains("renaming step"),
         "{}",
@@ -127,7 +127,7 @@ fn a_contig_absent_from_the_reference_is_caught() {
 
     let errors = check_step("call", &[bind("aln", alignment), bind("ref", reference)]);
     assert_eq!(errors.len(), 1, "got: {errors:#?}");
-    assert_eq!(errors[0].dimension(), Dimension::Reference);
+    assert_eq!(errors[0].dimension(), Some(Dimension::Reference));
     assert!(errors[0].to_string().contains('9'), "{}", errors[0]);
 }
 
