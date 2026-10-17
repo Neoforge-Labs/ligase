@@ -9,11 +9,13 @@
 
 These run real minimap2, samtools and bcftools over real reads, so they skip
 rather than fail wherever the data has not been fetched or a tool is not
-installed — which is every CI machine, since `data/` is gitignored. The same
-four properties are tested without the tools in
-`crates/ligase-core/tests/execution.rs` and `tests/test_run.py`; what these
-add is the evidence that they hold for an aligner and a variant caller
-rather than for `cat`.
+installed. The one machine where neither is true is the `demo` job in CI,
+which installs the three tools, fetches PRJNA517147 and sets
+`LIGASE_DEMO_REQUIRED` — under which a skip here fails the build, because a
+green run has to mean the pipeline ran. The same four properties are tested
+without the tools in `crates/ligase-core/tests/execution.rs` and
+`tests/test_run.py`; what these add is the evidence that they hold for an
+aligner and a variant caller rather than for `cat`.
 
 The first run of whichever test gets there first pays for the alignments
 (about fifteen seconds); the rest share one cache directory and are free.
@@ -29,7 +31,7 @@ from types import ModuleType
 import pytest
 
 import ligase as lg
-from tests.conftest import DATA, REPO_ROOT
+from tests.conftest import DATA, REPO_ROOT, unavailable
 
 #: Three runs for the demo, and a fourth to add to it.
 RUNS = ("SRR8525904", "SRR8525908", "SRR8525920")
@@ -43,26 +45,28 @@ TOOLS = ("minimap2", "samtools", "bcftools")
 DEMO = REPO_ROOT / "examples" / "hiv-resistance" / "pipeline.py"
 
 
-def _skip_unless_runnable() -> None:
+def _require_runnable() -> None:
+    """Establish that the tools and the data are both here."""
     missing = [tool for tool in TOOLS if shutil.which(tool) is None]
     if missing:
-        pytest.skip(f"not installed: {', '.join(missing)}")
+        unavailable(f"not installed: {', '.join(missing)}")
 
     if not (DATA / "refs" / "HXB2.fasta").is_file():
-        pytest.skip("run scripts/fetch_test_data.sh to fetch data/refs/HXB2.fasta")
+        unavailable("data/refs/HXB2.fasta is missing; run scripts/fetch_test_data.sh")
 
     reads = DATA / "reads" / "PRJNA517147"
     for run in (*RUNS, ADDED):
         if not (reads / f"{run}_1.fastq.gz").is_file():
-            pytest.skip(
-                f"run scripts/fetch_test_data.sh --project PRJNA517147 to fetch {run}"
+            unavailable(
+                f"{run} is missing; run "
+                "scripts/fetch_test_data.sh --project PRJNA517147"
             )
 
 
 @pytest.fixture(scope="module")
 def demo() -> ModuleType:
     """The demo pipeline module, loaded from its path."""
-    _skip_unless_runnable()
+    _require_runnable()
     specification = importlib.util.spec_from_file_location("ligase_demo", DEMO)
     assert specification is not None
     assert specification.loader is not None
