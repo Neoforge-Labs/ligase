@@ -39,6 +39,7 @@
 //! # }
 //! ```
 
+pub mod audit;
 pub mod cache;
 pub mod canon;
 pub mod check;
