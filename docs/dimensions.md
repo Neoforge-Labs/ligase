@@ -7,7 +7,7 @@ Every biological type carries dimensions. Each dimension is inferred from the fi
 | organism | e.g. HIV-1, SARS-CoV-2, human | declared | declared | from reference | from header if present | declared |
 | reference | build/accession, e.g. HXB2 (K03455), hg38 | sequence names + MD5 of contigs | n/a | @SQ lines (SN, LN, M5) | ##reference, ##contig | declared |
 | contig_naming | `chr1` vs `1` style | from names | n/a | @SQ SN | ##contig IDs | from records |
-| coordinates | 0-based half-open vs 1-based closed | n/a | n/a | 1-based (SAM text), 0-based (BAM binary) | 1-based | BED 0-based, GFF 1-based |
+| coordinates | 0-based half-open vs 1-based closed | n/a | n/a | 1-based closed (SAM *and* BAM) | 1-based closed | BED 0-based half-open, GFF 1-based closed |
 | sample_set | ordered sample IDs | n/a | from filename/declared | @RG SM | header sample columns | n/a |
 | strand/pairing | single/paired, read layout | n/a | from file pairing | flags | n/a | n/a |
 | quality_encoding | Phred+33 vs +64 | n/a | inferred from range | n/a | n/a | n/a |
@@ -18,3 +18,41 @@ Every biological type carries dimensions. Each dimension is inferred from the fi
 - Contig naming mismatches are a distinct error from reference mismatches.
 - Sample sets must match by identity and order wherever steps join samples.
 - Unknown dimensions are allowed only if no downstream step requires them; otherwise `check()` fails with a request to declare them.
+
+### Coordinates are semantics, not encoding
+
+The `coordinates` dimension describes what a step *sees*, not how bytes sit on
+disk. Alignment records are 1-based closed in the SAM specification, and that
+is how Ligase presents them from either container, so a lossless
+`samtools view -b` does not change the dimension. The 0-based offsets inside
+the BAM binary encoding are a container detail; they are recorded in
+provenance, never as a dimension.
+
+This matters because the dimension exists to catch a real class of bug —
+feeding 0-based half-open BED intervals to a tool expecting 1-based closed
+coordinates. Re-encoding the same alignments is not that bug, and reporting it
+as one would train users to ignore `check()`.
+
+### References relate by containment, not equality
+
+Two *references* compared with each other must be identical: same contigs, in
+the same order, with the same lengths and MD5s.
+
+But data checked **against** a reference need only be contained in it. Every
+contig the data mentions must appear in the reference with a matching length
+and MD5; extra contigs in the reference are fine. A VCF whose header lists
+only `chr20` is correct against a whole-genome reference, and rejecting it
+would be a false alarm.
+
+The errors this produces are therefore:
+
+| Situation | Reported as |
+|---|---|
+| A contig the data mentions is absent from the reference | reference mismatch |
+| A shared contig disagrees on length or MD5 | reference mismatch |
+| Contigs agree once `chr` prefixes are normalised | contig naming mismatch |
+| Shared contigs agree but their relative order differs | contig order mismatch |
+
+Contig order gets its own error rather than being ignored: htslib matches
+contigs by name, so `bcftools` does not care, but GATK requires sequence
+dictionaries in matching order. Silence there would hide a real failure.
