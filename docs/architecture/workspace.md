@@ -149,8 +149,8 @@ No dimension types, no graph, no cache, no execution. The only behaviour the
 engine has is reporting its own version.
 
 Dependencies were kept to the minimum that a scaffold needs: `pyo3` and
-nothing else. `blake3`, `rusqlite` and a graph library arrive with the
-milestones that need them ([M3](../milestones.md)), and the BAM and VCF
+nothing else. `blake3`, `rusqlite` and `rayon` arrive with the
+milestones that need them, and the BAM and VCF
 header parsing that [M1](../milestones.md) requires will need a format
 library — `noodles` being the obvious candidate. Adding them now would mean
 guessing at an interface before the thing that uses it exists.

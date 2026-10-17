@@ -28,13 +28,16 @@ graph:
 
 - a parameter annotated with a Ligase data type becomes a connection in the
   graph
-- anything else (`min_freq: float = 0.01`) is a plain parameter, recorded
-  and left alone — it joins the cache key in [M3](../milestones.md)
+- anything else (`min_freq: float = 0.01`) is a plain parameter, which
+  joins the [cache key](../concepts/caching.md#what-a-steps-identity-is),
+  so changing it reruns exactly the steps it could have changed
 - the return annotation is what says the step produces an `Alignment`
 
-`tool=` names the external program the step shells out to. It is recorded
-now and used in M3, where a tool's version belongs in the cache key so that
-upgrading minimap2 invalidates the alignments it produced.
+`tool=` names the external program the step shells out to — or several of
+them, `tool=("minimap2", "samtools")`, for a body that pipes one into the
+other. Each one's version belongs in the cache key, so upgrading minimap2
+reruns the alignments it produced. See
+[running a pipeline](running-a-pipeline.md).
 
 Leave an annotation off and you are told immediately, as the module is
 imported:

@@ -147,7 +147,7 @@ pipe = lg.Pipeline(samples.map(lambda s: resistance(call(align(s, hxb2), hxb2)))
 in one graph — and one shared reference node, because it is one file. The
 graph is fully expanded before anything runs, which is what lets the
 executor schedule it; running the chains in parallel and caching each sample
-separately is [M3](../milestones.md).
+separately is [the executor's](../architecture/execution.md).
 
 Fan-out changes what a report has to say. One written `call` step is now one
 step *per sample*, so an error has to name which one, and a count of failing
@@ -217,9 +217,15 @@ actually have is one comprehension away:
 
 ## What is not here yet
 
-The graph is built and checked. Nothing executes it: `pipe.run()`,
-`pipe.methods()` and `ligase run` arrive with the milestones that implement
-them, and `lg.sh()` — the body of a step — is part of execution.
+The graph is built, checked and run — see
+[running a pipeline](../guide/running-a-pipeline.md) for `lg.sh`, the cache
+and what `pipe.run()` reports. What a step body returns is covered there
+too, since a body describes work rather than doing it.
+
+`pipe.methods()` and `ligase methods` arrive with provenance in
+[M5](../milestones.md): the engine records a step's tool versions and
+parameters today, but nothing turns them into a methods paragraph or a
+reproducibility bundle yet.
 
 Conversions are still v2. `check()` reports that a BED and a VCF disagree
 about coordinates; it does not go looking for the conversion that would fix

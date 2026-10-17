@@ -36,10 +36,12 @@ DimensionError in step `call`:
 ## Status
 
 **Pre-alpha**, building towards v0.1. Milestones **M0 (scaffold)**,
-**M1 (types and dimensions)** and **M2 (the graph)** are complete.
+**M1 (types and dimensions)**, **M2 (the graph)** and
+**M3 (execution and cache)** are complete.
 
 You can write a pipeline of annotated steps, have the whole graph
-type-checked without running any of it, and be told every mistake at once:
+type-checked without running any of it, be told every mistake at once, and
+then run it — in parallel, cached, one branch per sample:
 
 ```python
 import ligase as lg
@@ -81,8 +83,40 @@ The step bodies never ran, `aln.reference` came out of a step that does not
 exist yet, and a problem that hit the whole cohort is stated once with every
 affected sample named.
 
-Caching and execution arrive in M3. See [milestones](milestones.md) for the
-order and the acceptance test for each step.
+Point it at the right reference and it runs:
+
+```console
+$ ligase run
+running 12 steps in pipeline.py
+
+ran       `align` (sample SRR8525904)        4.5s
+ran       `call` (sample SRR8525904)         513ms
+ran       `resistance` (sample SRR8525904)   3ms
+...
+
+12 steps: 12 ran.
+```
+
+Run it again and nothing is recomputed, because a step's key is built from
+its code, its parameters, its inputs' *contents* and its tools' versions —
+and none of those moved:
+
+```console
+$ ligase run
+cached    `align` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+cached    `call` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+cached    `resistance` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+
+12 steps: 12 from cache.
+```
+
+Change `min_freq` and only `call` and `resistance` come back. Add a sample
+and only that sample is processed. Edit a step so that it reruns but produces
+the same output, and everything below it is skipped.
+
+Semantic hashing arrives in M4 and provenance in M5. See
+[milestones](milestones.md) for the order and the acceptance test for each
+step.
 
 ## Where to go
 
@@ -95,9 +129,13 @@ order and the acceptance test for each step.
 | Understand why data carries dimensions | [Types and dimensions](concepts/types-and-dimensions.md) |
 | Declare dimensions and read the errors | [Declaring dimensions](guide/declaring-dimensions.md) |
 | Write a pipeline and check it | [Building a pipeline](guide/building-a-pipeline.md) |
+| Run one, and understand what was cached | [Running a pipeline](guide/running-a-pipeline.md) |
 | Understand why steps are never run to build a graph | [Pipelines and the graph](concepts/pipelines.md) |
 | Know how the checker works inside | [Type system](architecture/type-system.md) |
 | Know how the graph works inside | [Graph](architecture/graph.md) |
+| Understand why a step did or did not rerun | [Running, and not running](concepts/caching.md) |
+| Know how a run is scheduled | [Execution](architecture/execution.md) |
+| Know how the cache and its keys work | [Cache](architecture/cache.md) |
 | Know which dimensions exist and how they are inferred | [Dimensions](dimensions.md) |
 | Follow the build order | [Milestones](milestones.md) |
 | Understand a design choice | [Decisions](decisions.md) |

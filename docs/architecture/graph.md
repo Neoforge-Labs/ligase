@@ -79,7 +79,7 @@ single forward pass, and no topological sort is needed anywhere.
 a file passed to two steps becomes one node. Identity rather than equality is
 the right key: two datasets loaded from the same file are two nodes, because
 the user wrote them as two, and a cache that notices they are identical is
-M3's job rather than the graph's.
+the executor's job rather than the graph's.
 
 ## Propagation
 
@@ -273,7 +273,7 @@ Two rules keep the collapsing honest:
 Collapsing is a property of the rendered report, not of the error list.
 `Graph::check` and `pipe.errors()` return one error per failing node, each
 with its own scope, because that is the granularity a program wants —
-counting affected samples, or retrying one of them in M3.
+counting affected samples, or retrying one of them.
 
 ## Intervals, and the order that is not an order
 
@@ -390,7 +390,7 @@ check the same way.
   the side you did not expect.
 - **Plain parameters are recorded and otherwise ignored.** `min_freq` is in
   the signature and in `StepOutput.arguments`, and does nothing until it
-  joins the cache key in M3.
+  joins the cache key ([cache](cache.md#the-key)).
 - **Nothing executes.** `pipe.run()`, `pipe.methods()`, `lg.sh()` and
   `ligase run` are later milestones. The parser deliberately does not offer
   subcommands that would not work.

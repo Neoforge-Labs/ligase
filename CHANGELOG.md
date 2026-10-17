@@ -9,6 +9,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+**M3 — Execution and the content-addressed cache.** A checked pipeline now
+runs: in parallel, cached, one branch per sample.
+
+- `pipe.run()` and `ligase run` compute whatever is not already known. A
+  step's key is `hash(function code, parameters, input content hashes,
+  external tool versions)`, so a step runs when something that could change
+  its result has changed and not otherwise — and nothing runs until the
+  whole pipeline type-checks.
+- A step body now says *how* its output is produced rather than producing
+  it. `lg.sh("minimap2 -ax sr {ref} {reads.r1} {reads.r2} ... -o {out}")`
+  builds a command whose placeholders the engine fills in; `lg.write(f)` is
+  for a step whose work is Python. Bodies are asked once, before anything
+  runs, which is what lets the engine own the whole run without the GIL in
+  the hot path. A placeholder naming nothing is refused, and `{{` escapes a
+  literal brace so an `awk '{{print $1}}'` still works.
+- `@lg.step(tool=...)` accepts several tools — `tool=("minimap2",
+  "samtools")` for a body that pipes one into the other — and each one's
+  `--version` joins the key, so upgrading bcftools reruns the steps it could
+  have changed. A tool that is not installed fails the step before it runs,
+  naming the tool, rather than being hashed as no version at all.
+- Outputs go into a content-addressed store under `.ligase/`, named after
+  the BLAKE3 hash of their bytes, with SQLite metadata beside them. Two
+  steps that produced identical results share one object. Stored objects are
+  read-only: the store is the cache's evidence.
+- **Early cutoff** falls out of that rather than being bolted on. A
+  downstream key is built from its inputs' contents, so a step that reruns
+  and produces the same bytes leaves every key below it unchanged. The
+  report tells the two cases apart: `cached` means nothing above it ran,
+  `skipped` means something did and came out the same.
+- Input files are hashed with a size and mtime prefilter, so a second run
+  over a cohort of BAMs reads none of them again. A timestamp can only ever
+  save work: it never contributes to a hash or a key, and the one case it
+  can miss — a file edited in place, same length, same timestamp — is what
+  `--force` is for.
+- A failure stops its own branch and nothing else. One bad FASTQ no longer
+  costs three good samples their results; steps below a failure are not run
+  and are not reported, one cause giving one failure. `pipe.run()` raises
+  `RunError` carrying the whole report, including everything that did work.
+- The run report is worded by the engine, as the check report already was,
+  so `ligase run` and `report.text` cannot drift. A step that ran gets its
+  own line with its own cost, costs line up in a column, and steps that did
+  not run are grouped with their samples *named* rather than counted.
+- `examples/hiv-resistance/pipeline.py` is the reference demo as a real,
+  runnable pipeline: PRJNA517147 reads, minimap2 to HXB2, bcftools calls,
+  and a report placing each variant in the pol gene and codon it falls in.
+  The four M3 acceptance criteria are tested on it directly, with real
+  tools.
+
+New dependencies, all in the core: `blake3` (with `mmap` and `rayon`, which
+are what make hashing a multi-gigabyte BAM affordable on every run),
+`rusqlite` with `bundled`, and `rayon` for the executor's worker pool.
+Bundling SQLite means a source build now needs a C compiler; in exchange
+every install has the identical SQLite, which an on-disk format that
+outlives a run needs more.
+
 **M2 — The dependency graph.** A pipeline of annotated steps is now built as
 a graph from the signatures alone and type-checked before any of it runs.
 

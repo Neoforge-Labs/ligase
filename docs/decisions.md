@@ -157,3 +157,78 @@ sample that failed differently keeps its own paragraph.
 Collapsing applies to the rendered report, not to the error list.
 `pipe.errors()` stays one error per failing node, because counting affected
 samples — or retrying one of them — wants that granularity.
+
+## D16 — Execution lives in the core; recipes are extracted first
+
+A step's body is Python; a run is dozens of external processes over tens of
+gigabytes. If the scheduler had to call into Python to learn what each step
+does, the GIL would sit in the hot path of every parallel run.
+
+So the body is called once, before the run starts, and returns a *recipe* —
+a command template, or a function to call later. The core then owns the
+whole run (ready queue, worker pool, rendering, hashing, store, metadata)
+with the GIL released, and takes it again only for the `lg.write` steps that
+genuinely are Python.
+
+This is only available because bodies were already deferred
+([D12](#d12-steps-defer-the-graph-is-built-from-signatures)). A body
+that computed something could not be called before its inputs existed; a
+body that describes work can.
+
+The rejected alternative was a Python thread pool driving the core
+step by step. It is simpler, and external processes release the GIL anyway —
+but every task would have to re-enter the interpreter to fetch its recipe,
+and the scheduler's correctness would live in the layer with no tests
+against it. Putting the ready queue in Rust also means `cargo test` can
+assert that a fan-out branch is independent, which is the property the whole
+milestone rests on.
+
+## D17 — A placeholder that names nothing is an error, and `{{` escapes
+
+`lg.sh` fills `{ref}`, `{reads.r1}` and `{out}` from the step's own
+parameters. A mistyped `{refrence}` could either be passed through to the
+shell as literal text or refused. It is refused.
+
+Passing it through would mean a command that fails obscurely much later —
+or, with an `echo`, succeeds. The cost of refusing is that a brace meant
+literally has to be doubled, so an `awk '{{print $1}}'` is written the way
+Snakemake writes it, which is already familiar to the people this is for.
+Anything between braces that is not an identifier is reported as a brace
+needing an escape rather than as a mistyped placeholder, because that is the
+thing the user has to change.
+
+Every substituted value is also quoted into exactly one shell word. A
+reference under `/my refs/` is one path, not two arguments, and a value can
+never end the quoting and continue as code.
+
+## D18 — A failure stops its own branch and nothing else
+
+A step that fails is recorded against its node. Independent branches keep
+running, and steps below the failure are not run and are not reported.
+
+Losing three good samples to one bad FASTQ is the overnight-run problem this
+project exists to remove, so a cohort-wide abort was never an option. The
+other half — reporting the steps below a failure — was rejected for the same
+reason the checker reports one error per missing declaration rather than one
+per step it reaches
+([D13](#d13-the-graph-decides-requirements-and-blames-the-origin)): one
+cause, one failure. A cascade of "its input is missing" lines makes a report
+longer without making it more useful.
+
+Nothing is written to the cache for a failed step, so a half-written output
+can never be served as a result later.
+
+## D19 — A cache from another version is discarded, not migrated
+
+Two version numbers sit in the cache's metadata. A change to the directory
+layout drops the tables; a change to how keys are composed deletes the step
+entries and keeps the file hashes.
+
+That asymmetry is the point. A file's hash is a fact about the file,
+whatever keys are made of. A step entry is a claim that *these ingredients,
+combined this way* produced that output — so an entry from another key
+format is not stale data to be migrated, it is a claim about something else,
+and reading it is the one failure a cache must never have.
+
+Nothing is migrated because nothing needs to be: every byte in the cache is
+derived, recomputing is merely slow, and being wrong is not.
