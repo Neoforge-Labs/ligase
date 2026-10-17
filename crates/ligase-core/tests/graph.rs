@@ -877,6 +877,170 @@ fn errors_that_cannot_name_themselves_are_never_collapsed() {
     );
 }
 
+// ------------------------------------- when a step needs naming, and when not --
+
+#[test]
+fn a_unique_step_name_reads_exactly_as_the_specification_says() {
+    // Regression. `docs/golden-example.md` fixes this shape and the project
+    // treats it as fixed:
+    //
+    //     DimensionError in step `call`:
+    //       aln.reference = ...
+    //
+    // One `call` step and no fan-out means there is nothing a user needed
+    // help identifying, so a sample in the heading is noise on the commonest
+    // path. This goes through real files, where the in-memory fixtures in
+    // `check.rs` carry no sample set and so never exercised it.
+    let mut graph = Graph::new();
+    let aligned = graph.add_input("aln", alignment("tiny_other.sam"));
+    let reference_node = graph.add_input("ref", reference("tiny_bare.fasta"));
+    let called = graph
+        .add_step(spec(
+            "call",
+            DataKind::Variants,
+            vec![
+                argument("aln", DataKind::Alignment, aligned),
+                argument("ref", DataKind::Reference, reference_node),
+            ],
+        ))
+        .unwrap();
+
+    // The alignment does have a sample set -- `@RG SM:sample_a` -- so this
+    // is about ambiguity, not about whether a sample is known.
+    assert!(
+        graph
+            .dataset(aligned)
+            .unwrap()
+            .dimensions()
+            .sample_set
+            .is_known()
+    );
+
+    let errors = graph.check(&[called]);
+    assert_eq!(errors.len(), 1, "errors were: {errors:#?}");
+    assert_eq!(errors[0].scope(), None);
+    assert!(
+        errors[0]
+            .to_string()
+            .starts_with("DimensionError in step `call`:\n  aln.reference = "),
+        "{}",
+        errors[0]
+    );
+}
+
+#[test]
+fn a_shared_name_whose_samples_match_is_told_apart_by_its_input() {
+    // Regression. Two `call` nodes fed different alignments that happen to
+    // share a sample both read "(sample sample_a)", which tells a user
+    // nothing while looking exactly as though it did. A suffix that repeats
+    // is worse than no suffix.
+    let mut graph = Graph::new();
+    let bare = graph.add_input("ref", reference("tiny_bare.fasta"));
+    let roots: Vec<NodeId> = ["tiny_prefixed.sam", "tiny_other.sam"]
+        .into_iter()
+        .map(|name| {
+            let aligned = graph.add_input("aln", alignment(name));
+            graph
+                .add_step(spec(
+                    "call",
+                    DataKind::Variants,
+                    vec![
+                        argument("aln", DataKind::Alignment, aligned),
+                        argument("ref", DataKind::Reference, bare),
+                    ],
+                ))
+                .unwrap()
+        })
+        .collect();
+
+    let errors = graph.check(&roots);
+    assert_eq!(errors.len(), 2, "errors were: {errors:#?}");
+
+    // Both nodes are `sample_a`, so the sample is not a discriminator and
+    // the file that distinguishes them is used instead.
+    let scopes: Vec<Option<String>> = errors
+        .iter()
+        .map(|error| error.scope().map(Scope::describe))
+        .collect();
+    assert_eq!(
+        scopes,
+        [
+            Some("file tests/fixtures/tiny_prefixed.sam".to_owned()),
+            Some("file tests/fixtures/tiny_other.sam".to_owned()),
+        ],
+        "errors were: {errors:#?}"
+    );
+    // Whatever the discriminator is, the two headings must differ.
+    assert_ne!(
+        errors[0].to_string().lines().next(),
+        errors[1].to_string().lines().next()
+    );
+}
+
+#[test]
+fn a_shared_name_nothing_distinguishes_is_left_unannotated() {
+    // Two `call` nodes over the same two in-memory datasets: same name, same
+    // sample, same inputs. Nothing tells them apart, so nothing is claimed
+    // to.
+    let mut graph = Graph::new();
+    let aligned = graph.add_input("aln", alignment("tiny_other.sam"));
+    let reference_node = graph.add_input("ref", reference("tiny_bare.fasta"));
+    let roots: Vec<NodeId> = (0..2)
+        .map(|_| {
+            graph
+                .add_step(spec(
+                    "call",
+                    DataKind::Variants,
+                    vec![
+                        argument("aln", DataKind::Alignment, aligned),
+                        argument("ref", DataKind::Reference, reference_node),
+                    ],
+                ))
+                .unwrap()
+        })
+        .collect();
+
+    let errors = graph.check(&roots);
+    assert_eq!(errors.len(), 2, "errors were: {errors:#?}");
+    assert!(errors.iter().all(|error| error.scope().is_none()));
+
+    // And without a name they are not collapsed, so neither is hidden.
+    let report = check::render(&errors);
+    assert_eq!(
+        report
+            .matches("These must match. Did you pass the wrong reference?")
+            .count(),
+        2,
+        "{report}"
+    );
+    assert!(report.ends_with("2 errors in 2 steps."), "{report}");
+}
+
+#[test]
+fn an_unreachable_twin_does_not_make_a_name_ambiguous() {
+    // Ambiguity is judged over the pipeline being checked, not the whole
+    // module: a second `call` built for another pipeline must not start
+    // annotating this one's.
+    let (mut graph, _) = broken_fan_out(&["s1"]);
+    let roots = vec![NodeId::from_index(graph.len() - 1)];
+    let elsewhere = graph.add_input("aln", alignment("tiny_other.sam"));
+    let bare = graph.add_input("ref", reference("tiny_bare.fasta"));
+    graph
+        .add_step(spec(
+            "call",
+            DataKind::Variants,
+            vec![
+                argument("aln", DataKind::Alignment, elsewhere),
+                argument("ref", DataKind::Reference, bare),
+            ],
+        ))
+        .unwrap();
+
+    let errors = graph.check(&roots);
+    assert_eq!(errors.len(), 1, "errors were: {errors:#?}");
+    assert_eq!(errors[0].scope(), None);
+}
+
 // ------------------------------------------------- the real HIV-1 demo --
 
 #[test]

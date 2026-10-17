@@ -75,9 +75,10 @@ def test_a_wrong_reference_is_reported_without_running_anything(
     assert main(["check", str(path)]) == 1
 
     out = capsys.readouterr().out
-    # The sample is in the heading, because under fan-out the step name alone
-    # does not say which of them failed.
-    assert "DimensionError in step `call` (sample reads_phred33):" in out
+    # Exactly the shape `docs/golden-example.md` specifies. There is one
+    # `call` step and no fan-out, so nothing is added to its heading: a
+    # suffix identifying nothing is noise on the commonest path.
+    assert "DimensionError in step `call`:\n  aln.reference = " in out
     assert "Did you pass the wrong reference?" in out
     assert "1 error in 1 step." in out
 

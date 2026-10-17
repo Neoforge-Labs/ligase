@@ -23,9 +23,13 @@
 //! `align`" and a mistake found three steps downstream can still be traced.
 //!
 //! **Identity under fan-out.** One written step becomes one node per sample,
-//! so an error carries the node it came from and, where the graph can work it
-//! out, the sample that node is for. Without that, four samples failing the
-//! same way are four byte-identical messages and a count of one step.
+//! so an error carries the node it came from, and its heading names that node
+//! wherever the step's own name is ambiguous. Without it, four samples
+//! failing the same way are four byte-identical messages and a count of one
+//! step. With it where it is *not* needed, the specified error shape grows a
+//! suffix that identifies nothing — so a name belonging to one step gets
+//! none, and a name belonging to several gets one only if it tells them
+//! apart.
 //!
 //! **Patience, then attribution.** `docs/dimensions.md` allows an unknown
 //! dimension *unless a downstream step requires it*. A sample set that
@@ -34,7 +38,7 @@
 //! the input that has to declare it rather than the step that tripped over
 //! it, once, however many steps the gap travelled through.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 
@@ -236,7 +240,10 @@ impl Graph {
         // reaches.
         let mut demanded: HashSet<(usize, Dimension)> = HashSet::new();
 
-        for index in self.reachable(roots) {
+        let reachable = self.reachable(roots);
+        let scopes = self.scopes(&reachable);
+
+        for index in reachable {
             let Node::Step { spec, .. } = &self.nodes[index] else {
                 continue;
             };
@@ -248,10 +255,11 @@ impl Graph {
                 self.demand(spec, &bindings, &mut demanded, &mut found);
             }
 
-            // Every error says which node it came from, so a count of failing
-            // steps counts places rather than names, and a fan-out error can
-            // say which sample it is about.
-            let scope = self.scope(NodeId(index));
+            // Every error says which node it came from, so a count of
+            // failing steps counts places rather than names. The scope is
+            // how a *message* says which, and only exists where the step's
+            // name does not already say it.
+            let scope = scopes.get(&index).cloned();
             errors.extend(
                 found
                     .into_iter()
@@ -262,12 +270,84 @@ impl Graph {
         errors
     }
 
-    /// How to name a node in a message, when one step runs many times.
+    /// How to name each step node in a message, for the names that need it.
     ///
-    /// The sample, where there is exactly one. A step that spans a whole
-    /// cohort gets nothing: naming it after one of its samples would be worse
-    /// than saying nothing, because a user would go and look at that sample.
-    fn scope(&self, node: NodeId) -> Option<Scope> {
+    /// A name belonging to one step needs nothing. The shape
+    /// `docs/golden-example.md` specifies is `in step `call`:`, and a suffix
+    /// that identifies nothing a user was struggling to identify is noise on
+    /// the commonest path.
+    ///
+    /// A name belonging to several needs something that tells *those* apart,
+    /// which is the sample under per-sample fan-out. Where it is not — two
+    /// nodes fed different alignments of the same sample, say — the next
+    /// discriminator is tried, and if none of them separates the group then
+    /// nothing is added. A suffix that repeats looks exactly like an
+    /// identifier while being none, which is the bug this avoids rather than
+    /// a smaller version of it.
+    ///
+    /// Ambiguity is judged over the nodes being checked, so a twin built for
+    /// another pipeline does not start annotating this one's.
+    fn scopes(&self, reachable: &BTreeSet<usize>) -> HashMap<usize, Scope> {
+        let mut shared: HashMap<&str, Vec<usize>> = HashMap::new();
+        for index in reachable {
+            if let Some(Node::Step { spec, .. }) = self.nodes.get(*index) {
+                shared.entry(spec.name.as_str()).or_default().push(*index);
+            }
+        }
+
+        let mut scopes = HashMap::new();
+        for nodes in shared.into_values().filter(|nodes| nodes.len() > 1) {
+            if let Some(named) = self.distinguish(&nodes) {
+                scopes.extend(named);
+            }
+        }
+        scopes
+    }
+
+    /// The first discriminator that gives every one of these nodes its own
+    /// distinct value.
+    fn distinguish(&self, nodes: &[usize]) -> Option<Vec<(usize, Scope)>> {
+        for discriminator in Discriminator::ALL {
+            let Some(named) = nodes
+                .iter()
+                .map(|index| {
+                    let value = self.discriminate(NodeId(*index), discriminator)?;
+                    Some((
+                        *index,
+                        Scope {
+                            kind: discriminator.name(),
+                            value,
+                        },
+                    ))
+                })
+                .collect::<Option<Vec<(usize, Scope)>>>()
+            else {
+                continue;
+            };
+
+            let mut values: Vec<&str> = named.iter().map(|(_, s)| s.value.as_str()).collect();
+            values.sort_unstable();
+            let before = values.len();
+            values.dedup();
+            if values.len() == before {
+                return Some(named);
+            }
+        }
+        None
+    }
+
+    fn discriminate(&self, node: NodeId, discriminator: Discriminator) -> Option<String> {
+        match discriminator {
+            Discriminator::Sample => self.sample_of(node),
+            Discriminator::File => self.first_file(node),
+        }
+    }
+
+    /// The sample a node stands for, if it stands for exactly one.
+    ///
+    /// A step spanning a whole cohort stands for none: naming it after one of
+    /// its samples would send a user to look at the wrong data.
+    fn sample_of(&self, node: NodeId) -> Option<String> {
         let output = self.dataset(node)?;
         if output.kind().applies(Dimension::SampleSet) {
             return single_sample(output);
@@ -279,7 +359,7 @@ impl Graph {
         let Some(Node::Step { spec, .. }) = self.nodes.get(node.0) else {
             return None;
         };
-        let mut agreed: Option<Scope> = None;
+        let mut agreed: Option<String> = None;
         for argument in &spec.arguments {
             let Some(dataset) = self.dataset(argument.node) else {
                 continue;
@@ -288,13 +368,41 @@ impl Graph {
                 continue;
             }
             match single_sample(dataset) {
-                Some(scope) if agreed.as_ref().is_none_or(|seen| *seen == scope) => {
-                    agreed = Some(scope);
+                Some(sample) if agreed.as_ref().is_none_or(|seen| *seen == sample) => {
+                    agreed = Some(sample);
                 }
                 _ => return None,
             }
         }
         agreed
+    }
+
+    /// The first file this node was built from, in signature order.
+    ///
+    /// Depth-first through the arguments, so a step two hops from any file
+    /// still names the one its own first input came from.
+    fn first_file(&self, node: NodeId) -> Option<String> {
+        let mut stack = vec![node];
+        let mut seen = BTreeSet::new();
+
+        while let Some(current) = stack.pop() {
+            if !seen.insert(current.0) {
+                continue;
+            }
+            match self.nodes.get(current.0) {
+                Some(Node::Input { dataset, .. }) => {
+                    if let Some(path) = dataset.path() {
+                        return Some(display_path(path));
+                    }
+                }
+                // Reversed, so the first argument is the first one popped.
+                Some(Node::Step { spec, .. }) => {
+                    stack.extend(spec.arguments.iter().rev().map(|a| a.node));
+                }
+                None => {}
+            }
+        }
+        None
     }
 
     /// Arguments whose supplied kind is not the kind the step declares.
@@ -452,13 +560,32 @@ impl Graph {
     }
 }
 
+/// What can tell two steps of the same name apart, in the order tried.
+#[derive(Clone, Copy, Debug)]
+enum Discriminator {
+    /// The sample the step stands for. The right answer under fan-out, where
+    /// one written step becomes one step per sample.
+    Sample,
+    /// The first file the step was built from. For same-named steps over
+    /// different data from the same sample.
+    File,
+}
+
+impl Discriminator {
+    const ALL: [Self; 2] = [Self::Sample, Self::File];
+
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Sample => "sample",
+            Self::File => "file",
+        }
+    }
+}
+
 /// The one sample a dataset covers, if it covers exactly one.
-fn single_sample(dataset: &Dataset) -> Option<Scope> {
+fn single_sample(dataset: &Dataset) -> Option<String> {
     match dataset.dimensions().sample_set.value()?.as_slice() {
-        [one] => Some(Scope {
-            kind: "sample",
-            value: one.clone(),
-        }),
+        [one] => Some(one.clone()),
         _ => None,
     }
 }

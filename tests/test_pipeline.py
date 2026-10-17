@@ -299,6 +299,40 @@ def test_the_report_states_one_problem_once_and_names_every_sample() -> None:
     assert text.endswith("4 errors in 4 steps.")
 
 
+def test_an_unambiguous_step_is_not_annotated_at_all() -> None:
+    # Regression. One `call` step and no fan-out, so the heading is exactly
+    # the shape the golden example specifies -- even though the alignment
+    # does know its sample.
+    aln = lg.alignment(fixture("tiny_other.sam"))
+    assert aln.samples == ["sample_a"]
+
+    errors = lg.Pipeline(call(aln, hxb2())).errors()
+
+    assert len(errors) == 1
+    assert errors[0].scope is None
+    assert str(errors[0]).startswith("DimensionError in step `call`:\n")
+
+
+def test_same_named_steps_over_one_sample_are_told_apart_by_their_input() -> None:
+    # Regression. Two `call` nodes fed different alignments of the same
+    # sample both read "(sample sample_a)" -- which tells a user nothing
+    # while looking exactly as though it did.
+    bare = hxb2()
+    errors = lg.Pipeline(
+        [
+            call(lg.alignment(fixture("tiny_prefixed.sam")), bare),
+            call(lg.alignment(fixture("tiny_other.sam")), bare),
+        ]
+    ).errors()
+
+    assert len(errors) == 2
+    assert [e.scope[0] for e in errors if e.scope] == ["file", "file"]
+    headings = [str(e).splitlines()[0] for e in errors]
+    assert headings[0] != headings[1]
+    assert "tiny_prefixed.sam" in headings[0]
+    assert "tiny_other.sam" in headings[1]
+
+
 def test_a_cohort_step_is_not_labelled_with_one_of_its_samples() -> None:
     @lg.step
     def merge(a: Variants, b: Variants) -> Variants:
