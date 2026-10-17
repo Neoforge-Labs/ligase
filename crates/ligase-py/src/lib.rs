@@ -9,14 +9,16 @@
 //! building a class hierarchy — the exception classes are defined in Python,
 //! where subclassing and type stubs are straightforward.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use pyo3::create_exception;
-use pyo3::exceptions::{PyException, PyValueError};
+use pyo3::exceptions::{PyException, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
+use ligase::cache::Cache;
 use ligase::check::{Binding, CheckError, check_step as core_check_step, render, summarise};
 use ligase::dim::{CoordinateSystem, Dimension};
+use ligase::exec::{self, Host, Options, Recipe, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
 use ligase::load::{self, Declared, IntervalFormat, LoadError as CoreLoadError};
 use ligase::types::{DataKind, Dataset};
@@ -40,6 +42,75 @@ type PyCheckError = (
 
 /// One step argument as Python sees it: parameter, declared kind, node.
 type PyArgument = (String, String, usize);
+
+/// One task as Python gives it: node, code, command, callback, tools,
+/// parameters.
+///
+/// Exactly one of the command and the callback is set. A command is run by
+/// the core; a callback goes back to Python, which is the only thing in a
+/// run that takes the GIL.
+type PyTask = (
+    usize,
+    String,
+    Option<String>,
+    Option<u64>,
+    Vec<String>,
+    Vec<(String, String)>,
+);
+
+/// One finished step: node, step, outcome, key, output hash, output,
+/// milliseconds.
+type PyRunResult = (usize, String, String, String, String, String, u64);
+
+/// One failed step: node, step, message.
+type PyRunFailure = (usize, String, String);
+
+/// A whole run as Python sees it: the steps that finished, the ones that
+/// failed, the summary line, the report as text, and how many input files
+/// were hashed against how many the prefilter already knew.
+type PyRunReport = (
+    Vec<PyRunResult>,
+    Vec<PyRunFailure>,
+    String,
+    String,
+    (u64, u64),
+);
+
+/// Python's step bodies, for the steps that are not shell commands.
+struct PyHost {
+    callbacks: Vec<Py<PyAny>>,
+}
+
+impl Host for PyHost {
+    fn call(&self, id: u64, out: &Path, inputs: &[(String, Vec<PathBuf>)]) -> Result<(), String> {
+        let index = usize::try_from(id).map_err(|_| format!("no callback {id}"))?;
+        let callback = self
+            .callbacks
+            .get(index)
+            .ok_or_else(|| format!("no callback {id} was registered for this run"))?;
+
+        let bound: Vec<(String, Vec<String>)> = inputs
+            .iter()
+            .map(|(param, files)| {
+                (
+                    param.clone(),
+                    files
+                        .iter()
+                        .map(|file| file.to_string_lossy().into_owned())
+                        .collect(),
+                )
+            })
+            .collect();
+
+        // The only place a run takes the GIL.
+        Python::attach(|py| {
+            callback
+                .call1(py, (out.to_string_lossy().into_owned(), bound))
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+    }
+}
 
 fn translate(error: &CheckError) -> PyCheckError {
     (
@@ -382,6 +453,97 @@ impl PyGraph {
         let summary = summarise(&errors);
         let report = render(&errors);
         (errors.iter().map(translate).collect(), summary, report)
+    }
+
+    /// Run every step these outputs depend on.
+    ///
+    /// The GIL is released for the whole run and taken again only for the
+    /// steps whose bodies are Python callbacks, so a cohort of shell steps
+    /// runs at full width.
+    ///
+    /// Returns every finished step, every failure, the summary line, the
+    /// whole report as text, and how many input files had to be hashed
+    /// against how many the prefilter already knew.
+    #[pyo3(signature = (roots, tasks, cache_dir, callbacks, jobs=None, force=false))]
+    fn run(
+        &self,
+        roots: Vec<usize>,
+        tasks: Vec<PyTask>,
+        cache_dir: PathBuf,
+        callbacks: Vec<Py<PyAny>>,
+        jobs: Option<usize>,
+        force: bool,
+    ) -> PyResult<PyRunReport> {
+        let roots = nodes(&roots);
+        let tasks = tasks
+            .into_iter()
+            .map(|(node, code, command, callback, tools, parameters)| {
+                let recipe = match (command, callback) {
+                    (Some(command), _) => Recipe::Shell(command),
+                    (None, Some(id)) => Recipe::Callback(id),
+                    (None, None) => {
+                        return Err(PyValueError::new_err(
+                            "a step needs either a command or a callback to produce anything",
+                        ));
+                    }
+                };
+                Ok(Task {
+                    node: NodeId::from_index(node),
+                    code,
+                    recipe,
+                    tools,
+                    parameters,
+                })
+            })
+            .collect::<PyResult<Vec<Task>>>()?;
+
+        let cache =
+            Cache::open(&cache_dir).map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        let options = Options {
+            jobs: jobs.unwrap_or_else(|| Options::default().jobs),
+            force,
+        };
+        let host = PyHost { callbacks };
+
+        let report = Python::attach(|py| {
+            py.detach(|| exec::run(&self.inner, &roots, &tasks, &cache, &options, &host))
+        });
+
+        let summary = exec::summarise(&report);
+        let text = exec::render(&self.inner, &roots, &report);
+        let stats = cache.stats();
+
+        Ok((
+            report
+                .results
+                .iter()
+                .map(|result| {
+                    (
+                        result.node.index(),
+                        result.step.clone(),
+                        result.outcome.to_string(),
+                        result.key.to_hex(),
+                        result.hash.to_hex(),
+                        result.output.to_string_lossy().into_owned(),
+                        u64::try_from(result.duration.as_millis()).unwrap_or(u64::MAX),
+                    )
+                })
+                .collect(),
+            report
+                .failures
+                .iter()
+                .map(|failure| {
+                    (
+                        failure.node.index(),
+                        failure.step.clone(),
+                        failure.message.clone(),
+                    )
+                })
+                .collect(),
+            summary,
+            text,
+            (stats.hashed, stats.prefiltered),
+        ))
     }
 
     fn __len__(&self) -> usize {

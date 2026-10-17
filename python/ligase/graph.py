@@ -20,8 +20,9 @@ the same mistake for code that is not type-checked.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -35,12 +36,15 @@ from typing import (
 
 from . import _core
 from .errors import CheckError, StepDefinitionError, build
+from .recipes import Shell, Written
+from .run import RunError, RunReport, StepFailure, StepRun
 from .types import KINDS, Dataset
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Mapping, Sequence
 
 __all__ = [
+    "CACHE_DIR",
     "Parameter",
     "Pipeline",
     "Report",
@@ -56,6 +60,17 @@ R = TypeVar("R", bound=Dataset)
 #: The coordinate conventions `@lg.step(coordinates=...)` accepts.
 COORDINATES = ("0-based half-open", "1-based closed")
 
+#: Where a run keeps its cache, under the working directory.
+CACHE_DIR = ".ligase"
+
+#: One task as the engine takes it: node, code, command, callback, tools,
+#: parameters. Exactly one of the command and the callback is set.
+_Task = tuple[int, str, str | None, int | None, list[str], list[tuple[str, str]]]
+
+#: A `lg.write` body, as the engine calls it: where to write, and the
+#: inputs by parameter name.
+_Callback = Callable[[str, list[tuple[str, list[str]]]], None]
+
 
 @dataclass(frozen=True, slots=True)
 class Parameter:
@@ -65,7 +80,8 @@ class Parameter:
         name: The parameter's name, as the step declares it.
         kind: The Ligase data type it takes, or `None` when it is a plain
             value such as a threshold. Plain parameters are recorded but
-            carry no dimensions; they join the cache key in M3.
+            carry no dimensions, but they do join the cache key, so
+            changing one reruns the steps below it.
     """
 
     name: str
@@ -76,9 +92,10 @@ class Step(Generic[P, R]):
     """A function that records a call instead of running.
 
     Attributes:
-        function: The undecorated callable. Execution will run this; nothing
-            in M2 does.
-        tool: The external tool the step shells out to, if it was given one.
+        function: The undecorated callable. A run calls it once, before
+            anything executes, to ask how the output is produced.
+        tool: The external tools the step shells out to, as they were given.
+        tools: Those tools as a tuple, whose versions join the cache key.
         coordinates: The coordinate convention the step writes, for the one
             output kind that does not imply one.
     """
@@ -90,18 +107,20 @@ class Step(Generic[P, R]):
         "output",
         "parameters",
         "tool",
+        "tools",
     )
 
     def __init__(
         self,
         function: Callable[P, R],
         *,
-        tool: str | None = None,
+        tool: str | Sequence[str] | None = None,
         coordinates: str | None = None,
     ) -> None:
         """Read a function's signature, refusing one a graph cannot use."""
         self.function = function
         self.tool = tool
+        self.tools = _tools(tool)
         self.coordinates = coordinates
         self._signature = inspect.signature(function)
         self.output = _output_kind(function)
@@ -157,7 +176,7 @@ class StepOutput:
         arguments: Everything the step was called with, by parameter name.
     """
 
-    __slots__ = ("_graph", "_node", "arguments", "step")
+    __slots__ = ("_graph", "_node", "_produced", "arguments", "step")
 
     def __init__(self, step: Step[Any, Any], arguments: dict[str, object]) -> None:
         """Record a deferred call."""
@@ -165,6 +184,7 @@ class StepOutput:
         self.arguments = arguments
         self._graph: _core.Graph | None = None
         self._node: int | None = None
+        self._produced: str | None = None
 
     @property
     def kind(self) -> str:
@@ -184,6 +204,30 @@ class StepOutput:
         if found is None:
             return None
         return KINDS.get(self.kind, Dataset)(found)
+
+    @property
+    def path(self) -> str:
+        """Where the output is, once the step has produced it.
+
+        A `lg.write` body reads this inside the function it hands back, by
+        which time the engine has run whatever comes above it:
+
+            return lg.write(lambda out: interpret(v.path, out))
+
+        Raises:
+            RuntimeError: Before the step has run, when there is no file to
+                name. A shell command should use `{placeholders}` instead,
+                which the engine fills in for it.
+        """
+        if self._produced is None:
+            raise RuntimeError(
+                f"step `{self.step.name}` has not produced anything yet, so "
+                "its output has no path. A shell command names its inputs "
+                "with placeholders and lets the engine fill them in; a "
+                "`lg.write` body reads `.path` inside the function it "
+                "returns, which runs after the steps above it"
+            )
+        return self._produced
 
     def inputs(self) -> tuple[tuple[Parameter, object], ...]:
         """The data arguments, paired with the parameters they filled."""
@@ -232,7 +276,7 @@ class Pipeline:
     signatures and from the dimensions the inputs were loaded with.
     """
 
-    __slots__ = ("_graph", "_outputs", "_roots")
+    __slots__ = ("_graph", "_handles", "_outputs", "_roots")
 
     def __init__(self, outputs: Dataset | Iterable[Dataset]) -> None:
         """Build the graph that produces these outputs.
@@ -249,6 +293,7 @@ class Pipeline:
                 loaded data nor another step's output.
         """
         self._graph = _core.Graph()
+        self._handles: dict[int, StepOutput] = {}
         self._outputs: list[object] = list(_as_outputs(outputs))
         if not self._outputs:
             raise ValueError(
@@ -280,6 +325,9 @@ class Pipeline:
                 value.step.coordinates,
             )
             value._attach(self._graph, node)
+            # A run asks each handle how its output is produced, so the
+            # graph's nodes have to lead back to the handles that made them.
+            self._handles[node] = value
         elif isinstance(value, Dataset):
             node = self._graph.add_input(value.kind.lower(), value._core)
         else:
@@ -328,6 +376,144 @@ class Pipeline:
         if errors:
             raise errors[0]
 
+    def run(
+        self,
+        *,
+        jobs: int | None = None,
+        force: bool = False,
+        cache: str | Path | None = None,
+    ) -> RunReport:
+        """Check the pipeline, then compute whatever is not already known.
+
+        The pipeline is checked first, every time: running an unchecked
+        pipeline is how an overnight run ends in a dimension error.
+
+        A step runs when something that could change its result has changed
+        — its code, a parameter, an input's contents, or the version of a
+        tool it calls — and not otherwise. Independent steps run at once,
+        and a step whose rerun produced the same output as before leaves
+        everything below it alone.
+
+        Args:
+            jobs: How many steps may run at once. Defaults to the number of
+                cores.
+            force: Run every step, cache or no cache. For the one case the
+                cache cannot see: a file rewritten in place, keeping its
+                length and its timestamp.
+            cache: Where to keep the cache. Defaults to `.ligase` under the
+                working directory.
+
+        Returns:
+            What every step did, and where its output is.
+
+        Raises:
+            CheckError: If the pipeline does not type-check. Nothing runs.
+            RunError: If any step failed. Everything that did succeed is on
+                the error's `report`, which for a cohort is usually most of
+                it.
+        """
+        self.check()
+        tasks, callbacks = self._plan()
+        directory = Path(cache) if cache is not None else Path.cwd() / CACHE_DIR
+
+        finished, failed, summary, text, counted = self._graph.run(
+            self._roots,
+            tasks,
+            str(directory),
+            callbacks,
+            jobs,
+            force,
+        )
+
+        steps = []
+        for node, name, outcome, key, digest, output, duration in finished:
+            # Tell the handle where its output landed, so a later
+            # `lg.handle(x).path` and the next run's bodies can read it.
+            produced = self._handles.get(node)
+            if produced is not None:
+                produced._produced = output
+            steps.append(
+                StepRun(
+                    step=name,
+                    sample=self._sample(node),
+                    outcome=outcome,
+                    output=output,
+                    key=key,
+                    hash=digest,
+                    duration_ms=duration,
+                    node=node,
+                )
+            )
+
+        hashed, prefiltered = counted
+        report = RunReport(
+            steps=steps,
+            failures=[
+                StepFailure(
+                    step=name,
+                    sample=self._sample(node),
+                    message=message,
+                    node=node,
+                )
+                for node, name, message in failed
+            ],
+            summary=summary,
+            text=text,
+            hashed=hashed,
+            prefiltered=prefiltered,
+        )
+        if report.failures:
+            raise RunError(report)
+        return report
+
+    def _plan(self) -> tuple[list[_Task], list[_Callback]]:
+        """Ask every step how its output is produced, before anything runs.
+
+        This is the one moment a step body is called, and it is called for
+        its *answer* rather than for its effect: a command to render, or a
+        function to call later. Nothing has been computed, so a body that
+        reaches for an input's contents here is a body that cannot work.
+        """
+        tasks: list[_Task] = []
+        callbacks: list[_Callback] = []
+
+        for node, produced in sorted(self._handles.items()):
+            recipe = _recipe(produced)
+            callback: int | None = None
+            command: str | None = None
+            if isinstance(recipe, Shell):
+                command = recipe.command
+            else:
+                callback = len(callbacks)
+                callbacks.append(_bind(recipe, produced))
+
+            step = produced.step
+            tasks.append(
+                (
+                    node,
+                    _source(step.function),
+                    command,
+                    callback,
+                    list(step.tools),
+                    [
+                        (parameter.name, repr(produced.arguments[parameter.name]))
+                        for parameter in step.plain_parameters
+                    ],
+                )
+            )
+
+        return tasks, callbacks
+
+    def _sample(self, node: int) -> str | None:
+        """The one sample a node stands for, if it stands for exactly one."""
+        found = self._graph.dataset(node)
+        if found is None:
+            return None
+        samples = found.samples()
+        if samples is None or len(samples) != 1:
+            return None
+        return samples[0]
+
     def __len__(self) -> int:
         """How many nodes the graph holds, inputs included."""
         return len(self._graph)
@@ -344,7 +530,7 @@ def step(function: Callable[P, R], /) -> Step[P, R]: ...
 @overload
 def step(
     *,
-    tool: str | None = None,
+    tool: str | Sequence[str] | None = None,
     coordinates: str | None = None,
 ) -> Callable[[Callable[P, R]], Step[P, R]]: ...
 
@@ -353,7 +539,7 @@ def step(
     function: Callable[P, R] | None = None,
     /,
     *,
-    tool: str | None = None,
+    tool: str | Sequence[str] | None = None,
     coordinates: str | None = None,
 ) -> Step[P, R] | Callable[[Callable[P, R]], Step[P, R]]:
     """Make a function a pipeline step, without ever running it.
@@ -365,8 +551,11 @@ def step(
 
     Args:
         function: The function to decorate, when used bare as `@lg.step`.
-        tool: The external tool the step shells out to, e.g. `minimap2`.
-            Recorded now; its version joins the cache key in M3.
+        tool: The external tool the step shells out to, e.g. `minimap2`,
+            or several of them: `tool=("minimap2", "samtools")` for a body
+            that pipes one into the other. Each one's `--version` joins the
+            cache key, so an upgrade that changes a result reruns the steps
+            it could have changed.
         coordinates: The coordinate convention the step writes, one of
             `"0-based half-open"` or `"1-based closed"`. Only meaningful for
             a step that produces `Intervals`: alignments and variant calls
@@ -380,7 +569,8 @@ def step(
         StepDefinitionError: If the signature is one a graph cannot use —
             an unannotated parameter, a missing or non-Ligase return
             annotation, or `*args`/`**kwargs`.
-        ValueError: If `coordinates` is not one of the two conventions.
+        ValueError: If `coordinates` is not one of the two conventions, or
+            a tool was named as an empty string.
     """
     if coordinates is not None and coordinates not in COORDINATES:
         raise ValueError(
@@ -494,6 +684,78 @@ def _kind_of(annotation: object) -> str | None:
 
 def _name(annotation: object) -> str:
     return getattr(annotation, "__name__", repr(annotation))
+
+
+def _tools(tool: str | Sequence[str] | None) -> tuple[str, ...]:
+    """The tools a step named, as a tuple, however they were given."""
+    if tool is None:
+        return ()
+    names = (tool,) if isinstance(tool, str) else tuple(tool)
+    for name in names:
+        if not name:
+            raise ValueError(
+                "a step's `tool` must name a command to run, not an empty "
+                "string; a step that calls no external tool needs no `tool`"
+            )
+    return names
+
+
+def _recipe(produced: StepOutput) -> Shell | Written:
+    """Ask a step body how its output is produced.
+
+    The body is called here and nowhere else, and it is called for its
+    answer rather than for its effect.
+    """
+    name = produced.step.name
+    try:
+        answer = produced.step.function(**produced.arguments)
+    # Any failure in the user's own body, including reaching for an input's
+    # contents before anything has run.
+    except Exception as error:
+        raise StepDefinitionError(
+            f"step `{name}` could not say how to produce its output: "
+            f"{error!r}. A body is called before anything has been "
+            "computed, so it can only describe the work -- `lg.sh(...)` or "
+            "`lg.write(...)` -- not do it"
+        ) from error
+
+    if not isinstance(answer, Shell | Written):
+        raise StepDefinitionError(
+            f"step `{name}` returned {answer!r}, which does not say how to "
+            'produce anything; return `lg.sh("...")` for a command, or '
+            "`lg.write(f)` for a step that writes the file itself"
+        )
+    return answer
+
+
+def _bind(recipe: Written, produced: StepOutput) -> _Callback:
+    """A `lg.write` body, with its inputs' paths filled in when it runs."""
+
+    def write(out: str, inputs: list[tuple[str, list[str]]]) -> None:
+        for parameter, files in inputs:
+            given = produced.arguments.get(parameter)
+            if isinstance(given, StepOutput) and files:
+                given._produced = files[0]
+        recipe.function(Path(out))
+
+    return write
+
+
+def _source(function: Callable[..., Any]) -> str:
+    """A step's code, as the cache key sees it.
+
+    The source as written, so that changing what a step does reruns it. A
+    comment-only edit therefore reruns it too, and then early cutoff stops
+    the rerun going any further: too cold is a cost, too warm is a wrong
+    answer.
+    """
+    try:
+        return inspect.getsource(function)
+    # A function defined in a REPL or an `exec` has no source to read. Its
+    # compiled form still changes when it does, which is what the key needs.
+    except (OSError, TypeError):
+        code = function.__code__
+        return f"{code.co_code.hex()}:{code.co_consts!r}"
 
 
 def _as_outputs(outputs: object) -> list[object]:

@@ -12,6 +12,7 @@ do not match -- like units in physics.
     ... def align(reads: Reads, ref: Reference) -> Alignment: ...
     >>> pipe = lg.Pipeline(samples.map(lambda s: align(s, hxb2)))
     >>> pipe.check()   # type-checks every step; nothing runs
+    >>> pipe.run()     # parallel, cached, per-sample fan-out
 """
 
 from __future__ import annotations
@@ -33,6 +34,8 @@ from .errors import (
     build as _build_errors,
 )
 from .graph import Pipeline, Report, Step, StepOutput, handle, step
+from .recipes import Shell, Written, sh, write
+from .run import RunError, RunReport, StepFailure, StepRun
 from .samples import Samples
 from .types import (
     Alignment,
@@ -65,13 +68,19 @@ __all__ = [
     "Reference",
     "Report",
     "ResistanceReport",
+    "RunError",
+    "RunReport",
     "Samples",
+    "Shell",
     "Step",
     "StepDefinitionError",
+    "StepFailure",
     "StepOutput",
+    "StepRun",
     "StepTypeError",
     "UndeclaredDimensionError",
     "Variants",
+    "Written",
     "__version__",
     "alignment",
     "check_step",
@@ -81,9 +90,11 @@ __all__ = [
     "reads",
     "reference",
     "samples",
+    "sh",
     "step",
     "variants",
     "version",
+    "write",
 ]
 
 #: Version of the compiled core engine. Reported by Rust, never hardcoded.

@@ -4,6 +4,7 @@ This surface is private. The public API is in `ligase/__init__.py`, which is
 where the docstrings and the exception hierarchy live.
 """
 
+from collections.abc import Callable
 from typing import final
 
 class LoadError(Exception):
@@ -67,6 +68,20 @@ def check_step(
     bindings: list[tuple[str, Dataset]],
 ) -> list[Finding]: ...
 
+# One task: node, code, command, callback, tools, parameters. Exactly one of
+# the command and the callback is set.
+Task = tuple[int, str, str | None, int | None, list[str], list[tuple[str, str]]]
+
+# One finished step: node, step, outcome, key, output hash, output,
+# milliseconds.
+RunResult = tuple[int, str, str, str, str, str, int]
+
+# One failed step: node, step, message.
+RunFailure = tuple[int, str, str]
+
+# A `lg.write` body: where to write, and the inputs by parameter name.
+Callback = Callable[[str, list[tuple[str, list[str]]]], None]
+
 @final
 class Graph:
     def __init__(self) -> None: ...
@@ -83,4 +98,15 @@ class Graph:
     def step_names(self, roots: list[int]) -> list[str]: ...
     # Every finding, the one-line summary, and the whole report as text.
     def check(self, roots: list[int]) -> tuple[list[Finding], str, str]: ...
+    # Every finished step, every failure, the summary, the report as text,
+    # and (files hashed, files the prefilter already knew).
+    def run(
+        self,
+        roots: list[int],
+        tasks: list[Task],
+        cache_dir: str,
+        callbacks: list[Callback],
+        jobs: int | None = None,
+        force: bool = False,
+    ) -> tuple[list[RunResult], list[RunFailure], str, str, tuple[int, int]]: ...
     def __len__(self) -> int: ...

@@ -6,8 +6,12 @@ declares itself. The step bodies are not, because `@lg.step` defers them — so
 nothing reads sequence, nothing shells out to a tool, and a mistake surfaces
 in milliseconds instead of after an overnight run.
 
-`run`, `methods` and `audit` are in `docs/golden-example.md` and arrive with
-the milestones that implement them; this parser offers only what works.
+`ligase run` does the same and then computes whatever is not already known:
+a step runs when something that could change its result has changed, and
+not otherwise. Nothing runs until the whole pipeline checks clean.
+
+`methods` and `audit` are in `docs/golden-example.md` and arrive with the
+milestones that implement them; this parser offers only what works.
 """
 
 from __future__ import annotations
@@ -18,7 +22,9 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .graph import Pipeline
+from .errors import CheckError
+from .graph import CACHE_DIR, Pipeline
+from .run import RunError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -42,8 +48,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             `sys.argv` when not given.
 
     Returns:
-        0 when every pipeline checks clean, 1 when a pipeline has errors,
-        2 when the pipeline could not be read at all.
+        0 when everything worked, 1 when a pipeline has errors or a step
+        failed, 2 when the pipeline could not be read at all.
     """
     parser = argparse.ArgumentParser(
         prog="ligase",
@@ -66,11 +72,97 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=f"the pipeline to check (default: {DEFAULT_PIPELINE})",
     )
 
+    run = commands.add_parser(
+        "run",
+        help="check a pipeline, then compute what is not already known",
+        description=(
+            "Check the pipeline and run it. A step runs when its code, its "
+            "parameters, its inputs' contents or a tool's version have "
+            "changed, and not otherwise; independent steps run at once."
+        ),
+    )
+    run.add_argument(
+        "pipeline",
+        nargs="?",
+        default=DEFAULT_PIPELINE,
+        type=Path,
+        help=f"the pipeline to run (default: {DEFAULT_PIPELINE})",
+    )
+    run.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        metavar="N",
+        help="how many steps may run at once (default: one per core)",
+    )
+    run.add_argument(
+        "--force",
+        action="store_true",
+        help="run every step, cache or no cache",
+    )
+    run.add_argument(
+        "--cache",
+        type=Path,
+        metavar="DIR",
+        help=f"where to keep the cache (default: ./{CACHE_DIR})",
+    )
+
     arguments = parser.parse_args(argv)
+    if arguments.command == "run":
+        return _run(
+            arguments.pipeline, arguments.jobs, arguments.force, arguments.cache
+        )
     return _check(arguments.pipeline)
 
 
 def _check(path: Path) -> int:
+    pipelines = _pipelines(path)
+    if isinstance(pipelines, int):
+        return pipelines
+
+    found = 0
+    for pipeline in pipelines:
+        report = pipeline.report()
+        found += len(report.errors)
+        steps = len(pipeline.steps)
+        print(f"checked {steps} {_plural(steps, 'step')} in {path}")
+        print()
+        # The engine lays the report out, so every surface reads the same and
+        # one problem across four hundred samples is stated once.
+        print(report.text)
+
+    return FOUND_ERRORS if found else 0
+
+
+def _run(path: Path, jobs: int | None, force: bool, cache: Path | None) -> int:
+    pipelines = _pipelines(path)
+    if isinstance(pipelines, int):
+        return pipelines
+
+    found = 0
+    for pipeline in pipelines:
+        steps = len(pipeline.steps)
+        print(f"running {steps} {_plural(steps, 'step')} in {path}")
+        print()
+        try:
+            report = pipeline.run(jobs=jobs, force=force, cache=cache)
+        except CheckError as error:
+            # A pipeline that does not type-check has not run, and the check
+            # report is what the user needs, not a traceback.
+            print(pipeline.report().text)
+            found += len(error.errors)
+            continue
+        except RunError as error:
+            report = error.report
+            found += len(report.failures)
+        # Worded by the engine, so a script and the command line agree.
+        print(report.text)
+
+    return FOUND_ERRORS if found else 0
+
+
+def _pipelines(path: Path) -> list[Pipeline] | int:
+    """Every pipeline in a file, or the exit code for not being able to look."""
     if not path.is_file():
         return _cannot(f"no such pipeline: {path}")
 
@@ -88,19 +180,7 @@ def _check(path: Path) -> int:
             f"no lg.Pipeline found in {path}; assign one at the top level of "
             "the file, as `pipe = lg.Pipeline(...)`"
         )
-
-    found = 0
-    for pipeline in pipelines:
-        report = pipeline.report()
-        found += len(report.errors)
-        steps = len(pipeline.steps)
-        print(f"checked {steps} {_plural(steps, 'step')} in {path}")
-        print()
-        # The engine lays the report out, so every surface reads the same and
-        # one problem across four hundred samples is stated once.
-        print(report.text)
-
-    return FOUND_ERRORS if found else 0
+    return pipelines
 
 
 def _import(path: Path) -> ModuleType:
