@@ -5,21 +5,41 @@ system, sample set), and the engine refuses to connect steps whose dimensions
 do not match -- like units in physics.
 
     >>> import ligase as lg
+    >>> from ligase.types import Alignment, Reads, Reference
     >>> hxb2 = lg.reference("refs/HXB2.fasta", organism="HIV-1", build="HXB2")
-    >>> aln = lg.alignment("out/sample.bam")
-    >>> lg.check_step("call", {"aln": aln, "ref": hxb2})
+    >>> samples = lg.samples("data/*.fastq.gz", paired=True)
+    >>> @lg.step(tool="minimap2")
+    ... def align(reads: Reads, ref: Reference) -> Alignment: ...
+    >>> pipe = lg.Pipeline(samples.map(lambda s: align(s, hxb2)))
+    >>> pipe.check()   # type-checks every step; nothing runs
 """
 
 from __future__ import annotations
 
+from glob import glob
 from typing import TYPE_CHECKING
 
 from . import _core
+from .errors import (
+    CheckError,
+    ContigNamingError,
+    ContigOrderError,
+    DimensionError,
+    StepDefinitionError,
+    StepTypeError,
+    UndeclaredDimensionError,
+)
+from .errors import (
+    build as _build_errors,
+)
+from .graph import Pipeline, Report, Step, StepOutput, handle, step
+from .samples import Samples
 from .types import (
     Alignment,
     Contig,
     Dataset,
     DimensionValue,
+    Intervals,
     Reads,
     Reference,
     ResistanceReport,
@@ -31,24 +51,37 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Alignment",
+    "CheckError",
     "Contig",
     "ContigNamingError",
     "ContigOrderError",
     "Dataset",
     "DimensionError",
     "DimensionValue",
+    "Intervals",
     "LoadError",
+    "Pipeline",
     "Reads",
     "Reference",
+    "Report",
     "ResistanceReport",
+    "Samples",
+    "Step",
+    "StepDefinitionError",
+    "StepOutput",
+    "StepTypeError",
     "UndeclaredDimensionError",
     "Variants",
     "__version__",
     "alignment",
     "check_step",
     "dimension_errors",
+    "handle",
+    "intervals",
     "reads",
     "reference",
+    "samples",
+    "step",
     "variants",
     "version",
 ]
@@ -63,62 +96,6 @@ LoadError = _core.LoadError
 def version() -> str:
     """Return the version of the compiled Ligase core engine."""
     return _core.version()
-
-
-# --------------------------------------------------------------- errors --
-
-
-class DimensionError(Exception):
-    """Two inputs to a step disagree about a dimension.
-
-    The message names the step, both conflicting values, where each value
-    came from, and asks a leading question. The provenance is the part that
-    makes it actionable: knowing two references disagree sends you hunting,
-    while knowing one came from a BAM `@SQ` header and the other from the
-    FASTA you passed tells you what to change.
-
-    Attributes:
-        step: The step the disagreement was found in.
-        dimension: The name of the dimension that disagrees.
-        errors: Every disagreement found in the same pass, this one included.
-            Checking reports all of them at once rather than one per run.
-    """
-
-    def __init__(self, message: str, step: str, dimension: str) -> None:
-        """Record a disagreement, its step and the dimension involved."""
-        super().__init__(message)
-        self.step = step
-        self.dimension = dimension
-        self.errors: list[DimensionError] = []
-
-
-class ContigNamingError(DimensionError):
-    """The same contigs under different names, such as `chr1` against `1`.
-
-    Distinct from a plain `DimensionError` because the fix is distinct: a
-    renaming step, not a different reference. Still a `DimensionError`, so
-    code that wants to catch any dimension problem can.
-    """
-
-
-class ContigOrderError(DimensionError):
-    """The same contigs in a different order.
-
-    htslib matches contigs by name, so `bcftools` does not mind. GATK
-    requires sequence dictionaries in matching order and will reject this.
-    """
-
-
-class UndeclaredDimensionError(DimensionError):
-    """A dimension the step requires is unknown and must be declared."""
-
-
-_ERROR_CLASSES: dict[str, type[DimensionError]] = {
-    "dimension": DimensionError,
-    "contig_naming": ContigNamingError,
-    "contig_order": ContigOrderError,
-    "undeclared": UndeclaredDimensionError,
-}
 
 
 # -------------------------------------------------------------- loaders --
@@ -238,13 +215,85 @@ def reads(
     return Reads(_core.load_reads(r1, r2, organism, samples))
 
 
+def intervals(
+    path: str,
+    *,
+    format: str | None = None,  # noqa: A002 - the file's format, not a builtin
+    organism: str | None = None,
+    build: str | None = None,
+) -> Intervals:
+    """Load genomic intervals from a BED or GFF, inferring what they say.
+
+    The coordinate convention comes from the format — BED is 0-based
+    half-open, GFF and GTF are 1-based closed — and that is the point: a
+    tool handed the wrong one produces results that are off by one base and
+    look fine.
+
+    Contigs come from the records, so they carry no length and no checksum.
+    They are still compared against a reference by name, because comparing
+    what is present is what makes these files checkable at all.
+
+    Args:
+        path: The BED, GFF3 or GTF, optionally gzipped.
+        format: `bed`, `gff`, `gff3` or `gtf`, when the filename does not
+            say. A format is never guessed: guessing it wrong shifts every
+            interval by a base.
+        organism: The organism. An interval file does not record it.
+        build: A human label for the reference build. Display only.
+
+    Returns:
+        The loaded intervals.
+
+    Raises:
+        LoadError: If the file cannot be read, is not in the format given,
+            or its format cannot be told from its name.
+    """
+    return Intervals(_core.load_intervals(path, format, organism, build))
+
+
+def samples(
+    pattern: str,
+    *,
+    paired: bool = False,
+    organism: str | None = None,
+) -> Samples:
+    """Find sequencing runs and group them into samples.
+
+    Args:
+        pattern: A glob, e.g. `data/*.fastq.gz`. Matches are taken in sorted
+            order, so the samples come back in a stable order on every
+            machine.
+        paired: Whether the files are mates of a pair. When true, they are
+            paired by filename — `<sample>_1`/`<sample>_2` or
+            `<sample>_R1`/`<sample>_R2` — and a file whose mate cannot be
+            identified is an error rather than a guess. Mis-pairing two
+            samples' files would produce results for a mixture of two
+            people without anything crashing.
+        organism: The organism. A FASTQ does not record it.
+
+    Returns:
+        The samples, in the order their files appeared. Use `.map()` to
+        apply a chain of steps to every one of them.
+
+    Raises:
+        LoadError: If a file cannot be read, or the files cannot be grouped
+            into whole samples.
+    """
+    found = sorted(glob(pattern))
+    return Samples(
+        [Reads(core) for core in _core.load_samples(found, paired, organism)]
+    )
+
+
 # -------------------------------------------------------------- checking --
 
 
-def dimension_errors(
-    step: str, bindings: Mapping[str, Dataset]
-) -> list[DimensionError]:
+def dimension_errors(step: str, bindings: Mapping[str, Dataset]) -> list[CheckError]:
     """Return every dimension disagreement among a step's inputs.
+
+    One step on its own, for when you are not building a pipeline. A whole
+    pipeline is checked with `lg.Pipeline(...).check()`, which also knows
+    what each step requires of the ones before it.
 
     Args:
         step: The step's name, used in the messages.
@@ -256,15 +305,7 @@ def dimension_errors(
         `errors` attribute.
     """
     inputs = [(name, data._core) for name, data in bindings.items()]
-    raw = _core.check_step(step, inputs)
-
-    errors = [
-        _ERROR_CLASSES[kind](message, found_step, dimension)
-        for kind, found_step, dimension, message in raw
-    ]
-    for error in errors:
-        error.errors = errors
-    return errors
+    return _build_errors(_core.check_step(step, inputs))
 
 
 def check_step(step: str, bindings: Mapping[str, Dataset]) -> None:
@@ -278,9 +319,10 @@ def check_step(step: str, bindings: Mapping[str, Dataset]) -> None:
         bindings: The step's inputs, by the name the step knows each by.
 
     Raises:
-        DimensionError: If any two inputs disagree. The subclass says what
-            kind of disagreement it is: `ContigNamingError`,
-            `ContigOrderError` or `UndeclaredDimensionError`.
+        CheckError: If any two inputs disagree. The subclass says what kind
+            of disagreement it is: `ContigNamingError`, `ContigOrderError`
+            or `UndeclaredDimensionError`, all of which are
+            `DimensionError`s.
     """
     errors = dimension_errors(step, bindings)
     if errors:

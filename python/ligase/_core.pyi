@@ -45,9 +45,41 @@ def load_reads(
     organism: str | None = None,
     samples: list[str] | None = None,
 ) -> Dataset: ...
+def load_intervals(
+    path: str,
+    format: str | None = None,  # noqa: A002 - the file's format, not a builtin
+    organism: str | None = None,
+    build: str | None = None,
+) -> Dataset: ...
+def load_samples(
+    paths: list[str],
+    paired: bool,
+    organism: str | None = None,
+) -> list[Dataset]: ...
 
-# (kind, step, dimension, message) per disagreement.
+# One finding: (kind, step, dimension, message). The dimension is absent for
+# a step-type error, which blames no dimension.
+Finding = tuple[str, str, str | None, str]
+
 def check_step(
     step: str,
     bindings: list[tuple[str, Dataset]],
-) -> list[tuple[str, str, str, str]]: ...
+) -> list[Finding]: ...
+
+@final
+class Graph:
+    def __init__(self) -> None: ...
+    def add_input(self, label: str, dataset: Dataset) -> int: ...
+    def add_step(
+        self,
+        name: str,
+        output: str,
+        # (parameter, declared kind, node) per dataset argument.
+        arguments: list[tuple[str, str | None, int]],
+        coordinates: str | None = None,
+    ) -> int: ...
+    def dataset(self, node: int) -> Dataset | None: ...
+    def step_names(self, roots: list[int]) -> list[str]: ...
+    # Every finding, plus the one-line summary.
+    def check(self, roots: list[int]) -> tuple[list[Finding], str]: ...
+    def __len__(self) -> int: ...

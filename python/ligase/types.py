@@ -1,8 +1,8 @@
 """Biological data types, each carrying the dimensions of its data.
 
-These are the types the golden example annotates steps with. In M1 they are
-loaded from files and carry dimensions; connecting them into a graph arrives
-in M2.
+These are the types a step annotates its parameters and its return with. The
+annotations are not decoration: they are the only thing that says what a
+step consumes and produces, because building a graph never runs a step.
 """
 
 from __future__ import annotations
@@ -17,10 +17,12 @@ if TYPE_CHECKING:
     from ligase import _core
 
 __all__ = [
+    "KINDS",
     "Alignment",
     "Contig",
     "Dataset",
     "DimensionValue",
+    "Intervals",
     "Reads",
     "Reference",
     "ResistanceReport",
@@ -156,7 +158,35 @@ class Variants(Dataset):
     __slots__ = ()
 
 
+class Intervals(Dataset):
+    """Genomic intervals (BED/GFF).
+
+    The one type whose `coordinates` dimension varies by format: BED is
+    0-based half-open, GFF is 1-based closed. Feeding one to a tool
+    expecting the other produces results that are plausible and off by one.
+    """
+
+    __slots__ = ()
+
+
 class ResistanceReport(Dataset):
     """An interpreted drug-resistance report."""
 
     __slots__ = ()
+
+
+#: Every type a step may annotate, by the name the engine knows it as.
+#:
+#: Annotating a step with anything else is refused when it is decorated,
+#: rather than when it runs: the graph has to know what flows along an edge,
+#: and a connection it cannot type is a connection it cannot check.
+KINDS: Mapping[str, type[Dataset]] = MappingProxyType(
+    {
+        "Reads": Reads,
+        "Reference": Reference,
+        "Alignment": Alignment,
+        "Variants": Variants,
+        "Intervals": Intervals,
+        "ResistanceReport": ResistanceReport,
+    }
+)
