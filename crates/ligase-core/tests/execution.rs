@@ -58,6 +58,12 @@ impl Bench {
         self.shell(name, command, &[("in", input)], &[])
     }
 
+    /// A step producing a FASTA, for the tests that need an output whose
+    /// canonical form is more than its bytes.
+    fn fasta(&mut self, name: &str, command: &str, input: NodeId) -> NodeId {
+        self.shell_of(name, command, &[("in", input)], &[], DataKind::Reference)
+    }
+
     fn shell(
         &mut self,
         name: &str,
@@ -65,11 +71,22 @@ impl Bench {
         inputs: &[(&str, NodeId)],
         parameters: &[(&str, &str)],
     ) -> NodeId {
+        self.shell_of(name, command, inputs, parameters, DataKind::Alignment)
+    }
+
+    fn shell_of(
+        &mut self,
+        name: &str,
+        command: &str,
+        inputs: &[(&str, NodeId)],
+        parameters: &[(&str, &str)],
+        output: DataKind,
+    ) -> NodeId {
         let node = self
             .graph
             .add_step(StepSpec {
                 name: name.to_owned(),
-                output: DataKind::Alignment,
+                output,
                 coordinates: None,
                 arguments: inputs
                     .iter()
@@ -423,6 +440,97 @@ fn a_changed_output_does_not_stop_the_rerun() {
     assert_eq!(outcome(&report, align), Outcome::Ran);
     assert_eq!(outcome(&report, call), Outcome::Ran);
     assert_eq!(contents(&report, call), "TCGT\n");
+}
+
+// --------------------------------------------------- semantic hashing --
+
+#[test]
+fn a_volatile_header_does_not_stop_the_cutoff() {
+    // The case that byte equality could not reach, and the reason M4
+    // exists. Every real tool writes its own command line into its output
+    // -- and that command line holds the output path, which is the staging
+    // file named after the step's own key. So the step's bytes move
+    // whenever its key does, and before canonicalisation the rerun went all
+    // the way to the bottom of the pipeline however identical the science.
+    //
+    // Here a FASTA's description line stands in for the `@PG` line: the
+    // canonical form of a reference is its sequence, so a description that
+    // records the output path is exactly as volatile.
+    let mut bench = Bench::new();
+    let reads = bench.input("reads.fasta", ">1\nACGT\n");
+    let align = bench.fasta(
+        "align",
+        &format!(
+            "printf '>1 written to %s\\nACGT\\n' {{out}} > {{out}}; echo align >> {}",
+            bench.path("marker").display()
+        ),
+        reads,
+    );
+    let call = bench.fasta("call", &copy(&bench, "call"), align);
+    bench.run(&[call]);
+    assert_eq!(executions(&bench), 2);
+
+    // A comment-only edit: a different key, a different staging path, and
+    // so different bytes -- from a step that computed the same sequence.
+    bench.edit(align, "def align(): ...  # now with a comment");
+    let report = bench.run(&[call]);
+
+    let aligned = report.result(align).expect("align is in the report");
+    assert_eq!(aligned.outcome, Outcome::Ran);
+    assert_eq!(
+        outcome(&report, call),
+        Outcome::Skipped,
+        "the sequence did not change, so `call` had nothing to redo"
+    );
+    assert_eq!(executions(&bench), 3, "only `align` should have rerun");
+}
+
+#[test]
+fn the_report_gives_both_what_an_output_is_and_what_it_means() {
+    // The bytes name the object in the store; the canonical hash is what
+    // the steps below were keyed on. A run that reported only one of them
+    // could not show that a rerun changed the first and not the second.
+    let mut bench = Bench::new();
+    let reads = bench.input("reads.fasta", ">1\nACGT\n");
+    // The description records where the step wrote, as a tool's `@PG CL`
+    // does -- so the bytes move whenever the key does.
+    let align = bench.fasta(
+        "align",
+        "printf '>1 written to %s\\nACGT\\n' {out} > {out}",
+        reads,
+    );
+
+    let first = bench.run(&[align]);
+    let before = first.result(align).expect("align is in the report").clone();
+
+    // A different description, the same sequence.
+    bench.edit(align, "def align(): ...  # edited");
+    let second = bench.run(&[align]);
+    let after = second.result(align).expect("align is in the report");
+
+    assert_ne!(before.hash, after.hash, "the bytes should have moved");
+    assert_eq!(
+        before.canonical, after.canonical,
+        "what they mean should not have"
+    );
+}
+
+#[test]
+fn an_input_is_hashed_by_what_it_means_and_not_by_its_layout() {
+    // An input rewritten with different line wrapping is the same
+    // reference, so nothing downstream of it should rerun.
+    let mut bench = Bench::new();
+    let reference = bench.input("ref.fasta", ">1\nACGTACGTAC\n");
+    let align = bench.fasta("align", &copy(&bench, "align"), reference);
+    bench.run(&[align]);
+    assert_eq!(executions(&bench), 1);
+
+    // The same sequence, wrapped at five columns and lowercased.
+    fs::write(bench.path("ref.fasta"), ">1 rewrapped\nacgta\ncgtac\n").unwrap();
+    let report = bench.run(&[align]);
+
+    assert_eq!(outcome(&report, align), Outcome::Cached);
+    assert_eq!(executions(&bench), 1, "the reference did not change");
 }
 
 // ------------------------------------------------------------ failures --

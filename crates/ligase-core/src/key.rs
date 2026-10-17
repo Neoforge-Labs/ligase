@@ -20,14 +20,18 @@
 //! here like any other: a step that draws on a seed it did not declare is
 //! not reproducible, and no cache can make it so.
 //!
-//! # Where M4 attaches
+//! # What an input's hash is a hash of
 //!
 //! Inputs enter as content hashes, tagged with the policy that produced
-//! them. Today that is [`INPUT_POLICY`] = `raw`: the hash of the bytes.
-//! Semantic hashing (D4, milestone M4) canonicalises an output before
-//! hashing it — sorted records, volatile headers stripped — which is a
-//! different policy over the same shape, and the tag plus [`KEY_VERSION`]
-//! is what keeps the two from being confused for each other.
+//! them. That is [`INPUT_POLICY`]: since M4, the hash of a file's
+//! *canonical form* rather than of its bytes (D4) — records sorted,
+//! volatile headers stripped, as [`crate::canon`] defines per type. The
+//! bytes were too strict a test, because every real tool records its own
+//! command line in its output.
+//!
+//! The tag is in the key, so a key made under one policy can never be
+//! mistaken for a key made under another; [`KEY_VERSION`] retires the ones
+//! made under the old one.
 
 use std::fmt;
 
@@ -40,14 +44,19 @@ use crate::types::DataKind;
 /// every key written by an older version. An entry from another format is
 /// not stale, it is a claim about ingredients that were combined
 /// differently — so it must never be read, only ignored.
-pub const KEY_VERSION: u32 = 1;
+pub const KEY_VERSION: u32 = 2;
 
 /// How an input's content hash was arrived at.
 ///
-/// `raw` is the hash of the bytes. M4 adds a canonicalising policy (D4) and
-/// takes a new name here, so that a key made under one policy can never be
-/// mistaken for a key made under the other.
-pub const INPUT_POLICY: &str = "raw";
+/// `canonical` is the hash of what a file *means*, by its type's rules
+/// ([`crate::canon`]). It replaced `raw` — the hash of the bytes — in M4,
+/// and the name is here in the key so that a key made under one policy can
+/// never be mistaken for a key made under the other.
+///
+/// The rules' own version is not in this name. It is tracked beside the
+/// cache's other versions, where a change to it clears the canonical hashes
+/// as well as the keys built from them.
+pub const INPUT_POLICY: &str = "canonical";
 
 /// Separates this hash's domain from every other BLAKE3 hash in the engine.
 const DOMAIN: &str = "ligase.step-key";

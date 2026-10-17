@@ -35,8 +35,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::canon::{self, CANON_VERSION, Canonical};
 use crate::hash::ContentHash;
 use crate::key::{KEY_VERSION, StepKey};
+use crate::types::DataKind;
 
 /// The version of the on-disk layout of the cache directory.
 ///
@@ -70,6 +72,8 @@ pub struct CacheStats {
     pub hashed: u64,
     /// Files whose hash was already known from their size and mtime.
     pub prefiltered: u64,
+    /// Files parsed to find what they mean, rather than only read.
+    pub canonicalised: u64,
 }
 
 /// Why the cache could not do something.
@@ -121,6 +125,7 @@ pub struct Cache {
     database: Mutex<Connection>,
     hashed: AtomicU64,
     prefiltered: AtomicU64,
+    canonicalised: AtomicU64,
 }
 
 impl Cache {
@@ -151,6 +156,7 @@ impl Cache {
             database: Mutex::new(database),
             hashed: AtomicU64::new(0),
             prefiltered: AtomicU64::new(0),
+            canonicalised: AtomicU64::new(0),
         })
     }
 
@@ -166,7 +172,40 @@ impl Cache {
         CacheStats {
             hashed: self.hashed.load(Ordering::Relaxed),
             prefiltered: self.prefiltered.load(Ordering::Relaxed),
+            canonicalised: self.canonicalised.load(Ordering::Relaxed),
         }
+    }
+
+    /// What a file *means*, as the hash a cache key is built from (D4).
+    ///
+    /// The canonical form of a file read as `kind`, which is what two runs
+    /// are compared on: records sorted, volatile headers stripped
+    /// ([`crate::canon`]).
+    ///
+    /// Remembered against the hash of the file's bytes rather than against
+    /// its path, because that is what it is a fact about — so a file moved,
+    /// copied or produced again identically is not parsed twice, and a
+    /// second run of a pipeline reads nothing at all.
+    ///
+    /// # Errors
+    ///
+    /// If the file cannot be read, or the metadata cannot be written. A
+    /// file that reads but does not parse is not an error: its bytes stand
+    /// in for its meaning.
+    pub fn semantic_hash(&self, kind: DataKind, path: &Path) -> Result<ContentHash, CacheError> {
+        let raw = self.content_hash(path)?;
+
+        if let Some(known) = self.remembered_canonical(raw, kind)? {
+            return Ok(known);
+        }
+
+        let canonical = canon::hash(kind, path, raw).map_err(|source| CacheError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        self.canonicalised.fetch_add(1, Ordering::Relaxed);
+        self.remember_canonical(raw, kind, &canonical)?;
+        Ok(canonical.hash)
     }
 
     /// The hash of a file's contents, rereading it only when it may have
@@ -236,6 +275,16 @@ impl Cache {
     #[must_use]
     pub fn staging(&self, key: StepKey, suffix: &str) -> PathBuf {
         self.root.join("tmp").join(format!("{key}{suffix}"))
+    }
+
+    /// Where something that is not a step's output should be written.
+    ///
+    /// For [`crate::audit`], whose two runs are thrown away: beside the
+    /// staging files, so the same single directory holds everything a crash
+    /// could leave behind.
+    #[must_use]
+    pub fn scratch(&self, name: &str) -> PathBuf {
+        self.root.join("tmp").join(name)
     }
 
     /// What a step with this key produced, if it has been run before.
@@ -341,6 +390,45 @@ impl Cache {
                 .optional()
         })??;
         Ok(hex.as_deref().and_then(ContentHash::parse))
+    }
+
+    fn remembered_canonical(
+        &self,
+        raw: ContentHash,
+        kind: DataKind,
+    ) -> Result<Option<ContentHash>, CacheError> {
+        let hex: Option<String> = self.with_database(|database| {
+            database
+                .query_row(
+                    "SELECT canonical FROM canonical
+                         WHERE raw = ?1 AND kind = ?2",
+                    params![raw.to_hex(), kind.name()],
+                    |row| row.get(0),
+                )
+                .optional()
+        })??;
+        Ok(hex.as_deref().and_then(ContentHash::parse))
+    }
+
+    fn remember_canonical(
+        &self,
+        raw: ContentHash,
+        kind: DataKind,
+        canonical: &Canonical,
+    ) -> Result<(), CacheError> {
+        self.with_database(|database| {
+            database.execute(
+                "INSERT OR REPLACE INTO canonical (raw, kind, canonical, form)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    raw.to_hex(),
+                    kind.name(),
+                    canonical.hash.to_hex(),
+                    canonical.form.to_string(),
+                ],
+            )
+        })??;
+        Ok(())
     }
 
     fn remember_hash(&self, path: &str, stat: Stat, hash: ContentHash) -> Result<(), CacheError> {
@@ -464,6 +552,7 @@ fn prepare(database: &Connection) -> Result<(), CacheError> {
     if schema.is_some_and(|version| version != SCHEMA_VERSION.to_string()) {
         database.execute("DROP TABLE IF EXISTS files", [])?;
         database.execute("DROP TABLE IF EXISTS steps", [])?;
+        database.execute("DROP TABLE IF EXISTS canonical", [])?;
     }
 
     database.execute(
@@ -488,6 +577,20 @@ fn prepare(database: &Connection) -> Result<(), CacheError> {
         [],
     )?;
 
+    // What a file means, against the hash of its bytes. Not keyed by path:
+    // this is a fact about the bytes, so a file copied or produced again
+    // identically is not parsed a second time.
+    database.execute(
+        "CREATE TABLE IF NOT EXISTS canonical (
+             raw       TEXT NOT NULL,
+             kind      TEXT NOT NULL,
+             canonical TEXT NOT NULL,
+             form      TEXT NOT NULL,
+             PRIMARY KEY (raw, kind)
+         )",
+        [],
+    )?;
+
     // Keys from another key format describe ingredients that were combined
     // differently. The files table survives: a file's hash is a fact about
     // the file, not about how keys are made.
@@ -502,10 +605,29 @@ fn prepare(database: &Connection) -> Result<(), CacheError> {
         database.execute("DELETE FROM steps", [])?;
     }
 
+    // A canonical hash is a fact about a file *given the rules that made
+    // it*, so rules from another version describe something else. The step
+    // entries go with it, since their keys were built from those hashes.
+    let canon: Option<String> = database
+        .query_row(
+            "SELECT value FROM meta WHERE name = 'canon_version'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if canon.is_some_and(|version| version != CANON_VERSION.to_string()) {
+        database.execute("DELETE FROM canonical", [])?;
+        database.execute("DELETE FROM steps", [])?;
+    }
+
     database.execute(
         "INSERT OR REPLACE INTO meta (name, value) VALUES
-             ('schema_version', ?1), ('key_version', ?2)",
-        params![SCHEMA_VERSION.to_string(), KEY_VERSION.to_string()],
+             ('schema_version', ?1), ('key_version', ?2), ('canon_version', ?3)",
+        params![
+            SCHEMA_VERSION.to_string(),
+            KEY_VERSION.to_string(),
+            CANON_VERSION.to_string(),
+        ],
     )?;
     Ok(())
 }

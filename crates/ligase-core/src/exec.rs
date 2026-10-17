@@ -8,9 +8,16 @@
 //! tool versions)` ([`crate::key`]). If the key is in the cache, the step
 //! does not run. If it is not, the step runs and its output is stored under
 //! the hash of its bytes ([`crate::cache`]). Because a downstream key is
-//! built from its inputs' *content*, a step that reruns and produces
-//! identical bytes leaves every key below it unchanged — which is early
-//! cutoff, falling out of content addressing rather than being bolted on.
+//! built from its inputs' *content*, a step that reruns and produces the
+//! same result leaves every key below it unchanged — which is early cutoff,
+//! falling out of content addressing rather than being bolted on.
+//!
+//! "The same result" is the canonical form of the output, not its bytes
+//! ([`crate::canon`], D4). With bytes it could not have worked past the
+//! first real tool: `minimap2` writes its command line into `@PG CL`, that
+//! command line holds the output path, and the output path is the staging
+//! file named after the step's own key — so a step's bytes depended on its
+//! own key, and any change at all cascaded to the bottom of the pipeline.
 //!
 //! # Why the body is not here
 //!
@@ -23,10 +30,10 @@
 //!
 //! # What is deliberately not here
 //!
-//! Canonicalising an output before hashing it (D4) is M4, and provenance is
-//! M5. The key carries a policy tag so the first can arrive without
-//! invalidating the design, and nothing here records *why* a result is what
-//! it is.
+//! Provenance (M5). Nothing here records *why* a result is what it is.
+//! Running a step twice to find out whether it is reproducible at all is
+//! [`crate::audit`], which borrows this module's [`produce`] rather than
+//! repeating it.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -36,10 +43,10 @@ use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::cache::{Cache, Stored};
-use crate::graph::{Graph, NodeId};
+use crate::graph::{Graph, NodeId, StepSpec};
 use crate::hash::ContentHash;
 use crate::key::{Ingredients, StepKey};
-use crate::types::DataKind;
+use crate::types::{DataKind, Dataset};
 
 /// How a step's output is produced.
 ///
@@ -115,8 +122,14 @@ pub struct StepResult {
     pub outcome: Outcome,
     /// Its cache key.
     pub key: StepKey,
-    /// The hash of its output.
+    /// The hash of its output's bytes, which is its name in the store.
     pub hash: ContentHash,
+    /// The hash of what its output *means* ([`crate::canon`]).
+    ///
+    /// This is what the steps below it were keyed on, so two runs that
+    /// agree here cut off everything downstream however far their bytes
+    /// diverged.
+    pub canonical: ContentHash,
     /// Where the output is.
     pub output: PathBuf,
     /// How long it took, when it ran.
@@ -316,6 +329,85 @@ pub fn run(
     runner.finish()
 }
 
+/// Each of a step's arguments' files, by the parameter they fill.
+///
+/// `produced` answers where an upstream step put its output; an argument it
+/// has no answer for is a loaded dataset, and its own files are used. Shared
+/// with [`crate::audit`], so that a step being audited is handed exactly
+/// what a run would have handed it.
+///
+/// # Errors
+///
+/// If an argument is bound to nothing, or to data with no file behind it.
+pub fn inputs_of(
+    graph: &Graph,
+    node: NodeId,
+    produced: &dyn Fn(NodeId) -> Option<PathBuf>,
+) -> Result<Vec<(String, Vec<PathBuf>)>, String> {
+    let spec = graph
+        .step(node)
+        .ok_or_else(|| "this node is not a step".to_owned())?;
+
+    spec.arguments
+        .iter()
+        .map(|argument| {
+            let files = if let Some(path) = produced(argument.node) {
+                vec![path]
+            } else {
+                let dataset = graph
+                    .dataset(argument.node)
+                    .ok_or_else(|| format!("`{}` is bound to nothing", argument.param))?;
+                let files = dataset.files();
+                if files.is_empty() {
+                    return Err(format!(
+                        "`{}` is bound to data with no file behind it",
+                        argument.param
+                    ));
+                }
+                files
+            };
+            Ok((argument.param.clone(), files))
+        })
+        .collect()
+}
+
+/// Produce one step's output at `out`, from inputs already in place.
+///
+/// The cache is not consulted and nothing is recorded: this is the part of
+/// running a step that is just running it, which is why
+/// [`crate::audit`] can do it twice.
+///
+/// # Errors
+///
+/// Whatever the command or the callback said, or a note that the step
+/// finished without writing anything.
+pub fn produce(
+    recipe: &Recipe,
+    inputs: &[(String, Vec<PathBuf>)],
+    parameters: &[(String, String)],
+    out: &Path,
+    host: &dyn Host,
+) -> Result<Duration, String> {
+    let started = Instant::now();
+    let produced = match recipe {
+        Recipe::Shell(template) => {
+            let command = fill_template(template, inputs, parameters, out)?;
+            shell(&command)
+        }
+        Recipe::Callback(id) => host.call(*id, out, inputs),
+    };
+    let duration = started.elapsed();
+
+    produced?;
+    if !out.is_file() {
+        return Err(format!(
+            "the step finished without writing its output to {}",
+            out.display()
+        ));
+    }
+    Ok(duration)
+}
+
 /// Every tool named by any of these steps, probed once.
 fn versions(
     graph: &Graph,
@@ -507,12 +599,12 @@ impl Runner<'_> {
         })?;
 
         let inputs = self.inputs(node)?;
-        let key = self.key(spec.name.as_str(), spec.output, task, &inputs)?;
+        let key = self.key(spec, task, &inputs)?;
 
         if !self.force
             && let Some(entry) = self.cache.lookup(key).map_err(|error| error.to_string())?
         {
-            return Ok(self.cached_result(node, spec.name.as_str(), key, &entry.output));
+            return self.cached_result(node, spec, key, &entry.output);
         }
 
         // Two nodes can share a key -- the same step over identical data --
@@ -521,32 +613,16 @@ impl Runner<'_> {
         if !self.force
             && let Some(entry) = self.cache.lookup(key).map_err(|error| error.to_string())?
         {
-            return Ok(self.cached_result(node, spec.name.as_str(), key, &entry.output));
+            return self.cached_result(node, spec, key, &entry.output);
         }
 
         let staging = self.cache.staging(key, output_suffix(spec.output));
         let _ = std::fs::remove_file(&staging);
 
-        let started = Instant::now();
-        let produced = match &task.recipe {
-            Recipe::Shell(template) => {
-                let command = fill_template(template, &inputs, &task.parameters, &staging)?;
-                shell(&command)
-            }
-            Recipe::Callback(id) => self.host.call(*id, &staging, &inputs),
-        };
-        let duration = started.elapsed();
-
-        if let Err(message) = produced {
-            let _ = std::fs::remove_file(&staging);
-            return Err(message);
-        }
-        if !staging.is_file() {
-            return Err(format!(
-                "the step finished without writing its output to {}",
-                staging.display()
-            ));
-        }
+        let duration = produce(&task.recipe, &inputs, &task.parameters, &staging, self.host)
+            .inspect_err(|_| {
+                let _ = std::fs::remove_file(&staging);
+            })?;
 
         let stored = self
             .cache
@@ -563,12 +639,18 @@ impl Runner<'_> {
             )
             .map_err(|error| error.to_string())?;
 
+        let canonical = self
+            .cache
+            .semantic_hash(spec.output, &stored.path)
+            .map_err(|error| error.to_string())?;
+
         Ok(StepResult {
             node,
             step: spec.name.clone(),
             outcome: Outcome::Ran,
             key,
             hash: stored.hash,
+            canonical,
             output: stored.path,
             duration,
         })
@@ -589,7 +671,13 @@ impl Runner<'_> {
         Ok(Claim { runner: self, key })
     }
 
-    fn cached_result(&self, node: NodeId, step: &str, key: StepKey, output: &Stored) -> StepResult {
+    fn cached_result(
+        &self,
+        node: NodeId,
+        spec: &StepSpec,
+        key: StepKey,
+        output: &Stored,
+    ) -> Result<StepResult, String> {
         let outcome = {
             let upstream_ran = self
                 .state
@@ -601,63 +689,54 @@ impl Runner<'_> {
                 Outcome::Cached
             }
         };
-        StepResult {
+        let canonical = self
+            .cache
+            .semantic_hash(spec.output, &output.path)
+            .map_err(|error| error.to_string())?;
+
+        Ok(StepResult {
             node,
-            step: step.to_owned(),
+            step: spec.name.clone(),
             outcome,
             key,
             hash: output.hash,
+            canonical,
             output: output.path.clone(),
             duration: Duration::ZERO,
-        }
+        })
     }
 
     /// Each argument's files, by the parameter they fill.
     fn inputs(&self, node: NodeId) -> Result<Vec<(String, Vec<PathBuf>)>, String> {
-        let spec = self
-            .graph
-            .step(node)
-            .ok_or_else(|| "this node is not a step".to_owned())?;
         let state = self.state.lock().map_err(|_| poisoned())?;
-
-        spec.arguments
-            .iter()
-            .map(|argument| {
-                let files = if let Some(produced) = state.produced.get(&argument.node) {
-                    vec![produced.output.path.clone()]
-                } else {
-                    let dataset = self
-                        .graph
-                        .dataset(argument.node)
-                        .ok_or_else(|| format!("`{}` is bound to nothing", argument.param))?;
-                    let files = dataset.files();
-                    if files.is_empty() {
-                        return Err(format!(
-                            "`{}` is bound to data with no file behind it",
-                            argument.param
-                        ));
-                    }
-                    files
-                };
-                Ok((argument.param.clone(), files))
-            })
-            .collect()
+        inputs_of(self.graph, node, &|from| {
+            state
+                .produced
+                .get(&from)
+                .map(|produced| produced.output.path.clone())
+        })
     }
 
     fn key(
         &self,
-        step: &str,
-        output: DataKind,
+        spec: &StepSpec,
         task: &Task,
         inputs: &[(String, Vec<PathBuf>)],
     ) -> Result<StepKey, String> {
         let mut hashed = Vec::with_capacity(inputs.len());
-        for (param, files) in inputs {
+        // The arguments and the inputs are in the same order: the inputs
+        // were built from the arguments.
+        for (argument, (param, files)) in spec.arguments.iter().zip(inputs) {
+            let kind = self
+                .graph
+                .dataset(argument.node)
+                .map_or(argument.declared, Dataset::kind);
             let mut each = Vec::with_capacity(files.len());
             for file in files {
                 each.push(
                     self.cache
-                        .content_hash(file)
+                        // What a file means, not what bytes it holds (D4).
+                        .semantic_hash(kind, file)
                         .map_err(|error| format!("`{param}`: {error}"))?,
                 );
             }
@@ -675,10 +754,10 @@ impl Runner<'_> {
         }
 
         Ok(Ingredients {
-            step: step.to_owned(),
+            step: spec.name.clone(),
             code: task.code.clone(),
             recipe: task.recipe.describe(),
-            output,
+            output: spec.output,
             parameters: task.parameters.clone(),
             inputs: hashed,
             tools,

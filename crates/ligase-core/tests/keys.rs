@@ -161,9 +161,9 @@ fn the_key_format_is_pinned_to_its_version() {
     // combined differently. Bumping `KEY_VERSION` is how that is made safe,
     // and this test is what makes an accidental change to the composition
     // visible as a failure rather than as a silently cold cache.
-    assert_eq!(ligase::key::KEY_VERSION, 1);
+    assert_eq!(ligase::key::KEY_VERSION, 2);
     assert_eq!(
         ingredients().key().to_hex(),
-        "0715ce71f2b7b7fe943455987b34a372d87f8ed1bc5dfde59133b15168189c2f",
+        "cf2545b88fb4eed84ae356d9e0a2775afb31c4f05480054e7e5a129b775eb097",
     );
 }
