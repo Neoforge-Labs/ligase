@@ -64,9 +64,11 @@ a graph from the signatures alone and type-checked before any of it runs.
 - New decision records: **D12** (steps defer; the graph is built from
   signatures), **D13** (the graph decides requirements and blames the origin)
   and **D14** (contig order is compared only between sequence dictionaries).
-- 114 Rust tests and 71 Python tests, including both M2 acceptance criteria:
+- 115 Rust tests and 73 Python tests, including both M2 acceptance criteria:
   the golden example's shape builds a graph with every step body raising if
-  it runs, and `ligase check` reports every error in one pass.
+  it runs, and `ligase check` reports every error in one pass. The demo graph
+  is also built against the real HXB2 reference and a real minimap2
+  alignment, which skip when `data/` has not been fetched.
 
 **M1 — Types and dimensions.** Biological data now carries the dimensions of
 what is inside it, and `check_step` refuses to connect steps whose dimensions

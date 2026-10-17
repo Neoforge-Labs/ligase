@@ -613,3 +613,68 @@ fn a_requirement_met_by_a_declaration_at_the_root_is_satisfied() {
         graph.check(&[merged])
     );
 }
+
+// ------------------------------------------------- the real HIV-1 demo --
+
+#[test]
+fn the_demo_pipeline_builds_and_checks_on_real_data() {
+    // `data/` is gitignored, so this skips rather than fails when the data
+    // has not been fetched. Where it runs, the reference carried through two
+    // steps is a checksum Ligase computed from the real HXB2 FASTA against
+    // one `samtools dict` computed independently.
+    let (Some(fasta), Some(bam)) = (common::hxb2_reference(), common::demo_alignment()) else {
+        return;
+    };
+
+    let mut graph = Graph::new();
+    let reference_node = graph.add_input(
+        "hxb2",
+        load::reference(
+            &fasta,
+            &Declared {
+                organism: Some("HIV-1".into()),
+                build: Some("HXB2".into()),
+                ..Declared::default()
+            },
+        )
+        .unwrap(),
+    );
+    let aligned = graph.add_input("aln", load::alignment(&bam, &Declared::default()).unwrap());
+
+    let called = graph
+        .add_step(spec(
+            "call",
+            DataKind::Variants,
+            vec![
+                argument("aln", DataKind::Alignment, aligned),
+                argument("ref", DataKind::Reference, reference_node),
+            ],
+        ))
+        .unwrap();
+    let report = graph
+        .add_step(spec(
+            "resistance",
+            DataKind::ResistanceReport,
+            vec![argument("v", DataKind::Variants, called)],
+        ))
+        .unwrap();
+
+    assert!(
+        graph.check(&[report]).is_empty(),
+        "errors were: {:#?}",
+        graph.check(&[report])
+    );
+
+    // HXB2 travelled from the BAM header through `call` into the report's
+    // organism, which the BAM itself never stated.
+    assert_eq!(
+        graph
+            .dataset(report)
+            .unwrap()
+            .dimensions()
+            .organism
+            .value()
+            .map(ToString::to_string),
+        Some("HIV-1".to_owned())
+    );
+}

@@ -243,3 +243,52 @@ def test_a_report_summarises_what_it_found() -> None:
 
     broken = lg.Pipeline(call(align(one_sample(), ref), wrong))
     assert broken.report().summary == "1 error in 1 step."
+
+
+# ---------------------------------------------------- the real HIV-1 demo --
+
+
+def test_the_demo_pipeline_builds_and_checks_on_real_data(
+    hxb2: str, demo_bam: str
+) -> None:
+    """The reference demo, as a graph: real HXB2, a real minimap2 alignment.
+
+    `data/` is gitignored, so this skips rather than fails when the data has
+    not been fetched. Where it runs, the reference check is a checksum Ligase
+    computed from the FASTA against one `samtools dict` computed
+    independently, carried through two steps that never ran.
+    """
+    reference = lg.reference(hxb2, organism="HIV-1", build="HXB2")
+    aligned = lg.alignment(demo_bam)
+    interpreted = resistance(call(aligned, reference))
+
+    pipe = lg.Pipeline(interpreted)
+
+    assert pipe.steps == ("call", "resistance")
+    assert pipe.errors() == []
+    assert RAN == []
+
+    # The report inherited HXB2 from the BAM, through two steps.
+    report = lg.handle(interpreted).dataset
+    assert report is not None
+    assert report.kind == "ResistanceReport"
+    organism = report.dimension("organism")
+    assert organism is not None
+    assert organism.value == "HIV-1"
+    assert organism.source == "from step `resistance`"
+
+
+def test_the_demo_pipeline_rejects_the_wrong_reference(
+    hxb2: str, demo_bam: str
+) -> None:
+    """The same demo with a tiny synthetic reference substituted."""
+    wrong = lg.reference(fixture("tiny_bare.fasta"), organism="HIV-1", build="tiny")
+    aligned = lg.alignment(demo_bam)
+
+    pipe = lg.Pipeline(resistance(call(aligned, wrong)))
+
+    errors = pipe.errors()
+    assert [e.step for e in errors] == ["call"]
+    assert errors[0].dimension == "reference"
+    assert "K03455.1" in str(errors[0])
+    assert RAN == []
