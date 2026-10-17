@@ -95,11 +95,10 @@ def _check(path: Path) -> int:
         found += len(report.errors)
         steps = len(pipeline.steps)
         print(f"checked {steps} {_plural(steps, 'step')} in {path}")
-        for problem in report.errors:
-            print()
-            print(problem)
         print()
-        print(report.summary)
+        # The engine lays the report out, so every surface reads the same and
+        # one problem across four hundred samples is stated once.
+        print(report.text)
 
     return FOUND_ERRORS if found else 0
 

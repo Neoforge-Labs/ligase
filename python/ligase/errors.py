@@ -35,17 +35,32 @@ class CheckError(Exception):
         step: The step the problem was found in.
         dimension: The name of the dimension involved, where one is. `None`
             for a `StepTypeError`, which blames no dimension.
+        scope: What distinguishes that step from the others of the same name,
+            as a `(kind, value)` pair — `("sample", "SRR32217714")` under
+            per-sample fan-out. `None` for a step that stands for no single
+            sample, such as one that spans a whole cohort. Collecting these
+            is how you ask which samples a problem affects:
+
+                affected = {e.scope[1] for e in pipe.errors() if e.scope}
+
         errors: Every problem found in the same pass, this one included.
             Checking reports all of them at once rather than one per run,
             because fixing errors one per overnight run is the problem
             Ligase exists to remove.
     """
 
-    def __init__(self, message: str, step: str, dimension: str | None) -> None:
-        """Record a problem, its step and the dimension involved."""
+    def __init__(
+        self,
+        message: str,
+        step: str,
+        dimension: str | None,
+        scope: tuple[str, str] | None = None,
+    ) -> None:
+        """Record a problem, its step, its dimension and which step it was."""
         super().__init__(message)
         self.step = step
         self.dimension = dimension
+        self.scope = scope
         self.errors: list[CheckError] = []
 
 
@@ -118,19 +133,22 @@ CLASSES: dict[str, type[CheckError]] = {
 }
 
 
-def build(raw: list[tuple[str, str, str | None, str]]) -> list[CheckError]:
+def build(
+    raw: list[tuple[str, str, str | None, tuple[str, str] | None, str]],
+) -> list[CheckError]:
     """Turn the engine's findings into exceptions that know about each other.
 
     Args:
-        raw: One `(kind, step, dimension, message)` tuple per finding.
+        raw: One `(kind, step, dimension, scope, message)` tuple per finding.
 
     Returns:
-        One exception per finding, each carrying the full list in its
+        One exception per finding — one per failing step, so a problem that
+        hits four samples is four errors — each carrying the full list in its
         `errors` attribute so that catching one shows them all.
     """
     errors = [
-        CLASSES[kind](message, step, dimension)
-        for kind, step, dimension, message in raw
+        CLASSES[kind](message, step, dimension, scope)
+        for kind, step, dimension, scope, message in raw
     ]
     for error in errors:
         error.errors = errors

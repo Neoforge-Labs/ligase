@@ -206,13 +206,21 @@ class Report:
     """What a check found.
 
     Attributes:
-        errors: One error per problem, in the order the steps run.
-        summary: One line summarising the lot, worded by the engine so that
-            every surface reports a check the same way.
+        errors: One error per *failing step*, in the order the steps run. A
+            problem that hits four samples is four errors, each naming its
+            own sample.
+        summary: One line summarising the lot — `4 errors in 4 steps.` — and
+            the steps it counts are places rather than names, since one
+            written step is many steps under fan-out.
+        text: The whole report as the command line prints it: each distinct
+            problem stated once, with every sample it affects named, and the
+            summary at the end. Worded by the engine so that every surface
+            reports a check the same way.
     """
 
     errors: list[CheckError]
     summary: str
+    text: str
 
 
 class Pipeline:
@@ -292,8 +300,8 @@ class Pipeline:
 
     def report(self) -> Report:
         """Check every step and return everything found, without raising."""
-        raw, summary = self._graph.check(self._roots)
-        return Report(build(raw), summary)
+        raw, summary, text = self._graph.check(self._roots)
+        return Report(build(raw), summary, text)
 
     def errors(self) -> list[CheckError]:
         """Return every problem in this pipeline, without raising.

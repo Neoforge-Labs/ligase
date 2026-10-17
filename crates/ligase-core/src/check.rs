@@ -82,6 +82,40 @@ impl ErrorKind {
     }
 }
 
+/// Which instance of a step an error is about, when one step runs many times.
+///
+/// Under per-sample fan-out a single written step becomes one node per
+/// sample, and the node *is* the sample. An error that does not say which one
+/// leaves a user unable to tell one problem from four, or to know which
+/// samples were hit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Scope {
+    /// What kind of thing distinguishes it, e.g. `sample`.
+    pub kind: &'static str,
+    /// Which one, e.g. `SRR32217714`.
+    pub value: String,
+}
+
+impl Scope {
+    /// How this reads in a message: `sample SRR32217714`.
+    #[must_use]
+    pub fn describe(&self) -> String {
+        format!("{} {}", self.kind, self.value)
+    }
+
+    /// The plural of [`Self::kind`], for a line about several of them.
+    #[must_use]
+    pub fn kinds(&self) -> String {
+        format!("{}s", self.kind)
+    }
+}
+
+impl fmt::Display for Scope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.describe())
+    }
+}
+
 /// One disagreement found by [`check_step`].
 ///
 /// The rendered message names the step, both conflicting values, where each
@@ -91,6 +125,13 @@ impl ErrorKind {
 pub struct CheckError {
     kind: ErrorKind,
     step: String,
+    /// Which node of a graph it came from, when a graph found it.
+    ///
+    /// This is what makes a count of failing *steps* honest: one step name
+    /// can be many steps.
+    node: Option<usize>,
+    /// How to name that node, when it can be named.
+    scope: Option<Scope>,
     dimension: Option<Dimension>,
     lines: Vec<String>,
     detail: Option<String>,
@@ -110,6 +151,29 @@ impl CheckError {
         &self.step
     }
 
+    /// Which node of a graph this came from, when a graph found it.
+    #[must_use]
+    pub const fn node(&self) -> Option<usize> {
+        self.node
+    }
+
+    /// How that node is named, when it can be named.
+    #[must_use]
+    pub const fn scope(&self) -> Option<&Scope> {
+        self.scope.as_ref()
+    }
+
+    /// Record which node of a graph this came from, and how to name it.
+    ///
+    /// Only a graph can know either. A single step checked on its own has no
+    /// node and nothing to distinguish it from itself.
+    #[must_use]
+    pub fn at_node(mut self, node: usize, scope: Option<Scope>) -> Self {
+        self.node = Some(node);
+        self.scope = scope;
+        self
+    }
+
     /// The dimension that disagrees, for the errors that are about one.
     ///
     /// `None` for a [`ErrorKind::StepType`] error: a step handed a VCF where
@@ -122,15 +186,32 @@ impl CheckError {
 
 impl fmt::Display for CheckError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} in step `{}`:", self.kind.heading(), self.step)?;
-        for line in &self.lines {
-            write!(f, "\n  {line}")?;
-        }
-        if let Some(detail) = &self.detail {
-            write!(f, "\n  {detail}")?;
-        }
-        write!(f, "\n  {}", self.conclusion)
+        f.write_str(&write_error(self, true))
     }
+}
+
+/// The error as text, with or without the scope in its heading.
+///
+/// Without it, the text is the *problem* rather than the problem at one
+/// sample, which is how [`render`] tells one problem affecting four samples
+/// from four different problems.
+fn write_error(error: &CheckError, scoped: bool) -> String {
+    let mut out = format!("{} in step `{}`", error.kind.heading(), error.step);
+    if scoped && let Some(scope) = &error.scope {
+        out.push_str(&format!(" ({scope})"));
+    }
+    out.push(':');
+    for line in &error.lines {
+        out.push_str("\n  ");
+        out.push_str(line);
+    }
+    if let Some(detail) = &error.detail {
+        out.push_str("\n  ");
+        out.push_str(detail);
+    }
+    out.push_str("\n  ");
+    out.push_str(&error.conclusion);
+    out
 }
 
 impl Error for CheckError {}
@@ -364,6 +445,8 @@ fn compare(
     Some(CheckError {
         kind,
         step: step.to_owned(),
+        node: None,
+        scope: None,
         dimension: Some(dimension),
         lines: vec![
             value_line(left, dimension, None),
@@ -397,6 +480,8 @@ fn compare_reference(step: &str, left: &Binding, right: &Binding) -> Option<Chec
         } => Some(CheckError {
             kind: ErrorKind::ContigNaming,
             step: step.to_owned(),
+            node: None,
+            scope: None,
             dimension: Some(Dimension::ContigNaming),
             // Rendered from each binding's own naming dimension, so the
             // lines always correspond to the bindings as listed.
@@ -408,6 +493,8 @@ fn compare_reference(step: &str, left: &Binding, right: &Binding) -> Option<Chec
         Verdict::OrderDiffers { .. } => Some(CheckError {
             kind: ErrorKind::ContigOrder,
             step: step.to_owned(),
+            node: None,
+            scope: None,
             dimension: Some(Dimension::Reference),
             lines: vec![order_line(left), order_line(right)],
             detail: None,
@@ -448,6 +535,8 @@ fn reference_error(step: &str, left: &Binding, right: &Binding, detail: String) 
     CheckError {
         kind: ErrorKind::Dimension,
         step: step.to_owned(),
+        node: None,
+        scope: None,
         dimension: Some(Dimension::Reference),
         lines: vec![
             value_line(left, Dimension::Reference, suffixes.0.as_deref()),
@@ -562,6 +651,8 @@ fn undeclared(
     CheckError {
         kind: ErrorKind::Undeclared,
         step: step.to_owned(),
+        node: None,
+        scope: None,
         dimension: Some(dimension),
         lines,
         detail: None,
@@ -575,6 +666,8 @@ fn undeclared_all(step: &str, dimension: Dimension, unknown: &[&Binding]) -> Che
     CheckError {
         kind: ErrorKind::Undeclared,
         step: step.to_owned(),
+        node: None,
+        scope: None,
         dimension: Some(dimension),
         lines: unknown
             .iter()
@@ -625,6 +718,8 @@ pub fn step_type_error(
     CheckError {
         kind: ErrorKind::StepType,
         step: step.to_owned(),
+        node: None,
+        scope: None,
         dimension: None,
         lines: vec![
             format!("`{step}` declares {param}: {}", expected.name()),
@@ -663,6 +758,8 @@ pub fn undeclared_at(
     CheckError {
         kind: ErrorKind::Undeclared,
         step: step.to_owned(),
+        node: None,
+        scope: None,
         dimension: Some(dimension),
         lines: vec![format!("{dimension} is unknown in {origin} ({reason})")],
         detail,
@@ -686,23 +783,117 @@ fn list_steps(steps: &[&str]) -> String {
 ///
 /// The wording lives here with the errors themselves, so the Rust tests own
 /// it and a caller in any language reports a check the same way.
+///
+/// The steps counted are the *places* that failed, not the names they share.
+/// Under per-sample fan-out one written step is many steps, and a cohort-wide
+/// failure reported as a single localised one is the opposite of what a user
+/// needs in order to decide whether to re-run a sample or rethink the
+/// pipeline.
 #[must_use]
 pub fn summarise(errors: &[CheckError]) -> String {
     if errors.is_empty() {
         return "no problems found.".to_owned();
     }
 
-    let mut steps: Vec<&str> = errors.iter().map(CheckError::step).collect();
-    steps.sort_unstable();
-    steps.dedup();
+    let mut places: Vec<String> = errors.iter().map(place).collect();
+    places.sort_unstable();
+    places.dedup();
 
     format!(
         "{} {} in {} {}.",
         errors.len(),
         plural(errors.len(), "error", "errors"),
-        steps.len(),
-        plural(steps.len(), "step", "steps")
+        places.len(),
+        plural(places.len(), "step", "steps")
     )
+}
+
+/// What tells the step an error came from apart from any other.
+///
+/// A graph stamps a node; a single step checked on its own has only its name.
+fn place(error: &CheckError) -> String {
+    match error.node {
+        Some(node) => format!("#{node}"),
+        None => format!("`{}`", error.step),
+    }
+}
+
+/// The whole report: each distinct problem once, then the summary.
+///
+/// One problem across four hundred samples is one thing to understand and
+/// four hundred paragraphs to read, so identical problems are stated once and
+/// every sample they affect is named on a line of its own. Named, not
+/// counted: a user who has to expand something to find out which samples
+/// failed has been given a worse report, not a shorter one.
+///
+/// Errors that cannot name themselves are never collapsed. Hiding one behind
+/// another identical-looking error would leave a user with no way to tell
+/// them apart, which is the bug this exists to avoid rather than a smaller
+/// version of it.
+#[must_use]
+pub fn render(errors: &[CheckError]) -> String {
+    if errors.is_empty() {
+        return summarise(errors);
+    }
+
+    let mut groups: Vec<Group<'_>> = Vec::new();
+    for error in errors {
+        let key = error.scope.as_ref().map(|_| write_error(error, false));
+        let existing = key.as_deref().and_then(|key| {
+            groups
+                .iter()
+                .position(|group| group.key.as_deref() == Some(key))
+        });
+        match existing {
+            Some(at) => groups[at].rest.push(error),
+            None => groups.push(Group {
+                key,
+                first: error,
+                rest: Vec::new(),
+            }),
+        }
+    }
+
+    let mut paragraphs: Vec<String> = groups.iter().map(Group::render).collect();
+    paragraphs.push(summarise(errors));
+    paragraphs.join("\n\n")
+}
+
+/// One problem, and the other places it was found.
+struct Group<'a> {
+    /// The problem as text without its scope, or `None` when it has none and
+    /// therefore stands alone.
+    key: Option<String>,
+    first: &'a CheckError,
+    rest: Vec<&'a CheckError>,
+}
+
+impl Group<'_> {
+    fn render(&self) -> String {
+        let mut out = self.first.to_string();
+        let named: Vec<&str> = self
+            .rest
+            .iter()
+            .filter_map(|error| error.scope.as_ref())
+            .map(|scope| scope.value.as_str())
+            .collect();
+
+        if let Some(scope) = self.first.scope.as_ref()
+            && !named.is_empty()
+        {
+            let kind = if named.len() == 1 {
+                scope.kind.to_owned()
+            } else {
+                scope.kinds()
+            };
+            out.push_str(&format!(
+                "\n  The same problem affects {} other {kind}: {}.",
+                named.len(),
+                named.join(", ")
+            ));
+        }
+        out
+    }
 }
 
 const fn plural(count: usize, one: &'static str, many: &'static str) -> &'static str {

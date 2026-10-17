@@ -22,6 +22,11 @@
 //! re-sourced as [`Source::Derived`] — so a value renders as "from step
 //! `align`" and a mistake found three steps downstream can still be traced.
 //!
+//! **Identity under fan-out.** One written step becomes one node per sample,
+//! so an error carries the node it came from and, where the graph can work it
+//! out, the sample that node is for. Without that, four samples failing the
+//! same way are four byte-identical messages and a count of one step.
+//!
 //! **Patience, then attribution.** `docs/dimensions.md` allows an unknown
 //! dimension *unless a downstream step requires it*. A sample set that
 //! nothing joins on is nobody's problem, and demanding it anyway would be a
@@ -33,7 +38,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::error::Error;
 use std::fmt;
 
-use crate::check::{self, Binding, CheckError};
+use crate::check::{self, Binding, CheckError, Scope};
 use crate::dim::{CoordinateSystem, Dim, Dimension, Dimensions, Source, display_path};
 use crate::types::{DataKind, Dataset};
 
@@ -236,18 +241,60 @@ impl Graph {
                 continue;
             };
 
-            let mismatched = self.kind_errors(spec);
-            if !mismatched.is_empty() {
-                errors.extend(mismatched);
-                continue;
+            let mut found = self.kind_errors(spec);
+            if found.is_empty() {
+                let bindings = self.bindings(spec);
+                found.extend(check::disagreements(&spec.name, &bindings));
+                self.demand(spec, &bindings, &mut demanded, &mut found);
             }
 
-            let bindings = self.bindings(spec);
-            errors.extend(check::disagreements(&spec.name, &bindings));
-            self.demand(spec, &bindings, &mut demanded, &mut errors);
+            // Every error says which node it came from, so a count of failing
+            // steps counts places rather than names, and a fan-out error can
+            // say which sample it is about.
+            let scope = self.scope(NodeId(index));
+            errors.extend(
+                found
+                    .into_iter()
+                    .map(|error| error.at_node(index, scope.clone())),
+            );
         }
 
         errors
+    }
+
+    /// How to name a node in a message, when one step runs many times.
+    ///
+    /// The sample, where there is exactly one. A step that spans a whole
+    /// cohort gets nothing: naming it after one of its samples would be worse
+    /// than saying nothing, because a user would go and look at that sample.
+    fn scope(&self, node: NodeId) -> Option<Scope> {
+        let output = self.dataset(node)?;
+        if output.kind().applies(Dimension::SampleSet) {
+            return single_sample(output);
+        }
+
+        // The output cannot carry a sample set at all -- intervals, say -- so
+        // there was nothing for it to inherit. Ask what went in, and only
+        // answer if everything that can speak to it says the same sample.
+        let Some(Node::Step { spec, .. }) = self.nodes.get(node.0) else {
+            return None;
+        };
+        let mut agreed: Option<Scope> = None;
+        for argument in &spec.arguments {
+            let Some(dataset) = self.dataset(argument.node) else {
+                continue;
+            };
+            if !dataset.kind().applies(Dimension::SampleSet) {
+                continue;
+            }
+            match single_sample(dataset) {
+                Some(scope) if agreed.as_ref().is_none_or(|seen| *seen == scope) => {
+                    agreed = Some(scope);
+                }
+                _ => return None,
+            }
+        }
+        agreed
     }
 
     /// Arguments whose supplied kind is not the kind the step declares.
@@ -402,6 +449,17 @@ impl Graph {
         }
 
         seen
+    }
+}
+
+/// The one sample a dataset covers, if it covers exactly one.
+fn single_sample(dataset: &Dataset) -> Option<Scope> {
+    match dataset.dimensions().sample_set.value()?.as_slice() {
+        [one] => Some(Scope {
+            kind: "sample",
+            value: one.clone(),
+        }),
+        _ => None,
     }
 }
 

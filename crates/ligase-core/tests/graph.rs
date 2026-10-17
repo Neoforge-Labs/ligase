@@ -15,7 +15,7 @@
 mod common;
 
 use common::fixture;
-use ligase::check::ErrorKind;
+use ligase::check::{self, ErrorKind, Scope};
 use ligase::dim::{CoordinateSystem, Dimension, Source};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
 use ligase::load::{self, Declared};
@@ -611,6 +611,269 @@ fn a_requirement_met_by_a_declaration_at_the_root_is_satisfied() {
         graph.check(&[merged]).is_empty(),
         "errors were: {:#?}",
         graph.check(&[merged])
+    );
+}
+
+// -------------------------------------------- reporting under fan-out --
+
+/// Reads with a declared sample identifier, so a graph can fan out.
+fn sample(id: &str) -> Dataset {
+    load::reads(
+        &fixture("reads_phred33_1.fastq"),
+        None,
+        &Declared {
+            samples: Some(vec![id.to_owned()]),
+            ..Declared::default()
+        },
+    )
+    .unwrap()
+}
+
+/// `n` samples aligned to one reference and called against another, so every
+/// `call` node fails the same way. This is what per-sample fan-out looks like
+/// when the pipeline is wrong.
+fn broken_fan_out(ids: &[&str]) -> (Graph, Vec<NodeId>) {
+    let mut graph = Graph::new();
+    let right = graph.add_input("hxb2", reference("tiny_bare.fasta"));
+    let wrong = graph.add_input("other", reference("tiny_other.fasta"));
+
+    let roots = ids
+        .iter()
+        .map(|id| {
+            let reads = graph.add_input("reads", sample(id));
+            let aligned = graph
+                .add_step(spec(
+                    "align",
+                    DataKind::Alignment,
+                    vec![
+                        argument("reads", DataKind::Reads, reads),
+                        argument("ref", DataKind::Reference, right),
+                    ],
+                ))
+                .unwrap();
+            graph
+                .add_step(spec(
+                    "call",
+                    DataKind::Variants,
+                    vec![
+                        argument("aln", DataKind::Alignment, aligned),
+                        argument("ref", DataKind::Reference, wrong),
+                    ],
+                ))
+                .unwrap()
+        })
+        .collect();
+
+    (graph, roots)
+}
+
+#[test]
+fn the_summary_counts_failing_nodes_not_step_names() {
+    // Regression. Four distinct `call` nodes failed, one per sample. Counting
+    // the names they share reported a cohort-wide failure as a single
+    // localised one -- the opposite of what a user needs to decide whether to
+    // re-run one sample or rethink the pipeline.
+    let (graph, roots) = broken_fan_out(&["s1", "s2", "s3", "s4"]);
+    let errors = graph.check(&roots);
+
+    assert_eq!(errors.len(), 4, "errors were: {errors:#?}");
+    assert_eq!(check::summarise(&errors), "4 errors in 4 steps.");
+}
+
+#[test]
+fn two_problems_at_one_node_still_read_as_one_step() {
+    // The other side of that fix: the count is of places, not of errors, so
+    // one node with two problems must not read as two steps.
+    let mut graph = Graph::new();
+    let aligned = graph.add_input("aln", alignment("tiny_bare.sam"));
+    let wrong = graph.add_input("ref", {
+        load::reference(
+            &fixture("tiny_other.fasta"),
+            &Declared {
+                organism: Some("human".into()),
+                build: Some("other".into()),
+                ..Declared::default()
+            },
+        )
+        .unwrap()
+    });
+    let called = graph
+        .add_step(spec(
+            "call",
+            DataKind::Variants,
+            vec![
+                argument("aln", DataKind::Alignment, aligned),
+                argument("ref", DataKind::Reference, wrong),
+            ],
+        ))
+        .unwrap();
+
+    // The alignment declares no organism, so only the reference disagrees...
+    let errors = graph.check(&[called]);
+    assert_eq!(errors.len(), 1, "errors were: {errors:#?}");
+    assert_eq!(check::summarise(&errors), "1 error in 1 step.");
+}
+
+#[test]
+fn an_error_at_a_fan_out_node_names_its_sample() {
+    // Regression. Four byte-identical messages left no way to tell whether
+    // you were looking at one problem or four, or which samples were hit.
+    let (graph, roots) = broken_fan_out(&["patient_a", "patient_b"]);
+    let errors = graph.check(&roots);
+
+    assert_eq!(
+        errors[0].scope().map(Scope::describe),
+        Some("sample patient_a".to_owned())
+    );
+    assert!(
+        errors[0]
+            .to_string()
+            .starts_with("DimensionError in step `call` (sample patient_a):"),
+        "{}",
+        errors[0]
+    );
+    assert!(
+        errors[1].to_string().contains("(sample patient_b)"),
+        "{}",
+        errors[1]
+    );
+}
+
+#[test]
+fn a_step_over_many_samples_is_not_labelled_with_one_of_them() {
+    // `merge` spans every sample, so there is no one sample to blame and
+    // naming one would be worse than saying nothing.
+    let mut graph = Graph::new();
+    let first = graph.add_input("a", variants("tiny_two_samples.vcf"));
+    let second = graph.add_input("b", variants("tiny_swapped_samples.vcf"));
+    let merged = graph
+        .add_step(spec(
+            "merge",
+            DataKind::Variants,
+            vec![
+                argument("a", DataKind::Variants, first),
+                argument("b", DataKind::Variants, second),
+            ],
+        ))
+        .unwrap();
+
+    let errors = graph.check(&[merged]);
+    assert_eq!(errors.len(), 1, "errors were: {errors:#?}");
+    assert_eq!(errors[0].scope(), None);
+    assert!(
+        errors[0]
+            .to_string()
+            .starts_with("DimensionError in step `merge`:"),
+        "{}",
+        errors[0]
+    );
+}
+
+#[test]
+fn a_report_states_one_problem_once_and_names_every_sample_it_affects() {
+    let (graph, roots) = broken_fan_out(&["s1", "s2", "s3", "s4"]);
+    let errors = graph.check(&roots);
+    let report = check::render(&errors);
+
+    // The problem is explained once, against the first sample...
+    assert_eq!(
+        report
+            .matches("These must match. Did you pass the wrong reference?")
+            .count(),
+        1,
+        "the report repeats itself:\n{report}"
+    );
+    assert!(report.contains("(sample s1):"), "{report}");
+    // ...and every other sample it affects is named, so nothing has to be
+    // expanded to find out who was hit.
+    assert!(
+        report.contains("The same problem affects 3 other samples: s2, s3, s4."),
+        "{report}"
+    );
+    // The count is still of nodes, not of paragraphs.
+    assert!(report.ends_with("4 errors in 4 steps."), "{report}");
+}
+
+#[test]
+fn a_report_keeps_problems_that_differ_apart() {
+    let (mut graph, mut roots) = broken_fan_out(&["s1", "s2"]);
+
+    // A third sample with a *different* problem: aligned to a chr-prefixed
+    // reference, then called against a bare one.
+    let prefixed = graph.add_input("prefixed", reference("tiny_prefixed.fasta"));
+    let bare = graph.add_input("bare", reference("tiny_bare.fasta"));
+    let reads = graph.add_input("reads", sample("s3"));
+    let aligned = graph
+        .add_step(spec(
+            "align",
+            DataKind::Alignment,
+            vec![
+                argument("reads", DataKind::Reads, reads),
+                argument("ref", DataKind::Reference, prefixed),
+            ],
+        ))
+        .unwrap();
+    roots.push(
+        graph
+            .add_step(spec(
+                "call",
+                DataKind::Variants,
+                vec![
+                    argument("aln", DataKind::Alignment, aligned),
+                    argument("ref", DataKind::Reference, bare),
+                ],
+            ))
+            .unwrap(),
+    );
+
+    let errors = graph.check(&roots);
+    let report = check::render(&errors);
+
+    // The two samples that share a problem are stated once together...
+    assert!(
+        report.contains("The same problem affects 1 other sample: s2."),
+        "{report}"
+    );
+    // ...and the one that differs keeps its own paragraph.
+    assert!(
+        report.contains("ContigNamingError in step `call` (sample s3):"),
+        "{report}"
+    );
+    assert!(report.ends_with("3 errors in 3 steps."), "{report}");
+}
+
+#[test]
+fn errors_that_cannot_name_themselves_are_never_collapsed() {
+    // Two identical problems at two unnamed steps. Collapsing them would
+    // hide one a user cannot otherwise identify, so each is kept.
+    let mut graph = Graph::new();
+    let first = graph.add_input("a", variants("tiny_two_samples.vcf"));
+    let second = graph.add_input("b", variants("tiny_swapped_samples.vcf"));
+    let roots: Vec<NodeId> = ["merge_one", "merge_two"]
+        .into_iter()
+        .map(|name| {
+            graph
+                .add_step(spec(
+                    name,
+                    DataKind::Variants,
+                    vec![
+                        argument("a", DataKind::Variants, first),
+                        argument("b", DataKind::Variants, second),
+                    ],
+                ))
+                .unwrap()
+        })
+        .collect();
+
+    let errors = graph.check(&roots);
+    assert_eq!(errors.len(), 2, "errors were: {errors:#?}");
+    assert!(errors.iter().all(|error| error.scope().is_none()));
+
+    let report = check::render(&errors);
+    assert_eq!(
+        report.matches("These must match, in order.").count(),
+        2,
+        "an unnamed problem must not be hidden behind another:\n{report}"
     );
 }
 

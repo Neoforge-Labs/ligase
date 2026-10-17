@@ -15,7 +15,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 
-use ligase::check::{Binding, CheckError, check_step as core_check_step, summarise};
+use ligase::check::{Binding, CheckError, check_step as core_check_step, render, summarise};
 use ligase::dim::{CoordinateSystem, Dimension};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
 use ligase::load::{self, Declared, IntervalFormat, LoadError as CoreLoadError};
@@ -24,12 +24,19 @@ use ligase::types::{DataKind, Dataset};
 /// One contig as Python sees it: name, length, checksum.
 type PyContig = (String, Option<u64>, Option<String>);
 
-/// One disagreement as Python sees it: kind, step, dimension, message.
+/// One disagreement as Python sees it: kind, step, dimension, scope, message.
 ///
 /// Python turns the kind into the matching exception class. The message is
 /// built in the core so that the Rust tests assert on the exact wording. The
-/// dimension is absent for a step-type error, which blames no dimension.
-type PyCheckError = (&'static str, String, Option<&'static str>, String);
+/// dimension is absent for a step-type error, which blames no dimension; the
+/// scope is absent for a step that does not stand for one sample.
+type PyCheckError = (
+    &'static str,
+    String,
+    Option<&'static str>,
+    Option<(&'static str, String)>,
+    String,
+);
 
 /// One step argument as Python sees it: parameter, declared kind, node.
 type PyArgument = (String, String, usize);
@@ -39,6 +46,7 @@ fn translate(error: &CheckError) -> PyCheckError {
         error.kind().name(),
         error.step().to_owned(),
         error.dimension().map(Dimension::name),
+        error.scope().map(|scope| (scope.kind, scope.value.clone())),
         error.to_string(),
     )
 }
@@ -365,12 +373,15 @@ impl PyGraph {
 
     /// Check every step these outputs depend on.
     ///
-    /// Returns every error and the one-line summary, both worded in the
-    /// core so the Rust tests own them.
-    fn check(&self, roots: Vec<usize>) -> (Vec<PyCheckError>, String) {
+    /// Returns every error, the one-line summary and the whole report as
+    /// text, all three worded in the core so the Rust tests own them. The
+    /// report states each distinct problem once and names every sample it
+    /// affects; the error list keeps one entry per failing node.
+    fn check(&self, roots: Vec<usize>) -> (Vec<PyCheckError>, String, String) {
         let errors = self.inner.check(&nodes(&roots));
         let summary = summarise(&errors);
-        (errors.iter().map(translate).collect(), summary)
+        let report = render(&errors);
+        (errors.iter().map(translate).collect(), summary, report)
     }
 
     fn __len__(&self) -> usize {

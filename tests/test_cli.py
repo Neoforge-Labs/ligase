@@ -75,7 +75,9 @@ def test_a_wrong_reference_is_reported_without_running_anything(
     assert main(["check", str(path)]) == 1
 
     out = capsys.readouterr().out
-    assert "DimensionError in step `call`:" in out
+    # The sample is in the heading, because under fan-out the step name alone
+    # does not say which of them failed.
+    assert "DimensionError in step `call` (sample reads_phred33):" in out
     assert "Did you pass the wrong reference?" in out
     assert "1 error in 1 step." in out
 
@@ -128,7 +130,7 @@ def test_check_is_reachable_as_an_installed_command(tmp_path: Path) -> None:
     )
 
     assert finished.returncode == 1
-    assert "DimensionError in step `call`:" in finished.stdout
+    assert "DimensionError in step `call`" in finished.stdout
 
 
 def test_an_unknown_command_is_a_usage_error() -> None:

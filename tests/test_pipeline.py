@@ -245,6 +245,75 @@ def test_a_report_summarises_what_it_found() -> None:
     assert broken.report().summary == "1 error in 1 step."
 
 
+# ------------------------------------------------- reporting under fan-out --
+
+
+def broken_fan_out(ids: list[str]) -> lg.Pipeline:
+    """A pipeline where every sample fails the same way."""
+    right = hxb2()
+    wrong = lg.reference(fixture("tiny_other.fasta"), organism="HIV-1", build="other")
+    samples = [
+        lg.reads(fixture("reads_phred33_1.fastq"), sample=identifier)
+        for identifier in ids
+    ]
+    return lg.Pipeline([call(align(s, right), wrong) for s in samples])
+
+
+def test_the_summary_counts_failing_steps_not_step_names() -> None:
+    # Regression. Four distinct `call` nodes failed, one per sample, and the
+    # summary said "1 step" -- presenting a cohort-wide failure as a single
+    # localised one.
+    pipe = broken_fan_out(["s1", "s2", "s3", "s4"])
+    report = pipe.report()
+
+    assert len(report.errors) == 4
+    assert report.summary == "4 errors in 4 steps."
+
+
+def test_a_fan_out_error_says_which_sample_it_is_about() -> None:
+    # Regression. The four messages were byte-identical, so there was no way
+    # to tell one problem from four, or which samples were affected.
+    pipe = broken_fan_out(["patient_a", "patient_b"])
+    errors = pipe.errors()
+
+    assert [e.scope for e in errors] == [
+        ("sample", "patient_a"),
+        ("sample", "patient_b"),
+    ]
+    assert str(errors[0]).startswith(
+        "DimensionError in step `call` (sample patient_a):"
+    )
+    assert str(errors[0]) != str(errors[1])
+
+    # Which is what lets a user ask the question they actually have.
+    assert {e.scope[1] for e in errors if e.scope} == {"patient_a", "patient_b"}
+
+
+def test_the_report_states_one_problem_once_and_names_every_sample() -> None:
+    pipe = broken_fan_out(["s1", "s2", "s3", "s4"])
+    text = pipe.report().text
+
+    assert text.count("Did you pass the wrong reference?") == 1
+    assert "(sample s1):" in text
+    assert "The same problem affects 3 other samples: s2, s3, s4." in text
+    assert text.endswith("4 errors in 4 steps.")
+
+
+def test_a_cohort_step_is_not_labelled_with_one_of_its_samples() -> None:
+    @lg.step
+    def merge(a: Variants, b: Variants) -> Variants:
+        return a
+
+    first = lg.variants(fixture("tiny_two_samples.vcf"))
+    second = lg.variants(fixture("tiny_swapped_samples.vcf"))
+
+    errors = lg.Pipeline(merge(first, second)).errors()
+
+    assert len(errors) == 1
+    assert errors[0].scope is None
+    assert str(errors[0]).startswith("DimensionError in step `merge`:")
+
+
 # ---------------------------------------------------- the real HIV-1 demo --
 
 
