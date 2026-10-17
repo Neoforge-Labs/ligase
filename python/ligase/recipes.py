@@ -17,7 +17,7 @@ ask Python anything.
 
     @lg.step
     def resistance(v: Variants) -> ResistanceReport:
-        return lg.write(lambda out: interpret(v.path, out))
+        return lg.write(lambda out: interpret(v.file, out))
 
 The declared return type is the data the step produces, so that a type
 checker can follow the pipeline (see `graph.py`). A recipe stands in for

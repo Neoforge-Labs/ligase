@@ -87,14 +87,11 @@ def call(aln: Alignment, ref: Reference, min_freq: float = 0.01) -> Variants:
 @lg.step
 def resistance(v: Variants) -> ResistanceReport:
     """Place each variant in the pol gene and codon it falls in."""
-    return lg.write(lambda out: _localise(v.path, out))
+    return lg.write(lambda out: _localise(v.file, out))
 
 
-def _localise(variants: str | None, out: Path) -> None:
+def _localise(variants: str, out: Path) -> None:
     """Write one row per variant, with the gene and codon it falls in."""
-    if variants is None:
-        raise ValueError("the variant calls have no file behind them")
-
     rows = ["contig\tposition\tref\talt\tgene\tcodon"]
     with gzip.open(variants, "rt") as calls:
         for line in calls:

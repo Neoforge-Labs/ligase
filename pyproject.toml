@@ -82,6 +82,9 @@ convention = "google"
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["python", "tests"]
+# `examples/` is checked too: a pipeline shown to users of a typed framework
+# should be one a type checker accepts, and this is what notices when it
+# stops being.
+files = ["python", "tests", "examples"]
 mypy_path = "python"
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]

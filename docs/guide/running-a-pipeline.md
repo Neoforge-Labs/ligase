@@ -70,11 +70,17 @@ with the path to write to:
 ```python
 @lg.step
 def resistance(v: Variants) -> ResistanceReport:
-    return lg.write(lambda out: interpret(v.path, out))
+    return lg.write(lambda out: interpret(v.file, out))
 ```
 
-`v.path` works *inside* the function because by the time it is called, the
-steps above it have run. Reading it earlier raises, and says so.
+`v.file` works *inside* the function because by the time it is called, the
+steps above it have run. Reading it earlier raises, and says so. It is typed
+as a path rather than an optional one for the same reason: a body reached
+through `lg.write` is a body whose inputs exist.
+
+(`v.path`, which every dataset also has, is the honest answer to "where did
+this come from, if anywhere?" and so can be `None`. Use `.file` when you are
+about to open it.)
 
 These steps take the GIL, so they do not run in parallel with each other —
 the right trade for an interpretation step, the wrong one for anything
@@ -197,7 +203,7 @@ aligned = align(sample, hxb2)
 pipe = lg.Pipeline(call(aligned, hxb2))
 pipe.run()
 
-lg.handle(aligned).path    # where that alignment landed
+lg.handle(aligned).file    # where that alignment landed
 ```
 
 The store is derived data. Deleting `.ligase/` costs you a rerun and

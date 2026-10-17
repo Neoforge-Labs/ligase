@@ -20,7 +20,9 @@ runs: in parallel, cached, one branch per sample.
 - A step body now says *how* its output is produced rather than producing
   it. `lg.sh("minimap2 -ax sr {ref} {reads.r1} {reads.r2} ... -o {out}")`
   builds a command whose placeholders the engine fills in; `lg.write(f)` is
-  for a step whose work is Python. Bodies are asked once, before anything
+  for a step whose work is Python, and reads its inputs through
+  `v.file` — typed as a path rather than an optional one, because a body
+  reached through `lg.write` is a body whose inputs exist. Bodies are asked once, before anything
   runs, which is what lets the engine own the whole run without the GIL in
   the hot path. A placeholder naming nothing is refused, and `{{` escapes a
   literal brace so an `awk '{{print $1}}'` still works.

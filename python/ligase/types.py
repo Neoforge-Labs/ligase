@@ -82,6 +82,34 @@ class Dataset:
         return self._core.path
 
     @property
+    def file(self) -> str:
+        """The file this data is, for code that has to open it.
+
+        `path` is the honest answer to "where did this come from, if
+        anywhere?", so it can be `None` — a step's output carries dimensions
+        worked out before anything ran, and has no file of its own until it
+        does. This is the answer for the other question, the one a
+        `lg.write` body asks:
+
+            return lg.write(lambda out: interpret(v.file, out))
+
+        Inside that function the steps above have run, so there is a file,
+        and saying so in the type is what keeps a body from having to prove
+        it.
+
+        Raises:
+            ValueError: If this data has no file behind it at all.
+        """
+        found = self._core.path
+        if found is None:
+            raise ValueError(
+                f"this {self.kind} has no file behind it, so there is "
+                "nothing to open. A step's output has none until the step "
+                "has run; `path` is the accessor that admits to that"
+            )
+        return found
+
+    @property
     def applicable(self) -> tuple[str, ...]:
         """The dimensions that mean anything for this kind of data.
 

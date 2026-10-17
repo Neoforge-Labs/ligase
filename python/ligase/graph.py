@@ -206,13 +206,16 @@ class StepOutput:
         return KINDS.get(self.kind, Dataset)(found)
 
     @property
-    def path(self) -> str:
+    def file(self) -> str:
         """Where the output is, once the step has produced it.
 
-        A `lg.write` body reads this inside the function it hands back, by
-        which time the engine has run whatever comes above it:
+        The same name `Dataset.file` has, because a body cannot tell which
+        it was handed: a step's input is loaded data for the first step of a
+        pipeline and another step's handle after that. A `lg.write` body
+        reads it inside the function it hands back, by which time the engine
+        has run whatever comes above it:
 
-            return lg.write(lambda out: interpret(v.path, out))
+            return lg.write(lambda out: interpret(v.file, out))
 
         Raises:
             RuntimeError: Before the step has run, when there is no file to
@@ -222,9 +225,9 @@ class StepOutput:
         if self._produced is None:
             raise RuntimeError(
                 f"step `{self.step.name}` has not produced anything yet, so "
-                "its output has no path. A shell command names its inputs "
+                "its output has no file. A shell command names its inputs "
                 "with placeholders and lets the engine fill them in; a "
-                "`lg.write` body reads `.path` inside the function it "
+                "`lg.write` body reads `.file` inside the function it "
                 "returns, which runs after the steps above it"
             )
         return self._produced

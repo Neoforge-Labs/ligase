@@ -37,16 +37,7 @@ def _interpret(variants: str, out: Path) -> None:
 @lg.step
 def resistance(v: Variants) -> ResistanceReport:
     """A step whose work is Python rather than a command."""
-
-    def interpret(out: Path) -> None:
-        # Inside the function `lg.write` hands back, the step above has run,
-        # so the input has a file. A type checker sees the declared data
-        # type, whose path is optional, hence the assertion.
-        source = v.path
-        assert source is not None
-        _interpret(source, out)
-
-    return lg.write(interpret)
+    return lg.write(lambda out: _interpret(v.file, out))
 
 
 @lg.step(tool="ligase-no-such-tool")
@@ -118,14 +109,34 @@ def test_an_output_can_be_read_back_from_its_handle_after_a_run(
 
     pipe.run(cache=tmp_path)
 
-    assert Path(lg.handle(aligned).path).is_file()
+    assert Path(lg.handle(aligned).file).is_file()
 
 
-def test_the_output_of_a_step_has_no_path_until_it_has_run() -> None:
+def test_the_output_of_a_step_has_no_file_until_it_has_run() -> None:
     aligned = lg.handle(align(reference()))
 
     with pytest.raises(RuntimeError, match="has not produced anything yet"):
-        _ = aligned.path
+        _ = aligned.file
+
+
+def test_loaded_data_knows_the_file_it_is() -> None:
+    loaded = reference()
+
+    assert loaded.file == loaded.path
+    assert Path(loaded.file).is_file()
+
+
+def test_data_with_no_file_behind_it_says_so_rather_than_returning_none() -> None:
+    # A step's output carries dimensions worked out before anything ran, so
+    # it has no file of its own until it has run.
+    aligned = align(reference())
+    lg.Pipeline(call(aligned))  # building the graph is what propagates them
+    propagated = lg.handle(aligned).dataset
+    assert propagated is not None
+
+    assert propagated.path is None
+    with pytest.raises(ValueError, match="no file behind it"):
+        _ = propagated.file
 
 
 # --------------------------------------------------------------- cache --
