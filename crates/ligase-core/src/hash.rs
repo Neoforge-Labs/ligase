@@ -61,6 +61,17 @@ impl ContentHash {
         &self.0
     }
 
+    /// A hash from a digest computed elsewhere in the engine.
+    ///
+    /// Used by [`crate::canon`], whose digest is over a file's canonical
+    /// form rather than its bytes. It is still a BLAKE3 hash of something,
+    /// and that something is domain-separated, so the two can never be
+    /// confused.
+    #[must_use]
+    pub(crate) const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
     /// The digest as 64 lowercase hex characters.
     #[must_use]
     pub fn to_hex(&self) -> String {

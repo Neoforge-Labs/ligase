@@ -40,6 +40,7 @@
 //! ```
 
 pub mod cache;
+pub mod canon;
 pub mod check;
 pub mod dim;
 pub mod exec;
