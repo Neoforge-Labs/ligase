@@ -119,6 +119,12 @@ impl DataKind {
 pub struct Dataset {
     kind: DataKind,
     path: Option<PathBuf>,
+    /// The other files of the same dataset: the second mate of a pair.
+    ///
+    /// Kept beside `path` rather than replacing it because every other kind
+    /// of data is one file, and a dataset's *primary* file is what a
+    /// message names.
+    mates: Vec<PathBuf>,
     dimensions: Dimensions,
 }
 
@@ -129,8 +135,16 @@ impl Dataset {
         Self {
             kind,
             path,
+            mates: Vec::new(),
             dimensions,
         }
+    }
+
+    /// The same dataset, with a second file belonging to it.
+    #[must_use]
+    pub fn with_mate(mut self, mate: PathBuf) -> Self {
+        self.mates.push(mate);
+        self
     }
 
     /// What kind of data this is.
@@ -143,6 +157,16 @@ impl Dataset {
     #[must_use]
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
+    }
+
+    /// Every file this dataset is, in order.
+    ///
+    /// One file for everything except a paired sample, which is two — and
+    /// their order is the pairing, so a step is handed `r1` and `r2` the way
+    /// round they were read.
+    #[must_use]
+    pub fn files(&self) -> Vec<PathBuf> {
+        self.path.iter().chain(self.mates.iter()).cloned().collect()
     }
 
     /// The dimensions it carries.

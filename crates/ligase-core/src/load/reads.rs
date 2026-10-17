@@ -80,11 +80,13 @@ pub fn reads(r1: &Path, r2: Option<&Path>, declared: &Declared) -> Result<Datase
         ..Dimensions::default()
     };
 
-    Ok(Dataset::new(
-        DataKind::Reads,
-        Some(r1.to_path_buf()),
-        dimensions,
-    ))
+    let dataset = Dataset::new(DataKind::Reads, Some(r1.to_path_buf()), dimensions);
+    // The second mate travels with the first, so a step written as
+    // `{reads.r1} {reads.r2}` has something to put there.
+    Ok(match r2 {
+        Some(mate) => dataset.with_mate(mate.to_path_buf()),
+        None => dataset,
+    })
 }
 
 /// Group FASTQ files into samples, pairing mates by filename.

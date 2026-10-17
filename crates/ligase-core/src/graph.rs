@@ -216,6 +216,31 @@ impl Graph {
         self.nodes.is_empty()
     }
 
+    /// The step at this node, if it is a step rather than an input.
+    ///
+    /// The executor needs a step's arguments to know what to pass it; the
+    /// checker reads them from inside the graph.
+    #[must_use]
+    pub fn step(&self, node: NodeId) -> Option<&StepSpec> {
+        match self.nodes.get(node.index())? {
+            Node::Step { spec, .. } => Some(spec),
+            Node::Input { .. } => None,
+        }
+    }
+
+    /// Every node these outputs depend on, in dependency order.
+    ///
+    /// Index order is dependency order -- a node can only name earlier ones
+    /// -- so this needs no topological sort and a run can follow it
+    /// straight through.
+    #[must_use]
+    pub fn reachable_nodes(&self, roots: &[NodeId]) -> Vec<NodeId> {
+        self.reachable(roots)
+            .into_iter()
+            .map(NodeId::from_index)
+            .collect()
+    }
+
     /// The steps reachable from these outputs, in dependency order.
     #[must_use]
     pub fn step_names(&self, roots: &[NodeId]) -> Vec<&str> {
@@ -241,7 +266,7 @@ impl Graph {
         let mut demanded: HashSet<(usize, Dimension)> = HashSet::new();
 
         let reachable = self.reachable(roots);
-        let scopes = self.scopes(&reachable);
+        let scopes = self.scopes_within(&reachable);
 
         for index in reachable {
             let Node::Step { spec, .. } = &self.nodes[index] else {
@@ -272,6 +297,11 @@ impl Graph {
 
     /// How to name each step node in a message, for the names that need it.
     ///
+    /// Public because a run reports its steps the same way a check reports
+    /// its errors: one written step is many nodes under fan-out, and a line
+    /// that cannot say which sample it is about is a line a user cannot act
+    /// on.
+    ///
     /// A name belonging to one step needs nothing. The shape
     /// `docs/golden-example.md` specifies is `in step `call`:`, and a suffix
     /// that identifies nothing a user was struggling to identify is noise on
@@ -287,7 +317,14 @@ impl Graph {
     ///
     /// Ambiguity is judged over the nodes being checked, so a twin built for
     /// another pipeline does not start annotating this one's.
-    fn scopes(&self, reachable: &BTreeSet<usize>) -> HashMap<usize, Scope> {
+    pub fn scopes(&self, roots: &[NodeId]) -> HashMap<NodeId, Scope> {
+        self.scopes_within(&self.reachable(roots))
+            .into_iter()
+            .map(|(index, scope)| (NodeId::from_index(index), scope))
+            .collect()
+    }
+
+    fn scopes_within(&self, reachable: &BTreeSet<usize>) -> HashMap<usize, Scope> {
         let mut shared: HashMap<&str, Vec<usize>> = HashMap::new();
         for index in reachable {
             if let Some(Node::Step { spec, .. }) = self.nodes.get(*index) {

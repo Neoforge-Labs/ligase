@@ -39,8 +39,10 @@
 //! # }
 //! ```
 
+pub mod cache;
 pub mod check;
 pub mod dim;
+pub mod exec;
 pub mod graph;
 pub mod hash;
 pub mod key;
