@@ -21,6 +21,12 @@ classifiers = [
 ]
 dynamic = ["version"]
 
+[project.scripts]
+# `ligase check` imports a pipeline file and type-checks it. It lives in
+# Python rather than in the Rust core because it has to import the user's
+# pipeline module -- which is how a Python pipeline declares itself.
+ligase = "ligase.cli:main"
+
 [project.urls]
 Repository = "https://github.com/Neoforge-Labs/ligase"
 Changelog = "https://github.com/Neoforge-Labs/ligase/blob/main/CHANGELOG.md"
