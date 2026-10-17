@@ -72,7 +72,7 @@ jobs:
       # the docs does not need the compiled extension, so this job needs no
       # Rust toolchain. Keep these versions in step with pyproject.toml.
       - name: install mkdocs
-        run: pip install "mkdocs>=1.6" "mkdocs-material>=9.5"
+        run: pip install "mkdocs>=1.6,<2.0" "mkdocs-material>=9.5,<10"
       - name: mkdocs build
         run: mkdocs build --strict
 

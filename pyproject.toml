@@ -33,8 +33,10 @@ dev = [
   "ruff>=0.6",
 ]
 docs = [
-  "mkdocs>=1.6",
-  "mkdocs-material>=9.5",
+  # Capped below 2.0: MkDocs 2.0 removes the plugin and theming systems
+  # that Material for MkDocs is built on, with no migration path.
+  "mkdocs>=1.6,<2.0",
+  "mkdocs-material>=9.5,<10",
 ]
 
 [tool.maturin]
