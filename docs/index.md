@@ -35,14 +35,24 @@ DimensionError in step `call`:
 
 ## Status
 
-**Pre-alpha**, building towards v0.1. Milestone **M0 (scaffold)** is complete:
-the workspace builds, `pip install -e .` works, `import ligase` succeeds, and
-CI runs the full gate.
+**Pre-alpha**, building towards v0.1. Milestones **M0 (scaffold)** and
+**M1 (types and dimensions)** are complete.
 
-Nothing in [the golden example](golden-example.md) works yet beyond version
-reporting. The type system arrives in M1. See
-[milestones](milestones.md) for the order and the acceptance test for each
-step.
+You can load a FASTA, FASTQ, SAM/BAM or VCF, see the dimensions inferred from
+its headers, and have a step refused before it runs:
+
+```python
+import ligase as lg
+
+hxb2 = lg.reference("data/refs/HXB2.fasta", organism="HIV-1", build="HXB2")
+aln = lg.alignment("data/alignments/SRR32217714.bam")
+
+lg.check_step("call", {"aln": aln, "ref": hxb2})   # raises if they disagree
+```
+
+The graph that chains steps and checks a whole pipeline in one pass arrives in
+M2; caching and execution in M3. See [milestones](milestones.md) for the order
+and the acceptance test for each step.
 
 ## Where to go
 
@@ -52,6 +62,9 @@ step.
 | Understand how the project is put together | [Project layout](concepts/project-layout.md) |
 | Know why the workspace is shaped this way | [Workspace architecture](architecture/workspace.md) |
 | See the target API | [Golden example](golden-example.md) |
+| Understand why data carries dimensions | [Types and dimensions](concepts/types-and-dimensions.md) |
+| Declare dimensions and read the errors | [Declaring dimensions](guide/declaring-dimensions.md) |
+| Know how the checker works inside | [Type system](architecture/type-system.md) |
 | Know which dimensions exist and how they are inferred | [Dimensions](dimensions.md) |
 | Follow the build order | [Milestones](milestones.md) |
 | Understand a design choice | [Decisions](decisions.md) |

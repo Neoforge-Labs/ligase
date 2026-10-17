@@ -46,10 +46,13 @@ nav:
   - Home: index.md
   - Concepts:
       - Project layout: concepts/project-layout.md
+      - Types and dimensions: concepts/types-and-dimensions.md
   - Guide:
       - Installation: guide/installation.md
+      - Declaring dimensions: guide/declaring-dimensions.md
   - Architecture:
       - Workspace: architecture/workspace.md
+      - Type system: architecture/type-system.md
   - Design:
       - Golden example: golden-example.md
       - Dimensions: dimensions.md
