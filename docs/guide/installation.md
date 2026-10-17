@@ -6,10 +6,17 @@
 |---|---|
 | Python | 3.11 or newer |
 | Rust | a stable toolchain ([rustup](https://rustup.rs)) |
+| A C compiler | `cc`, for the bundled SQLite |
 | curl | for fetching test data |
 
 Rust is needed because installing builds the engine from source. There are no
 pre-built wheels yet.
+
+The C compiler is needed because the cache bundles SQLite and compiles it,
+rather than linking whatever version the machine happens to have. That costs
+you a C toolchain at install time and buys an identical SQLite everywhere,
+which matters for an on-disk format the cache has to keep reading. If you are
+missing one, [see below](#troubleshooting).
 
 ## Install
 
