@@ -13,3 +13,19 @@ readme = "../../README.md"
 
 [lints]
 workspace = true
+
+[dependencies]
+flate2 = { workspace = true }
+md-5 = { workspace = true }
+# No "fasta": FASTA is scanned by hand so a three-gigabase reference can be
+# checksummed without being held in memory.
+noodles = { workspace = true, features = [
+  "bam",
+  "bgzf",
+  "fastq",
+  "sam",
+  "vcf",
+] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

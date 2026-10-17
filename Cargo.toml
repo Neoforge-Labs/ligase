@@ -5,7 +5,7 @@ resolver = "3"
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.91"
 license = "MIT OR Apache-2.0"
 authors = ["Kelyn Njeri <kelyn.njeri@gmail.com>"]
 repository = "https://github.com/Neoforge-Labs/ligase"
@@ -15,6 +15,18 @@ categories = ["science"]
 [workspace.dependencies]
 ligase = { path = "crates/ligase-core", version = "0.1.0" }
 pyo3 = "0.30"
+
+# Format I/O. noodles is pure Rust, so wheels build without a C htslib --
+# which keeps `pip install ligase-bio` working everywhere. It is a 0.x crate
+# and bumps minor versions often, so expect periodic upgrade churn; its MSRV
+# is what sets ours.
+noodles = { version = "0.118", default-features = false }
+# MD5 is not a security choice here: it is what the SAM specification
+# prescribes for the @SQ M5 contig checksum.
+md-5 = "0.11"
+# Plain gzip (.fastq.gz); BGZF is handled by noodles.
+flate2 = "1.1"
+tempfile = "3.27"
 
 # Encodes the CLAUDE.md rule "no unwrap outside tests" as a machine check.
 # Test files opt out explicitly with #![allow(...)].
