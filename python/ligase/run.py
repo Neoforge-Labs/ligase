@@ -34,7 +34,12 @@ class StepRun:
             reran, because that rerun produced the same output as before.
         output: Where the output is, in the content-addressed store.
         key: The cache key, as hex.
-        hash: The hash of the output's contents, as hex.
+        hash: The hash of the output's bytes, as hex, which is also its name
+            in the store.
+        canonical: The hash of what the output *means*, as hex: its records
+            sorted and its volatile headers stripped. This is what the steps
+            below were keyed on, so two runs that agree here skip everything
+            downstream however far their bytes diverged.
         duration_ms: How long it took, when it ran; zero otherwise.
         node: Which node of the graph it was.
     """
@@ -45,6 +50,7 @@ class StepRun:
     output: str
     key: str
     hash: str
+    canonical: str
     duration_ms: int
     node: int
 
@@ -89,6 +95,9 @@ class RunReport:
         hashed: Input files that had to be read and hashed.
         prefiltered: Input files whose hash was already known from their
             size and mtime, and so were not read at all.
+        canonicalised: Files that had to be parsed to find out what they
+            mean. Like `hashed`, this is zero on a run that found everything
+            it needed already known.
     """
 
     steps: list[StepRun] = field(default_factory=list)
@@ -97,6 +106,7 @@ class RunReport:
     text: str = ""
     hashed: int = 0
     prefiltered: int = 0
+    canonicalised: int = 0
 
     @property
     def ran(self) -> list[StepRun]:

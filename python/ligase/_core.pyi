@@ -72,12 +72,16 @@ def check_step(
 # the command and the callback is set.
 Task = tuple[int, str, str | None, int | None, list[str], list[tuple[str, str]]]
 
-# One finished step: node, step, outcome, key, output hash, output,
-# milliseconds.
-RunResult = tuple[int, str, str, str, str, str, int]
+# One finished step: node, step, outcome, key, output hash, canonical hash,
+# output, milliseconds.
+RunResult = tuple[int, str, str, str, str, str, str, int]
 
 # One failed step: node, step, message.
 RunFailure = tuple[int, str, str]
+
+# One audited step: node, step, scope, verdict, the two output hashes, the
+# two canonical hashes, and the two durations in milliseconds.
+StepAudit = tuple[int, str, str | None, str, str, str, str, str, int, int]
 
 # A `lg.write` body: where to write, and the inputs by parameter name.
 Callback = Callable[[str, list[tuple[str, list[str]]]], None]
@@ -99,7 +103,8 @@ class Graph:
     # Every finding, the one-line summary, and the whole report as text.
     def check(self, roots: list[int]) -> tuple[list[Finding], str, str]: ...
     # Every finished step, every failure, the summary, the report as text,
-    # and (files hashed, files the prefilter already knew).
+    # and (files hashed, files the prefilter already knew, files parsed to
+    # find what they mean).
     def run(
         self,
         roots: list[int],
@@ -108,5 +113,17 @@ class Graph:
         callbacks: list[Callback],
         jobs: int | None = None,
         force: bool = False,
-    ) -> tuple[list[RunResult], list[RunFailure], str, str, tuple[int, int]]: ...
+    ) -> tuple[list[RunResult], list[RunFailure], str, str, tuple[int, int, int]]: ...
+    # Every audited step, every failure, the overall verdict, the summary,
+    # and the report as text.
+    def audit(
+        self,
+        roots: list[int],
+        tasks: list[Task],
+        cache_dir: str,
+        callbacks: list[Callback],
+        # The step's name, and the one sample to narrow to.
+        subject: tuple[str, str | None],
+        jobs: int | None = None,
+    ) -> tuple[list[StepAudit], list[RunFailure], str, str, str]: ...
     def __len__(self) -> int: ...

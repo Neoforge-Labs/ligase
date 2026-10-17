@@ -10,8 +10,14 @@ in milliseconds instead of after an overnight run.
 a step runs when something that could change its result has changed, and
 not otherwise. Nothing runs until the whole pipeline checks clean.
 
-`methods` and `audit` are in `docs/golden-example.md` and arrive with the
-milestones that implement them; this parser offers only what works.
+`ligase audit <step>` runs one step twice and says whether it is
+reproducible, which is the one question a cache is in the business of never
+asking. It distinguishes a step whose *bytes* move from one whose *result*
+does: the first is every tool that records its own command line, and the
+second is a finding.
+
+`methods` is in `docs/golden-example.md` and arrives with the milestone that
+implements it; this parser offers only what works.
 """
 
 from __future__ import annotations
@@ -107,10 +113,56 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=f"where to keep the cache (default: ./{CACHE_DIR})",
     )
 
+    audit = commands.add_parser(
+        "audit",
+        help="run one step twice and say whether it is reproducible",
+        description=(
+            "Run the pipeline, then run one step twice more and compare "
+            "what came out — both as bytes and as what those bytes mean. A "
+            "step whose bytes move while its result does not is "
+            "reproducible, which is the ordinary case for a tool that "
+            "records its own command line."
+        ),
+    )
+    audit.add_argument("step", help="the step to audit, by name")
+    audit.add_argument(
+        "pipeline",
+        nargs="?",
+        default=DEFAULT_PIPELINE,
+        type=Path,
+        help=f"the pipeline it is in (default: {DEFAULT_PIPELINE})",
+    )
+    audit.add_argument(
+        "--sample",
+        metavar="ID",
+        help="audit only the node for this sample (default: all of them)",
+    )
+    audit.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        metavar="N",
+        help="how many steps may run at once in the run beforehand",
+    )
+    audit.add_argument(
+        "--cache",
+        type=Path,
+        metavar="DIR",
+        help=f"where to keep the cache (default: ./{CACHE_DIR})",
+    )
+
     arguments = parser.parse_args(argv)
     if arguments.command == "run":
         return _run(
             arguments.pipeline, arguments.jobs, arguments.force, arguments.cache
+        )
+    if arguments.command == "audit":
+        return _audit(
+            arguments.pipeline,
+            arguments.step,
+            arguments.sample,
+            arguments.jobs,
+            arguments.cache,
         )
     return _check(arguments.pipeline)
 
@@ -157,6 +209,55 @@ def _run(path: Path, jobs: int | None, force: bool, cache: Path | None) -> int:
             found += len(report.failures)
         # Worded by the engine, so a script and the command line agree.
         print(report.text)
+
+    return FOUND_ERRORS if found else 0
+
+
+def _audit(
+    path: Path,
+    step: str,
+    sample: str | None,
+    jobs: int | None,
+    cache: Path | None,
+) -> int:
+    pipelines = _pipelines(path)
+    if isinstance(pipelines, int):
+        return pipelines
+
+    # A file may hold more than one pipeline, and a step belongs to the ones
+    # that run it. Auditing is about a step, so the pipelines that do not
+    # have it are not failures — they are not what was asked about.
+    having = [pipeline for pipeline in pipelines if step in pipeline.steps]
+    if not having:
+        known = sorted({name for pipeline in pipelines for name in pipeline.steps})
+        return _cannot(
+            f"no step named `{step}` in {path}; it has "
+            + ", ".join(f"`{name}`" for name in known)
+        )
+
+    found = 0
+    for pipeline in having:
+        for_sample = "" if sample is None else f" for {sample}"
+        print(f"auditing `{step}`{for_sample} in {path}")
+        print()
+        try:
+            report = pipeline.audit(step, sample=sample, jobs=jobs, cache=cache)
+        except CheckError as error:
+            # Nothing is audited in a pipeline that does not type-check, and
+            # the check report is what the user needs.
+            print(pipeline.report().text)
+            found += len(error.errors)
+            continue
+        except ValueError as error:
+            # A sample no node of the step is for — the step itself is known
+            # by now. Either way it is a mistake in the command rather than a
+            # finding about the pipeline, so it is not a finding's exit code.
+            return _cannot(str(error))
+        print(report.text)
+
+        # A step that does not agree with itself is a finding, and a finding
+        # is what a non-zero exit code is for.
+        found += len(report.unreproducible) + len(report.failures)
 
     return FOUND_ERRORS if found else 0
 

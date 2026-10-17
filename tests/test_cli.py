@@ -139,3 +139,101 @@ def test_an_unknown_command_is_a_usage_error() -> None:
         main(["sprint"])
 
     assert caught.value.code == 2
+
+
+# ------------------------------------------------------- M4: `ligase audit` --
+
+RUNNABLE = """
+import ligase as lg
+from ligase.types import Reference
+
+FIXTURES = {fixtures!r}
+
+
+@lg.step
+def steady(ref: Reference) -> Reference:
+    return lg.sh("cat {{ref}} > {{out}}")
+
+
+@lg.step
+def wobbling(ref: Reference) -> Reference:
+    # The description records where it was written, as a `@PG CL` line does:
+    # different bytes every time, the same sequence every time.
+    return lg.sh("printf '>1 written to %s\\\\nACGT\\\\n' {{out}} > {{out}}")
+
+
+hxb2 = lg.reference(f"{{FIXTURES}}/tiny_bare.fasta", organism="HIV-1", build="tiny")
+
+pipe = lg.Pipeline([steady(hxb2), wobbling(hxb2)])
+"""
+
+
+def write_runnable(tmp_path: Path) -> Path:
+    path = tmp_path / "pipeline.py"
+    path.write_text(RUNNABLE.format(fixtures=str(FIXTURES)))
+    return path
+
+
+def test_auditing_a_reproducible_step_succeeds(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_runnable(tmp_path)
+
+    code = main(["audit", "wobbling", str(path), "--cache", str(tmp_path / "cache")])
+
+    out = capsys.readouterr().out
+    assert "auditing `wobbling`" in out
+    # A step whose bytes move and whose meaning does not is not a finding,
+    # so it is not a failing exit code either.
+    assert code == 0, out
+    assert "reproducible" in out
+    assert "the bytes differ" in out
+
+
+def test_auditing_a_deterministic_step_says_so(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_runnable(tmp_path)
+
+    code = main(["audit", "steady", str(path), "--cache", str(tmp_path / "cache")])
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "deterministic" in out
+    assert "the same bytes both times" in out
+
+
+def test_auditing_a_step_that_is_not_there_says_which_are(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_runnable(tmp_path)
+
+    code = main(["audit", "stedy", str(path), "--cache", str(tmp_path / "cache")])
+
+    # 2, not 1: this is a mistake in the command rather than a finding about
+    # the pipeline.
+    assert code == 2
+    error = capsys.readouterr().err
+    assert "no step named `stedy`" in error
+    assert "`steady`" in error
+
+
+def test_auditing_a_step_that_does_not_repeat_is_a_finding(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "pipeline.py"
+    path.write_text(
+        RUNNABLE.format(fixtures=str(FIXTURES))
+        # A sequence nobody can predict: the shell's own process id.
+        + "\n\n@lg.step\ndef drifting(ref: Reference) -> Reference:\n"
+        '    return lg.sh("printf \'>1\\\\nACG%s\\\\n\' \\"$$\\" > {out}")\n\n'
+        "drift = lg.Pipeline(drifting(hxb2))\n"
+    )
+
+    code = main(["audit", "drifting", str(path), "--cache", str(tmp_path / "cache")])
+
+    out = capsys.readouterr().out
+    # 1, not 2: the pipeline is fine and the step is not.
+    assert code == 1, out
+    assert "not reproducible" in out
+    assert "the two runs mean different things" in out

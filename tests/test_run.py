@@ -159,7 +159,22 @@ def test_a_second_run_does_not_reread_its_inputs(tmp_path: Path) -> None:
     again = lg.Pipeline(align(reference())).run(cache=tmp_path)
 
     assert again.hashed == 0
-    assert again.prefiltered == 1
+    # Two files are reached for and neither is read: the reference the step
+    # takes, and the output it is served from the cache, whose canonical
+    # hash the report states.
+    assert again.prefiltered == 2
+
+
+def test_a_second_run_does_not_reparse_anything_either(tmp_path: Path) -> None:
+    # What a file means is remembered against the hash of its bytes, so a
+    # second run neither reads nor parses: it is the canonical hashes that
+    # the keys are built from, and reparsing on every run would have made
+    # semantic hashing cost a full pass over every BAM.
+    lg.Pipeline(resistance(call(align(reference())))).run(cache=tmp_path)
+
+    again = lg.Pipeline(resistance(call(align(reference())))).run(cache=tmp_path)
+
+    assert again.canonicalised == 0
 
 
 def test_changing_a_parameter_reruns_only_what_is_below_it(tmp_path: Path) -> None:

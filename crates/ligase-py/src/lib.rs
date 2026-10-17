@@ -15,6 +15,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
+use ligase::audit;
 use ligase::cache::Cache;
 use ligase::check::{Binding, CheckError, check_step as core_check_step, render, summarise};
 use ligase::dim::{CoordinateSystem, Dimension};
@@ -58,23 +59,47 @@ type PyTask = (
     Vec<(String, String)>,
 );
 
-/// One finished step: node, step, outcome, key, output hash, output,
-/// milliseconds.
-type PyRunResult = (usize, String, String, String, String, String, u64);
+/// One finished step: node, step, outcome, key, output hash, canonical
+/// hash, output, milliseconds.
+type PyRunResult = (usize, String, String, String, String, String, String, u64);
 
 /// One failed step: node, step, message.
 type PyRunFailure = (usize, String, String);
 
 /// A whole run as Python sees it: the steps that finished, the ones that
 /// failed, the summary line, the report as text, and how many input files
-/// were hashed against how many the prefilter already knew.
+/// were hashed, how many the prefilter already knew, and how many had to be
+/// parsed to find what they mean.
 type PyRunReport = (
     Vec<PyRunResult>,
     Vec<PyRunFailure>,
     String,
     String,
-    (u64, u64),
+    (u64, u64, u64),
 );
+
+/// What an audit is about, as Python gives it: the step's name, and the one
+/// sample to narrow to.
+type PySubject = (String, Option<String>);
+
+/// One audited step: node, step, scope, verdict, the two output hashes, the
+/// two canonical hashes, and the two durations in milliseconds.
+type PyStepAudit = (
+    usize,
+    String,
+    Option<String>,
+    String,
+    String,
+    String,
+    String,
+    String,
+    u64,
+    u64,
+);
+
+/// A whole audit as Python sees it: the steps audited, the ones that failed,
+/// the overall verdict, the summary line and the report as text.
+type PyAuditReport = (Vec<PyStepAudit>, Vec<PyRunFailure>, String, String, String);
 
 /// Python's step bodies, for the steps that are not shell commands.
 struct PyHost {
@@ -475,27 +500,7 @@ impl PyGraph {
         force: bool,
     ) -> PyResult<PyRunReport> {
         let roots = nodes(&roots);
-        let tasks = tasks
-            .into_iter()
-            .map(|(node, code, command, callback, tools, parameters)| {
-                let recipe = match (command, callback) {
-                    (Some(command), _) => Recipe::Shell(command),
-                    (None, Some(id)) => Recipe::Callback(id),
-                    (None, None) => {
-                        return Err(PyValueError::new_err(
-                            "a step needs either a command or a callback to produce anything",
-                        ));
-                    }
-                };
-                Ok(Task {
-                    node: NodeId::from_index(node),
-                    code,
-                    recipe,
-                    tools,
-                    parameters,
-                })
-            })
-            .collect::<PyResult<Vec<Task>>>()?;
+        let tasks = recipes(tasks)?;
 
         let cache =
             Cache::open(&cache_dir).map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
@@ -524,31 +529,126 @@ impl PyGraph {
                         result.outcome.to_string(),
                         result.key.to_hex(),
                         result.hash.to_hex(),
+                        result.canonical.to_hex(),
                         result.output.to_string_lossy().into_owned(),
                         u64::try_from(result.duration.as_millis()).unwrap_or(u64::MAX),
                     )
                 })
                 .collect(),
+            report.failures.iter().map(failed).collect(),
+            summary,
+            text,
+            (stats.hashed, stats.prefiltered, stats.canonicalised),
+        ))
+    }
+
+    /// Run one step twice and report whether it is reproducible.
+    ///
+    /// The pipeline is run first so that the step has its inputs; the two
+    /// audit runs write into scratch files and are recorded nowhere.
+    #[pyo3(signature = (roots, tasks, cache_dir, callbacks, subject, jobs=None))]
+    fn audit(
+        &self,
+        roots: Vec<usize>,
+        tasks: Vec<PyTask>,
+        cache_dir: PathBuf,
+        callbacks: Vec<Py<PyAny>>,
+        subject: PySubject,
+        jobs: Option<usize>,
+    ) -> PyResult<PyAuditReport> {
+        let (step, sample) = &subject;
+        let roots = nodes(&roots);
+        let tasks = recipes(tasks)?;
+
+        let cache =
+            Cache::open(&cache_dir).map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        let options = Options {
+            jobs: jobs.unwrap_or_else(|| Options::default().jobs),
+            force: false,
+        };
+        let host = PyHost { callbacks };
+
+        let report = Python::attach(|py| {
+            py.detach(|| {
+                audit::audit(
+                    &self.inner,
+                    &roots,
+                    &tasks,
+                    &cache,
+                    &options,
+                    &host,
+                    &audit::Subject {
+                        step,
+                        sample: sample.as_deref(),
+                    },
+                )
+            })
+        })
+        .map_err(PyValueError::new_err)?;
+
+        Ok((
             report
-                .failures
+                .audited
                 .iter()
-                .map(|failure| {
+                .map(|audited| {
                     (
-                        failure.node.index(),
-                        failure.step.clone(),
-                        failure.message.clone(),
+                        audited.node.index(),
+                        audited.step.clone(),
+                        audited.scope.clone(),
+                        audited.verdict.to_string(),
+                        audited.first.to_hex(),
+                        audited.second.to_hex(),
+                        audited.first_canonical.to_hex(),
+                        audited.second_canonical.to_hex(),
+                        u64::try_from(audited.first_duration.as_millis()).unwrap_or(u64::MAX),
+                        u64::try_from(audited.second_duration.as_millis()).unwrap_or(u64::MAX),
                     )
                 })
                 .collect(),
-            summary,
-            text,
-            (stats.hashed, stats.prefiltered),
+            report.failures.iter().map(failed).collect(),
+            report.verdict().to_string(),
+            report.summary(),
+            report.text(),
         ))
     }
 
     fn __len__(&self) -> usize {
         self.inner.len()
     }
+}
+
+/// Every task's recipe, as the core wants them.
+fn recipes(tasks: Vec<PyTask>) -> PyResult<Vec<Task>> {
+    tasks
+        .into_iter()
+        .map(|(node, code, command, callback, tools, parameters)| {
+            let recipe = match (command, callback) {
+                (Some(command), _) => Recipe::Shell(command),
+                (None, Some(id)) => Recipe::Callback(id),
+                (None, None) => {
+                    return Err(PyValueError::new_err(
+                        "a step needs either a command or a callback to produce anything",
+                    ));
+                }
+            };
+            Ok(Task {
+                node: NodeId::from_index(node),
+                code,
+                recipe,
+                tools,
+                parameters,
+            })
+        })
+        .collect()
+}
+
+/// One step that did not produce anything.
+fn failed(failure: &exec::StepFailure) -> PyRunFailure {
+    (
+        failure.node.index(),
+        failure.step.clone(),
+        failure.message.clone(),
+    )
 }
 
 fn nodes(indices: &[usize]) -> Vec<NodeId> {

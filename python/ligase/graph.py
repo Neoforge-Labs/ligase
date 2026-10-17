@@ -35,6 +35,7 @@ from typing import (
 )
 
 from . import _core
+from .audit import AuditReport, StepAudit
 from .errors import CheckError, StepDefinitionError, build
 from .recipes import Shell, Written
 from .run import RunError, RunReport, StepFailure, StepRun
@@ -429,7 +430,7 @@ class Pipeline:
         )
 
         steps = []
-        for node, name, outcome, key, digest, output, duration in finished:
+        for node, name, outcome, key, digest, canonical, output, duration in finished:
             # Tell the handle where its output landed, so a later
             # `lg.handle(x).path` and the next run's bodies can read it.
             produced = self._handles.get(node)
@@ -443,12 +444,13 @@ class Pipeline:
                     output=output,
                     key=key,
                     hash=digest,
+                    canonical=canonical,
                     duration_ms=duration,
                     node=node,
                 )
             )
 
-        hashed, prefiltered = counted
+        hashed, prefiltered, canonicalised = counted
         report = RunReport(
             steps=steps,
             failures=[
@@ -464,10 +466,105 @@ class Pipeline:
             text=text,
             hashed=hashed,
             prefiltered=prefiltered,
+            canonicalised=canonicalised,
         )
         if report.failures:
             raise RunError(report)
         return report
+
+    def audit(
+        self,
+        step: str,
+        *,
+        sample: str | None = None,
+        jobs: int | None = None,
+        cache: str | Path | None = None,
+    ) -> AuditReport:
+        """Run one step twice and report whether it is reproducible.
+
+        The pipeline is run first, normally and through the cache, so that
+        the step being audited has its inputs. Then each node of that step
+        is run twice more, into scratch files that are thrown away, and the
+        two outputs are compared both as bytes and as meaning.
+
+        Three verdicts, because two would not do. A step whose bytes move
+        while its result does not — which is every tool that records its own
+        command line — is `reproducible`, not a failure. Only a step whose
+        *result* moves is `not reproducible`.
+
+        Args:
+            step: The step's name, as written. Under per-sample fan-out
+                there is one node of it per sample, and all of them are
+                audited.
+            sample: Audit only the node for this sample.
+            jobs: How many steps may run at once in the preliminary run.
+                The audited steps are taken in turn whatever this says, so
+                that the durations reported mean something.
+            cache: Where to keep the cache. Defaults to `.ligase` under the
+                working directory.
+
+        Returns:
+            What two runs of each node showed.
+
+        Raises:
+            CheckError: If the pipeline does not type-check. Nothing runs.
+            ValueError: If no step of that name is in the pipeline, or no
+                node of it is for that sample.
+        """
+        self.check()
+        tasks, callbacks = self._plan()
+        directory = Path(cache) if cache is not None else Path.cwd() / CACHE_DIR
+
+        audited, failed, verdict, summary, text = self._graph.audit(
+            self._roots,
+            tasks,
+            str(directory),
+            callbacks,
+            (step, sample),
+            jobs,
+        )
+
+        return AuditReport(
+            steps=[
+                StepAudit(
+                    step=name,
+                    sample=self._sample(node),
+                    scope=scope,
+                    verdict=step_verdict,
+                    first=first,
+                    second=second,
+                    first_canonical=first_canonical,
+                    second_canonical=second_canonical,
+                    first_duration_ms=first_ms,
+                    second_duration_ms=second_ms,
+                    node=node,
+                )
+                for (
+                    node,
+                    name,
+                    scope,
+                    step_verdict,
+                    first,
+                    second,
+                    first_canonical,
+                    second_canonical,
+                    first_ms,
+                    second_ms,
+                ) in audited
+            ],
+            failures=[
+                StepFailure(
+                    step=name,
+                    sample=self._sample(node),
+                    message=message,
+                    node=node,
+                )
+                for node, name, message in failed
+            ],
+            verdict=verdict,
+            summary=summary,
+            text=text,
+        )
 
     def _plan(self) -> tuple[list[_Task], list[_Callback]]:
         """Ask every step how its output is produced, before anything runs.

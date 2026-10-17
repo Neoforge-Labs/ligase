@@ -21,6 +21,7 @@ from glob import glob
 from typing import TYPE_CHECKING
 
 from . import _core
+from .audit import AuditReport, StepAudit
 from .errors import (
     CheckError,
     ContigNamingError,
@@ -54,6 +55,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Alignment",
+    "AuditReport",
     "CheckError",
     "Contig",
     "ContigNamingError",
@@ -73,6 +75,7 @@ __all__ = [
     "Samples",
     "Shell",
     "Step",
+    "StepAudit",
     "StepDefinitionError",
     "StepFailure",
     "StepOutput",
