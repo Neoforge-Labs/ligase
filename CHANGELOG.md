@@ -9,6 +9,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+**M5 — Provenance.** `ligase methods` says how the results were produced,
+and writes a bundle that lets someone else check them.
+
+- A step that runs now **records the command that ran**, with its
+  placeholders filled in, beside every tool's full version, every parameter
+  as it was hashed, every input by content hash and every reference by
+  accession and checksum. A step served from the cache records nothing and
+  needs to: the record from the run that did the work is still there, so a
+  pipeline that recomputed nothing can still say how all of it was made.
+- That is the debt **D22** took on. Dropping `@PG` lines before hashing was
+  necessary — a step's output bytes contained its own key, so nothing below
+  the first real tool could be cut off — and it cost the ability to prove
+  which command produced an object. This is where that ability went.
+- Provenance lives in its own `provenance.sqlite` with its own version,
+  beside the cache rather than inside it (**D23**). A cache drops its tables
+  whenever a key format moves, because an entry composed differently must
+  never be read; a record of what a command did stays true however the
+  engine later composes keys, and is the only data here that cannot be
+  regenerated.
+- **A reference needed nothing new to be pinned** by accession, version and
+  checksum, as `CLAUDE.md` requires. The FASTA loader has read both since
+  M1: HXB2's sequence name *is* `K03455.1`, the accession with its version,
+  and the per-contig MD5 is the digest the SAM specification defines for
+  `@SQ M5`. A name is only called an accession when it looks like one, so a
+  methods section cannot cite `chr1` as one.
+- **The paragraph is generated, in fixed sentence forms.** A generator free
+  to phrase things fluently would also be free to leave something out, which
+  is the one thing a methods section must not do. Nodes of one step are one
+  sentence; nodes genuinely run differently get a sentence each.
+- **Citations** come from a short curated table — `minimap2` (Li 2018),
+  `samtools` and `bcftools` (Danecek et al. 2021) — or from `cite=` on a
+  step. A tool neither covers is named as **uncited** rather than omitted,
+  because a reference list that quietly dropped a tool would let an
+  incomplete methods section look complete (**D24**). A citation never joins
+  a cache key: it cannot change a result, so adding one reruns nothing.
+- A step whose output predates provenance is reported as a **gap**, by name,
+  with `ligase run --force` as the remedy. Nothing can reconstruct such a
+  command — that is precisely what D22 gave up.
+- **`--bundle DIR`** writes the methods paragraph, every result and input by
+  content hash, every command verbatim, every reference by accession and
+  checksum, the environment, the source of every step, the pipeline file,
+  and a BLAKE3 manifest of all of it. The data is named rather than carried:
+  sequencing runs are gigabytes and fetching them is out of scope (D8).
+- **`--verify DIR`** checks that claim, and the second of its four verdicts
+  is the one that matters (**D25**): `identical` is the same key and the same
+  result, **`reproduced` is a different key and the same result anyway** — a
+  tool version moved and the science did not — and `differs` is a finding.
+  `reproduced` is what a reviewer on another machine actually gets. Inputs
+  are checked by content as well, because a changed input explains a changed
+  output and without that column a `differs` would be uninterpretable.
+- The M5 criterion is proved on the real pipeline in `tests/test_demo.py`: a
+  bundle written from one cache and verified against an **empty** one, which
+  recomputes all nine steps with real minimap2, samtools and bcftools and
+  lands on the same canonical hashes.
+
+### Changed
+
+- `@lg.step` accepts `cite=`, one reference or several.
+- `exec::produce` returns an `Execution` — the duration and the command it
+  ran — and `exec::run` and `audit::audit` take a `Stores { cache, prov }`,
+  so that a run recording provenance is visible in the type.
+
+### Added
+
 **M4 — Semantic hashing and audit mode.** A step's inputs are now hashed by
 what they *mean* rather than by which bytes they happen to hold, so a rerun
 that changes nothing scientific stops where it started.

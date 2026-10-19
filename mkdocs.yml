@@ -50,12 +50,14 @@ nav:
       - Pipelines and the graph: concepts/pipelines.md
       - Running, and not running: concepts/caching.md
       - What a file means: concepts/semantic-hashing.md
+      - How was this produced?: concepts/provenance.md
   - Guide:
       - Installation: guide/installation.md
       - Declaring dimensions: guide/declaring-dimensions.md
       - Building a pipeline: guide/building-a-pipeline.md
       - Running a pipeline: guide/running-a-pipeline.md
       - Semantic hashing and auditing: guide/semantic-hashing.md
+      - Writing up a pipeline: guide/provenance.md
   - Architecture:
       - Workspace: architecture/workspace.md
       - Type system: architecture/type-system.md
@@ -63,6 +65,7 @@ nav:
       - Execution: architecture/execution.md
       - Cache: architecture/cache.md
       - Canonicalisation: architecture/canonicalisation.md
+      - Provenance: architecture/provenance.md
   - Design:
       - Golden example: golden-example.md
       - Dimensions: dimensions.md

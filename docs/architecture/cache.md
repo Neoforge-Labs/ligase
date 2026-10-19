@@ -194,9 +194,12 @@ life.
 
 ## What is not here
 
-Provenance (M5). This layer records that a key produced an output, with the
+**Provenance.** This layer records that a key produced an output, with the
 tool versions and the duration, because it had them. It does not record
-*why* a result is what it is — references, citations, the methods paragraph
-— and a cache is the wrong place to grow that: the question "has this been
-computed?" and the question "what would I write in a paper?" want different
-lifetimes and different storage.
+*why* a result is what it is — the command, the references, the citations,
+the methods paragraph. That lives in `provenance.sqlite`, beside this
+database and deliberately not in it: "has this been computed?" and "what
+would I write in a paper?" want different lifetimes, and this one's tables
+are dropped whenever a key format moves
+([D23](../decisions.md#d23-provenance-has-its-own-store-and-its-own-lifetime)).
+See [provenance](provenance.md).

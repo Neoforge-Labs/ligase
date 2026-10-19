@@ -164,10 +164,28 @@ is the staging file named after the step's own key — so a step's bytes moved
 whenever its key did. Every `StepResult` therefore carries both hashes, and
 the one below it is keyed on the second.
 
+## What a run records besides its answer
+
+A step that runs writes a [provenance](provenance.md) record naming the
+command that ran, with its placeholders filled in. It has to happen here:
+`fill_template` is the only thing that renders that command, and since M4 it
+is nowhere else — not in the cache, and not in the output, whose `@PG` line
+is dropped before hashing
+([D22](../decisions.md#d22-a-tools-signature-is-not-part-of-its-result)).
+A step served from the cache writes nothing, because the record from the run
+that did the work is still there.
+
+`exec::produce` therefore returns an `Execution` — the duration and the
+command — and `exec::run` takes a `Stores { cache, prov }`, so that "a run
+records provenance" shows up in the type rather than hiding in a
+constructor.
+
 ## What is deliberately absent
 
-**Provenance** (M5). Nothing here records why a result is what it is.
-Running a step twice to find out whether it is reproducible is
+**Turning those records into prose.** A methods paragraph and a bundle are
+`prov`'s business, built after a run rather than during one.
+
+**Running a step twice** to find out whether it is reproducible is
 `audit.rs`, which borrows `exec::produce` and `exec::inputs_of` rather than
 repeating them ([canonicalisation](canonicalisation.md#audit-mode)).
 

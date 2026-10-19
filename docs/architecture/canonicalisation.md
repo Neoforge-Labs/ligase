@@ -276,7 +276,10 @@ counting places rather than names.
 
 ## What is not here
 
-**Provenance** (M5). Nothing here records why a result is what it is.
+**Provenance.** Nothing here records why a result is what it is — and
+dropping the fields that used to say so is what made
+[provenance](provenance.md) necessary rather than merely nice
+([D22](../decisions.md#d22-a-tools-signature-is-not-part-of-its-result)).
 
 **BCF and CRAM.** Both would fall back to their bytes today. Neither is in
 the reference pipeline; adding them is a module beside the others and a

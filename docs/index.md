@@ -36,8 +36,9 @@ DimensionError in step `call`:
 ## Status
 
 **Pre-alpha**, building towards v0.1. Milestones **M0 (scaffold)**,
-**M1 (types and dimensions)**, **M2 (the graph)** and
-**M3 (execution and cache)** are complete.
+**M1 (types and dimensions)**, **M2 (the graph)**,
+**M3 (execution and cache)**, **M4 (semantic hashing and early cutoff)** and
+**M5 (provenance)** are complete.
 
 You can write a pipeline of annotated steps, have the whole graph
 type-checked without running any of it, be told every mistake at once, and
@@ -137,8 +138,28 @@ recording when and how it was made dropped. And when you want the opposite
 question answered, `ligase audit <step>` runs a step twice and says whether
 it repeats.
 
-Provenance arrives in M5. See [milestones](milestones.md) for the order and
-the acceptance test for each step.
+And when you need to say how the results were produced, `ligase methods`
+does — naming the version every tool actually ran at, every parameter as it
+was hashed, the reference by accession and checksum, and the papers to cite:
+
+```console
+$ ligase methods
+`align` ran on 4 samples (SRR8525904, SRR8525908, SRR8525920, SRR8525942)
+with minimap2 2.31-r1302 and samtools 1.24, as `minimap2 -t {threads} -ax sr
+{ref} {reads.r1} {reads.r2} | samtools sort -@ {threads} -o {out}`, with
+threads = 4, against the HXB2 reference (K03455.1, 9719 bp, MD5
+c66838498aab02f786a6ec2f2d62cdc1).
+```
+
+It can say that about a run where nothing was recomputed, which is the
+point: the command is recorded when a step runs, because since M4 it is not
+in the output's hash and a cache hit can no longer prove it. `--bundle`
+packages all of it so someone else can check the results, and `--verify` is
+that check.
+
+What remains is **M6 (validation)**: whether the resistance calls agree with
+the published ones. See [milestones](milestones.md) for the order and the
+acceptance test for each step.
 
 ## Where to go
 
@@ -161,6 +182,9 @@ the acceptance test for each step.
 | Know how a run is scheduled | [Execution](architecture/execution.md) |
 | Know how the cache and its keys work | [Cache](architecture/cache.md) |
 | Know how a canonical form is built | [Canonicalisation](architecture/canonicalisation.md) |
+| Say how a result was produced, for a paper | [How was this produced?](concepts/provenance.md) |
+| Write a methods paragraph and a bundle | [Writing up a pipeline](guide/provenance.md) |
+| Know how provenance is stored and checked | [Provenance](architecture/provenance.md) |
 | Know which dimensions exist and how they are inferred | [Dimensions](dimensions.md) |
 | Follow the build order | [Milestones](milestones.md) |
 | Understand a design choice | [Decisions](decisions.md) |
