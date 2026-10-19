@@ -55,6 +55,7 @@ use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::cache::{Cache, Stored};
+use crate::canon::Note;
 use crate::graph::{Graph, NodeId, StepSpec};
 use crate::hash::ContentHash;
 use crate::key::{Ingredients, StepKey};
@@ -151,6 +152,12 @@ pub struct StepResult {
     /// agree here cut off everything downstream however far their bytes
     /// diverged.
     pub canonical: ContentHash,
+    /// What canonicalising the output noticed ([`Note`]).
+    ///
+    /// Empty for almost every step. A note is not a failure: the step ran
+    /// and its result stands. It is reported because the fix is in the
+    /// pipeline and a user cannot make it without being told (D26).
+    pub notes: Vec<Note>,
     /// Where the output is.
     pub output: PathBuf,
     /// How long it took, when it ran.
@@ -696,10 +703,11 @@ impl Runner<'_> {
             )
             .map_err(|error| error.to_string())?;
 
-        let canonical = self
+        let meaning = self
             .cache
-            .semantic_hash(spec.output, &stored.path)
+            .semantic(spec.output, &stored.path)
             .map_err(|error| error.to_string())?;
+        let canonical = meaning.hash;
 
         // Recorded here and nowhere else: this is the only moment the filled
         // command exists, and a step served from the cache will need it.
@@ -711,6 +719,7 @@ impl Runner<'_> {
             command: produced.command,
             bytes: stored.hash,
             canonical,
+            notes: &meaning.notes,
             duration_ms: milliseconds,
         })?;
 
@@ -721,6 +730,7 @@ impl Runner<'_> {
             key,
             hash: stored.hash,
             canonical,
+            notes: meaning.notes,
             output: stored.path,
             duration: produced.duration,
         })
@@ -759,9 +769,11 @@ impl Runner<'_> {
                 Outcome::Cached
             }
         };
-        let canonical = self
+        // Remembered with the hash, so a step served from the cache still
+        // reports what was seen when its output was first read.
+        let meaning = self
             .cache
-            .semantic_hash(spec.output, &output.path)
+            .semantic(spec.output, &output.path)
             .map_err(|error| error.to_string())?;
 
         Ok(StepResult {
@@ -770,7 +782,8 @@ impl Runner<'_> {
             outcome,
             key,
             hash: output.hash,
-            canonical,
+            canonical: meaning.hash,
+            notes: meaning.notes,
             output: output.path.clone(),
             duration: Duration::ZERO,
         })
@@ -895,6 +908,7 @@ impl Runner<'_> {
                 output_kind: made.spec.output,
                 output_bytes: made.bytes,
                 output_canonical: made.canonical,
+                output_notes: made.notes.to_vec(),
                 parameters: made.task.parameters.clone(),
                 inputs,
                 references,
@@ -942,6 +956,7 @@ struct Made<'a> {
     command: Option<String>,
     bytes: ContentHash,
     canonical: ContentHash,
+    notes: &'a [Note],
     duration_ms: u64,
 }
 
@@ -1221,6 +1236,36 @@ pub fn render(graph: &Graph, roots: &[NodeId], report: &RunReport) -> String {
                 [one] => format!("{label} {} ({one})", quoted(&step)),
                 many => format!("{label} {} for {}", quoted(&step), many.join(", ")),
             });
+        }
+    }
+
+    // What the outputs' canonical forms noticed. Not failures: every one of
+    // these steps ran and its result stands. They are here because the fix
+    // is in the pipeline and a user cannot make it without being told
+    // (D26), and before the failures because a failure is the thing to read
+    // first.
+    let noted: Vec<(&StepResult, &Note)> = report
+        .results
+        .iter()
+        .flat_map(|result| result.notes.iter().map(move |note| (result, note)))
+        .collect();
+    if !noted.is_empty() {
+        lines.push(String::new());
+        for (result, note) in &noted {
+            lines.push(format!(
+                "noticed   {}{}: {note}",
+                quoted(&result.step),
+                scope_suffix(scopes.get(&result.node))
+            ));
+        }
+        // Said once per kind, not once per step: four samples named after
+        // four files have one thing wrong with them (D15).
+        let mut given: Vec<&str> = Vec::new();
+        for (_, note) in &noted {
+            if !given.contains(&note.code()) {
+                given.push(note.code());
+                lines.push(format!("          {}", note.advice()));
+            }
         }
     }
 

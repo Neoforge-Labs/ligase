@@ -30,7 +30,7 @@
 //!
 //! No dependency, and a reviewer can open any of these files in a
 //! spreadsheet, `grep` it, or read it in a terminal. The engine has no JSON
-//! library and does not need one for seven flat tables; the one structured
+//! library and does not need one for eight flat tables; the one structured
 //! store it has is SQLite, for the same reason (D6). Tabs, newlines and
 //! backslashes inside a field are escaped, so a command containing a tab
 //! cannot shift a column.
@@ -41,7 +41,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{Methods, Prov, ProvError, Record};
+use super::{Methods, Noticed, Prov, ProvError, Record};
 use crate::exec::RunReport;
 use crate::graph::{Graph, NodeId};
 use crate::hash::ContentHash;
@@ -208,6 +208,12 @@ pub struct Verification {
     pub checks: Vec<Check>,
     /// Every input it recorded.
     pub inputs: Vec<InputCheck>,
+    /// What canonicalising the outputs produced *here* noticed (D26).
+    ///
+    /// Read beside a `differs`: a canonical hash that depends on a file
+    /// path does not travel, so a result that differs for that reason
+    /// differs for a reason that has nothing to do with the science.
+    pub noticed: Vec<Noticed>,
 }
 
 impl Verification {
@@ -322,6 +328,47 @@ impl Verification {
                 .push("A changed input explains a changed output, so read these first.".to_owned());
         }
 
+        // Outputs named after a file, which is the other thing that
+        // explains a `differs` without any science behind it.
+        if !self.noticed.is_empty() {
+            lines.push(String::new());
+            // Places, not notes: one output with two things wrong with it
+            // is one result that will not travel (D15).
+            let mut places: Vec<(&str, Option<&str>)> = self
+                .noticed
+                .iter()
+                .map(|item| (item.step.as_str(), item.scope.as_deref()))
+                .collect();
+            places.dedup();
+            lines.push(format!(
+                "{} of {} results name a file where a sample identifier belongs:",
+                places.len(),
+                self.checks.len()
+            ));
+            for item in &self.noticed {
+                let named = match &item.scope {
+                    Some(scope) => format!("`{}` ({scope})", item.step),
+                    None => format!("`{}`", item.step),
+                };
+                lines.push(format!("    {named}: {}", item.note));
+            }
+            lines.push(
+                "Such a hash depends on the file it was named after, so a `differs` here may \
+                 be that and nothing else."
+                    .to_owned(),
+            );
+            // Said once per kind rather than once per result (D15). The
+            // whole of why it matters is in the bundle's own README; here
+            // there is room for the instruction and not the essay.
+            let mut given: Vec<&str> = Vec::new();
+            for item in &self.noticed {
+                if !given.contains(&item.note.code()) {
+                    given.push(item.note.code());
+                    lines.push(format!("    {}", item.note.advice()));
+                }
+            }
+        }
+
         if !lines.is_empty() {
             lines.push(String::new());
         }
@@ -412,6 +459,26 @@ pub fn write(into: &Path, request: &Request<'_>) -> Result<Summary, BundleError>
         }
     }
     put(into, "inputs.tsv", &inputs.finish())?;
+
+    // ---- what canonicalising the outputs noticed (D26)
+    //
+    // Its own file rather than a column on `results.tsv`, because that
+    // table is the bundle's claim and a reader — or a later version of this
+    // engine — parses it by position. Almost always just a header line.
+    let mut notes = Table::new(&["step", "scope", "key", "code", "value"]);
+    for (result, scope, record) in &rows {
+        let Some(record) = record else { continue };
+        for note in &record.output_notes {
+            notes.row(&[
+                &result.step,
+                scope.as_deref().unwrap_or(""),
+                &result.key.to_hex(),
+                note.code(),
+                note.value(),
+            ]);
+        }
+    }
+    put(into, "notes.tsv", &notes.finish())?;
 
     // ---- the references, pinned
     let mut references = Table::new(&[
@@ -511,6 +578,17 @@ pub fn verify(
 
     let mut verification = Verification::default();
 
+    for result in &report.results {
+        for note in &result.notes {
+            verification.noticed.push(Noticed {
+                step: result.step.clone(),
+                scope: scopes.get(&result.node).map(|scope| scope.value.clone()),
+                scope_kind: scopes.get(&result.node).map(|scope| scope.kind),
+                note: note.clone(),
+            });
+        }
+    }
+
     for row in read_table(bundle, "results.tsv", 5)? {
         let (step, scope, key, _bytes, canonical) = (&row[0], &row[1], &row[2], &row[3], &row[4]);
         let scope = (!scope.is_empty()).then(|| scope.clone());
@@ -596,6 +674,7 @@ fn readme(methods: &Methods) -> String {
          | `results.tsv` | Every step's output, by content hash. **This is the claim.** |\n\
          | `commands.tsv` | The command that produced each one, as it ran. |\n\
          | `inputs.tsv` | Every input file, by content hash. |\n\
+         | `notes.tsv` | What canonicalising an output noticed. Usually empty. |\n\
          | `references.tsv` | Every reference, by accession and checksum. |\n\
          | `environment.tsv` | The engine, the platform and every tool's version. |\n\
          | `steps/` | The source of every step. |\n\
@@ -617,9 +696,19 @@ fn readme(methods: &Methods) -> String {
          platform moved and the result did not), `differs` (it did), and\n\
          `missing` (this pipeline no longer produces that step).\n\n\
          A `differs` is worth reading alongside the input lines: an input\n\
-         reported as `changed` or `absent` explains an output that moved.\n\n\
-         ## What produced it\n\n",
+         reported as `changed` or `absent` explains an output that moved.\n\n",
     );
+
+    // Only when there is one: a standing paragraph about a problem this
+    // bundle does not have would be noise in every bundle that is fine.
+    let notices = methods.notices();
+    if !notices.is_empty() {
+        out.push_str("## What will not travel\n\n");
+        out.push_str(&notices.join("\n\n"));
+        out.push_str("\n\n");
+    }
+
+    out.push_str("## What produced it\n\n");
     out.push_str(&format!(
         "Ligase {} on {}.\n",
         methods.engine, methods.platform

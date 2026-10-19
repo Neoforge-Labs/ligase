@@ -56,8 +56,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub use cite::Citation;
-pub use methods::{Gap, Group, Methods, methods};
+pub use methods::{Gap, Group, Methods, Noticed, methods};
 
+use crate::canon::Note;
 use crate::dim::ReferenceId;
 use crate::hash::ContentHash;
 use crate::key::StepKey;
@@ -69,7 +70,10 @@ use crate::types::DataKind;
 /// this one does not clear anything: a record of how something was produced
 /// is not invalidated by the engine learning to record more, so a bump adds
 /// columns and leaves the rows alone.
-pub const PROV_VERSION: u32 = 1;
+///
+/// 2 added `produced_notes`, for what canonicalising an output noticed
+/// (D26). A record written under 1 has no notes rather than no meaning.
+pub const PROV_VERSION: u32 = 2;
 
 /// The file provenance is kept in, beside the cache's own.
 const DATABASE: &str = "provenance.sqlite";
@@ -139,6 +143,12 @@ pub struct Record {
     pub output_bytes: ContentHash,
     /// The hash of what the output means.
     pub output_canonical: ContentHash,
+    /// What canonicalising the output noticed ([`Note`]).
+    ///
+    /// Recorded rather than left to the run report, because a methods
+    /// section and a bundle are written from provenance and both have to be
+    /// able to say that an identifier in them is a file name (D26).
+    pub output_notes: Vec<Note>,
     /// Plain parameters, as they were hashed.
     pub parameters: Vec<(String, String)>,
     /// Each input file, by content.
@@ -275,7 +285,7 @@ impl Prov {
             ],
         )?;
 
-        for table in ["parameters", "inputs", "references", "tools"] {
+        for table in ["parameters", "inputs", "references", "tools", "notes"] {
             transaction.execute(
                 &format!("DELETE FROM produced_{table} WHERE key = ?1"),
                 params![key],
@@ -333,6 +343,14 @@ impl Prov {
                 "INSERT INTO produced_tools (key, position, tool, version)
                  VALUES (?1, ?2, ?3, ?4)",
                 params![key, position_of(position), tool, version],
+            )?;
+        }
+
+        for (position, note) in record.output_notes.iter().enumerate() {
+            transaction.execute(
+                "INSERT INTO produced_notes (key, position, code, value)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![key, position_of(position), note.code(), note.value()],
             )?;
         }
 
@@ -455,6 +473,26 @@ impl Prov {
             }
         }
 
+        let mut output_notes = Vec::new();
+        {
+            let mut statement = guard.prepare(
+                "SELECT code, value FROM produced_notes
+                 WHERE key = ?1 ORDER BY position",
+            )?;
+            let rows = statement.query_map(params![hex], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                let (code, value) = row?;
+                // A code this version does not know is skipped rather than
+                // read as an error: a database written by a later engine is
+                // still a record of how something was produced.
+                if let Some(note) = Note::parse(&code, &value) {
+                    output_notes.push(note);
+                }
+            }
+        }
+
         Ok(Some(Record {
             key,
             step: head.step,
@@ -463,6 +501,7 @@ impl Prov {
             output_kind: kind_of(&head.output_kind)?,
             output_bytes: hash_of(&head.output_bytes)?,
             output_canonical: hash_of(&head.output_canonical)?,
+            output_notes,
             parameters,
             inputs,
             references,
@@ -666,6 +705,19 @@ fn prepare(database: &Connection) -> Result<(), ProvError> {
              position INTEGER NOT NULL,
              tool     TEXT NOT NULL,
              version  TEXT NOT NULL,
+             PRIMARY KEY (key, position)
+         )",
+        [],
+    )?;
+    // What canonicalising the output noticed and its hash cannot say
+    // (D26). Almost always empty, and a row here is not a failure: the step
+    // ran and its result stands.
+    database.execute(
+        "CREATE TABLE IF NOT EXISTS produced_notes (
+             key      TEXT NOT NULL,
+             position INTEGER NOT NULL,
+             code     TEXT NOT NULL,
+             value    TEXT NOT NULL,
              PRIMARY KEY (key, position)
          )",
         [],

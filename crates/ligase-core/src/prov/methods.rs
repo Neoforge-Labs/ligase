@@ -37,6 +37,7 @@
 use std::collections::BTreeSet;
 
 use super::{Prov, ProvError, Record, ReferenceRecord, cite};
+use crate::canon::Note;
 use crate::exec::{RunReport, Task};
 use crate::graph::{Graph, NodeId};
 
@@ -105,6 +106,23 @@ pub struct Gap {
     pub nodes: usize,
 }
 
+/// Something noticed about one step's output.
+///
+/// Kept beside the groups rather than inside one, because a group is a set
+/// of nodes *run the same way* and a note is about one node's output: four
+/// samples run identically can be named after four different files.
+#[derive(Clone, Debug)]
+pub struct Noticed {
+    /// The step's name.
+    pub step: String,
+    /// What tells this node from its siblings, e.g. the sample identifier.
+    pub scope: Option<String>,
+    /// What kind of thing that is, e.g. `sample`.
+    pub scope_kind: Option<&'static str>,
+    /// What was noticed.
+    pub note: Note,
+}
+
 /// Everything needed to write a methods section.
 #[derive(Clone, Debug, Default)]
 pub struct Methods {
@@ -112,6 +130,8 @@ pub struct Methods {
     pub groups: Vec<Group>,
     /// Steps nothing is known about.
     pub gaps: Vec<Gap>,
+    /// What canonicalising the outputs noticed, in graph order (D26).
+    pub noticed: Vec<Noticed>,
     /// The version of Ligase that produced the results.
     pub engine: String,
     /// The platform they were produced on.
@@ -239,7 +259,67 @@ impl Methods {
             )));
         }
 
+        // Last, and outside the paragraph a reader would paste into a
+        // manuscript: this is a remark about the pipeline rather than a
+        // sentence about the science.
+        for notice in self.notices() {
+            out.push_str("\n\n");
+            out.push_str(&notice);
+        }
+
         out
+    }
+
+    /// What was noticed about the outputs, as paragraphs (D26).
+    ///
+    /// Gathered by step and by kind of note, with the identifiers **named**
+    /// rather than counted, for the reason the check and run reports name
+    /// their samples (D15): a reader who has to go and look up which
+    /// outputs are affected has a shorter report rather than a better one.
+    #[must_use]
+    pub fn notices(&self) -> Vec<String> {
+        let mut gathered: Vec<Vec<&Noticed>> = Vec::new();
+        for item in &self.noticed {
+            match gathered.iter_mut().find(|seen| {
+                seen.first().is_some_and(|first| {
+                    first.step == item.step && first.note.code() == item.note.code()
+                })
+            }) {
+                Some(seen) => seen.push(item),
+                None => gathered.push(vec![item]),
+            }
+        }
+
+        gathered
+            .iter()
+            .filter_map(|seen| {
+                let (first, rest) = seen.split_first()?;
+                let mut scopes: Vec<String> =
+                    seen.iter().filter_map(|item| item.scope.clone()).collect();
+                scopes.sort();
+                scopes.dedup();
+
+                let mut sentence = format!(
+                    "`{}` ran on {}, where {}",
+                    first.step,
+                    counted(seen.len(), &scopes, first.scope_kind),
+                    first.note,
+                );
+                if !rest.is_empty() {
+                    let others: Vec<String> = rest
+                        .iter()
+                        .map(|item| format!("`{}`", item.note.value()))
+                        .collect();
+                    sentence.push_str(&format!(" — and the same for {}", join_names(&others)));
+                }
+                sentence.push_str(&format!(
+                    ". {} {}",
+                    first.note.consequence(),
+                    first.note.advice()
+                ));
+                Some(wrap(&sentence))
+            })
+            .collect()
     }
 
     /// One line summarising what was accounted for.
@@ -359,6 +439,7 @@ pub fn methods(
 
     let mut groups: Vec<Group> = Vec::new();
     let mut gaps: Vec<Gap> = Vec::new();
+    let mut noticed: Vec<Noticed> = Vec::new();
 
     // Graph order, so the paragraph reads in the order the pipeline runs.
     for result in &report.results {
@@ -378,6 +459,15 @@ pub fn methods(
             }
             continue;
         };
+
+        for note in &record.output_notes {
+            noticed.push(Noticed {
+                step: record.step.clone(),
+                scope: scope_of(node),
+                scope_kind: kind_of(node),
+                note: note.clone(),
+            });
+        }
 
         let template = template_of(node);
         let per_sample = restating(&record, scope_of(node).as_deref());
@@ -421,6 +511,7 @@ pub fn methods(
     Ok(Methods {
         groups,
         gaps,
+        noticed,
         engine,
         platform,
     })
