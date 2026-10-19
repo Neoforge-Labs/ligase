@@ -215,6 +215,74 @@ failure a cache must never have. So a FASTA with no `>` line, a BED row with
 two columns, a VCF record with seven, and a report row that does not fit its
 header are all parse failures.
 
+## What a canonical form notices
+
+The fallback handles a file that will not parse. The other half of the same
+problem is a file that parses perfectly and is still wrong in a field the
+rules cannot drop, and that is what a `Note` is for
+([D26](../decisions.md#d26-a-field-that-cannot-be-dropped-is-noticed-instead)).
+
+There is one note in v0.1: a sample identifier that is a file. A VCF's
+sample names and a BAM's read-group samples are *what the file is about* —
+a sample set is a dimension — so neither can go the way `@PG` went, and a
+tool handed an alignment with no `@RG SM` writes the input file's path
+there. The hash of such an output moves with the cache root.
+
+`Note::about_sample` decides, and deliberately narrowly: a path separator,
+or a trailing extension naming a format this engine reads. `K03455.1` has a
+dot and is not a file. The `Shape` it finds — absolute, relative or a bare
+name — only chooses the wording, because an absolute path is the one that
+cannot travel and saying so is more use than "a file".
+
+```rust
+for sample in header.sample_names() {
+    digest.text("sample", sample);
+    if let Some(note) = Note::about_sample(sample) {
+        digest.note(note);
+    }
+}
+```
+
+Three properties hold, and each is a test:
+
+- **A note never changes a hash.** `Digest::note` pushes onto a `Vec` that
+  `finish` does not read. Two VCFs differing only in a path-shaped sample
+  still have different hashes, because they are claims about different
+  sample sets.
+- **A note is dropped on the fallback path.** `canon::hash` takes the notes
+  out of the digest on success and discards them on failure. A remark about
+  a file that did not parse would be a remark about the half of it that was
+  read.
+- **Repeats collapse.** `Digest::note` ignores a note it already holds, so
+  an alignment whose four read groups name the same file has one thing wrong
+  with it rather than four.
+
+### Where a note goes
+
+`Canonical` carries `notes` beside `hash` and `form`, and from there they
+travel without being recomputed:
+
+| Layer | What it does with them |
+|---|---|
+| `Cache::semantic` | Stores them in the `canonical` table beside the hash, and hands them back on a cache hit. `semantic_hash` keeps its old signature for callers that only want the hash. |
+| `exec::StepResult` | A `notes` field on every finished step, printed by `exec::render` as a `noticed` line with the advice stated once per kind (D15). |
+| `prov::Record` | `output_notes`, in a `produced_notes` child table. This is why `PROV_VERSION` is 2. |
+| `prov::Methods` | A `Noticed` per node — not per group, since a group is nodes *run the same way* and four samples run identically can be named after four different files. `Methods::notices()` gathers them by step and kind. |
+| `bundle` | A `notes.tsv` table, a *What will not travel* section in the README, and `Verification::noticed` from the run being checked. |
+
+They are **stored** rather than recomputed because a cache hit does not
+reopen the file, and a warning that appeared on the first run and vanished
+on the second would be worse than no warning. That is the one cost: the
+cache's `SCHEMA_VERSION` moved to 2 for the new column, which clears its
+tables. `CANON_VERSION` did not move, because nothing about what is hashed
+changed.
+
+A note's `code()` is spelled out rather than derived from the enum, because
+it is written into a cache, a provenance database and a bundle a reviewer
+may read next year; `Note::parse` returns `None` for a code it does not
+know, so a store written by a later engine is read as far as it can be
+rather than rejected.
+
 ## What it costs, and why it is paid once
 
 Canonicalising a BAM is a full pass over it. Doing that on every run would
@@ -280,6 +348,12 @@ counting places rather than names.
 dropping the fields that used to say so is what made
 [provenance](provenance.md) necessary rather than merely nice
 ([D22](../decisions.md#d22-a-tools-signature-is-not-part-of-its-result)).
+
+**Notes about inputs.** A note is reported for what a run *produced*. A
+leaf input the user supplied with path-shaped sample names is their file,
+described as they gave it, and `exec::remember` records an `InputRecord`
+without notes. Reporting those would mean deciding what a user is to do
+about a file the pipeline did not write.
 
 **BCF and CRAM.** Both would fall back to their bytes today. Neither is in
 the reference pipeline; adding them is a module beside the others and a

@@ -1,0 +1,124 @@
+# When a tool names a sample after a file
+
+Ligase drops a great deal from a file before hashing it. The command line
+`minimap2` records, the timestamp `bcftools` writes beside its own — none of
+that is a result, so none of it is part of what a file
+[means](semantic-hashing.md). The rule that makes this safe is simple: drop
+what says *when and how* a file was made, keep what says *what is in it*.
+
+Some fields fall on the wrong side of that line and are still wrong.
+
+## The field that cannot be dropped
+
+A VCF names its samples on the `#CHROM` line, in the columns the genotypes
+line up with:
+
+```text
+#CHROM  POS  ID  REF  ALT  QUAL  FILTER  INFO  FORMAT  SRR8525904
+```
+
+That is not how the file was made. It is **what the file is about** — a
+sample set is one of the four [dimensions](types-and-dimensions.md) this
+engine exists to keep straight, and dropping it would mean two VCFs of two
+different patients hashing the same. So it stays in the hash.
+
+Now run `bcftools` on an alignment that carries no read group:
+
+```text
+#CHROM  POS  ID  ...  FORMAT  /Users/kelyn/ligase/.ligase/store/62/7db9fa0cbac.bam
+```
+
+With no `@RG SM` to read, `bcftools` names the sample column after the input
+file's path — and the input file, in a Ligase run, lives inside the
+content-addressed store. The calls now carry a cache path where a sample
+identifier belongs.
+
+## Why that is worse than untidy
+
+The hash of that VCF now depends on **where the cache directory is**. Two
+machines running the same pipeline on the same data produce calls that are
+byte-identical in every variant record and disagree on the one line that is
+hashed. A [reproducibility bundle](provenance.md) written on one of them
+cannot verify on the other: every sample comes back `differs`, with nothing
+scientific behind it.
+
+That is exactly how this was found. M5's bundle verification reported
+`differs` on every sample of the reference pipeline, and the whole of the
+difference was the last column of one line.
+
+It is also wrong in two quieter ways. A generated methods paragraph names a
+cache path where it should name a run accession. And the sample-set
+dimension — the thing that is supposed to catch shuffled sample IDs — is
+holding a file name, so it cannot catch anything.
+
+## So the engine says what it saw
+
+Ligase does not drop the identifier, because a sample set is a dimension. It
+does not rewrite it either, because silently repairing a wrong file is how a
+pipeline comes to produce plausible numbers nobody can account for — and in
+this case the repair would not even work.
+
+!!! note "Why not just use the basename?"
+
+    Reducing `/…/store/62/7db9fa0cbac.bam` to `7db9fa0cbac` looks like it
+    would make the hash portable. It would not. A file in the store is named
+    after the hash of its **bytes**, and an alignment's bytes contain the
+    staging path `samtools sort -o` recorded — which is inside the cache. The
+    basename moves with the cache root exactly as the whole path does. It
+    would also collapse two genuinely different samples whose file names
+    agree.
+
+What the engine does instead is **notice**, and tell you
+([D26](../decisions.md#d26-a-field-that-cannot-be-dropped-is-noticed-instead)):
+
+```console
+$ ligase run
+ran       `call` (sample SRR8525904)   513ms
+
+noticed   `call` (sample SRR8525904): the sample identifier `/Users/kelyn/ligase/.ligase/store/62/7db9fa0cbac.bam` is an absolute path, not a sample
+          Write the read group — `samtools addreplacerg -r ID:<sample> -r SM:<sample>` — so the calls below it name the sample.
+
+4 steps: 4 ran.
+```
+
+A **note** is not an error. The step ran, its output is there, and the run
+succeeded. It is a statement about something the hash cannot express, and it
+travels with the result: into the run report, into the provenance record,
+into the bundle and into the generated methods section. The fix is one line
+in the pipeline, and it is a line only you can write.
+
+## Why nothing louder
+
+Refusing the file would be the obvious loud answer, and it is the wrong
+layer for it. A VCF whose sample column holds a path is perfectly valid VCF;
+canonicalisation has no business failing a run over a file that parses
+([D21](../decisions.md#d21-canonicalisation-falls-back-to-the-bytes)).
+
+Refusing it at `ligase check` time is loud *and* ineffective, which is worse.
+The checker runs before any compute, so the only files it can see are
+inputs — and the file with the wrong identifier is an **output** of the step
+below. A check-time rule would have missed the failure that prompted all of
+this, and fired only on hand-supplied files that are not wrong.
+
+## What counts as a file
+
+Narrowly, because a rule that guessed would report good identifiers as
+mistakes and a warning nobody trusts gets ignored. An identifier is a file
+when it:
+
+- holds a path separator — `/` or `\` — or
+- ends in an extension naming a format this engine reads: `.bam`, `.cram`,
+  `.sam`, `.vcf`, `.bcf`, `.fastq`, `.fasta`, `.bed` and their usual
+  spellings, with or without a `.gz`.
+
+So `K03455.1` has a dot and is not a file. `SRR8525904`, `sample_a` and
+`patient-04` have neither, and nothing is said about them.
+
+## Where to go next
+
+| If you want to | Read |
+|---|---|
+| Fix it in a pipeline | [Reading what the engine noticed](../guide/notes.md) |
+| Know why a sample set is hashed at all | [What a file means](semantic-hashing.md) |
+| Know how a note is built and stored | [Canonicalisation](../architecture/canonicalisation.md#what-a-canonical-form-notices) |
+| Read the decision and what was rejected | [D26](../decisions.md#d26-a-field-that-cannot-be-dropped-is-noticed-instead) |

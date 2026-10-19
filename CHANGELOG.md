@@ -76,9 +76,43 @@ and writes a bundle that lets someone else check them.
   a bundle could not verify against a clean one. `align` now writes
   `@RG SM:<run accession>`, which is what the sample always was.
   M5's bundle verification is what found this.
+- **The engine now notices this rather than only the demo avoiding it**
+  (**D26**). A sample identifier that is a file — one holding a path
+  separator, or ending in an extension naming a format the engine reads — is
+  reported as a `Note` carried beside the canonical hash, into the run
+  report as a `noticed` line, into the provenance record, into a bundle's
+  `notes.tsv` and its *What will not travel* section, into
+  `ligase methods --verify`, and into the generated methods section after
+  the paragraph a reader would paste into a manuscript. Every pipeline whose
+  alignments lack `@RG SM` will now be told, instead of walking into it.
+- A note is **not** an error: the step ran and its result stands. It is also
+  neither a refusal nor a repair. Refusing would turn a format problem into
+  an engine failure in the layer **D21** forbids it, since a VCF whose
+  sample column holds a path is valid VCF; refusing at `ligase check` time
+  cannot work at all, because the checker sees inputs and the wrong
+  identifier is on an *output*. Rewriting the identifier to its basename
+  would be a silent repair that does not even work — a file in the store is
+  named after the hash of its bytes, which move with the cache root exactly
+  as the path does.
+- Notes are **stored** with the canonical hash rather than recomputed,
+  because a cache hit does not reopen the file and a warning that vanished
+  on the second run would be worse than none. `CANON_VERSION` does not move:
+  nothing about what is hashed changed.
 
 ### Changed
 
+- The cache's `SCHEMA_VERSION` is 2, for the `notes` column on its
+  `canonical` table, and `PROV_VERSION` is 2, for the `produced_notes`
+  table. The cache's tables are cleared, as they are for any format move;
+  provenance keeps every row, as it always does (**D23**).
+- `Cache::semantic` returns a whole `Canonical` — the hash, the form and the
+  notes — for callers that have somewhere to put a note. `semantic_hash`
+  keeps its signature.
+- `exec::StepResult` and `prov::Record` gain `notes` and `output_notes`, and
+  a bundle holds eight tables rather than seven.
+- `StepRun.notes` in Python is a tuple of one sentence each, so a script can
+  fail a CI job on an output that will not travel rather than grep the
+  report.
 - `@lg.step` accepts `cite=`, one reference or several.
 - `exec::produce` returns an `Execution` — the duration and the command it
   ran — and `exec::run` and `audit::audit` take a `Stores { cache, prov }`,

@@ -105,7 +105,7 @@ one to a step does not recompute a cohort.
 ```console
 $ ligase methods examples/hiv-resistance/pipeline.py --bundle paper/bundle
 ...
-wrote 12 files to paper/bundle
+wrote 13 files to paper/bundle
 ```
 
 ```text
@@ -115,6 +115,7 @@ paper/bundle/
 ├── results.tsv         every output by content hash -- the claim
 ├── commands.tsv        the command that produced each one, as it ran
 ├── inputs.tsv          every input by content hash
+├── notes.tsv           what canonicalising an output noticed; usually empty
 ├── references.tsv      every reference by accession and checksum
 ├── environment.tsv     the engine, the platform, every tool's full version
 ├── steps/              the source of every step
@@ -127,6 +128,12 @@ paper/bundle/
 ```text
 align  SRR8525904  31f5306...  minimap2 -t '4' -ax sr '/…/HXB2.fasta' '/…/SRR8525904_1.fastq.gz' …
 ```
+
+`notes.tsv` holds what the engine
+[noticed](notes.md) about the outputs — almost always nothing, and a header
+line even then, so an empty file never has to be read as "an older bundle".
+A bundle with something in it gains a *What will not travel* section in its
+`README.md`.
 
 **The data is not in there.** Sequencing runs are gigabytes and a bundle is
 meant to be readable, so inputs are named rather than carried — every one by

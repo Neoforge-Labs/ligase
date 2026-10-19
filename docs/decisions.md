@@ -403,8 +403,67 @@ output, and a bundle that could not distinguish "irreproducible" from
 "different experiment" would be misleading in the one situation it exists
 for.
 
-The format is seven flat TSV tables rather than JSON. No dependency to add,
+The format is eight flat TSV tables rather than JSON. No dependency to add,
 greppable, openable in a spreadsheet, and consistent with the engine's one
 structured store being SQLite (D6). Tabs, newlines and backslashes in a
 field are escaped, so a recorded command containing a tab cannot shift a
 column.
+
+## D26 — A field that cannot be dropped is noticed instead
+
+`bcftools` names a VCF's sample column after its input BAM's **path** when
+the BAM carries no `@RG SM`, and a Ligase run hands it a file inside the
+content-addressed store. The calls then carry something like
+`/Users/kelyn/ligase/.ligase/store/62/7db9….bam` where a sample identifier
+belongs, and the consequence is not cosmetic: the canonical form of a VCF
+includes its sample names, so such a file's canonical hash depends on where
+the cache directory lives. A reproducibility bundle written from one cache
+cannot verify against a clean one. M5's bundle verification is what found
+it — `call` came back `differs` on every sample with byte-identical variant
+records, the only difference being the `#CHROM` line's last column.
+
+This is [D22](#d22-a-tools-signature-is-not-part-of-its-result)'s pattern in
+a field that cannot be dropped. A command line says how a file was made; a
+sample identifier is part of what the file is **about**, and a sample set is
+one of the dimensions this engine exists to keep straight. So the hash
+stands and the engine **says what it saw**: a [`Note`], carried beside the
+hash into the run report, provenance, the bundle and the methods section.
+A note is not an error, never changes a hash, and the fix is one line in the
+pipeline the user is the only one who can make.
+
+Both louder alternatives were rejected, and for different reasons.
+
+**Refusing it** at canonicalisation time is what
+[D21](#d21-canonicalisation-falls-back-to-the-bytes) forbids: a VCF whose
+sample column holds a path is perfectly valid VCF, and turning a format
+problem into an engine failure is the thing that layer must not do.
+Refusing it at `ligase check` time instead cannot work, because the file
+does not exist yet: the checker runs before any compute, on inputs, and the
+file with the wrong identifier is an **output**. A check-time rule would
+miss the failure that prompted this one and fire only on hand-supplied files
+that are not wrong.
+
+**Normalising it** — reducing a path-shaped identifier to its basename
+before hashing — is the silent repair of a wrong file that this project
+refuses on principle, and it risks collapsing two genuinely different
+samples whose basenames agree. It also would not have worked. The basename
+of a file in the store is the hash of its **bytes**, and an alignment's
+bytes hold the staging path that `samtools sort -o` recorded, so the
+basename moves with the cache root exactly as the whole path does: the
+bundle would still have reported `differs`.
+
+The rule for what counts is deliberately narrow, because a rule that
+guessed would report good identifiers as mistakes. An identifier is a file
+when it holds a path separator or ends in an extension naming a format this
+engine reads. `K03455.1` has a dot and is not a file; `SRR8525904` and
+`sample_a` have neither.
+
+Three consequences worth stating. The notes are **stored** with the
+canonical hash rather than recomputed, because a cache hit does not reopen
+the file and a warning that stopped appearing on the second run would be
+worse than none. `CANON_VERSION` does **not** move: the rule changes nothing
+about what is hashed. The cache's `SCHEMA_VERSION` does, for the new column,
+which clears the cache's tables — the same practical cost, for a reason that
+can be stated honestly.
+
+[`Note`]: architecture/canonicalisation.md#what-a-canonical-form-notices

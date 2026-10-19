@@ -51,6 +51,7 @@ nav:
       - Running, and not running: concepts/caching.md
       - What a file means: concepts/semantic-hashing.md
       - How was this produced?: concepts/provenance.md
+      - When a tool names a sample after a file: concepts/notes.md
   - Guide:
       - Installation: guide/installation.md
       - Declaring dimensions: guide/declaring-dimensions.md
@@ -58,6 +59,7 @@ nav:
       - Running a pipeline: guide/running-a-pipeline.md
       - Semantic hashing and auditing: guide/semantic-hashing.md
       - Writing up a pipeline: guide/provenance.md
+      - Reading what the engine noticed: guide/notes.md
   - Architecture:
       - Workspace: architecture/workspace.md
       - Type system: architecture/type-system.md

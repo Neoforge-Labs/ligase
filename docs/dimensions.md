@@ -17,6 +17,11 @@ Every biological type carries dimensions. Each dimension is inferred from the fi
 - Reference identity is determined by contig names + lengths + MD5 where available, never by filename alone.
 - Contig naming mismatches are a distinct error from reference mismatches.
 - Sample sets must match by identity and order wherever steps join samples.
+- A sample identifier read from a file is never corrected, and never
+  dropped: it is what the file is about. An identifier that is a *file name*
+  rather than a sample — which is what `bcftools` writes when an alignment
+  carries no `@RG SM` — is reported instead
+  ([D26](decisions.md#d26-a-field-that-cannot-be-dropped-is-noticed-instead)).
 - Unknown dimensions are allowed only if no downstream step requires them; otherwise `check()` fails with a request to declare them.
 
 ### Coordinates are semantics, not encoding

@@ -223,22 +223,24 @@ new to say about it except the machine and the moment, where the later
 answer is the better one. A pipeline wanting an append-only log of every
 invocation would want a different table, not a different key.
 
-**Protection from a tool that names a sample after a file.** `bcftools`
-names a VCF's sample column after its input BAM's *path* when the BAM
-carries no `@RG SM`, and a Ligase run hands it a path inside the
-content-addressed store. The canonical form of a VCF includes its sample
-names — correctly, because a sample set is a dimension
-([D15](../decisions.md#d15-an-error-identifies-its-node-not-just-its-step))
-— so such a VCF's canonical hash depends on where the cache is, and a
-bundle written from one cache cannot verify against another.
+**A repair for a tool that names a sample after a file.** `bcftools` names
+a VCF's sample column after its input BAM's *path* when the BAM carries no
+`@RG SM`, and a Ligase run hands it a path inside the content-addressed
+store. The canonical form of a VCF includes its sample names — correctly,
+because a sample set is a dimension — so such a VCF's canonical hash
+depends on where the cache is, and a bundle written from one cache cannot
+verify against another. Bundle verification is what found it.
 
-This is D22's pattern in a field that cannot be dropped, and it is handled
-in the reference pipeline rather than in the engine: `align` writes its read
-group, so the sample is the run accession it should always have been. The
-engine does not yet notice when a tool hands it a path as a sample
-identifier, and a pipeline whose alignments lack `@RG SM` will meet this.
-Refusing or normalising a path-shaped sample name is a canonicalisation
-change, which belongs to M4's rules and to a `CANON_VERSION` bump.
+The engine now **notices** this and says so, in the run report, in the
+record, in `notes.tsv` and in the methods section
+([D26](../decisions.md#d26-a-field-that-cannot-be-dropped-is-noticed-instead),
+[canonicalisation](canonicalisation.md#what-a-canonical-form-notices)).
+What it does not do is fix it, and will not: refusing the file would make a
+format problem into an engine failure in the layer D21 forbids it, and
+rewriting the identifier would be a silent repair that does not even work —
+a file in the store is named after the hash of its bytes, which move with
+the cache root too. The fix is one line in the pipeline, and `align` in the
+reference pipeline has it.
 
 **Provenance for a step that failed.** `pipe.methods()` refuses a pipeline
 with a failure rather than describing the steps that worked, because a
