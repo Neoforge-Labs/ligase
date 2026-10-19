@@ -20,7 +20,7 @@ the same mistake for code that is not type-checked.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
@@ -37,6 +37,16 @@ from typing import (
 from . import _core
 from .audit import AuditReport, StepAudit
 from .errors import CheckError, StepDefinitionError, build
+from .provenance import (
+    Bundle,
+    InputCheck,
+    Methods,
+    MethodsGap,
+    PinnedReference,
+    ResultCheck,
+    StepMethods,
+    Verification,
+)
 from .recipes import Shell, Written
 from .run import RunError, RunReport, StepFailure, StepRun
 from .types import KINDS, Dataset
@@ -65,12 +75,36 @@ COORDINATES = ("0-based half-open", "1-based closed")
 CACHE_DIR = ".ligase"
 
 #: One task as the engine takes it: node, code, command, callback, tools,
-#: parameters. Exactly one of the command and the callback is set.
-_Task = tuple[int, str, str | None, int | None, list[str], list[tuple[str, str]]]
+#: parameters, citations. Exactly one of the command and the callback is set.
+_Task = tuple[
+    int,
+    str,
+    str | None,
+    int | None,
+    list[str],
+    list[tuple[str, str]],
+    list[str],
+]
 
 #: A `lg.write` body, as the engine calls it: where to write, and the
 #: inputs by parameter name.
 _Callback = Callable[[str, list[tuple[str, list[str]]]], None]
+
+#: A bundle as the engine reports it: where it is, what is in it, how many
+#: steps it accounts for, how many it could not.
+_Bundle = tuple[str, list[str], int, int]
+
+#: A bundle checked as the engine reports it: the results, the inputs,
+#: whether everything was reproduced, the worst verdict, the summary, the
+#: text.
+_Verification = tuple[
+    list[tuple[str, str | None, str, str, str | None, bool]],
+    list[tuple[str, str, str, str]],
+    bool,
+    str,
+    str,
+    str,
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,10 +133,12 @@ class Step(Generic[P, R]):
         tools: Those tools as a tuple, whose versions join the cache key.
         coordinates: The coordinate convention the step writes, for the one
             output kind that does not imply one.
+        citations: References the step asks to be cited by.
     """
 
     __slots__ = (
         "_signature",
+        "citations",
         "coordinates",
         "function",
         "output",
@@ -117,12 +153,14 @@ class Step(Generic[P, R]):
         *,
         tool: str | Sequence[str] | None = None,
         coordinates: str | None = None,
+        cite: str | Sequence[str] | None = None,
     ) -> None:
         """Read a function's signature, refusing one a graph cannot use."""
         self.function = function
         self.tool = tool
         self.tools = _tools(tool)
         self.coordinates = coordinates
+        self.citations = _citations(cite)
         self._signature = inspect.signature(function)
         self.output = _output_kind(function)
         self.parameters = _parameters(function, self._signature)
@@ -566,6 +604,136 @@ class Pipeline:
             text=text,
         )
 
+    def methods(
+        self,
+        *,
+        bundle: str | Path | None = None,
+        verify: str | Path | None = None,
+        include: Sequence[str | Path] = (),
+        jobs: int | None = None,
+        cache: str | Path | None = None,
+    ) -> Methods:
+        """Say how this pipeline's results were produced.
+
+        The pipeline is run first, normally and through the cache, because a
+        provenance record is filed under a step's key and computing keys is
+        what a run does. A pipeline already computed costs a cache lookup
+        per step, not a recomputation.
+
+        What comes back names, for every step: the tools and the versions
+        they ran at, the parameters as they were hashed, the command as
+        written, and every reference by accession and checksum. A step whose
+        output predates provenance is reported as a gap rather than left
+        out, because nothing can reconstruct how it was produced — the
+        command that would have said so is deliberately not in the hash.
+
+        Args:
+            bundle: Write a reproducibility bundle into this directory.
+            verify: Check the bundle in this directory against what this
+                machine just produced, and report where they differ.
+            include: Files to copy into the bundle as they are, such as the
+                pipeline itself.
+            jobs: How many steps may run at once in the run beforehand.
+            cache: Where to keep the cache. Defaults to `.ligase` under the
+                working directory.
+
+        Returns:
+            How every step was produced, with the bundle written and the
+            verification done, where either was asked for.
+
+        Raises:
+            CheckError: If the pipeline does not type-check. Nothing runs.
+            RuntimeError: If a step failed, since a pipeline that did not
+                finish has no methods section to write; or if a bundle
+                cannot be written.
+            ValueError: If the directory to verify against is not a bundle.
+        """
+        self.check()
+        tasks, callbacks = self._plan()
+        directory = Path(cache) if cache is not None else Path.cwd() / CACHE_DIR
+
+        described, written, checked = self._graph.methods(
+            self._roots,
+            tasks,
+            str(directory),
+            callbacks,
+            (
+                None if bundle is None else str(bundle),
+                None if verify is None else str(verify),
+                [str(path) for path in include],
+            ),
+            jobs,
+        )
+
+        (
+            groups,
+            gaps,
+            references,
+            citations,
+            uncited,
+            engine,
+            platform,
+            summary,
+            text,
+        ) = described
+
+        return Methods(
+            steps=[
+                StepMethods(
+                    step=step,
+                    nodes=nodes,
+                    scopes=list(scopes),
+                    scope_kind=scope_kind,
+                    tools=list(tools),
+                    parameters=list(parameters),
+                    command=command,
+                )
+                for (
+                    step,
+                    nodes,
+                    scopes,
+                    scope_kind,
+                    tools,
+                    parameters,
+                    command,
+                ) in groups
+            ],
+            gaps=[
+                MethodsGap(step=step, scopes=list(scopes), nodes=nodes)
+                for step, scopes, nodes in gaps
+            ],
+            references=[
+                PinnedReference(
+                    param=param,
+                    path=path,
+                    build=build,
+                    accession=accession,
+                    contigs=contigs,
+                    length=length,
+                    checksum=checksum,
+                    fingerprint=fingerprint,
+                )
+                for (
+                    param,
+                    path,
+                    build,
+                    accession,
+                    contigs,
+                    length,
+                    checksum,
+                    fingerprint,
+                ) in references
+            ],
+            citations=list(citations),
+            uncited=list(uncited),
+            engine=engine,
+            platform=platform,
+            summary=summary,
+            text=text,
+            bundle=_bundle(written),
+            verification=_verification(checked),
+        )
+
     def _plan(self) -> tuple[list[_Task], list[_Callback]]:
         """Ask every step how its output is produced, before anything runs.
 
@@ -599,6 +767,7 @@ class Pipeline:
                         (parameter.name, repr(produced.arguments[parameter.name]))
                         for parameter in step.plain_parameters
                     ],
+                    list(step.citations),
                 )
             )
 
@@ -632,6 +801,7 @@ def step(
     *,
     tool: str | Sequence[str] | None = None,
     coordinates: str | None = None,
+    cite: str | Sequence[str] | None = None,
 ) -> Callable[[Callable[P, R]], Step[P, R]]: ...
 
 
@@ -641,6 +811,7 @@ def step(
     *,
     tool: str | Sequence[str] | None = None,
     coordinates: str | None = None,
+    cite: str | Sequence[str] | None = None,
 ) -> Step[P, R] | Callable[[Callable[P, R]], Step[P, R]]:
     """Make a function a pipeline step, without ever running it.
 
@@ -661,6 +832,12 @@ def step(
             a step that produces `Intervals`: alignments and variant calls
             are 1-based closed by specification, while a tool that writes
             BED from a VCF changes the convention and must say so.
+        cite: How the step asks to be cited, as one reference or several.
+            `ligase methods` knows the reference pipeline's own tools; a
+            step using anything else names its reference here, or the
+            methods section reports that tool as uncited. A citation never
+            joins the cache key — it cannot change a result, so adding one
+            must not rerun anything.
 
     Returns:
         A `Step`, which a type checker sees as the function it decorated.
@@ -679,7 +856,7 @@ def step(
         )
 
     def decorate(inner: Callable[P, R]) -> Step[P, R]:
-        return Step(inner, tool=tool, coordinates=coordinates)
+        return Step(inner, tool=tool, coordinates=coordinates, cite=cite)
 
     if function is None:
         return decorate
@@ -798,6 +975,61 @@ def _tools(tool: str | Sequence[str] | None) -> tuple[str, ...]:
                 "string; a step that calls no external tool needs no `tool`"
             )
     return names
+
+
+def _citations(cite: str | Sequence[str] | None) -> tuple[str, ...]:
+    """A step's references, as a tuple.
+
+    Unlike a tool, a reference is never validated against anything: there is
+    no authority here to check it against, and a wrong citation is a
+    scientific mistake rather than an engine one. Blank entries are refused,
+    because a blank reference in a reference list is a bug nobody would
+    notice.
+    """
+    if cite is None:
+        return ()
+    references = (cite,) if isinstance(cite, str) else tuple(cite)
+    for reference in references:
+        if not reference.strip():
+            message = "a citation cannot be blank"
+            raise ValueError(message)
+    return references
+
+
+def _bundle(written: _Bundle | None) -> Bundle | None:
+    """The bundle the engine wrote, if one was asked for."""
+    if written is None:
+        return None
+    root, files, steps, gaps = written
+    return Bundle(root=root, files=list(files), steps=steps, gaps=gaps)
+
+
+def _verification(checked: _Verification | None) -> Verification | None:
+    """What checking a bundle found, if one was asked for."""
+    if checked is None:
+        return None
+    results, inputs, reproduced, verdict, summary, text = checked
+    return Verification(
+        results=[
+            ResultCheck(
+                step=step,
+                scope=scope,
+                verdict=step_verdict,
+                expected=expected,
+                found=found,
+                same_key=same_key,
+            )
+            for step, scope, step_verdict, expected, found, same_key in results
+        ],
+        inputs=[
+            InputCheck(step=step, param=param, path=path, presence=presence)
+            for step, param, path, presence in inputs
+        ],
+        reproduced=reproduced,
+        verdict=verdict,
+        summary=summary,
+        text=text,
+    )
 
 
 def _recipe(produced: StepOutput) -> Shell | Written:

@@ -68,9 +68,17 @@ def check_step(
     bindings: list[tuple[str, Dataset]],
 ) -> list[Finding]: ...
 
-# One task: node, code, command, callback, tools, parameters. Exactly one of
-# the command and the callback is set.
-Task = tuple[int, str, str | None, int | None, list[str], list[tuple[str, str]]]
+# One task: node, code, command, callback, tools, parameters, citations.
+# Exactly one of the command and the callback is set.
+Task = tuple[
+    int,
+    str,
+    str | None,
+    int | None,
+    list[str],
+    list[tuple[str, str]],
+    list[str],
+]
 
 # One finished step: node, step, outcome, key, output hash, canonical hash,
 # output, milliseconds.
@@ -82,6 +90,69 @@ RunFailure = tuple[int, str, str]
 # One audited step: node, step, scope, verdict, the two output hashes, the
 # two canonical hashes, and the two durations in milliseconds.
 StepAudit = tuple[int, str, str | None, str, str, str, str, str, int, int]
+
+# One reference, pinned: parameter, path, build, accession, sequences,
+# bases, checksum, fingerprint.
+Reference = tuple[
+    str,
+    str,
+    str | None,
+    str | None,
+    int,
+    int,
+    str | None,
+    str,
+]
+
+# One way a step was run: step, nodes, what tells them apart, what kind of
+# thing that is, tools, parameters, the command as written.
+MethodsGroup = tuple[
+    str,
+    int,
+    list[str],
+    str | None,
+    list[tuple[str, str]],
+    list[tuple[str, str]],
+    str | None,
+]
+
+# A step nothing is known about: step, what tells its nodes apart, how many.
+MethodsGap = tuple[str, list[str], int]
+
+# A methods section: the ways steps were run, the gaps, the references, the
+# reference list, the tools with nothing to cite, the engine, the platform,
+# the summary, the text.
+MethodsReport = tuple[
+    list[MethodsGroup],
+    list[MethodsGap],
+    list[Reference],
+    list[str],
+    list[str],
+    str,
+    str,
+    str,
+    str,
+]
+
+# A bundle written: root, files, steps accounted for, steps not.
+Bundle = tuple[str, list[str], int, int]
+
+# One result checked: step, scope, verdict, expected, found, same key.
+ResultCheck = tuple[str, str | None, str, str, str | None, bool]
+
+# One input checked: step, parameter, path, what was found.
+InputCheck = tuple[str, str, str, str]
+
+# A bundle checked: the results, the inputs, whether all were reproduced,
+# the worst verdict, the summary, the text.
+Verification = tuple[
+    list[ResultCheck],
+    list[InputCheck],
+    bool,
+    str,
+    str,
+    str,
+]
 
 # A `lg.write` body: where to write, and the inputs by parameter name.
 Callback = Callable[[str, list[tuple[str, list[str]]]], None]
@@ -126,4 +197,17 @@ class Graph:
         subject: tuple[str, str | None],
         jobs: int | None = None,
     ) -> tuple[list[StepAudit], list[RunFailure], str, str, str]: ...
+    # How every result was produced, the bundle written where one was asked
+    # for, and what checking a bundle found where one was.
+    def methods(
+        self,
+        roots: list[int],
+        tasks: list[Task],
+        cache_dir: str,
+        callbacks: list[Callback],
+        # Where to write a bundle, a bundle to check against, and files to
+        # carry into the bundle as they are.
+        write_up: tuple[str | None, str | None, list[str]],
+        jobs: int | None = None,
+    ) -> tuple[MethodsReport, Bundle | None, Verification | None]: ...
     def __len__(self) -> int: ...

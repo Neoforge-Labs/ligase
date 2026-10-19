@@ -22,7 +22,7 @@ use ligase::dim::{CoordinateSystem, Dimension};
 use ligase::exec::{self, Host, Options, Recipe, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
 use ligase::load::{self, Declared, IntervalFormat, LoadError as CoreLoadError};
-use ligase::prov::Prov;
+use ligase::prov::{self, Prov};
 use ligase::types::{DataKind, Dataset};
 
 /// One contig as Python sees it: name, length, checksum.
@@ -102,6 +102,77 @@ type PyStepAudit = (
 /// A whole audit as Python sees it: the steps audited, the ones that failed,
 /// the overall verdict, the summary line and the report as text.
 type PyAuditReport = (Vec<PyStepAudit>, Vec<PyRunFailure>, String, String, String);
+
+/// One reference a step was given: parameter, path, build, accession, how
+/// many sequences, how many bases, checksum, fingerprint.
+type PyReference = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    usize,
+    u64,
+    Option<String>,
+    String,
+);
+
+/// One way a step was run: step, how many nodes, what tells them apart,
+/// what kind of thing that is, tools, parameters, the command as written.
+type PyMethodsGroup = (
+    String,
+    usize,
+    Vec<String>,
+    Option<String>,
+    Vec<(String, String)>,
+    Vec<(String, String)>,
+    Option<String>,
+);
+
+/// A step nothing is known about: step, what tells its nodes apart, how
+/// many of them.
+type PyMethodsGap = (String, Vec<String>, usize);
+
+/// A methods section as Python sees it: the ways steps were run, the gaps,
+/// the references, the reference list, the tools with nothing to cite, the
+/// engine, the platform, the summary line and the whole thing as text.
+type PyMethods = (
+    Vec<PyMethodsGroup>,
+    Vec<PyMethodsGap>,
+    Vec<PyReference>,
+    Vec<String>,
+    Vec<String>,
+    String,
+    String,
+    String,
+    String,
+);
+
+/// What to do besides describing the run, as Python gives it: a directory
+/// to write a bundle into, a bundle to check against, and files to carry
+/// into the bundle as they are.
+type PyWriteUp = (Option<PathBuf>, Option<PathBuf>, Vec<PathBuf>);
+
+/// A bundle that was written: where it is, what is in it, how many steps it
+/// accounts for, how many it could not.
+type PyBundle = (String, Vec<String>, usize, usize);
+
+/// One result checked against a bundle: step, scope, verdict, the hash
+/// expected, the hash found, whether the key matched too.
+type PyCheck = (String, Option<String>, String, String, Option<String>, bool);
+
+/// One input checked against a bundle: step, parameter, path, what was found.
+type PyInputCheck = (String, String, String, String);
+
+/// A bundle checked as Python sees it: the results, the inputs, whether
+/// everything was reproduced, the worst verdict, the summary and the text.
+type PyVerification = (
+    Vec<PyCheck>,
+    Vec<PyInputCheck>,
+    bool,
+    String,
+    String,
+    String,
+);
 
 /// Python's step bodies, for the steps that are not shell commands.
 struct PyHost {
@@ -633,6 +704,167 @@ impl PyGraph {
         ))
     }
 
+    /// Run the pipeline, then say how its results were produced.
+    ///
+    /// The run comes first because a provenance record is filed under a
+    /// step's key, and computing keys is what a run does. It is an ordinary
+    /// run, so a pipeline already computed costs a cache lookup per step.
+    ///
+    /// `bundle` writes a reproducibility bundle; `verify` checks one against
+    /// what this machine just produced. Both are optional and independent.
+    #[pyo3(signature = (roots, tasks, cache_dir, callbacks, write_up, jobs=None))]
+    fn methods(
+        &self,
+        roots: Vec<usize>,
+        tasks: Vec<PyTask>,
+        cache_dir: PathBuf,
+        callbacks: Vec<Py<PyAny>>,
+        write_up: PyWriteUp,
+        jobs: Option<usize>,
+    ) -> PyResult<(PyMethods, Option<PyBundle>, Option<PyVerification>)> {
+        let (bundle, verify, include) = &write_up;
+        let roots = nodes(&roots);
+        let tasks = recipes(tasks)?;
+
+        let cache =
+            Cache::open(&cache_dir).map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        let prov =
+            Prov::open(&cache_dir).map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        let options = Options {
+            jobs: jobs.unwrap_or_else(|| Options::default().jobs),
+            force: false,
+        };
+        let host = PyHost { callbacks };
+
+        let report = Python::attach(|py| {
+            py.detach(|| {
+                exec::run(
+                    &self.inner,
+                    &roots,
+                    &tasks,
+                    &Stores {
+                        cache: &cache,
+                        prov: &prov,
+                    },
+                    &options,
+                    &host,
+                )
+            })
+        });
+
+        // A failed step has produced nothing to account for, and saying how
+        // the rest were produced would read as a complete methods section
+        // for a pipeline that did not finish.
+        if let Some(failure) = report.failures.first() {
+            return Err(PyRuntimeError::new_err(format!(
+                "`{}` failed, so there is nothing to write up: {}",
+                failure.step, failure.message
+            )));
+        }
+
+        let methods = prov::methods(&self.inner, &roots, &tasks, &report, &prov)
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+
+        let written = match &bundle {
+            None => None,
+            Some(into) => {
+                let summary = prov::bundle::write(
+                    into,
+                    &prov::bundle::Request {
+                        graph: &self.inner,
+                        roots: &roots,
+                        report: &report,
+                        prov: &prov,
+                        methods: &methods,
+                        include,
+                    },
+                )
+                .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+                Some((
+                    summary.root.to_string_lossy().into_owned(),
+                    summary.files,
+                    summary.steps,
+                    summary.gaps,
+                ))
+            }
+        };
+
+        let checked = match &verify {
+            None => None,
+            Some(against) => {
+                let verification = prov::bundle::verify(against, &self.inner, &roots, &report)
+                    .map_err(|error| PyValueError::new_err(error.to_string()))?;
+                Some((
+                    verification
+                        .checks
+                        .iter()
+                        .map(|check| {
+                            (
+                                check.step.clone(),
+                                check.scope.clone(),
+                                check.verdict.to_string(),
+                                check.expected.to_hex(),
+                                check.found.map(|hash| hash.to_hex()),
+                                check.same_key,
+                            )
+                        })
+                        .collect(),
+                    verification
+                        .inputs
+                        .iter()
+                        .map(|input| {
+                            (
+                                input.step.clone(),
+                                input.param.clone(),
+                                input.path.to_string_lossy().into_owned(),
+                                input.presence.to_string(),
+                            )
+                        })
+                        .collect(),
+                    verification.reproduced(),
+                    verification.verdict().to_string(),
+                    verification.summary(),
+                    verification.text(),
+                ))
+            }
+        };
+
+        let (cited, uncited) = methods.citations();
+        Ok((
+            (
+                methods
+                    .groups
+                    .iter()
+                    .map(|group| {
+                        (
+                            group.step.clone(),
+                            group.nodes.len(),
+                            group.scopes.clone(),
+                            group.scope_kind.map(str::to_owned),
+                            group.record.tools.clone(),
+                            group.record.parameters.clone(),
+                            group.template.clone(),
+                        )
+                    })
+                    .collect(),
+                methods
+                    .gaps
+                    .iter()
+                    .map(|gap| (gap.step.clone(), gap.scopes.clone(), gap.nodes))
+                    .collect(),
+                methods.references().iter().map(reference).collect(),
+                cited,
+                uncited,
+                methods.engine.clone(),
+                methods.platform.clone(),
+                methods.summary(),
+                methods.text(),
+            ),
+            written,
+            checked,
+        ))
+    }
+
     fn __len__(&self) -> usize {
         self.inner.len()
     }
@@ -667,6 +899,20 @@ fn recipes(tasks: Vec<PyTask>) -> PyResult<Vec<Task>> {
 }
 
 /// One step that did not produce anything.
+/// One pinned reference, as Python sees it.
+fn reference(pinned: &prov::ReferenceRecord) -> PyReference {
+    (
+        pinned.param.clone(),
+        pinned.path.to_string_lossy().into_owned(),
+        pinned.build.clone(),
+        pinned.accession.clone(),
+        pinned.contigs,
+        pinned.length,
+        pinned.checksum.clone(),
+        pinned.fingerprint.clone(),
+    )
+}
+
 fn failed(failure: &exec::StepFailure) -> PyRunFailure {
     (
         failure.node.index(),

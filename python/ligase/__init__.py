@@ -35,6 +35,16 @@ from .errors import (
     build as _build_errors,
 )
 from .graph import Pipeline, Report, Step, StepOutput, handle, step
+from .provenance import (
+    Bundle,
+    InputCheck,
+    Methods,
+    MethodsGap,
+    PinnedReference,
+    ResultCheck,
+    StepMethods,
+    Verification,
+)
 from .recipes import Shell, Written, sh, write
 from .run import RunError, RunReport, StepFailure, StepRun
 from .samples import Samples
@@ -56,6 +66,7 @@ if TYPE_CHECKING:
 __all__ = [
     "Alignment",
     "AuditReport",
+    "Bundle",
     "CheckError",
     "Contig",
     "ContigNamingError",
@@ -63,13 +74,18 @@ __all__ = [
     "Dataset",
     "DimensionError",
     "DimensionValue",
+    "InputCheck",
     "Intervals",
     "LoadError",
+    "Methods",
+    "MethodsGap",
+    "PinnedReference",
     "Pipeline",
     "Reads",
     "Reference",
     "Report",
     "ResistanceReport",
+    "ResultCheck",
     "RunError",
     "RunReport",
     "Samples",
@@ -78,11 +94,13 @@ __all__ = [
     "StepAudit",
     "StepDefinitionError",
     "StepFailure",
+    "StepMethods",
     "StepOutput",
     "StepRun",
     "StepTypeError",
     "UndeclaredDimensionError",
     "Variants",
+    "Verification",
     "Written",
     "__version__",
     "alignment",

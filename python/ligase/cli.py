@@ -16,8 +16,12 @@ asking. It distinguishes a step whose *bytes* move from one whose *result*
 does: the first is every tool that records its own command line, and the
 second is a finding.
 
-`methods` is in `docs/golden-example.md` and arrives with the milestone that
-implements it; this parser offers only what works.
+`ligase methods` says how the results were produced: tool versions,
+parameters, every reference by accession and checksum, and the references to
+cite. It runs the pipeline first — normally and through the cache — because
+a provenance record is filed under a step's key, and computing keys is what
+a run does. `--bundle` writes everything another machine needs in order to
+check the results, and `--verify` is that check.
 """
 
 from __future__ import annotations
@@ -151,10 +155,62 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=f"where to keep the cache (default: ./{CACHE_DIR})",
     )
 
+    methods = commands.add_parser(
+        "methods",
+        help="say how the results were produced, and bundle it up",
+        description=(
+            "Run the pipeline, then write a methods paragraph naming every "
+            "tool's version, every parameter, every reference by accession "
+            "and checksum, and the references to cite. `--bundle` writes a "
+            "reproducibility bundle; `--verify` checks one against what "
+            "this machine produces."
+        ),
+    )
+    methods.add_argument(
+        "pipeline",
+        nargs="?",
+        default=DEFAULT_PIPELINE,
+        type=Path,
+        help=f"the pipeline to write up (default: {DEFAULT_PIPELINE})",
+    )
+    methods.add_argument(
+        "--bundle",
+        type=Path,
+        metavar="DIR",
+        help="write a reproducibility bundle into this directory",
+    )
+    methods.add_argument(
+        "--verify",
+        type=Path,
+        metavar="DIR",
+        help="check the bundle in this directory against this machine",
+    )
+    methods.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        metavar="N",
+        help="how many steps may run at once in the run beforehand",
+    )
+    methods.add_argument(
+        "--cache",
+        type=Path,
+        metavar="DIR",
+        help=f"where to keep the cache (default: ./{CACHE_DIR})",
+    )
+
     arguments = parser.parse_args(argv)
     if arguments.command == "run":
         return _run(
             arguments.pipeline, arguments.jobs, arguments.force, arguments.cache
+        )
+    if arguments.command == "methods":
+        return _methods(
+            arguments.pipeline,
+            arguments.bundle,
+            arguments.verify,
+            arguments.jobs,
+            arguments.cache,
         )
     if arguments.command == "audit":
         return _audit(
@@ -258,6 +314,67 @@ def _audit(
         # A step that does not agree with itself is a finding, and a finding
         # is what a non-zero exit code is for.
         found += len(report.unreproducible) + len(report.failures)
+
+    return FOUND_ERRORS if found else 0
+
+
+def _methods(
+    path: Path,
+    bundle: Path | None,
+    verify: Path | None,
+    jobs: int | None,
+    cache: Path | None,
+) -> int:
+    pipelines = _pipelines(path)
+    if isinstance(pipelines, int):
+        return pipelines
+
+    found = 0
+    for pipeline in pipelines:
+        steps = len(pipeline.steps)
+        print(f"writing up {steps} {_plural(steps, 'step')} in {path}")
+        print()
+        try:
+            methods = pipeline.methods(
+                bundle=bundle,
+                verify=verify,
+                # The pipeline file goes into the bundle, so a bundle holds
+                # the pipeline that produced it and not only its steps.
+                include=[path],
+                jobs=jobs,
+                cache=cache,
+            )
+        except CheckError as error:
+            # Nothing is written up for a pipeline that does not type-check.
+            print(pipeline.report().text)
+            found += len(error.errors)
+            continue
+        except ValueError as error:
+            # The directory given to `--verify` is not a bundle: a mistake
+            # in the command rather than a finding about the pipeline.
+            return _cannot(str(error))
+        except RuntimeError as error:
+            # A step failed, or a bundle could not be written. Either way
+            # there is nothing to write up.
+            return _cannot(str(error))
+
+        # Worded by the engine, so a script and the command line agree.
+        print(methods.text)
+
+        if methods.bundle is not None:
+            print()
+            files = len(methods.bundle.files)
+            print(f"wrote {files} {_plural(files, 'file')} to {methods.bundle.root}")
+
+        if methods.verification is not None:
+            print()
+            print(methods.verification.text)
+            if not methods.verification.reproduced:
+                found += len(methods.verification.differing)
+
+        # A paragraph with a hole in it is a finding: something in this
+        # pipeline cannot be accounted for.
+        found += len(methods.gaps)
 
     return FOUND_ERRORS if found else 0
 
