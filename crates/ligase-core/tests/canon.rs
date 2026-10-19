@@ -15,7 +15,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ligase::canon::{self, Form, Tolerance};
+use ligase::canon::{self, Form, Note, Tolerance};
 use ligase::hash::ContentHash;
 use ligase::types::DataKind;
 use tempfile::TempDir;
@@ -50,6 +50,12 @@ fn canonical(kind: DataKind, path: &Path) -> ContentHash {
 fn form(kind: DataKind, path: &Path) -> Form {
     let raw = ContentHash::of_file(path).unwrap();
     canon::hash(kind, path, raw).unwrap().form
+}
+
+/// What canonicalising a file noticed, beyond its hash.
+fn notes(kind: DataKind, path: &Path) -> Vec<Note> {
+    let raw = ContentHash::of_file(path).unwrap();
+    canon::hash(kind, path, raw).unwrap().notes
 }
 
 /// Assert that two files mean the same thing while holding different bytes.
@@ -267,12 +273,17 @@ fn a_bam_and_the_sam_it_came_from_are_the_same_alignment() {
 // ------------------------------------------------------------ variants --
 
 fn vcf(header_extra: &str, records: &[&str]) -> String {
+    vcf_of("sample_a", header_extra, records)
+}
+
+/// The same, with the sample column named by the caller.
+fn vcf_of(sample: &str, header_extra: &str, records: &[&str]) -> String {
     let mut text = String::from("##fileformat=VCFv4.3\n");
     text.push_str(header_extra);
-    text.push_str(
-        "##contig=<ID=1,length=20,md5=a965a71aa3690f605935c54d320905ab>\n\
-         #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample_a\n",
-    );
+    text.push_str("##contig=<ID=1,length=20,md5=a965a71aa3690f605935c54d320905ab>\n");
+    text.push_str(&format!(
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
+    ));
     for record in records {
         text.push_str(record);
         text.push('\n');
@@ -683,4 +694,131 @@ fn a_read_whose_sequence_and_qualities_disagree_in_length_is_refused() {
     let ragged = files.write("ragged.fastq", "@read1\nACGTACGT\n+\nIIII\n");
 
     assert_eq!(form(DataKind::Reads, &ragged), Form::Raw);
+}
+
+// --------------------------------------------------------------- notes --
+//
+// A sample set is a dimension, so a sample identifier cannot be dropped the
+// way `@PG` was and cannot be quietly rewritten either (D26). What the
+// engine can do is notice. The store path in these fixtures is the one
+// `bcftools` wrote when the reference pipeline's alignments carried no
+// `@RG SM`, which is the failure that put these tests here.
+
+const STORE_PATH: &str = "/Users/kelyn/ligase/.ligase/store/62/7db9fa0cbac.bam";
+
+#[test]
+fn a_vcf_whose_sample_is_a_store_path_says_so() {
+    let files = Files::new();
+    let calls = files.write("calls.vcf", &vcf_of(STORE_PATH, "", &[VARIANT_5]));
+
+    assert_eq!(
+        notes(DataKind::Variants, &calls),
+        vec![Note::SampleIsAFile {
+            sample: STORE_PATH.to_owned()
+        }],
+    );
+}
+
+#[test]
+fn a_vcf_whose_sample_is_a_sample_says_nothing() {
+    // The common case, and the one that has to stay silent: a checker that
+    // remarks on every file is a checker a user stops reading.
+    let files = Files::new();
+    let calls = files.write("calls.vcf", &vcf_of("SRR8525904", "", &[VARIANT_5]));
+
+    assert!(notes(DataKind::Variants, &calls).is_empty());
+    assert_eq!(form(DataKind::Variants, &calls), Form::Canonical);
+}
+
+#[test]
+fn two_vcfs_differing_only_in_a_path_shaped_sample_differ_and_say_why() {
+    // The original failure, in miniature. The same calls, written by two
+    // runs whose caches are in different places, so the only difference is
+    // the `#CHROM` line's last column. The hashes must differ — a sample
+    // set is a dimension and the engine does not invent agreement — and
+    // both files must say what is wrong, because that difference is the
+    // whole reason a bundle written from one cache reported `differs`
+    // against another.
+    let files = Files::new();
+    let here = files.write(
+        "here.vcf",
+        &vcf_of("/home/a/.ligase/store/62/7db9fa0cbac.bam", "", &[VARIANT_5]),
+    );
+    let there = files.write(
+        "there.vcf",
+        &vcf_of("/mnt/b/.ligase/store/91/0c4e18baf21.bam", "", &[VARIANT_5]),
+    );
+
+    assert_ne!(
+        canonical(DataKind::Variants, &here),
+        canonical(DataKind::Variants, &there),
+        "a sample set is a dimension: these are different claims",
+    );
+    for calls in [&here, &there] {
+        let found = notes(DataKind::Variants, calls);
+        assert_eq!(found.len(), 1, "{}", calls.display());
+        assert!(found[0].to_string().contains("not a sample"));
+        assert!(found[0].advice().contains("addreplacerg"));
+    }
+}
+
+#[test]
+fn a_read_group_naming_a_file_says_so() {
+    // Where it starts: a BAM with no sample is what makes `bcftools` write
+    // a path, and an aligner given `-R` with a file name writes one here.
+    let files = Files::new();
+    let aligned = files.write(
+        "aligned.sam",
+        &sam(
+            "@HD\tVN:1.6\tSO:coordinate\n\
+             @SQ\tSN:1\tLN:20\tM5:a965a71aa3690f605935c54d320905ab\n\
+             @RG\tID:rg0\tSM:aligned.bam\n",
+            &[READ1],
+        ),
+    );
+
+    assert_eq!(
+        notes(DataKind::Alignment, &aligned),
+        vec![Note::SampleIsAFile {
+            sample: "aligned.bam".to_owned()
+        }],
+    );
+}
+
+#[test]
+fn one_file_named_by_two_read_groups_is_one_note() {
+    // One thing is wrong with this alignment, not two.
+    let files = Files::new();
+    let aligned = files.write(
+        "aligned.sam",
+        &sam(
+            &format!(
+                "@HD\tVN:1.6\tSO:coordinate\n\
+                 @SQ\tSN:1\tLN:20\tM5:a965a71aa3690f605935c54d320905ab\n\
+                 @RG\tID:rg0\tSM:{STORE_PATH}\n\
+                 @RG\tID:rg1\tSM:{STORE_PATH}\n"
+            ),
+            &[READ1],
+        ),
+    );
+
+    assert_eq!(notes(DataKind::Alignment, &aligned).len(), 1);
+}
+
+#[test]
+fn a_file_that_falls_back_to_its_bytes_notices_nothing() {
+    // A note about a file that did not parse would be a remark about the
+    // half of it that was read (D21).
+    let files = Files::new();
+    let truncated = files.write(
+        "truncated.vcf",
+        &format!(
+            "##fileformat=VCFv4.3\n\
+             #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{STORE_PATH}\n\
+             1\t5\t.\tA\n"
+        ),
+    );
+
+    assert_eq!(form(DataKind::Variants, &truncated), Form::Raw);
+    assert!(notes(DataKind::Variants, &truncated).is_empty());
 }

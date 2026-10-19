@@ -26,7 +26,7 @@ use noodles::sam::header::record::value::map::read_group::tag::SAMPLE;
 use noodles::sam::header::record::value::map::reference_sequence::tag::MD5_CHECKSUM;
 use noodles::{bam, sam};
 
-use super::Digest;
+use super::{Digest, Note};
 use crate::load::open;
 
 /// Hash an alignment's canonical form.
@@ -88,6 +88,13 @@ fn describe_header(header: &sam::Header, digest: &mut Digest) {
     for (id, sample) in groups {
         digest.field("rg.id", id);
         digest.field("rg.sample", sample);
+        // Hashed either way: a read group's sample is part of what the
+        // alignment is about. Noticed, because an identifier that names a
+        // file is not a sample, and this is where that starts — a BAM with
+        // no sample is what makes `bcftools` write a path (D26).
+        if let Some(note) = Note::about_sample(&String::from_utf8_lossy(sample)) {
+            digest.note(note);
+        }
     }
 }
 

@@ -50,10 +50,23 @@
 //! that read what it could and ignored the rest would be the dangerous kind
 //! of lenient, because then two files that differ in the part it skipped
 //! would agree.
+//!
+//! # What a canonical form notices but cannot say
+//!
+//! Some fields cannot be dropped and are still wrong. A sample set is a
+//! dimension, so a VCF's sample names and a BAM's read-group samples are
+//! part of what the file is about and are hashed as the file writes them —
+//! and a tool handed a BAM with no `@RG SM` writes the input file's *path*
+//! there, which makes that file's canonical hash depend on where the cache
+//! lives. Neither dropping the field nor repairing it is safe, so the hash
+//! stands and a [`Note`] is carried beside it. A note is not an error,
+//! never changes a hash, and travels with the result into the run report,
+//! provenance, the bundle and the methods section (D26).
 
 mod alignment;
 mod fasta;
 mod intervals;
+mod note;
 mod reads;
 mod report;
 mod variants;
@@ -64,6 +77,8 @@ use std::path::Path;
 
 use crate::hash::ContentHash;
 use crate::types::DataKind;
+
+pub use note::Note;
 
 /// The version of the canonicalisation rules.
 ///
@@ -86,6 +101,21 @@ pub enum Form {
     Raw,
 }
 
+impl Form {
+    /// The form this name stands for.
+    ///
+    /// The inverse of [`Display`](fmt::Display), for reading back a form
+    /// the cache wrote down. `None` for a name this version does not know.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "canonical" => Some(Self::Canonical),
+            "raw" => Some(Self::Raw),
+            _ => None,
+        }
+    }
+}
+
 impl fmt::Display for Form {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -95,13 +125,21 @@ impl fmt::Display for Form {
     }
 }
 
-/// A file's semantic hash, and how it was arrived at.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A file's semantic hash, how it was arrived at, and what was noticed on
+/// the way.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Canonical {
     /// The hash of the canonical form, or of the bytes where there was none.
     pub hash: ContentHash,
     /// Which of those it is.
     pub form: Form,
+    /// What the canonical form noticed and the hash cannot say ([`Note`]).
+    ///
+    /// Empty for almost every file. A note is not an error and never
+    /// changes a hash: it is carried beside one so that the run report, the
+    /// bundle and the methods section can all say the same thing about the
+    /// same file.
+    pub notes: Vec<Note>,
 }
 
 /// The semantic hash of a file read as `kind`.
@@ -118,18 +156,25 @@ pub fn hash(kind: DataKind, path: &Path, raw: ContentHash) -> io::Result<Canonic
     let mut digest = Digest::new(kind, Form::Canonical);
 
     match canonicalise(kind, path, &mut digest) {
-        Ok(()) => Ok(Canonical {
-            hash: digest.finish(),
-            form: Form::Canonical,
-        }),
+        Ok(()) => {
+            let notes = std::mem::take(&mut digest.notes);
+            Ok(Canonical {
+                hash: digest.finish(),
+                form: Form::Canonical,
+                notes,
+            })
+        }
         Err(_) => {
             // The bytes stand in, tagged so they cannot be confused for a
-            // canonical form of anything.
+            // canonical form of anything. Whatever the partial parse
+            // noticed is discarded with it: a note about a file that did
+            // not parse would be a remark about the half that was read.
             let mut fallback = Digest::new(kind, Form::Raw);
             fallback.field("bytes", raw.as_bytes());
             Ok(Canonical {
                 hash: fallback.finish(),
                 form: Form::Raw,
+                notes: Vec::new(),
             })
         }
     }
@@ -244,6 +289,7 @@ pub fn tolerance(kind: DataKind, field: &str) -> Option<Tolerance> {
 pub(crate) struct Digest {
     hasher: blake3::Hasher,
     records: Vec<[u8; 32]>,
+    notes: Vec<Note>,
 }
 
 impl Digest {
@@ -251,6 +297,7 @@ impl Digest {
         let mut digest = Self {
             hasher: blake3::Hasher::new(),
             records: Vec::new(),
+            notes: Vec::new(),
         };
         digest.field("domain", DOMAIN.as_bytes());
         digest.field("canon-version", &CANON_VERSION.to_le_bytes());
@@ -270,6 +317,16 @@ impl Digest {
     /// One field whose value is text.
     pub(crate) fn text(&mut self, label: &str, value: &str) {
         self.field(label, value.as_bytes());
+    }
+
+    /// Something noticed about the file, which the hash is not told.
+    ///
+    /// Repeats are dropped: a BAM whose four read groups all name the same
+    /// file has one thing wrong with it, not four.
+    pub(crate) fn note(&mut self, note: Note) {
+        if !self.notes.contains(&note) {
+            self.notes.push(note);
+        }
     }
 
     /// One record, whose position in the file says nothing.
@@ -358,6 +415,14 @@ mod tests {
         right.text("xy", "z");
 
         assert_ne!(left.finish(), right.finish());
+    }
+
+    #[test]
+    fn a_form_round_trips_through_its_name() {
+        for form in [Form::Canonical, Form::Raw] {
+            assert_eq!(Form::parse(&form.to_string()), Some(form));
+        }
+        assert_eq!(Form::parse("something-else"), None);
     }
 
     #[test]

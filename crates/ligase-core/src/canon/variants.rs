@@ -42,7 +42,7 @@ use noodles::vcf::header::record::value::Collection;
 use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
 use noodles::vcf::header::record::value::map::info::Number as InfoNumber;
 
-use super::{Digest, tolerance};
+use super::{Digest, Note, tolerance};
 use crate::load::open;
 use crate::types::DataKind;
 
@@ -129,8 +129,15 @@ fn describe_header(header: &vcf::Header, digest: &mut Digest) {
     }
 
     // In order: the columns of every record are in this order.
+    //
+    // Hashed as the file writes them — a sample set is a dimension and
+    // cannot be dropped the way `@PG` was (D22) — and noticed when what is
+    // written is a file rather than a sample (D26).
     for sample in header.sample_names() {
         digest.text("sample", sample);
+        if let Some(note) = Note::about_sample(sample) {
+            digest.note(note);
+        }
     }
 
     // Whatever else the header says, minus the keys that say when it was
