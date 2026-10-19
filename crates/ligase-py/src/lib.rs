@@ -46,7 +46,7 @@ type PyCheckError = (
 type PyArgument = (String, String, usize);
 
 /// One task as Python gives it: node, code, command, callback, tools,
-/// parameters.
+/// parameters, citations.
 ///
 /// Exactly one of the command and the callback is set. A command is run by
 /// the core; a callback goes back to Python, which is the only thing in a
@@ -58,6 +58,7 @@ type PyTask = (
     Option<u64>,
     Vec<String>,
     Vec<(String, String)>,
+    Vec<String>,
 );
 
 /// One finished step: node, step, outcome, key, output hash, canonical
@@ -641,24 +642,27 @@ impl PyGraph {
 fn recipes(tasks: Vec<PyTask>) -> PyResult<Vec<Task>> {
     tasks
         .into_iter()
-        .map(|(node, code, command, callback, tools, parameters)| {
-            let recipe = match (command, callback) {
-                (Some(command), _) => Recipe::Shell(command),
-                (None, Some(id)) => Recipe::Callback(id),
-                (None, None) => {
-                    return Err(PyValueError::new_err(
-                        "a step needs either a command or a callback to produce anything",
-                    ));
-                }
-            };
-            Ok(Task {
-                node: NodeId::from_index(node),
-                code,
-                recipe,
-                tools,
-                parameters,
-            })
-        })
+        .map(
+            |(node, code, command, callback, tools, parameters, citations)| {
+                let recipe = match (command, callback) {
+                    (Some(command), _) => Recipe::Shell(command),
+                    (None, Some(id)) => Recipe::Callback(id),
+                    (None, None) => {
+                        return Err(PyValueError::new_err(
+                            "a step needs either a command or a callback to produce anything",
+                        ));
+                    }
+                };
+                Ok(Task {
+                    node: NodeId::from_index(node),
+                    code,
+                    recipe,
+                    tools,
+                    parameters,
+                    citations,
+                })
+            },
+        )
         .collect()
 }
 

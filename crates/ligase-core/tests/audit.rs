@@ -102,6 +102,7 @@ impl Bench {
             recipe: Recipe::Shell(command.to_owned()),
             tools: Vec::new(),
             parameters: Vec::new(),
+            citations: Vec::new(),
         });
         node
     }

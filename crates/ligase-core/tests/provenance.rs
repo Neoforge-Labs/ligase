@@ -17,7 +17,7 @@ use ligase::dim::Dimensions;
 use ligase::exec::{self, Host, Options, Recipe, RunReport, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
 use ligase::load::{self, Declared};
-use ligase::prov::Prov;
+use ligase::prov::{self, Prov};
 use ligase::types::{DataKind, Dataset};
 use tempfile::TempDir;
 
@@ -116,8 +116,19 @@ impl Bench {
                 .iter()
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
                 .collect(),
+            citations: Vec::new(),
         });
         node
+    }
+
+    /// Give a step references of its own, as `@lg.step(cite=...)` does.
+    fn cite(&mut self, node: NodeId, references: &[&str]) {
+        let task = self
+            .tasks
+            .iter_mut()
+            .find(|task| task.node == node)
+            .unwrap();
+        task.citations = references.iter().map(|text| (*text).to_owned()).collect();
     }
 
     fn run(&self, roots: &[NodeId]) -> RunReport {
@@ -373,4 +384,194 @@ fn a_step_that_never_ran_has_no_record() {
         empty.lookup(key).unwrap().is_none(),
         "an empty store knows nothing, and says so rather than guessing"
     );
+}
+
+// ------------------------------------------------- the methods section --
+
+/// The methods section for a run that has just happened.
+fn methods_of(bench: &Bench, roots: &[NodeId], report: &RunReport) -> prov::Methods {
+    prov::methods(&bench.graph, roots, &bench.tasks, report, &bench.prov).unwrap()
+}
+
+#[test]
+fn the_paragraph_names_the_tool_version_that_ran() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with(
+        "copy",
+        "cat {in} > {out}",
+        &[("in", input)],
+        &[],
+        &["python3"],
+    );
+
+    let report = bench.run(&[node]);
+    let text = methods_of(&bench, &[node], &report).text();
+
+    assert!(text.contains("python3"), "{text}");
+    assert!(text.contains("Python 3"), "the version that ran: {text}");
+}
+
+#[test]
+fn the_paragraph_names_the_parameters_as_they_were_set() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with(
+        "call",
+        "cat {in} > {out}",
+        &[("in", input)],
+        &[("min_freq", "0.01")],
+        &[],
+    );
+
+    let report = bench.run(&[node]);
+    let text = methods_of(&bench, &[node], &report).text();
+
+    assert!(text.contains("min_freq = 0.01"), "{text}");
+}
+
+#[test]
+fn the_paragraph_pins_the_reference_by_accession() {
+    let mut bench = Bench::new();
+    let reference = bench.reference("HXB2.fasta", HXB2);
+    let node = bench.step("copy", "cat {ref} > {out}", &[("ref", reference)]);
+
+    let report = bench.run(&[node]);
+    let text = methods_of(&bench, &[node], &report).text();
+
+    assert!(text.contains("K03455.1"), "{text}");
+    assert!(text.contains("14 bp"), "{text}");
+    assert!(text.contains("MD5 7cd4b12a"), "{text}");
+    assert!(text.contains("the HXB2 reference"), "{text}");
+}
+
+#[test]
+fn the_paragraph_shows_the_command_as_it_was_written() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+
+    let report = bench.run(&[node]);
+    let text = methods_of(&bench, &[node], &report).text();
+
+    // The template, not the filled command: a filled one names a staging
+    // file inside the cache, which is true and of no use in a paper.
+    assert!(text.contains("cat {in} > {out}"), "{text}");
+}
+
+#[test]
+fn a_known_tool_is_cited_and_an_unknown_one_is_named_as_uncited() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with(
+        "copy",
+        "cat {in} > {out}",
+        &[("in", input)],
+        &[],
+        &["python3"],
+    );
+
+    let report = bench.run(&[node]);
+    let text = methods_of(&bench, &[node], &report).text();
+
+    assert!(
+        text.contains("No reference is recorded for python3"),
+        "an uncited tool is named rather than quietly dropped: {text}"
+    );
+}
+
+#[test]
+fn a_step_that_declares_its_own_reference_is_cited_by_it() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with(
+        "copy",
+        "cat {in} > {out}",
+        &[("in", input)],
+        &[],
+        &["python3"],
+    );
+    bench.cite(node, &["Van Rossum G (1995) Python reference manual."]);
+
+    let report = bench.run(&[node]);
+    let text = methods_of(&bench, &[node], &report).text();
+
+    assert!(text.contains("Van Rossum"), "{text}");
+    assert!(
+        !text.contains("No reference is recorded"),
+        "a step that said what to cite has no gap: {text}"
+    );
+}
+
+#[test]
+fn nodes_of_one_step_are_one_sentence() {
+    let mut bench = Bench::new();
+    let first = bench.input("a.txt", "a\n");
+    let second = bench.input("b.txt", "b\n");
+    let one = bench.step("copy", "cat {in} > {out}", &[("in", first)]);
+    let two = bench.step("copy", "cat {in} > {out}", &[("in", second)]);
+
+    let report = bench.run(&[one, two]);
+    let methods = methods_of(&bench, &[one, two], &report);
+
+    assert_eq!(methods.groups.len(), 1, "{:?}", methods.groups);
+    assert_eq!(methods.groups[0].nodes.len(), 2);
+    assert_eq!(methods.summary(), "2 steps, all accounted for.");
+}
+
+#[test]
+fn nodes_of_one_step_run_differently_get_a_sentence_each() {
+    let mut bench = Bench::new();
+    let first = bench.input("a.txt", "a\n");
+    let second = bench.input("b.txt", "b\n");
+    let one = bench.step_with(
+        "call",
+        "cat {in} > {out}",
+        &[("in", first)],
+        &[("min_freq", "0.01")],
+        &[],
+    );
+    let two = bench.step_with(
+        "call",
+        "cat {in} > {out}",
+        &[("in", second)],
+        &[("min_freq", "0.5")],
+        &[],
+    );
+
+    let report = bench.run(&[one, two]);
+    let methods = methods_of(&bench, &[one, two], &report);
+
+    // Where two nodes of a step really were run differently, the difference
+    // is the thing worth reporting, so neither sentence speaks for both.
+    assert_eq!(methods.groups.len(), 2, "{:?}", methods.groups);
+    let text = methods.text();
+    assert!(text.contains("min_freq = 0.01"), "{text}");
+    assert!(text.contains("min_freq = 0.5"), "{text}");
+}
+
+#[test]
+fn a_step_with_no_record_is_reported_as_a_gap() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+    let report = bench.run(&[node]);
+
+    // A cache populated before provenance was kept: the output is there and
+    // the record is not.
+    let elsewhere = TempDir::new().unwrap();
+    let empty = Prov::open(elsewhere.path()).unwrap();
+    let methods = prov::methods(&bench.graph, &[node], &bench.tasks, &report, &empty).unwrap();
+
+    assert_eq!(methods.groups.len(), 0);
+    assert_eq!(methods.gaps.len(), 1);
+    assert_eq!(methods.gaps[0].step, "copy");
+
+    let text = methods.text();
+    assert!(text.contains("recorded no provenance"), "{text}");
+    assert!(
+        text.contains("ligase run --force"),
+        "a gap says how to fill it: {text}"
+    );
+    assert_eq!(methods.summary(), "1 step: 0 accounted for, 1 not.");
 }

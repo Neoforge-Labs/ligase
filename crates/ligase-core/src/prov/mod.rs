@@ -43,6 +43,9 @@
 //! can work out whenever it is needed and which would otherwise be a fact
 //! about one run masquerading as a fact about the step.
 
+pub mod cite;
+mod methods;
+
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -50,6 +53,9 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OptionalExtension, params};
+
+pub use cite::Citation;
+pub use methods::{Gap, Group, Methods, methods};
 
 use crate::dim::ReferenceId;
 use crate::hash::ContentHash;

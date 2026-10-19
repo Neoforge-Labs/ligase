@@ -99,6 +99,14 @@ pub struct Task {
     pub tools: Vec<String>,
     /// Plain parameters, as `(name, value)`.
     pub parameters: Vec<(String, String)>,
+    /// References the step asks to be cited by, as written.
+    ///
+    /// Deliberately **not** a cache-key ingredient: a citation cannot
+    /// change a result, so adding one must not rerun a pipeline. For the
+    /// same reason it is not stored in a provenance record either, which
+    /// would go stale the moment it was edited — a methods section takes it
+    /// from the pipeline in front of it ([`crate::prov::methods`]).
+    pub citations: Vec<String>,
 }
 
 /// What happened to one step.
