@@ -19,9 +19,10 @@ use ligase::audit;
 use ligase::cache::Cache;
 use ligase::check::{Binding, CheckError, check_step as core_check_step, render, summarise};
 use ligase::dim::{CoordinateSystem, Dimension};
-use ligase::exec::{self, Host, Options, Recipe, Task};
+use ligase::exec::{self, Host, Options, Recipe, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
 use ligase::load::{self, Declared, IntervalFormat, LoadError as CoreLoadError};
+use ligase::prov::Prov;
 use ligase::types::{DataKind, Dataset};
 
 /// One contig as Python sees it: name, length, checksum.
@@ -504,6 +505,8 @@ impl PyGraph {
 
         let cache =
             Cache::open(&cache_dir).map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        let prov =
+            Prov::open(&cache_dir).map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
         let options = Options {
             jobs: jobs.unwrap_or_else(|| Options::default().jobs),
             force,
@@ -511,7 +514,19 @@ impl PyGraph {
         let host = PyHost { callbacks };
 
         let report = Python::attach(|py| {
-            py.detach(|| exec::run(&self.inner, &roots, &tasks, &cache, &options, &host))
+            py.detach(|| {
+                exec::run(
+                    &self.inner,
+                    &roots,
+                    &tasks,
+                    &Stores {
+                        cache: &cache,
+                        prov: &prov,
+                    },
+                    &options,
+                    &host,
+                )
+            })
         });
 
         let summary = exec::summarise(&report);
@@ -562,6 +577,8 @@ impl PyGraph {
 
         let cache =
             Cache::open(&cache_dir).map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        let prov =
+            Prov::open(&cache_dir).map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
         let options = Options {
             jobs: jobs.unwrap_or_else(|| Options::default().jobs),
             force: false,
@@ -574,7 +591,10 @@ impl PyGraph {
                     &self.inner,
                     &roots,
                     &tasks,
-                    &cache,
+                    &Stores {
+                        cache: &cache,
+                        prov: &prov,
+                    },
                     &options,
                     &host,
                     &audit::Subject {

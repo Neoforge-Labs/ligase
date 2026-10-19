@@ -14,8 +14,9 @@ use std::sync::Mutex;
 
 use ligase::cache::Cache;
 use ligase::dim::Dimensions;
-use ligase::exec::{self, Host, Options, Outcome, Recipe, RunReport, Task};
+use ligase::exec::{self, Host, Options, Outcome, Recipe, RunReport, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
+use ligase::prov::Prov;
 use ligase::types::{DataKind, Dataset};
 use tempfile::TempDir;
 
@@ -25,6 +26,7 @@ use tempfile::TempDir;
 struct Bench {
     dir: TempDir,
     cache: Cache,
+    prov: Prov,
     graph: Graph,
     tasks: Vec<Task>,
 }
@@ -32,12 +34,22 @@ struct Bench {
 impl Bench {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let cache = Cache::open(&dir.path().join(".ligase")).unwrap();
+        let root = dir.path().join(".ligase");
+        let cache = Cache::open(&root).unwrap();
+        let prov = Prov::open(&root).unwrap();
         Self {
             dir,
             cache,
+            prov,
             graph: Graph::new(),
             tasks: Vec::new(),
+        }
+    }
+
+    fn stores(&self) -> Stores<'_> {
+        Stores {
+            cache: &self.cache,
+            prov: &self.prov,
         }
     }
 
@@ -129,7 +141,14 @@ impl Bench {
     }
 
     fn run_with(&self, roots: &[NodeId], options: &Options, host: &dyn Host) -> RunReport {
-        exec::run(&self.graph, roots, &self.tasks, &self.cache, options, host)
+        exec::run(
+            &self.graph,
+            roots,
+            &self.tasks,
+            &self.stores(),
+            options,
+            host,
+        )
     }
 }
 
@@ -279,7 +298,10 @@ fn a_cache_survives_the_process_that_wrote_it() {
         &bench.graph,
         &[align],
         &bench.tasks,
-        &reopened,
+        &Stores {
+            cache: &reopened,
+            prov: &bench.prov,
+        },
         &Options::default(),
         &Refusing,
     );

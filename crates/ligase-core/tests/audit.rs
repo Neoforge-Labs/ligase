@@ -18,8 +18,9 @@ use std::path::{Path, PathBuf};
 use ligase::audit::{self, Verdict};
 use ligase::cache::Cache;
 use ligase::dim::{Dim, Dimensions, SampleSet, Source};
-use ligase::exec::{Host, Options, Recipe, Task};
+use ligase::exec::{Host, Options, Recipe, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
+use ligase::prov::Prov;
 use ligase::types::{DataKind, Dataset};
 use tempfile::TempDir;
 
@@ -28,6 +29,7 @@ use tempfile::TempDir;
 struct Bench {
     dir: TempDir,
     cache: Cache,
+    prov: Prov,
     graph: Graph,
     tasks: Vec<Task>,
 }
@@ -35,10 +37,13 @@ struct Bench {
 impl Bench {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let cache = Cache::open(&dir.path().join(".ligase")).unwrap();
+        let root = dir.path().join(".ligase");
+        let cache = Cache::open(&root).unwrap();
+        let prov = Prov::open(&root).unwrap();
         Self {
             dir,
             cache,
+            prov,
             graph: Graph::new(),
             tasks: Vec::new(),
         }
@@ -115,7 +120,10 @@ impl Bench {
             &self.graph,
             roots,
             &self.tasks,
-            &self.cache,
+            &Stores {
+                cache: &self.cache,
+                prov: &self.prov,
+            },
             &Options::default(),
             &Refusing,
             &audit::Subject { step, sample },
@@ -262,7 +270,10 @@ fn a_step_no_node_is_named_after_is_refused() {
         &bench.graph,
         &[step],
         &bench.tasks,
-        &bench.cache,
+        &Stores {
+            cache: &bench.cache,
+            prov: &bench.prov,
+        },
         &Options::default(),
         &Refusing,
         &audit::Subject {
@@ -302,7 +313,10 @@ fn a_sample_no_node_is_for_is_refused() {
         &bench.graph,
         &[node],
         &bench.tasks,
-        &bench.cache,
+        &Stores {
+            cache: &bench.cache,
+            prov: &bench.prov,
+        },
         &Options::default(),
         &Refusing,
         &audit::Subject {

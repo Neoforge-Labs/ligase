@@ -43,7 +43,7 @@ use std::time::Duration;
 use crate::cache::Cache;
 use crate::canon;
 use crate::check::Scope;
-use crate::exec::{self, Host, Options, StepFailure, Task, output_suffix};
+use crate::exec::{self, Host, Options, StepFailure, Stores, Task, output_suffix};
 use crate::graph::{Graph, NodeId};
 use crate::hash::ContentHash;
 
@@ -249,7 +249,7 @@ pub fn audit(
     graph: &Graph,
     roots: &[NodeId],
     tasks: &[Task],
-    cache: &Cache,
+    stores: &Stores<'_>,
     options: &Options,
     host: &dyn Host,
     subject: &Subject<'_>,
@@ -277,7 +277,7 @@ pub fn audit(
     // An ordinary run, so that the audited steps have their inputs. It uses
     // the cache and records what it computes, because it *is* an ordinary
     // run; only the two audit runs below are set aside.
-    let run = exec::run(graph, roots, tasks, cache, options, host);
+    let run = exec::run(graph, roots, tasks, stores, options, host);
     let produced: Vec<(NodeId, PathBuf)> = run
         .results
         .iter()
@@ -298,7 +298,7 @@ pub fn audit(
             continue;
         }
 
-        match twice(graph, node, tasks, cache, host, &produced) {
+        match twice(graph, node, tasks, stores.cache, host, &produced) {
             Ok(mut audited) => {
                 audited.step = name;
                 audited.scope = scope;
@@ -348,12 +348,12 @@ fn twice(
         let _ = std::fs::remove_file(&out);
 
         let outcome = exec::produce(&task.recipe, &inputs, &task.parameters, &out, host).and_then(
-            |duration| {
+            |produced| {
                 let bytes = ContentHash::of_file(&out).map_err(|error| error.to_string())?;
                 let meaning = canon::hash(spec.output, &out, bytes)
                     .map_err(|error| error.to_string())?
                     .hash;
-                Ok((bytes, meaning, duration))
+                Ok((bytes, meaning, produced.duration))
             },
         );
 

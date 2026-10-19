@@ -28,9 +28,21 @@
 //! Python. The core then owns the whole run and the GIL is only taken for
 //! those callbacks.
 //!
+//! # What a run records besides its own answer
+//!
+//! A step that runs writes a provenance record ([`crate::prov`]) naming the
+//! command that ran, with its placeholders filled in. This is the one moment
+//! that command exists: a cache hit cannot reconstruct it, because M4 drops
+//! the `@PG` line that used to hold it (D22). A step served from the cache
+//! writes nothing — the record from the run that did the work is still
+//! there, which is the point of keeping it outside the cache.
+//!
 //! # What is deliberately not here
 //!
-//! Provenance (M5). Nothing here records *why* a result is what it is.
+//! Turning those records into prose. A methods paragraph and a bundle are
+//! [`crate::prov`]'s business, built from what this module recorded and from
+//! the graph, after a run rather than during one.
+//!
 //! Running a step twice to find out whether it is reproducible at all is
 //! [`crate::audit`], which borrows this module's [`produce`] rather than
 //! repeating it.
@@ -46,6 +58,7 @@ use crate::cache::{Cache, Stored};
 use crate::graph::{Graph, NodeId, StepSpec};
 use crate::hash::ContentHash;
 use crate::key::{Ingredients, StepKey};
+use crate::prov::{self, InputRecord, Prov, Record};
 use crate::types::{DataKind, Dataset};
 
 /// How a step's output is produced.
@@ -196,6 +209,21 @@ pub struct Counts {
     pub failed: usize,
 }
 
+/// Where a run reads what is already known, and writes down what it did.
+///
+/// Two stores with different lifetimes, handed over together because every
+/// run needs both: the cache decides whether a step has to run at all
+/// ([`crate::cache`]), and provenance records how it ran when it does
+/// ([`crate::prov`]). They are separate because a cache is meant to be
+/// thrown away and a record of how a result was produced is not.
+#[derive(Clone, Copy, Debug)]
+pub struct Stores<'a> {
+    /// What has already been computed, and what it produced.
+    pub cache: &'a Cache,
+    /// How each result was produced.
+    pub prov: &'a Prov,
+}
+
 /// How to run.
 #[derive(Clone, Copy, Debug)]
 pub struct Options {
@@ -291,7 +319,7 @@ pub fn run(
     graph: &Graph,
     roots: &[NodeId],
     tasks: &[Task],
-    cache: &Cache,
+    stores: &Stores<'_>,
     options: &Options,
     host: &dyn Host,
 ) -> RunReport {
@@ -306,7 +334,8 @@ pub fn run(
 
     let runner = Runner {
         graph,
-        cache,
+        cache: stores.cache,
+        prov: stores.prov,
         host,
         force: options.force,
         tasks: tasks.iter().map(|task| (task.node, task)).collect(),
@@ -371,6 +400,19 @@ pub fn inputs_of(
         .collect()
 }
 
+/// What running a step took, and what it ran.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Execution {
+    /// How long it took.
+    pub duration: Duration,
+    /// The command that ran, with its placeholders filled in.
+    ///
+    /// `None` for a callback, which has no command. This is what a
+    /// provenance record keeps: it exists only here, because the field a
+    /// tool writes it into is dropped before hashing (D22).
+    pub command: Option<String>,
+}
+
 /// Produce one step's output at `out`, from inputs already in place.
 ///
 /// The cache is not consulted and nothing is recorded: this is the part of
@@ -387,12 +429,15 @@ pub fn produce(
     parameters: &[(String, String)],
     out: &Path,
     host: &dyn Host,
-) -> Result<Duration, String> {
+) -> Result<Execution, String> {
     let started = Instant::now();
+    let mut ran = None;
     let produced = match recipe {
         Recipe::Shell(template) => {
             let command = fill_template(template, inputs, parameters, out)?;
-            shell(&command)
+            let outcome = shell(&command);
+            ran = Some(command);
+            outcome
         }
         Recipe::Callback(id) => host.call(*id, out, inputs),
     };
@@ -405,7 +450,10 @@ pub fn produce(
             out.display()
         ));
     }
-    Ok(duration)
+    Ok(Execution {
+        duration,
+        command: ran,
+    })
 }
 
 /// Every tool named by any of these steps, probed once.
@@ -508,6 +556,7 @@ impl State {
 struct Runner<'a> {
     graph: &'a Graph,
     cache: &'a Cache,
+    prov: &'a Prov,
     host: &'a dyn Host,
     force: bool,
     tasks: HashMap<NodeId, &'a Task>,
@@ -619,7 +668,7 @@ impl Runner<'_> {
         let staging = self.cache.staging(key, output_suffix(spec.output));
         let _ = std::fs::remove_file(&staging);
 
-        let duration = produce(&task.recipe, &inputs, &task.parameters, &staging, self.host)
+        let produced = produce(&task.recipe, &inputs, &task.parameters, &staging, self.host)
             .inspect_err(|_| {
                 let _ = std::fs::remove_file(&staging);
             })?;
@@ -628,7 +677,7 @@ impl Runner<'_> {
             .cache
             .store(&staging)
             .map_err(|error| error.to_string())?;
-        let milliseconds = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+        let milliseconds = u64::try_from(produced.duration.as_millis()).unwrap_or(u64::MAX);
         self.cache
             .record(
                 key,
@@ -644,6 +693,19 @@ impl Runner<'_> {
             .semantic_hash(spec.output, &stored.path)
             .map_err(|error| error.to_string())?;
 
+        // Recorded here and nowhere else: this is the only moment the filled
+        // command exists, and a step served from the cache will need it.
+        self.remember(&Made {
+            spec,
+            task,
+            key,
+            inputs: &inputs,
+            command: produced.command,
+            bytes: stored.hash,
+            canonical,
+            duration_ms: milliseconds,
+        })?;
+
         Ok(StepResult {
             node,
             step: spec.name.clone(),
@@ -652,7 +714,7 @@ impl Runner<'_> {
             hash: stored.hash,
             canonical,
             output: stored.path,
-            duration,
+            duration: produced.duration,
         })
     }
 
@@ -765,6 +827,78 @@ impl Runner<'_> {
         .key())
     }
 
+    /// Write down how this step produced what it just produced.
+    ///
+    /// Every hash here is already known to the cache — the inputs were
+    /// hashed to build the key moments ago — so this costs lookups rather
+    /// than reads.
+    fn remember(&self, made: &Made<'_>) -> Result<(), String> {
+        let mut inputs = Vec::new();
+        let mut references = Vec::new();
+
+        // The arguments and the inputs are in the same order: the inputs
+        // were built from the arguments.
+        for (argument, (param, files)) in made.spec.arguments.iter().zip(made.inputs) {
+            let dataset = self.graph.dataset(argument.node);
+            let kind = dataset.map_or(argument.declared, Dataset::kind);
+
+            for file in files {
+                let bytes = self
+                    .cache
+                    .content_hash(file)
+                    .map_err(|error| format!("`{param}`: {error}"))?;
+                let canonical = self
+                    .cache
+                    .semantic_hash(kind, file)
+                    .map_err(|error| format!("`{param}`: {error}"))?;
+                inputs.push(InputRecord {
+                    param: param.clone(),
+                    kind,
+                    path: file.clone(),
+                    bytes,
+                    canonical,
+                });
+            }
+
+            // A reference is pinned by what its own file says: the accession
+            // in its defline and the checksum computed from its sequence.
+            if kind == DataKind::Reference
+                && let Some(dataset) = dataset
+                && let Some(identity) = dataset.dimensions().reference.value()
+                && let Some(path) = dataset.path()
+            {
+                references.push(prov::pin(param, path, identity));
+            }
+        }
+
+        let mut tools = Vec::with_capacity(made.task.tools.len());
+        for tool in &made.task.tools {
+            if let Some(Ok(version)) = self.versions.get(tool) {
+                tools.push((tool.clone(), version.clone()));
+            }
+        }
+
+        self.prov
+            .record(&Record {
+                key: made.key,
+                step: made.spec.name.clone(),
+                code: made.task.code.clone(),
+                command: made.command.clone(),
+                output_kind: made.spec.output,
+                output_bytes: made.bytes,
+                output_canonical: made.canonical,
+                parameters: made.task.parameters.clone(),
+                inputs,
+                references,
+                tools,
+                engine: crate::version().to_owned(),
+                platform: prov::platform(),
+                recorded_at: prov::now(),
+                duration_ms: made.duration_ms,
+            })
+            .map_err(|error| error.to_string())
+    }
+
     fn tool_summary(&self, task: &Task) -> String {
         task.tools
             .iter()
@@ -789,6 +923,18 @@ impl Runner<'_> {
         failures.sort_by_key(|failure| failure.node.index());
         RunReport { results, failures }
     }
+}
+
+/// What a step just produced, as a provenance record wants it.
+struct Made<'a> {
+    spec: &'a StepSpec,
+    task: &'a Task,
+    key: StepKey,
+    inputs: &'a [(String, Vec<PathBuf>)],
+    command: Option<String>,
+    bytes: ContentHash,
+    canonical: ContentHash,
+    duration_ms: u64,
 }
 
 /// A key held for the length of one step.
