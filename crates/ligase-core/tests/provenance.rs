@@ -62,6 +62,25 @@ impl Bench {
         self.graph.add_input(name, dataset)
     }
 
+    /// A reads input whose sample identifier is declared, so the nodes of
+    /// one step have something to tell them apart.
+    fn sample(&mut self, id: &str, sequence: &str) -> NodeId {
+        let path = self.path(&format!("{id}.fastq"));
+        let quality = "I".repeat(sequence.len());
+        fs::write(&path, format!("@{id}.1\n{sequence}\n+\n{quality}\n")).unwrap();
+        let dataset = load::reads(
+            &path,
+            None,
+            &Declared {
+                organism: Some("HIV-1".into()),
+                samples: Some(vec![id.to_owned()]),
+                ..Declared::default()
+            },
+        )
+        .unwrap();
+        self.graph.add_input(id, dataset)
+    }
+
     /// A FASTA input loaded the way `lg.reference` loads one, so its contigs
     /// and their checksums are inferred rather than invented.
     fn reference(&mut self, name: &str, contents: &str) -> NodeId {
@@ -878,4 +897,76 @@ fn a_bundle_carries_the_files_it_was_given() {
         fs::read_to_string(carried).unwrap(),
         "pipe = lg.Pipeline(...)\n"
     );
+}
+
+#[test]
+fn a_parameter_that_only_names_the_sample_does_not_split_a_step() {
+    let mut bench = Bench::new();
+    let first = bench.sample("SRR000001", "ACGT");
+    let second = bench.sample("SRR000002", "ACGG");
+    // Each node is told which sample it is for, as the demo's `align` is so
+    // that `samtools addreplacerg` can write a read group.
+    let one = bench.step_with(
+        "align",
+        "cat {in} > {out}",
+        &[("in", first)],
+        &[("sample_id", "'SRR000001'"), ("threads", "4")],
+        &[],
+    );
+    let two = bench.step_with(
+        "align",
+        "cat {in} > {out}",
+        &[("in", second)],
+        &[("sample_id", "'SRR000002'"), ("threads", "4")],
+        &[],
+    );
+
+    let report = bench.run(&[one, two]);
+    let methods = methods_of(&bench, &[one, two], &report);
+
+    // One sentence, not two: being for a different sample is what the
+    // samples list already says.
+    assert_eq!(methods.groups.len(), 1, "{:?}", methods.groups);
+    assert_eq!(methods.groups[0].per_sample, vec!["sample_id".to_owned()]);
+
+    let text = methods.text();
+    assert!(text.contains("threads = 4"), "{text}");
+    assert!(
+        text.contains("sample_id naming the sample"),
+        "the parameter is named, not pinned to one value: {text}"
+    );
+    assert!(
+        !text.contains("SRR000001'"),
+        "no one sample's value stands for all of them: {text}"
+    );
+}
+
+#[test]
+fn a_parameter_that_differs_for_another_reason_still_splits_a_step() {
+    let mut bench = Bench::new();
+    let first = bench.sample("SRR000001", "ACGT");
+    let second = bench.sample("SRR000002", "ACGG");
+    let one = bench.step_with(
+        "call",
+        "cat {in} > {out}",
+        &[("in", first)],
+        &[("sample_id", "'SRR000001'"), ("min_freq", "0.01")],
+        &[],
+    );
+    let two = bench.step_with(
+        "call",
+        "cat {in} > {out}",
+        &[("in", second)],
+        &[("sample_id", "'SRR000002'"), ("min_freq", "0.5")],
+        &[],
+    );
+
+    let report = bench.run(&[one, two]);
+    let methods = methods_of(&bench, &[one, two], &report);
+
+    // The threshold is a real difference, so it is still reported as one.
+    assert_eq!(methods.groups.len(), 2, "{:?}", methods.groups);
+    let text = methods.text();
+    assert!(text.contains("min_freq = 0.01"), "{text}");
+    assert!(text.contains("min_freq = 0.5"), "{text}");
 }

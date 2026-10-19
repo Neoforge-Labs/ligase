@@ -40,6 +40,14 @@ use super::{Prov, ProvError, Record, ReferenceRecord, cite};
 use crate::exec::{RunReport, Task};
 use crate::graph::{Graph, NodeId};
 
+/// Stands in for a space that must not be broken across lines.
+///
+/// `min_freq = 0.01` is one thing to read, and a wrap between the `=` and
+/// the value makes a reader hunt for it. It is not whitespace, so the
+/// wrapper treats such a phrase as one word, and it becomes a space again
+/// on the way out.
+const KNIT: char = '\u{1}';
+
 /// How wide the generated prose is wrapped.
 ///
 /// Narrow enough to paste into a manuscript or a terminal without
@@ -73,6 +81,15 @@ pub struct Group {
     pub template: Option<String>,
     /// References the step declared for itself.
     pub declared: Vec<String>,
+    /// Parameters whose value is just the sample's own identifier.
+    ///
+    /// A step may have to be *told* which sample it is working on — the
+    /// reference pipeline passes one so that `samtools addreplacerg` can
+    /// write a read group. Such a parameter is not a difference in how the
+    /// step was run, so it does not split a group, and printing
+    /// `sample_id = 'SRR8525904'` beside a sentence that already names four
+    /// samples would say nothing and imply the sentence was about one.
+    pub per_sample: Vec<String>,
 }
 
 /// A step that cannot be accounted for.
@@ -268,14 +285,29 @@ impl Group {
             (None, Some(command)) => sentence.push_str(&format!(", as `{command}`")),
         }
 
-        if !self.record.parameters.is_empty() {
-            let settings: Vec<String> = self
-                .record
-                .parameters
-                .iter()
-                .map(|(name, value)| format!("{name} = {value}"))
-                .collect();
+        let settings: Vec<String> = self
+            .record
+            .parameters
+            .iter()
+            .filter(|(name, _)| !self.per_sample.contains(name))
+            .map(|(name, value)| format!("{name}{KNIT}={KNIT}{value}"))
+            .collect();
+        if !settings.is_empty() {
             sentence.push_str(&format!(", with {}", join_names(&settings)));
+        }
+        if !self.per_sample.is_empty() {
+            let named = join_names(&self.per_sample);
+            let verb = if self.per_sample.len() == 1 {
+                "naming"
+            } else {
+                "each naming"
+            };
+            let joined = if settings.is_empty() {
+                "with"
+            } else {
+                "and with"
+            };
+            sentence.push_str(&format!(", {joined} {named} {verb} the sample"));
         }
 
         for reference in &self.record.references {
@@ -348,7 +380,8 @@ pub fn methods(
         };
 
         let template = template_of(node);
-        let signature = signature(&record, template.as_deref());
+        let per_sample = restating(&record, scope_of(node).as_deref());
+        let signature = signature(&record, template.as_deref(), &per_sample);
 
         match groups
             .iter_mut()
@@ -366,6 +399,7 @@ pub fn methods(
                 record,
                 template,
                 declared: declared_of(node),
+                per_sample,
             }),
         }
     }
@@ -393,9 +427,17 @@ pub fn methods(
 }
 
 /// Everything that could make two nodes' sentences differ.
-fn signature(record: &Record, template: Option<&str>) -> String {
+///
+/// A parameter that only restates which sample the node is for is left out:
+/// that is what tells the nodes of a group apart, not what distinguishes one
+/// group from another.
+fn signature(record: &Record, template: Option<&str>, per_sample: &[String]) -> String {
     let mut parts = vec![record.step.clone(), template.unwrap_or("").to_owned()];
     for (name, value) in &record.parameters {
+        if per_sample.contains(name) {
+            parts.push(format!("{name}=<sample>"));
+            continue;
+        }
         parts.push(format!("{name}={value}"));
     }
     for (tool, version) in &record.tools {
@@ -408,7 +450,36 @@ fn signature(record: &Record, template: Option<&str>) -> String {
 }
 
 fn signature_of(group: &Group) -> String {
-    signature(&group.record, group.template.as_deref())
+    signature(&group.record, group.template.as_deref(), &group.per_sample)
+}
+
+/// The parameters whose value is just this node's own sample identifier.
+///
+/// Compared with the quotes a host may have rendered the value with, since a
+/// Python string arrives as `'SRR8525904'`.
+fn restating(record: &Record, scope: Option<&str>) -> Vec<String> {
+    let Some(scope) = scope else {
+        return Vec::new();
+    };
+    record
+        .parameters
+        .iter()
+        .filter(|(_, value)| unquote(value) == scope)
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+/// A rendered value with one layer of surrounding quotes removed.
+fn unquote(value: &str) -> &str {
+    for quote in ['\'', '"'] {
+        if let Some(inner) = value
+            .strip_prefix(quote)
+            .and_then(|v| v.strip_suffix(quote))
+        {
+            return inner;
+        }
+    }
+    value
 }
 
 /// A tool and its version, without saying the tool's name twice.
@@ -503,6 +574,8 @@ fn fold(text: &str, width: usize, indent: &str) -> String {
 
     for word in text.split_whitespace() {
         let margin = if lines.is_empty() { 0 } else { indent.len() };
+        // A knitted phrase is one word here and several on the page, so its
+        // width is what it will occupy once the marks become spaces.
         if !line.is_empty() && margin + line.len() + 1 + word.len() > width {
             lines.push(line);
             line = String::new();
@@ -528,6 +601,7 @@ fn fold(text: &str, width: usize, indent: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+        .replace(KNIT, " ")
 }
 
 #[cfg(test)]
@@ -559,6 +633,23 @@ mod tests {
         assert_eq!(join_names(&one), "a");
         assert_eq!(join_names(&two), "a and b");
         assert_eq!(join_names(&three), "a, b and c");
+    }
+
+    #[test]
+    fn a_setting_is_never_broken_across_lines() {
+        let settings: Vec<String> = (0..9)
+            .map(|n| format!("parameter_number_{n}{KNIT}={KNIT}0.0{n}"))
+            .collect();
+        let text = wrap(&format!("`align` ran with {}.", join_names(&settings)));
+        for line in text.lines() {
+            assert!(line.len() <= WIDTH, "{line:?}");
+        }
+        for n in 0..9 {
+            assert!(
+                text.contains(&format!("parameter_number_{n} = 0.0{n}")),
+                "a setting was split: {text}"
+            );
+        }
     }
 
     #[test]
