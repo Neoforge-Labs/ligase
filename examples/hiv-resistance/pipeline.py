@@ -68,7 +68,7 @@ GENES = (
 
 
 @lg.step(tool=("minimap2", "samtools"))
-def align(reads: Reads, ref: Reference, threads: int = 4) -> Alignment:
+def align(reads: Reads, ref: Reference, sample_id: str, threads: int = 4) -> Alignment:
     """Align one sample's reads against the reference.
 
     `threads` is how many cores the aligner may use. It is a parameter like
@@ -78,9 +78,26 @@ def align(reads: Reads, ref: Reference, threads: int = 4) -> Alignment:
     it means rather than by its bytes, and the `@PG` line where minimap2
     records `-t 8` is not part of what it means. So the alignments come out
     the same, and nothing below here is recomputed.
+
+    ## Why the read group is written here
+
+    `minimap2` writes no `@RG`, and a BAM with no read group has no sample
+    name. `bcftools` then falls back to naming the VCF's sample column after
+    the *input file's path* — which for a Ligase run is a file inside the
+    content-addressed store, so the calls would carry a cache path as a
+    sample identifier. That would be wrong in three ways at once: wrong in a
+    methods paragraph, wrong for the sample-set dimension, and wrong for
+    reproducibility, since the canonical form of a VCF includes its sample
+    names and a cache path is not the same in two places.
+
+    So the sample is declared here, as the run accession it is. The same
+    reasoning as the `@PG` line in D22, with the opposite conclusion: a
+    sample name cannot be dropped before hashing, because it is part of what
+    the file is about.
     """
     return lg.sh(
         "minimap2 -t {threads} -ax sr {ref} {reads.r1} {reads.r2} "
+        "| samtools addreplacerg -r ID:{sample_id} -r SM:{sample_id} -u -o - - "
         "| samtools sort -@ {threads} -o {out}"
     )
 
@@ -147,15 +164,17 @@ def pipeline(
     hxb2 = lg.reference(str(REFERENCE), organism="HIV-1", build="HXB2")
 
     if runs is None:
-        chosen = list(
-            lg.samples(str(READS / "*.fastq.gz"), paired=True, organism="HIV-1")
-        )
+        found = lg.samples(str(READS / "*.fastq.gz"), paired=True, organism="HIV-1")
+        chosen = list(zip(found.ids, found, strict=True))
     else:
         chosen = [
-            lg.reads(
-                str(READS / f"{run}_1.fastq.gz"),
-                str(READS / f"{run}_2.fastq.gz"),
-                organism="HIV-1",
+            (
+                run,
+                lg.reads(
+                    str(READS / f"{run}_1.fastq.gz"),
+                    str(READS / f"{run}_2.fastq.gz"),
+                    organism="HIV-1",
+                ),
             )
             for run in runs
         ]
@@ -163,9 +182,13 @@ def pipeline(
     return lg.Pipeline(
         [
             resistance(
-                call(align(sample, hxb2, threads=threads), hxb2, min_freq=min_freq)
+                call(
+                    align(sample, hxb2, sample_id=run, threads=threads),
+                    hxb2,
+                    min_freq=min_freq,
+                )
             )
-            for sample in chosen
+            for run, sample in chosen
         ]
     )
 

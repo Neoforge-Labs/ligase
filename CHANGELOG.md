@@ -64,6 +64,19 @@ and writes a bundle that lets someone else check them.
   recomputes all nine steps with real minimap2, samtools and bcftools and
   lands on the same canonical hashes.
 
+### Fixed
+
+- **The demo's alignments now declare their read group.** `minimap2` writes
+  no `@RG`, so `bcftools` fell back to naming the VCF's sample column after
+  the input BAM's *path* — a file inside the content-addressed store. The
+  calls therefore carried a cache path as a sample identifier, which is
+  wrong in a methods paragraph, wrong for the sample-set dimension, and
+  wrong for reproducibility: the canonical form of a VCF includes its sample
+  names, so `call` hashed differently depending on where the cache was, and
+  a bundle could not verify against a clean one. `align` now writes
+  `@RG SM:<run accession>`, which is what the sample always was.
+  M5's bundle verification is what found this.
+
 ### Changed
 
 - `@lg.step` accepts `cite=`, one reference or several.
