@@ -468,7 +468,17 @@ class Pipeline:
         )
 
         steps = []
-        for node, name, outcome, key, digest, canonical, output, duration in finished:
+        for (
+            node,
+            name,
+            outcome,
+            key,
+            digest,
+            canonical,
+            output,
+            duration,
+            notes,
+        ) in finished:
             # Tell the handle where its output landed, so a later
             # `lg.handle(x).path` and the next run's bodies can read it.
             produced = self._handles.get(node)
@@ -485,6 +495,7 @@ class Pipeline:
                     canonical=canonical,
                     duration_ms=duration,
                     node=node,
+                    notes=tuple(notes),
                 )
             )
 

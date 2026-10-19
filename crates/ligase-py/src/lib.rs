@@ -62,8 +62,19 @@ type PyTask = (
 );
 
 /// One finished step: node, step, outcome, key, output hash, canonical
-/// hash, output, milliseconds.
-type PyRunResult = (usize, String, String, String, String, String, String, u64);
+/// hash, output, milliseconds, and whatever canonicalising the output
+/// noticed (D26).
+type PyRunResult = (
+    usize,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    u64,
+    Vec<String>,
+);
 
 /// One failed step: node, step, message.
 type PyRunFailure = (usize, String, String);
@@ -619,6 +630,7 @@ impl PyGraph {
                         result.canonical.to_hex(),
                         result.output.to_string_lossy().into_owned(),
                         u64::try_from(result.duration.as_millis()).unwrap_or(u64::MAX),
+                        result.notes.iter().map(ToString::to_string).collect(),
                     )
                 })
                 .collect(),

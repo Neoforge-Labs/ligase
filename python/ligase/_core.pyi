@@ -81,8 +81,8 @@ Task = tuple[
 ]
 
 # One finished step: node, step, outcome, key, output hash, canonical hash,
-# output, milliseconds.
-RunResult = tuple[int, str, str, str, str, str, str, int]
+# output, milliseconds, and what canonicalising the output noticed.
+RunResult = tuple[int, str, str, str, str, str, str, int, list[str]]
 
 # One failed step: node, step, message.
 RunFailure = tuple[int, str, str]
