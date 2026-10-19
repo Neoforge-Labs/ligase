@@ -35,7 +35,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::canon::{self, CANON_VERSION, Canonical};
+use crate::canon::{self, CANON_VERSION, Canonical, Form, Note};
 use crate::hash::ContentHash;
 use crate::key::{KEY_VERSION, StepKey};
 use crate::types::DataKind;
@@ -45,7 +45,10 @@ use crate::types::DataKind;
 /// A directory written by another version is discarded rather than read:
 /// everything in it can be recomputed, so there is nothing to migrate and
 /// nothing to lose.
-const SCHEMA_VERSION: u32 = 1;
+///
+/// 2 added the `notes` column, for what canonicalising a file noticed
+/// (D26).
+const SCHEMA_VERSION: u32 = 2;
 
 /// An output held in the store.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -193,6 +196,20 @@ impl Cache {
     /// file that reads but does not parse is not an error: its bytes stand
     /// in for its meaning.
     pub fn semantic_hash(&self, kind: DataKind, path: &Path) -> Result<ContentHash, CacheError> {
+        Ok(self.semantic(kind, path)?.hash)
+    }
+
+    /// The same, with how it was arrived at and what it noticed.
+    ///
+    /// For a caller that has somewhere to put a [`Note`] — a run report, a
+    /// provenance record, a bundle. Notes are remembered with the hash, so
+    /// a file served from the cache still reports what was seen the first
+    /// time it was read.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::semantic_hash`].
+    pub fn semantic(&self, kind: DataKind, path: &Path) -> Result<Canonical, CacheError> {
         let raw = self.content_hash(path)?;
 
         if let Some(known) = self.remembered_canonical(raw, kind)? {
@@ -205,7 +222,7 @@ impl Cache {
         })?;
         self.canonicalised.fetch_add(1, Ordering::Relaxed);
         self.remember_canonical(raw, kind, &canonical)?;
-        Ok(canonical.hash)
+        Ok(canonical)
     }
 
     /// The hash of a file's contents, rereading it only when it may have
@@ -396,18 +413,31 @@ impl Cache {
         &self,
         raw: ContentHash,
         kind: DataKind,
-    ) -> Result<Option<ContentHash>, CacheError> {
-        let hex: Option<String> = self.with_database(|database| {
+    ) -> Result<Option<Canonical>, CacheError> {
+        let held: Option<(String, String, String)> = self.with_database(|database| {
             database
                 .query_row(
-                    "SELECT canonical FROM canonical
+                    "SELECT canonical, form, notes FROM canonical
                          WHERE raw = ?1 AND kind = ?2",
                     params![raw.to_hex(), kind.name()],
-                    |row| row.get(0),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()
         })??;
-        Ok(hex.as_deref().and_then(ContentHash::parse))
+
+        let Some((hex, form, notes)) = held else {
+            return Ok(None);
+        };
+        // A row this version cannot read is treated as absent, which costs
+        // one canonicalisation and cannot report the wrong form.
+        let Some(form) = Form::parse(&form) else {
+            return Ok(None);
+        };
+        Ok(ContentHash::parse(&hex).map(|hash| Canonical {
+            hash,
+            form,
+            notes: decode_notes(&notes),
+        }))
     }
 
     fn remember_canonical(
@@ -418,13 +448,14 @@ impl Cache {
     ) -> Result<(), CacheError> {
         self.with_database(|database| {
             database.execute(
-                "INSERT OR REPLACE INTO canonical (raw, kind, canonical, form)
-                 VALUES (?1, ?2, ?3, ?4)",
+                "INSERT OR REPLACE INTO canonical (raw, kind, canonical, form, notes)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     raw.to_hex(),
                     kind.name(),
                     canonical.hash.to_hex(),
                     canonical.form.to_string(),
+                    encode_notes(&canonical.notes),
                 ],
             )
         })??;
@@ -535,6 +566,28 @@ fn make_read_only(path: &Path) -> Result<(), CacheError> {
     })
 }
 
+/// Notes as one column: `code<TAB>value`, one note a line.
+///
+/// Both SAM and VCF forbid a tab or a newline inside a field, so a note's
+/// value cannot hold either and nothing has to be escaped. A value that
+/// somehow did would lose its tail rather than corrupt the row.
+fn encode_notes(notes: &[Note]) -> String {
+    notes
+        .iter()
+        .map(|note| format!("{}\t{}", note.code(), note.value()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The notes a column holds, skipping any this version does not know.
+fn decode_notes(column: &str) -> Vec<Note> {
+    column
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .filter_map(|(code, value)| Note::parse(code, value))
+        .collect()
+}
+
 /// Create the tables, discarding anything written under another format.
 fn prepare(database: &Connection) -> Result<(), CacheError> {
     database.execute(
@@ -580,12 +633,18 @@ fn prepare(database: &Connection) -> Result<(), CacheError> {
     // What a file means, against the hash of its bytes. Not keyed by path:
     // this is a fact about the bytes, so a file copied or produced again
     // identically is not parsed a second time.
+    //
+    // `notes` holds what canonicalising the file noticed, which is almost
+    // always nothing. It is stored rather than recomputed because a cache
+    // hit does not reopen the file, and a warning that stopped appearing on
+    // the second run would be worse than none at all.
     database.execute(
         "CREATE TABLE IF NOT EXISTS canonical (
              raw       TEXT NOT NULL,
              kind      TEXT NOT NULL,
              canonical TEXT NOT NULL,
              form      TEXT NOT NULL,
+             notes     TEXT NOT NULL DEFAULT '',
              PRIMARY KEY (raw, kind)
          )",
         [],
