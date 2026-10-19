@@ -95,6 +95,15 @@ the memoised `canonical` table both answer from SQLite. One extra
 `content_hash` per input file is taken alongside the canonical hash, because
 a record names the file by its bytes as well as by its meaning.
 
+Where that hashing happens matters more than what it costs. It runs inside
+the step's own worker, and BLAKE3 hashes a large file across whatever thread
+pool it is called from — so writing a record, like building a key, queues
+work on the executor's own pool. That is safe only because no worker in that
+pool is ever blocked waiting for scheduler work
+([D27](../decisions.md#d27-a-worker-that-waits-is-a-worker-rayon-cannot-use),
+[the scheduler](execution.md#nothing-waits-for-work)). A `ligase methods`
+run on the demo is what found this out, by hanging.
+
 ## Pinning a reference
 
 `prov::pin` reads `ReferenceId`, which `load::reference` already filled:

@@ -66,6 +66,20 @@ and writes a bundle that lets someone else check them.
 
 ### Fixed
 
+- **A run no longer deadlocks against its own hashing.** The executor spawned
+  `--jobs` worker loops onto a rayon pool and parked a worker with nothing
+  ready on a condition variable of its own. Rayon counts such a thread as
+  busy, so it can neither be seen as idle nor steal — and because a step
+  hashes its own inputs, and BLAKE3 hashes a large file across the pool it is
+  called from (**D3**), a step queues work on that same pool as a matter of
+  course. Under enough load the only workers left able to take it were the
+  ones already inside it, and a `ligase methods` run on the demo stopped for
+  forty minutes with no child process alive. The scheduler no longer waits
+  for work anywhere: a step is one rayon job that starts the steps it
+  releases before it ends, and a node waiting for a key another node is
+  producing is parked on that key rather than blocked on it (**D27**). Two
+  tests pin it — each has a step queue work on the pool it is running on and
+  wait with a timeout, covering both places a worker used to block.
 - **The demo's alignments now declare their read group.** `minimap2` writes
   no `@RG`, so `bcftools` fell back to naming the VCF's sample column after
   the input BAM's *path* — a file inside the content-addressed store. The
