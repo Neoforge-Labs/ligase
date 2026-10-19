@@ -237,3 +237,149 @@ def test_auditing_a_step_that_does_not_repeat_is_a_finding(
     assert code == 1, out
     assert "not reproducible" in out
     assert "the two runs mean different things" in out
+
+
+# ----------------------------------------------------- M5: `ligase methods` --
+
+
+def test_methods_names_the_tools_parameters_and_reference(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_runnable(tmp_path)
+
+    code = main(["methods", str(path), "--cache", str(tmp_path / "cache")])
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "writing up 2 steps" in out
+    assert "`steady` ran on" in out
+    assert "cat {ref} > {out}" in out
+    # The reference is pinned by what its own file says.
+    assert "the tiny reference" in out
+
+
+def test_methods_writes_a_bundle_holding_the_pipeline(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_runnable(tmp_path)
+    into = tmp_path / "bundle"
+
+    code = main(
+        [
+            "methods",
+            str(path),
+            "--bundle",
+            str(into),
+            "--cache",
+            str(tmp_path / "cache"),
+        ]
+    )
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert f"files to {into}" in out
+    assert (into / "results.tsv").is_file()
+    # The pipeline file travels with the bundle, so a bundle holds the
+    # pipeline that produced it and not only its steps.
+    assert (into / "pipeline" / "pipeline.py").is_file()
+
+
+def test_methods_verifies_a_bundle_it_wrote(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_runnable(tmp_path)
+    into = tmp_path / "bundle"
+    main(
+        [
+            "methods",
+            str(path),
+            "--bundle",
+            str(into),
+            "--cache",
+            str(tmp_path / "cache"),
+        ]
+    )
+    capsys.readouterr()
+
+    # A clean machine, as the engine sees one: an empty cache.
+    code = main(
+        [
+            "methods",
+            str(path),
+            "--verify",
+            str(into),
+            "--cache",
+            str(tmp_path / "clean"),
+        ]
+    )
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "2 results:" in out
+    assert "differs" not in out
+
+
+def test_methods_reports_a_result_that_moved_as_a_finding(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_runnable(tmp_path)
+    into = tmp_path / "bundle"
+    main(
+        [
+            "methods",
+            str(path),
+            "--bundle",
+            str(into),
+            "--cache",
+            str(tmp_path / "cache"),
+        ]
+    )
+    capsys.readouterr()
+
+    # The pipeline now produces something else under the same step name.
+    path.write_text(
+        RUNNABLE.format(fixtures=str(FIXTURES)).replace(
+            'return lg.sh("cat {ref} > {out}")',
+            "return lg.sh(\"printf '>1\\\\nTTTT\\\\n' > {out}\")",
+            1,
+        )
+    )
+
+    code = main(
+        [
+            "methods",
+            str(path),
+            "--verify",
+            str(into),
+            "--cache",
+            str(tmp_path / "cache"),
+        ]
+    )
+
+    out = capsys.readouterr().out
+    # 1, not 2: the bundle is fine and the results do not match it.
+    assert code == 1, out
+    assert "differs" in out
+
+
+def test_methods_refuses_a_directory_that_is_not_a_bundle(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_runnable(tmp_path)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+
+    code = main(
+        [
+            "methods",
+            str(path),
+            "--verify",
+            str(empty),
+            "--cache",
+            str(tmp_path / "cache"),
+        ]
+    )
+
+    # 2, not 1: a mistake in the command rather than a finding.
+    assert code == 2
+    assert "results.tsv" in capsys.readouterr().err
