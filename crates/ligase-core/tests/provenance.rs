@@ -16,8 +16,9 @@ use ligase::cache::Cache;
 use ligase::dim::Dimensions;
 use ligase::exec::{self, Host, Options, Recipe, RunReport, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
+use ligase::hash::ContentHash;
 use ligase::load::{self, Declared};
-use ligase::prov::{self, Prov};
+use ligase::prov::{self, Prov, bundle};
 use ligase::types::{DataKind, Dataset};
 use tempfile::TempDir;
 
@@ -119,6 +120,26 @@ impl Bench {
             citations: Vec::new(),
         });
         node
+    }
+
+    /// Rewrite a step's recorded code, as editing a comment in it would.
+    fn edit(&mut self, node: NodeId, code: &str) {
+        let task = self
+            .tasks
+            .iter_mut()
+            .find(|task| task.node == node)
+            .unwrap();
+        task.code = code.to_owned();
+    }
+
+    /// Rewrite a step's command, as changing what it does would.
+    fn retemplate(&mut self, node: NodeId, command: &str) {
+        let task = self
+            .tasks
+            .iter_mut()
+            .find(|task| task.node == node)
+            .unwrap();
+        task.recipe = Recipe::Shell(command.to_owned());
     }
 
     /// Give a step references of its own, as `@lg.step(cite=...)` does.
@@ -574,4 +595,287 @@ fn a_step_with_no_record_is_reported_as_a_gap() {
         "a gap says how to fill it: {text}"
     );
     assert_eq!(methods.summary(), "1 step: 0 accounted for, 1 not.");
+}
+
+// ------------------------------------------------------- the bundle --
+
+/// Write a bundle for a run, into a fresh directory.
+fn bundle_of(bench: &Bench, roots: &[NodeId], report: &RunReport, into: &Path) -> bundle::Summary {
+    let methods = methods_of(bench, roots, report);
+    bundle::write(
+        into,
+        &bundle::Request {
+            graph: &bench.graph,
+            roots,
+            report,
+            prov: &bench.prov,
+            methods: &methods,
+            include: &[],
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_bundle_holds_what_it_claims_to() {
+    let mut bench = Bench::new();
+    let reference = bench.reference("HXB2.fasta", HXB2);
+    let node = bench.step("copy", "cat {ref} > {out}", &[("ref", reference)]);
+    let report = bench.run(&[node]);
+
+    let into = TempDir::new().unwrap();
+    let summary = bundle_of(&bench, &[node], &report, into.path());
+
+    for name in [
+        "METHODS.md",
+        "README.md",
+        "results.tsv",
+        "commands.tsv",
+        "inputs.tsv",
+        "references.tsv",
+        "environment.tsv",
+        "MANIFEST",
+        "steps/copy.py",
+    ] {
+        assert!(
+            into.path().join(name).is_file(),
+            "the bundle should hold {name}; it holds {:?}",
+            summary.files
+        );
+    }
+    assert_eq!(summary.steps, 1);
+    assert_eq!(summary.gaps, 0);
+
+    // The reference is pinned where a reader will look for it.
+    let references = fs::read_to_string(into.path().join("references.tsv")).unwrap();
+    assert!(references.contains("K03455.1"), "{references}");
+    assert!(
+        references.contains("7cd4b12a021ac61104e680b721b76271"),
+        "{references}"
+    );
+
+    // And the command that ran is there verbatim, which is the thing a
+    // cache hit can no longer prove (D22).
+    let commands = fs::read_to_string(into.path().join("commands.tsv")).unwrap();
+    assert!(commands.contains("cat "), "{commands}");
+    assert!(commands.contains("HXB2.fasta"), "{commands}");
+}
+
+#[test]
+fn the_manifest_hashes_every_file_in_the_bundle() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+    let report = bench.run(&[node]);
+
+    let into = TempDir::new().unwrap();
+    let summary = bundle_of(&bench, &[node], &report, into.path());
+
+    let manifest = fs::read_to_string(into.path().join("MANIFEST")).unwrap();
+    let mut lines = manifest.lines();
+    assert_eq!(
+        lines.next(),
+        Some("# blake3"),
+        "the manifest names its hash"
+    );
+
+    let mut listed = 0;
+    for line in lines {
+        let (hash, name) = line.split_once("  ").expect("hash then name");
+        let path = into.path().join(name);
+        assert!(path.is_file(), "{name} is listed and absent");
+        assert_eq!(
+            hash,
+            ContentHash::of_file(&path).unwrap().to_hex(),
+            "{name} does not match its manifest line"
+        );
+        listed += 1;
+    }
+    // Everything but the manifest itself, which cannot hash itself.
+    assert_eq!(listed, summary.files.len());
+}
+
+#[test]
+fn a_bundle_verifies_against_the_run_it_came_from() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+    let report = bench.run(&[node]);
+
+    let into = TempDir::new().unwrap();
+    bundle_of(&bench, &[node], &report, into.path());
+
+    let again = bench.run(&[node]);
+    let checked = bundle::verify(into.path(), &bench.graph, &[node], &again).unwrap();
+
+    assert!(checked.reproduced(), "{}", checked.text());
+    assert_eq!(checked.verdict(), bundle::Match::Identical);
+    assert_eq!(checked.summary(), "1 result: 1 identical.");
+}
+
+#[test]
+fn a_bundle_verifies_on_a_clean_cache() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+    let report = bench.run(&[node]);
+
+    let into = TempDir::new().unwrap();
+    bundle_of(&bench, &[node], &report, into.path());
+
+    // What a clean machine is, to this engine: an empty cache, nothing
+    // computed, nothing remembered. The step runs again from nothing.
+    let elsewhere = TempDir::new().unwrap();
+    let cache = Cache::open(&elsewhere.path().join(".ligase")).unwrap();
+    let prov = Prov::open(&elsewhere.path().join(".ligase")).unwrap();
+    let fresh = exec::run(
+        &bench.graph,
+        &[node],
+        &bench.tasks,
+        &Stores {
+            cache: &cache,
+            prov: &prov,
+        },
+        &Options::default(),
+        &Refusing,
+    );
+    assert_eq!(fresh.counts().ran, 1, "a clean cache computes it again");
+
+    let checked = bundle::verify(into.path(), &bench.graph, &[node], &fresh).unwrap();
+    assert!(checked.reproduced(), "{}", checked.text());
+}
+
+#[test]
+fn a_result_that_moved_is_a_finding() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+    let report = bench.run(&[node]);
+
+    let into = TempDir::new().unwrap();
+    bundle_of(&bench, &[node], &report, into.path());
+
+    // The step now produces something else.
+    bench.retemplate(node, "echo something-else > {out}");
+    let changed = bench.run(&[node]);
+
+    let checked = bundle::verify(into.path(), &bench.graph, &[node], &changed).unwrap();
+
+    assert!(!checked.reproduced());
+    assert_eq!(checked.verdict(), bundle::Match::Differs);
+    let text = checked.text();
+    assert!(text.contains("differs"), "{text}");
+    assert!(text.contains("expected"), "{text}");
+}
+
+#[test]
+fn the_same_result_from_a_different_key_is_reproduced() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+    let report = bench.run(&[node]);
+
+    let into = TempDir::new().unwrap();
+    bundle_of(&bench, &[node], &report, into.path());
+
+    // A comment edited, a tool upgraded, a different machine: the key moves
+    // and the result does not. This is the outcome a reviewer on another
+    // machine actually gets, and the one a bundle exists to report.
+    bench.edit(node, "def copy(): ...  # same thing, said differently");
+    let again = bench.run(&[node]);
+
+    let checked = bundle::verify(into.path(), &bench.graph, &[node], &again).unwrap();
+
+    assert_eq!(checked.verdict(), bundle::Match::Reproduced);
+    assert!(checked.reproduced(), "{}", checked.text());
+    assert!(!checked.checks[0].same_key, "the key moved");
+    let text = checked.text();
+    assert!(text.contains("the result is the same"), "{text}");
+    assert!(text.contains("environment moved"), "{text}");
+}
+
+#[test]
+fn a_step_the_pipeline_no_longer_produces_is_missing() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let first = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+    let second = bench.step("twice", "cat {in} {in} > {out}", &[("in", first)]);
+    let report = bench.run(&[second]);
+
+    let into = TempDir::new().unwrap();
+    bundle_of(&bench, &[second], &report, into.path());
+
+    // Only the first step is asked for now, so the bundle's second row has
+    // nothing to compare against.
+    let narrower = bench.run(&[first]);
+    let checked = bundle::verify(into.path(), &bench.graph, &[first], &narrower).unwrap();
+
+    assert_eq!(checked.verdict(), bundle::Match::Missing);
+    let missing: Vec<&str> = checked
+        .checks
+        .iter()
+        .filter(|check| check.verdict == bundle::Match::Missing)
+        .map(|check| check.step.as_str())
+        .collect();
+    assert_eq!(missing, vec!["twice"]);
+}
+
+#[test]
+fn an_input_that_is_not_the_one_recorded_is_reported() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+    let report = bench.run(&[node]);
+
+    let into = TempDir::new().unwrap();
+    bundle_of(&bench, &[node], &report, into.path());
+
+    // The same filename, different content: exactly what a content hash is
+    // for, and what a bundle cannot fetch for itself (D8).
+    fs::write(bench.path("in.txt"), "something else\n").unwrap();
+    let again = bench.run(&[node]);
+
+    let checked = bundle::verify(into.path(), &bench.graph, &[node], &again).unwrap();
+
+    assert_eq!(checked.inputs.len(), 1);
+    assert_eq!(checked.inputs[0].presence, bundle::Presence::Changed);
+    let text = checked.text();
+    assert!(text.contains("changed"), "{text}");
+    assert!(
+        text.contains("A changed input explains a changed output"),
+        "a differing result is read alongside its inputs: {text}"
+    );
+}
+
+#[test]
+fn a_bundle_carries_the_files_it_was_given() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+    let report = bench.run(&[node]);
+
+    let pipeline = bench.path("pipeline.py");
+    fs::write(&pipeline, "pipe = lg.Pipeline(...)\n").unwrap();
+
+    let into = TempDir::new().unwrap();
+    let methods = methods_of(&bench, &[node], &report);
+    bundle::write(
+        into.path(),
+        &bundle::Request {
+            graph: &bench.graph,
+            roots: &[node],
+            report: &report,
+            prov: &bench.prov,
+            methods: &methods,
+            include: &[pipeline],
+        },
+    )
+    .unwrap();
+
+    let carried = into.path().join("pipeline").join("pipeline.py");
+    assert!(carried.is_file());
+    assert_eq!(
+        fs::read_to_string(carried).unwrap(),
+        "pipe = lg.Pipeline(...)\n"
+    );
 }

@@ -43,6 +43,7 @@
 //! can work out whenever it is needed and which would otherwise be a fact
 //! about one run masquerading as a fact about the step.
 
+pub mod bundle;
 pub mod cite;
 mod methods;
 
