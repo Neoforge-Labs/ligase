@@ -11,6 +11,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use ligase::cache::Cache;
 use ligase::dim::Dimensions;
@@ -120,6 +122,33 @@ impl Bench {
                 .iter()
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
                 .collect(),
+            citations: Vec::new(),
+        });
+        node
+    }
+
+    /// A step the host runs, over one input bound to the parameter `in`.
+    fn callback(&mut self, name: &str, id: u64, input: NodeId) -> NodeId {
+        let node = self
+            .graph
+            .add_step(StepSpec {
+                name: name.to_owned(),
+                output: DataKind::Alignment,
+                coordinates: None,
+                arguments: vec![Argument {
+                    param: "in".to_owned(),
+                    declared: DataKind::Reference,
+                    node: input,
+                }],
+            })
+            .unwrap();
+
+        self.tasks.push(Task {
+            node,
+            code: format!("def {name}(): ..."),
+            recipe: Recipe::Callback(id),
+            tools: Vec::new(),
+            parameters: Vec::new(),
             citations: Vec::new(),
         });
         node
@@ -854,4 +883,136 @@ fn an_empty_run_says_so_rather_than_printing_nothing() {
     let report = bench.run(&[]);
 
     assert_eq!(exec::summarise(&report), "nothing to run.");
+}
+
+// --------------------------------------------------------- worker pool --
+
+/// How long a step waits for the pool to take the work it queued.
+///
+/// The work is a closure that sends on a channel, so a working pool takes
+/// it in microseconds. The wait only ever elapses when nothing can take it
+/// at all, and then the step fails and says so — a regression here is a red
+/// test rather than a `cargo test` that never returns.
+const PATIENCE: Duration = Duration::from_secs(10);
+
+/// A host whose step queues work on the pool it is running on.
+///
+/// This is the shape of the hang found in M5. A step's inputs are hashed
+/// inside the step's own worker, and BLAKE3 hashes a large file in parallel
+/// on whichever pool it is called from (D3) — so a step can queue work that
+/// only a pool worker can take. If the scheduler is holding its other
+/// workers blocked on something of its own, rayon counts them as busy, the
+/// queued work is never taken, and the run stops for good.
+///
+/// `rayon::spawn` queues onto the pool belonging to the thread that calls
+/// it, which here is one of the executor's own workers.
+struct Nesting;
+
+impl Host for Nesting {
+    fn call(&self, _id: u64, out: &Path, _inputs: &[(String, Vec<PathBuf>)]) -> Result<(), String> {
+        let (taken, wait) = mpsc::channel();
+        rayon::spawn(move || {
+            let _ = taken.send(());
+        });
+        wait.recv_timeout(PATIENCE).map_err(|_| {
+            "the pool never took work queued from inside a step: a worker is blocked \
+             where rayon cannot see that it is idle"
+                .to_owned()
+        })?;
+        fs::write(out, "nested\n").map_err(|error| error.to_string())
+    }
+}
+
+#[test]
+fn work_queued_from_inside_a_step_is_taken_while_another_step_waits() {
+    let mut bench = Bench::new();
+    let reads = bench.input("reads.txt", "ACGT\n");
+    // Two steps in a chain, two workers: while the first runs, the second
+    // cannot, so the other worker has nothing of its own to do and must be
+    // free to help.
+    let first = bench.callback("nested", 1, reads);
+    let second = bench.step("after", "cat {in} > {out}", first);
+
+    let options = Options {
+        jobs: 2,
+        force: false,
+    };
+    let report = bench.run_with(&[second], &options, &Nesting);
+
+    assert!(report.failures.is_empty(), "{report:?}");
+    assert_eq!(contents(&report, first), "nested\n");
+    assert_eq!(outcome(&report, second), Outcome::Ran);
+}
+
+#[test]
+fn work_queued_from_inside_a_step_is_taken_while_its_twin_waits() {
+    let mut bench = Bench::new();
+    let reads = bench.input("reads.txt", "ACGT\n");
+    // The same step over the same data twice: one key, so one of the two
+    // waits for the other rather than racing it. Waiting must not cost a
+    // worker either, or the step that is running cannot be helped.
+    let left = bench.callback("nested", 1, reads);
+    let right = bench.callback("nested", 1, reads);
+
+    let options = Options {
+        jobs: 2,
+        force: false,
+    };
+    let report = bench.run_with(&[left, right], &options, &Nesting);
+
+    assert!(report.failures.is_empty(), "{report:?}");
+    assert_eq!(report.results.len(), 2, "both nodes belong in the report");
+    assert_eq!(contents(&report, left), "nested\n");
+    assert_eq!(contents(&report, right), "nested\n");
+    // One did the work; the other was handed its output.
+    let (one, two) = (outcome(&report, left), outcome(&report, right));
+    assert!(
+        (one == Outcome::Ran && two == Outcome::Cached)
+            || (one == Outcome::Cached && two == Outcome::Ran),
+        "one should have run and the other been handed its output: {one}, {two}"
+    );
+}
+
+/// Parameter names for the branches below, since a step's inputs are named.
+const BRANCH_PARAMS: [&str; 8] = ["a", "b", "c", "d", "e", "f", "g", "h"];
+
+#[test]
+fn every_step_of_a_wide_graph_is_run_by_a_single_worker() {
+    let mut bench = Bench::new();
+    let reads = bench.input("reads.txt", "ACGT\n");
+
+    // Eight independent branches that converge, each with its own command
+    // so that none of them is another's twin. The run is over when the pool
+    // is out of work rather than when a count of busy workers reaches zero,
+    // so a graph wider than `jobs` is worth saying out loud.
+    let mut branches = Vec::new();
+    for index in 0..8u8 {
+        let name = format!("branch{index}");
+        let command = format!("sed 's/$/ {index}/' {{in}} > {{out}}");
+        branches.push(bench.step(&name, &command, reads));
+    }
+    let inputs: Vec<(&str, NodeId)> = branches
+        .iter()
+        .enumerate()
+        .map(|(index, node)| (BRANCH_PARAMS[index], *node))
+        .collect();
+    let joined = bench.shell(
+        "join",
+        "cat {a} {b} {c} {d} {e} {f} {g} {h} > {out}",
+        &inputs,
+        &[],
+    );
+
+    let options = Options {
+        jobs: 1,
+        force: false,
+    };
+    let report = bench.run_with(&[joined], &options, &Refusing);
+
+    assert!(report.failures.is_empty(), "{report:?}");
+    assert_eq!(report.results.len(), 9, "every step belongs in the report");
+    for branch in branches {
+        assert_eq!(outcome(&report, branch), Outcome::Ran);
+    }
+    assert_eq!(outcome(&report, joined), Outcome::Ran);
 }

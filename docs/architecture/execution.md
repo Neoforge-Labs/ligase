@@ -57,17 +57,47 @@ is a ready queue:
 - `remaining[node]` counts unfinished upstream *steps* (input nodes are
   already there).
 - A node whose count reaches zero joins `ready`.
-- Workers take from `ready`, run a step, then decrement their dependents.
+- A step runs, then decrements its dependents and starts whichever of them
+  that emptied.
 
-The state sits behind one `Mutex` with a `Condvar`; workers are spawned on a
-rayon pool sized to `--jobs`. A worker exits when `ready` is empty and
-nothing is active, which is also the only termination condition — a run
-cannot end while a step that might release work is still going.
+The state sits behind one `Mutex`, and each step is one rayon job on a pool
+sized to `--jobs`. A job that finishes starts the steps it released before it
+ends, so the run is over exactly when the scope is empty: it cannot empty
+while anything can still start.
 
 Rayon rather than Python threads is the direct consequence of recipes being
 extracted up front: there is no interpreter to re-enter, so the pool is just
 a pool. It is also already in the tree for BLAKE3's multi-threaded hashing of
 large files.
+
+### Nothing waits for work
+
+No worker loops looking for the next step and none blocks waiting for one.
+That is not a style preference; it is what keeps the pool safe to reuse from
+inside a step.
+
+A step hashes its own inputs, and BLAKE3 hashes a large file across whatever
+pool it is called from
+([D3](../decisions.md#d3-blake3-with-sizemtime-prefilter)) — so a step queues
+work on the executor's own pool as a matter of course. Rayon can only give
+that work to a worker it believes is idle. The first version of this
+scheduler held every spare worker blocked on a `Condvar` of its own, inside a
+`scope.spawn` job, which rayon counts as busy: hashing inside a step was left
+with no one able to help it, and under heavy load a run stopped for good
+([D27](../decisions.md#d27-a-worker-that-waits-is-a-worker-rayon-cannot-use)).
+
+A worker can still block where rayon cannot see it — on a step's own child
+process, or on the GIL inside a callback. The invariant is narrower than "a
+worker never blocks": a worker must never block on something that needs the
+pool to make progress. A child process and the GIL do not; the ready queue
+and a claimed key did.
+
+Two tests in `tests/execution.rs` pin this. Each has a step queue work on the
+pool it is running on and wait for it with a timeout, once while another step
+is waiting its turn and once while a twin key is waiting — the two places a
+worker used to block. They fail in about ten seconds against the old
+scheduler rather than hanging, so a regression is a red test and not a
+`cargo test` that never returns.
 
 ## One key, one piece of work
 
@@ -76,10 +106,19 @@ more often in a cohort than you would expect. Running both would be the same
 work twice, and under a thread pool the second would not even see the first's
 cache entry.
 
-So a key is *claimed* for the duration of a step, and a worker that wants a
-claimed key waits for the holder and then re-checks the cache. The holder is
-running rather than waiting (its step was ready, which means nothing below it
-has started), so the wait always ends.
+So a key is *claimed* for the duration of a step. A node that wants a
+claimed key is *parked* on it — recorded under that key and abandoned, with
+its worker handed straight back to rayon. When the holder drops the claim it
+puts everything parked on its key back on the ready queue, and those nodes
+start again from the top: they recompute the key, find it in the cache this
+time, and report a hit.
+
+Parking rather than waiting is the same rule as above. A worker blocked on a
+claimed key is a worker rayon counts as busy, and therefore one that cannot
+help the very step it is waiting for
+([D27](../decisions.md#d27-a-worker-that-waits-is-a-worker-rayon-cannot-use)).
+Parking also costs no `--jobs` slot: a waiting node used to occupy a worker
+doing nothing.
 
 The alternative — letting both run and relying on the store to deduplicate
 identical bytes — is correct but wasteful, and makes "how many times did this

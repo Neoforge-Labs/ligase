@@ -28,6 +28,26 @@
 //! Python. The core then owns the whole run and the GIL is only taken for
 //! those callbacks.
 //!
+//! # Why no worker ever waits
+//!
+//! A step is run by a rayon job of its own, and a job that finishes starts
+//! the steps it released before it ends. Nothing loops looking for work and
+//! nothing blocks waiting for it, so a worker with nothing of its own to do
+//! is idle *as far as rayon is concerned* — and can therefore be given work
+//! that a step queued on the pool from inside itself.
+//!
+//! That last part is the whole reason (D27). Hashing a step's inputs
+//! happens inside the step, and BLAKE3 hashes a large file across the pool
+//! it is called from (D3), so a step queues pool work as a matter of course.
+//! A scheduler that parked its spare workers on a condition variable of its
+//! own left that work with nobody able to take it, and a run could stop for
+//! good — which is what happened under heavy load in M5.
+//!
+//! A worker can still block on something rayon cannot see: a step's own
+//! child process, or the GIL in a callback. What it must never block on is
+//! something that needs the pool to make progress, because that is the
+//! shape a deadlock needs.
+//!
 //! # What a run records besides its own answer
 //!
 //! A step that runs writes a provenance record ([`crate::prov`]) naming the
@@ -51,8 +71,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Condvar, Mutex};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+use rayon::Scope;
 
 use crate::cache::{Cache, Stored};
 use crate::canon::Note;
@@ -356,18 +378,13 @@ pub fn run(
         tasks: tasks.iter().map(|task| (task.node, task)).collect(),
         versions: versions(graph, &nodes, tasks),
         state: Mutex::new(State::new(graph, &nodes)),
-        woken: Condvar::new(),
     };
 
     let jobs = options.jobs.max(1).min(nodes.len());
     match rayon::ThreadPoolBuilder::new().num_threads(jobs).build() {
-        Ok(pool) => pool.scope(|scope| {
-            for _ in 0..jobs {
-                scope.spawn(|_| runner.work());
-            }
-        }),
+        Ok(pool) => pool.scope(|scope| runner.start(scope)),
         // A pool we cannot build is not a reason to refuse to run.
-        Err(_) => runner.work(),
+        Err(_) => runner.alone(),
     }
 
     runner.finish()
@@ -501,6 +518,10 @@ struct Produced {
 }
 
 struct State {
+    /// The steps that can start now. Nothing waits on this queue: a worker
+    /// that finds it empty has nothing to wait for, because every node that
+    /// will ever land here is put there by a step that is still running
+    /// (D27).
     ready: Vec<NodeId>,
     remaining: HashMap<NodeId, usize>,
     dependents: HashMap<NodeId, Vec<NodeId>>,
@@ -508,7 +529,9 @@ struct State {
     results: Vec<StepResult>,
     failures: Vec<StepFailure>,
     running: HashSet<StepKey>,
-    active: usize,
+    /// Nodes waiting for a key that another node is already producing,
+    /// under that key. They go back onto `ready` when it is released.
+    parked: HashMap<StepKey, Vec<NodeId>>,
 }
 
 impl State {
@@ -548,7 +571,7 @@ impl State {
             results: Vec::new(),
             failures: Vec::new(),
             running: HashSet::new(),
-            active: 0,
+            parked: HashMap::new(),
         }
     }
 
@@ -577,57 +600,88 @@ struct Runner<'a> {
     tasks: HashMap<NodeId, &'a Task>,
     versions: HashMap<String, Result<String, String>>,
     state: Mutex<State>,
-    woken: Condvar,
 }
 
 impl Runner<'_> {
-    /// Take ready steps until there are none left and nobody is still busy.
-    fn work(&self) {
-        while let Some(node) = self.take() {
-            let done = self.execute(node);
-
-            let Ok(mut state) = self.state.lock() else {
-                return;
-            };
-            state.active -= 1;
-            match done {
-                Ok(result) => {
-                    let ran_above = result.outcome == Outcome::Ran || self.ran_above(&state, node);
-                    state.produced.insert(
-                        node,
-                        Produced {
-                            output: Stored {
-                                hash: result.hash,
-                                path: result.output.clone(),
-                            },
-                            ran_above,
-                        },
-                    );
-                    state.results.push(result);
-                    state.release(node);
-                }
-                Err(failure) => state.failures.push(failure),
-            }
-            drop(state);
-            self.woken.notify_all();
+    /// Start every step that can start, on the pool.
+    ///
+    /// The run is over when the scope these are spawned into is empty,
+    /// which is when the graph has drained: each step starts the steps it
+    /// releases before its own job ends, so the scope cannot empty while
+    /// anything can still start.
+    fn start<'scope>(&'scope self, scope: &Scope<'scope>) {
+        for node in self.released() {
+            self.spawn(scope, node);
         }
     }
 
-    /// The next ready step, or `None` once the run is over.
-    fn take(&self) -> Option<NodeId> {
-        let mut state = self.state.lock().ok()?;
-        loop {
-            if let Some(node) = state.ready.pop() {
-                state.active += 1;
-                return Some(node);
+    /// Run one step on the pool, and whatever it releases after it.
+    ///
+    /// A worker is never held waiting for the next step. It runs one and
+    /// hands the scheduler back, so rayon knows it is idle and can give it
+    /// work queued from inside another step — which is what hashing a
+    /// step's inputs does (D27).
+    fn spawn<'scope>(&'scope self, scope: &Scope<'scope>, node: NodeId) {
+        scope.spawn(move |scope| {
+            for next in self.run_one(node) {
+                self.spawn(scope, next);
             }
-            if state.active == 0 {
-                // Nothing to do and nobody who could produce more.
-                self.woken.notify_all();
-                return None;
-            }
-            state = self.woken.wait(state).ok()?;
+        });
+    }
+
+    /// Run the whole graph on this thread, one step at a time.
+    ///
+    /// Only reached when a thread pool cannot be built at all. One thread
+    /// means no two steps are ever in flight, so no key is ever claimed
+    /// twice and nothing is ever parked.
+    fn alone(&self) {
+        let mut ready = self.released();
+        while let Some(node) = ready.pop() {
+            ready.extend(self.run_one(node));
         }
+    }
+
+    /// Run one step, write down what happened, and say what can start now.
+    ///
+    /// The steps returned are the ones whose last input just arrived, plus
+    /// any twin that was waiting for this step's key. A step that found its
+    /// own key already being produced returns nothing: it is parked on that
+    /// key, and the step holding it will hand it back.
+    fn run_one(&self, node: NodeId) -> Vec<NodeId> {
+        let done = self.execute(node);
+
+        let Ok(mut state) = self.state.lock() else {
+            return Vec::new();
+        };
+        match done {
+            Ok(Attempt::Done(result)) => {
+                let ran_above = result.outcome == Outcome::Ran || self.ran_above(&state, node);
+                state.produced.insert(
+                    node,
+                    Produced {
+                        output: Stored {
+                            hash: result.hash,
+                            path: result.output.clone(),
+                        },
+                        ran_above,
+                    },
+                );
+                state.results.push(result);
+                state.release(node);
+            }
+            // Nothing happened yet, and nothing was released. This node is
+            // on `parked` under its key, and comes back when it is free.
+            Ok(Attempt::Parked) => {}
+            Err(failure) => state.failures.push(failure),
+        }
+        std::mem::take(&mut state.ready)
+    }
+
+    /// Everything on the ready queue, emptying it.
+    fn released(&self) -> Vec<NodeId> {
+        self.state
+            .lock()
+            .map_or_else(|_| Vec::new(), |mut state| std::mem::take(&mut state.ready))
     }
 
     fn ran_above(&self, state: &State, node: NodeId) -> bool {
@@ -641,7 +695,7 @@ impl Runner<'_> {
         })
     }
 
-    fn execute(&self, node: NodeId) -> Result<StepResult, StepFailure> {
+    fn execute(&self, node: NodeId) -> Result<Attempt, StepFailure> {
         let name = self
             .graph
             .step(node)
@@ -653,7 +707,7 @@ impl Runner<'_> {
         })
     }
 
-    fn attempt(&self, node: NodeId) -> Result<StepResult, String> {
+    fn attempt(&self, node: NodeId) -> Result<Attempt, String> {
         let spec = self
             .graph
             .step(node)
@@ -668,16 +722,28 @@ impl Runner<'_> {
         if !self.force
             && let Some(entry) = self.cache.lookup(key).map_err(|error| error.to_string())?
         {
-            return self.cached_result(node, spec, key, &entry.output);
+            return Ok(Attempt::Done(self.cached_result(
+                node,
+                spec,
+                key,
+                &entry.output,
+            )?));
         }
 
         // Two nodes can share a key -- the same step over identical data --
-        // and running both would be the same work twice. The second waits.
-        let _claim = self.claim(key)?;
+        // and running both would be the same work twice. The second parks.
+        let Some(_claim) = self.claim(key, node)? else {
+            return Ok(Attempt::Parked);
+        };
         if !self.force
             && let Some(entry) = self.cache.lookup(key).map_err(|error| error.to_string())?
         {
-            return self.cached_result(node, spec, key, &entry.output);
+            return Ok(Attempt::Done(self.cached_result(
+                node,
+                spec,
+                key,
+                &entry.output,
+            )?));
         }
 
         let staging = self.cache.staging(key, output_suffix(spec.output));
@@ -723,7 +789,7 @@ impl Runner<'_> {
             duration_ms: milliseconds,
         })?;
 
-        Ok(StepResult {
+        Ok(Attempt::Done(StepResult {
             node,
             step: spec.name.clone(),
             outcome: Outcome::Ran,
@@ -733,22 +799,25 @@ impl Runner<'_> {
             notes: meaning.notes,
             output: stored.path,
             duration: produced.duration,
-        })
+        }))
     }
 
     /// Hold this key for the length of the step, so a twin waits.
-    fn claim(&self, key: StepKey) -> Result<Claim<'_>, String> {
+    ///
+    /// `None` when another node is already producing exactly this. That
+    /// node is parked on the key rather than blocked on it: a worker left
+    /// waiting here is a worker rayon counts as busy, and so a worker that
+    /// cannot help the step it is waiting for (D27). It comes back when the
+    /// claim is dropped, by which time the key is in the cache and it is a
+    /// cache hit.
+    fn claim(&self, key: StepKey, node: NodeId) -> Result<Option<Claim<'_>>, String> {
         let mut state = self.state.lock().map_err(|_| poisoned())?;
-        while state.running.contains(&key) {
-            // Another worker is producing exactly this; wait for it rather
-            // than race it. It cannot be waiting on us -- it is running, not
-            // waiting -- so this always ends. The worker stays counted as
-            // active throughout, or the run would look finished while it is
-            // not.
-            state = self.woken.wait(state).map_err(|_| poisoned())?;
+        if state.running.contains(&key) {
+            state.parked.entry(key).or_default().push(node);
+            return Ok(None);
         }
         state.running.insert(key);
-        Ok(Claim { runner: self, key })
+        Ok(Some(Claim { runner: self, key }))
     }
 
     fn cached_result(
@@ -947,6 +1016,15 @@ impl Runner<'_> {
     }
 }
 
+/// What one turn at a step came to.
+enum Attempt {
+    /// The step is finished, by running or straight from the cache.
+    Done(StepResult),
+    /// Another node is producing this step's key, so this one is parked on
+    /// it and will be started again once that key is free.
+    Parked,
+}
+
 /// What a step just produced, as a provenance record wants it.
 struct Made<'a> {
     spec: &'a StepSpec,
@@ -970,8 +1048,14 @@ impl Drop for Claim<'_> {
     fn drop(&mut self) {
         if let Ok(mut state) = self.runner.state.lock() {
             state.running.remove(&self.key);
+            // Whoever was waiting for this key can go now. They are put
+            // back on the ready queue rather than woken, because the step
+            // that just finished is the one that starts them -- which is
+            // why the queue never needs waiting on.
+            if let Some(waiting) = state.parked.remove(&self.key) {
+                state.ready.extend(waiting);
+            }
         }
-        self.runner.woken.notify_all();
     }
 }
 

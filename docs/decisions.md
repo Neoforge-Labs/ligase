@@ -8,6 +8,9 @@ Timestamps lie (copies, clones, touched files). Cache keys hash code, parameters
 
 ## D3 — BLAKE3 with size+mtime prefilter
 BLAKE3 is fast enough for multi-GB BAMs; the prefilter avoids rehashing unchanged files.
+The `rayon` feature that buys that speed means hashing a step's inputs queues work on
+whatever pool the step is running on, which is why the executor's pool has to stay
+usable from inside a step ([D27](#d27-a-worker-that-waits-is-a-worker-rayon-cannot-use)).
 
 ## D4 — Semantic hashing
 Outputs are canonicalised before hashing (sorted records, volatile headers stripped) so scientifically identical results share a hash.
@@ -467,3 +470,68 @@ which clears the cache's tables — the same practical cost, for a reason that
 can be stated honestly.
 
 [`Note`]: architecture/canonicalisation.md#what-a-canonical-form-notices
+
+## D27 — A worker that waits is a worker rayon cannot use
+
+A `ligase methods` run on the HIV-1 demo stopped for forty minutes with no
+child processes alive and under ninety seconds of CPU burned, while a second
+full run of the demo was competing for the same machine. Nine rayon workers:
+two inside BLAKE3's parallel hashing of an input, asleep in a nested
+`rayon::join`, and seven asleep on the executor's own `Condvar` waiting for
+a step to become ready.
+
+That is the whole bug. The scheduler ran `jobs` long-lived worker loops,
+each inside a `scope.spawn` job, and a worker with nothing ready blocked on
+a condition variable of the runner's own. Rayon has no idea such a thread is
+idle — it is inside a job, so it is busy — and a blocked worker cannot steal.
+Meanwhile hashing a step's inputs happens *inside* a step, and BLAKE3 hashes
+a large file across whatever pool it is called from
+([D3](#d3-blake3-with-sizemtime-prefilter)). So a step queues work on the
+executor's own pool, and that work had two possible takers instead of nine.
+Whether the final stall is a strict cycle or a lost wakeup between those two
+is not something the sample can settle, and it does not matter: a pool whose
+spare capacity is invisible to its own scheduler is the defect, and heavy
+oversubscription is only what made it show.
+
+So the rule is that **a worker never blocks on anything that needs the pool
+to make progress**. Concretely: no worker loop and no waiting for work. A
+step is one rayon job, and a job that finishes starts the steps it released
+before it ends — so the run is over exactly when the scope is empty, and a
+worker with nothing of its own to do is idle as far as rayon is concerned.
+The two places that used to block are gone. The ready queue is no longer
+waited on, and a node that wants a key another node is producing is *parked*
+on that key and handed back when the claim is dropped
+([the scheduler](architecture/execution.md#nothing-waits-for-work)).
+
+The rule is narrower than "a worker never blocks", which would be
+unachievable: a step *is* a child process, and a worker sits in `wait` for
+its whole duration, as it does for the GIL inside a callback. Neither of
+those needs the pool to finish, so neither can close a cycle. The ready
+queue and a claimed key did.
+
+Two alternatives were weighed and rejected.
+
+**Hash single-threaded inside the executor** — `update_mmap` rather than
+`update_mmap_rayon`. One line, and it removes the nested parallelism
+completely. It was tempting because the prefilter means a warm run rehashes
+nothing and the executor already hashes `jobs`-ways across concurrent steps,
+so the loss is confined to a cold hash of a very large file in a narrow
+graph. It was rejected because it treats the symptom: the pool would still
+be unsafe to reuse from inside a step, and the next thing to want nested
+parallelism would reopen the same hole with no test to catch it.
+
+**A dedicated hashing pool**, so the two pools cannot starve each other. It
+keeps D3's parallel hashing and removes the cycle, but it makes the real
+thread count `jobs` plus that pool's. `--jobs` is a promise about machine
+load — the situation that produced this bug was two runs on one machine —
+and quietly exceeding it is the wrong direction for a tool people leave
+running overnight on shared hardware.
+
+What this costs is the scheduler itself: the worker loop, the condition
+variable and the active count are gone, and M3's termination argument is now
+the scope's rather than a count of busy workers. That is a real change to
+closed code, which is why it is pinned by two tests that fail in ten seconds
+against the old scheduler rather than hanging
+([the scheduler](architecture/execution.md#nothing-waits-for-work)). It also
+pays something back: a parked twin no longer occupies a `--jobs` slot doing
+nothing.
