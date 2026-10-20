@@ -1,0 +1,85 @@
+{% set name = "ligase-bio" %}
+{% set version = "0.1.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/ligase_bio-{{ version }}.tar.gz
+  sha256: 83a7b4ae63107d6fbdcea59fc13e7faa4346b7c63a63bfe34cb267a6345101b5
+
+build:
+  number: 0
+  # The extension is built against Python's stable ABI from 3.11 onwards, so
+  # one build serves every later Python. The package declares requires-python
+  # >=3.11.
+  skip: true  # [py<311]
+  script:
+    - cargo-bundle-licenses --format yaml --output THIRDPARTY.yml
+    - {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+  entry_points:
+    - ligase = ligase.cli:main
+
+requirements:
+  build:
+    # SQLite is compiled from bundled C source, so a C compiler is needed as
+    # well as the Rust toolchain.
+    - {{ compiler('c') }}
+    - {{ compiler('rust') }}
+    - cargo-bundle-licenses
+  host:
+    - python
+    - pip
+    - maturin >=1.15,<2
+  run:
+    - python
+
+test:
+  imports:
+    - ligase
+    - ligase.hivdb
+  commands:
+    - ligase --help
+    - ligase check --help
+    # The vendored Stanford HIVdb rulesets ship inside the wheel; without them
+    # the engine cannot score, so a build that loses them should fail here
+    # rather than at a user's first interpretation.
+    - python -c "from ligase import hivdb; assert hivdb.ALGORITHMS, 'no rulesets in the installed package'"
+
+about:
+  home: https://github.com/Neoforge-Labs/ligase
+  summary: Type-safe, reproducible computational biology pipelines
+  description: |
+    Biological data types carry dimensions — organism, reference build,
+    coordinate system, sample set — and the engine refuses to connect pipeline
+    steps whose dimensions do not match, the way a physics engine refuses to
+    add metres to seconds.
+
+    The bugs this is aimed at are the silent ones: hg19 against hg38, 0-based
+    against 1-based coordinates, "chr1" against "1", sample IDs that shifted by
+    one somewhere in a join. None of them crash, and all of them produce
+    plausible numbers that are wrong. Type checking happens at graph-build
+    time, before anything computes.
+
+    Results are cached by content rather than by timestamp, with BLAKE3
+    hashing and canonicalisation so that scientifically identical outputs
+    share a hash. Provenance is recorded as the pipeline runs, and can be
+    emitted as a methods paragraph with tool versions, parameters, reference
+    accessions and citations.
+
+    Resistance interpretation uses Stanford's HIVdb algorithm, vendored and
+    pinned by checksum rather than fetched at run time. Research use only:
+    the resistance calls are not for clinical use.
+  license: MIT OR Apache-2.0
+  license_family: MIT
+  license_file:
+    - LICENSE-MIT
+    - LICENSE-APACHE
+    - THIRDPARTY.yml
+  doc_url: https://ligase.neoforgelabs.tech/
+  dev_url: https://github.com/Neoforge-Labs/ligase
+
+extra:
+  recipe-maintainers:
+    - cod3smith
