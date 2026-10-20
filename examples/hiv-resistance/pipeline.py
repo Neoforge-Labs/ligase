@@ -3,10 +3,11 @@
     ligase check examples/hiv-resistance/pipeline.py
     ligase run examples/hiv-resistance/pipeline.py
 
-Reads from PRJNA517147 are aligned to HXB2 (K03455.1), variants are called,
-and each variant is placed in the gene and codon it falls in. Every feature
-of Ligase has to work end to end on this pipeline, which is why it is a real
-one: real reads, real tools, real reference.
+Reads are aligned to HXB2 (K03455.1), variants are called, and the calls
+are interpreted as drug resistance against the Stanford HIVdb algorithm.
+Every feature of Ligase has to work end to end on this pipeline, which is
+why it is a real one: real reads, real tools, real reference, and
+resistance calls that are checked against published ones.
 
 The data is not in the repository. Fetch it first:
 
@@ -16,28 +17,50 @@ Run it twice to watch the cache work. Nothing is recomputed the second time,
 because a step's key is built from its code, its parameters, its inputs'
 contents and its tools' versions — and none of those moved.
 
-## On what `resistance` does today
+## On what `resistance` does
 
-It localises each variant to the HXB2 protease, reverse transcriptase or
-integrase coding region and names the codon. That is arithmetic on
-positions, not interpretation: matching mutations against the Stanford HIVdb
-rules is milestone M6, and `lg.hivdb` does not exist yet. The step is here
-in full because the *pipeline* is what M3 is signed off on, and a pipeline
-that stops at variant calls would not exercise fan-out through to a report.
+It interprets. Until M6 it localised each variant to a coding region and
+named the codon, which was arithmetic on positions rather than meaning;
+`lg.hivdb` now scores the mutations against a vendored Stanford HIVdb
+algorithm and reports a level for each of twenty-seven drugs.
 
-## On `min_freq`
+The step therefore takes three inputs where `docs/golden-example.md`
+wrote one. Its docstring says why; neither addition is optional.
 
-`bcftools call` is a consensus caller: it reports the variants it is
-confident in, so a frequency threshold below a half rarely removes any. It
-is applied here as a post-filter on allele depth, which is honest about what
-bcftools gives us. A low-frequency caller is a change of tool, not of
-threshold — and the point of the parameter being typed and hashed is that
-changing it reruns exactly the steps it could have changed.
+## On `min_freq`, and why the caller changed in M6
+
+This step used to run `bcftools call -mv --ploidy 1`, and its docstring
+said what is still true of that tool: `bcftools call` is a consensus
+caller, so a frequency threshold below a half rarely removes anything,
+and a low-frequency caller is a change of tool rather than of threshold.
+
+M6 made the change, because validating against published results is what
+showed the cost. On SRR32217726 — Sample 3 of PRJNA1218827 — the reads at
+HXB2 3204 are A 238, G 192. That is a 45% K219E, a zidovudine resistance
+mutation, and `bcftools call -mv` emitted no record for it at all: the
+majority allele is the reference, so there was no variant to call. The
+report came back susceptible to all twenty-seven drugs.
+
+It was *right* to come back susceptible, given that input — it matches
+Stanford's own majority-consensus report for the same sample exactly. But
+Stanford's 5% report for that sample finds L100I as well and reads
+high-level resistance to four NNRTIs. A pipeline whose answer flips from
+"fully susceptible" to "resistant to most of the NNRTI class" depending on
+a threshold it never exposed is not doing what it says it does.
+
+So the caller is gone and the pileup's own allele depths are the evidence.
+`min_freq` now means what its name says: an allele seen in that fraction
+of the reads is reported. What counts as *present* for interpretation is
+`mixture`, a separate parameter on `resistance`, because the two questions
+are different — one is about what the reads show, the other is about what
+you are willing to act on. The published thresholds are 2%, 5% and 15%.
+
+Both parameters are typed and hashed, so changing either reruns exactly
+the steps it could have changed and no others.
 """
 
 from __future__ import annotations
 
-import gzip
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -50,21 +73,26 @@ if TYPE_CHECKING:
 #: The repository root, so the demo runs from any directory.
 REPO = Path(__file__).resolve().parents[2]
 
-#: The HXB2 reference and the reads, as `scripts/fetch_test_data.sh` leaves
-#: them.
+#: The HXB2 reference, as `scripts/fetch_test_data.sh` leaves it.
 REFERENCE = REPO / "data" / "refs" / "HXB2.fasta"
-READS = REPO / "data" / "reads" / "PRJNA517147"
 
-#: The pol coding regions of HXB2, as nucleotide ranges (1-based, closed).
+#: Where the fetched reads live, by BioProject.
+READS = REPO / "data" / "reads"
+
+#: The project the demo reads from unless told otherwise.
 #:
-#: These are the standard HXB2 landmarks: protease is 99 codons, reverse
-#: transcriptase 440, integrase 288. Resistance mutations are named by codon
-#: within one of these, which is why a report has to know them.
-GENES = (
-    ("PR", 2253, 2549),
-    ("RT", 2550, 3869),
-    ("IN", 4230, 5096),
-)
+#: PRJNA1218827 is the other one fetched, and it is what M6's validation
+#: uses: its samples have published Stanford HIVdb calls to check against.
+PROJECT = "PRJNA517147"
+
+#: The coding regions are no longer the pipeline's business.
+#:
+#: They were, while `resistance` did arithmetic on positions. The engine
+#: owns them now, in `ligase.hivdb`, because which codons exist is a fact
+#: about HIV-1 rather than about this pipeline -- and because getting them
+#: wrong is silent. Two of the three this file used to carry were: reverse
+#: transcriptase ran to 440 codons where HIVdb numbers it 1-560, and
+#: integrase to 5096, which includes pol's stop codon.
 
 
 @lg.step(tool=("minimap2", "samtools"))
@@ -104,49 +132,71 @@ def align(reads: Reads, ref: Reference, sample_id: str, threads: int = 4) -> Ali
 
 @lg.step(tool="bcftools")
 def call(aln: Alignment, ref: Reference, min_freq: float = 0.01) -> Variants:
-    """Call variants, keeping those above a minimum allele fraction."""
+    """Report every allele above a minimum fraction of the reads.
+
+    There is no `bcftools call` here any more, and M6 is why. See the
+    module docstring: a consensus caller cannot see a minority virus, and
+    for drug resistance the minority virus is the whole question.
+
+    The pileup's own allele depths are the evidence, so `min_freq` is
+    applied straight to them and the step reports what the reads say
+    rather than what a caller concluded. The threshold now means what its
+    name says.
+    """
     return lg.sh(
         "bcftools mpileup -a AD -f {ref} {aln} "
-        "| bcftools call -mv --ploidy 1 -Oz "
         "| bcftools view -i '(AD[0:1])/(AD[0:0]+AD[0:1]) >= {min_freq}' "
         "-Oz -o {out}"
     )
 
 
-@lg.step
-def resistance(v: Variants) -> ResistanceReport:
-    """Place each variant in the pol gene and codon it falls in."""
-    return lg.write(lambda out: _localise(v.file, out))
+@lg.step(tool="hivdb")
+def resistance(
+    v: Variants,
+    ref: Reference,
+    aln: Alignment,
+    algorithm: str = lg.hivdb.DEFAULT,
+    mixture: float = lg.hivdb.MIXTURE,
+) -> ResistanceReport:
+    """Interpret the calls as drug resistance.
 
+    Three inputs rather than the one `docs/golden-example.md` wrote, and
+    both additions are forced rather than convenient.
 
-def _localise(variants: str, out: Path) -> None:
-    """Write one row per variant, with the gene and codon it falls in."""
-    rows = ["contig\tposition\tref\talt\tgene\tcodon"]
-    with gzip.open(variants, "rt") as calls:
-        for line in calls:
-            if line.startswith("#"):
-                continue
-            contig, position, _, reference, alternate = line.split("\t")[:5]
-            gene, codon = _codon_of(int(position))
-            rows.append(
-                f"{contig}\t{position}\t{reference}\t{alternate}\t"
-                f"{gene or '-'}\t{codon or '-'}"
-            )
-    out.write_text("\n".join(rows) + "\n")
+    The **reference** is needed because a VCF holds only the positions
+    that differ, and two of the three bases of a codon are usually not
+    among them. Without the sequence those positions sit in there is
+    nothing to translate. Passing it also puts it under `check()`, so
+    interpreting one sample's calls against another organism's reference
+    is refused before anything runs.
 
+    The **alignment** is needed because `bcftools call -mv` writes only
+    the sites it called a variant at. A position missing from the VCF is
+    ambiguous between "agrees with HXB2" and "nothing aligned here", and
+    resolving that silently towards the first manufactures susceptible
+    results out of dropouts. With the alignment, an uncovered codon is
+    reported as unread and the drugs whose rules mention it say their
+    score is a floor.
 
-def _codon_of(position: int) -> tuple[str | None, int | None]:
-    """Which gene and codon an HXB2 position falls in, if any."""
-    for gene, start, end in GENES:
-        if start <= position <= end:
-            return gene, (position - start) // 3 + 1
-    return None, None
+    `algorithm` is an ordinary parameter, so changing it reruns this step
+    and shows up in the methods paragraph. What pins the *rules* is
+    `tool="hivdb"`: it records every vendored algorithm by version, date
+    and the digest of its bytes, because upstream publishes corrections
+    under near-identical names and a key that moved only with the name
+    would serve a result computed under rules that have since changed.
+    """
+    return lg.hivdb.interpret(
+        v, ref, coverage=aln, algorithm=algorithm, mixture=mixture
+    )
 
 
 def pipeline(
     runs: Sequence[str] | None = None,
     min_freq: float = 0.01,
     threads: int = 4,
+    project: str = PROJECT,
+    algorithm: str = lg.hivdb.DEFAULT,
+    mixture: float = lg.hivdb.MIXTURE,
 ) -> lg.Pipeline:
     """Build the demo over some or all of the fetched runs.
 
@@ -157,22 +207,30 @@ def pipeline(
         threads: How many cores the aligner may use. Changing it reruns
             `align` and nothing below it, which is what semantic hashing
             buys.
+        project: Which fetched BioProject to read from. M6's validation
+            uses `PRJNA1218827`, whose samples have published Stanford
+            HIVdb calls to compare against.
+        algorithm: Which vendored resistance algorithm to interpret with.
+        mixture: The fraction of reads an allele must reach to count as
+            present when interpreting. The published results this is
+            validated against use 2%, 5% and 15%.
 
     Returns:
         The pipeline, built and ready to check. Nothing has run.
     """
     hxb2 = lg.reference(str(REFERENCE), organism="HIV-1", build="HXB2")
+    reads = READS / project
 
     if runs is None:
-        found = lg.samples(str(READS / "*.fastq.gz"), paired=True, organism="HIV-1")
+        found = lg.samples(str(reads / "*.fastq.gz"), paired=True, organism="HIV-1")
         chosen = list(zip(found.ids, found, strict=True))
     else:
         chosen = [
             (
                 run,
                 lg.reads(
-                    str(READS / f"{run}_1.fastq.gz"),
-                    str(READS / f"{run}_2.fastq.gz"),
+                    str(reads / f"{run}_1.fastq.gz"),
+                    str(reads / f"{run}_2.fastq.gz"),
                     organism="HIV-1",
                 ),
             )
@@ -182,13 +240,17 @@ def pipeline(
     return lg.Pipeline(
         [
             resistance(
-                call(
-                    align(sample, hxb2, sample_id=run, threads=threads),
-                    hxb2,
-                    min_freq=min_freq,
-                )
+                call(aligned, hxb2, min_freq=min_freq),
+                hxb2,
+                aligned,
+                algorithm=algorithm,
+                mixture=mixture,
             )
             for run, sample in chosen
+            # The alignment is used twice -- once by the caller and once
+            # for coverage -- so it is named rather than built twice. One
+            # node, one key, one run of minimap2.
+            for aligned in [align(sample, hxb2, sample_id=run, threads=threads)]
         ]
     )
 
