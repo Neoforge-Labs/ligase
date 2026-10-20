@@ -238,6 +238,83 @@ def render(stem: str, title: str, blurb: str) -> str:
     return "\n".join(body).rstrip() + "\n"
 
 
+def index() -> str:
+    """The section's own page.
+
+    Generated rather than hand-written, because it lives in a directory this
+    script owns and rebuilds: a hand-written file here would be deleted by
+    the next clean build, and its table of notebooks would drift from ORDER
+    the first time one was added.
+    """
+    rows = "\n".join(
+        f"| {n} | [{title}](/notebooks/{stem[3:].replace('_', '-')}/) | {blurb.rstrip('.')} |"
+        for n, (stem, title, blurb) in enumerate(ORDER, start=1)
+    )
+    return f"""---
+title: "About the notebooks"
+description: "Four marimo notebooks, executed on every docs build and rendered from the run."
+---
+
+# About the notebooks
+
+<Lede>
+Four [marimo](https://marimo.io) notebooks, easiest first. They are ordinary
+Python files, so they run as notebooks or as scripts, and they are **executed
+on every docs build** — if the API drifts from what an example claims, the
+build fails rather than the page misleading you.
+</Lede>
+
+| | Notebook | What it shows |
+|---|---|---|
+{rows}
+
+Every value on those pages was computed by the engine during the build.
+Nothing is transcribed.
+
+## Running them
+
+```bash
+pip install ligase-bio marimo
+marimo edit examples/notebooks/{ORDER[0][0]}.py
+```
+
+Or without marimo at all, since a marimo notebook is importable Python:
+
+```bash
+python examples/notebooks/{ORDER[0][0]}.py
+```
+
+The first three need **no data and no aligner** — they use the tiny fixtures
+committed with the test suite, so they work on a fresh clone. The fourth runs
+the real interpretation if the HIV-1 demo data is present, and explains itself
+if it is not:
+
+```bash
+scripts/fetch_test_data.sh --project PRJNA1218827
+```
+
+## Why they are not interactive on this page
+
+marimo can export a notebook that runs **in the browser**, through Pyodide.
+Ligase cannot use that: it is a compiled Rust extension, and there is no
+emscripten wheel for it — the published wheels are manylinux, macOS and
+Windows. Building one would mean PyO3 and a bundled SQLite compiled for
+emscripten, which is not a realistic target.
+
+So these are rendered from real runs and meant to be downloaded and run
+locally, where the engine actually works. The honest version of "interactive
+docs" for a native extension is a notebook you can run, not an iframe that
+cannot import the thing it documents.
+
+## The full pipeline
+
+The notebooks are deliberately small. For the reference pipeline end to end —
+reads, alignment, variant calls, resistance — see
+[`examples/hiv-resistance/pipeline.py`]({REPO.replace("/examples/notebooks", "/examples/hiv-resistance")}/pipeline.py)
+and [running a pipeline](/guide/running-a-pipeline/).
+"""
+
+
 def main() -> int:
     """Run every notebook and write its page."""
     # As in capture_diagnostics.py: the notebooks resolve fixtures and print
@@ -249,6 +326,8 @@ def main() -> int:
             render(stem, title, blurb), encoding="utf-8"
         )
         print(f"  ran and rendered {stem}")
+
+    (OUT / "index.mdx").write_text(index(), encoding="utf-8")
 
     meta = [
         "import type { MetaRecord } from 'nextra'",
