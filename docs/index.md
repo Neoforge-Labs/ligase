@@ -43,7 +43,10 @@ DimensionError in step `call`:
 The reference pipeline now interprets as well as computes: its resistance
 calls reproduce published Stanford HIVdb results exactly at the 15% and 5%
 thresholds, with every remaining discrepancy
-[explained](concepts/validation.md).
+[explained](concepts/validation.md). Three remain at the 2% threshold,
+where there were nine: six were codons read from a VCF, which carries no
+phasing, and went when codons started being read from the haplotypes the
+reads carry.
 
 You can write a pipeline of annotated steps, have the whole graph
 type-checked without running any of it, be told every mistake at once, and
@@ -162,9 +165,9 @@ in the output's hash and a cache hit can no longer prove it. `--bundle`
 packages all of it so someone else can check the results, and `--verify` is
 that check.
 
-What remains is **M6 (validation)**: whether the resistance calls agree with
-the published ones. See [milestones](milestones.md) for the order and the
-acceptance test for each step.
+**M6 (validation)** is done: the resistance calls agree with the published
+ones, and what does not agree says why. See [milestones](milestones.md) for
+the order and the acceptance test for each step.
 
 ## Where to go
 

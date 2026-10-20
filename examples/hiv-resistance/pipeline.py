@@ -170,13 +170,18 @@ def resistance(
     interpreting one sample's calls against another organism's reference
     is refused before anything runs.
 
-    The **alignment** is needed because `bcftools call -mv` writes only
-    the sites it called a variant at. A position missing from the VCF is
-    ambiguous between "agrees with HXB2" and "nothing aligned here", and
-    resolving that silently towards the first manufactures susceptible
-    results out of dropouts. With the alignment, an uncovered codon is
-    reported as unread and the drugs whose rules mention it say their
-    score is a floor.
+    The **alignment** is needed twice over. A VCF holds only the
+    positions the caller had something to say about, so a position
+    missing from it is ambiguous between "agrees with HXB2" and "nothing
+    aligned here", and resolving that silently towards the first
+    manufactures susceptible results out of dropouts. With the alignment,
+    an uncovered codon is reported as unread and the drugs whose rules
+    mention it say their score is a floor.
+
+    It is also what carries phasing. A VCF says what is at each position
+    and not what travels together, so a codon with two ambiguous bases
+    has combinations no read carries; the reads spanning a codon settle
+    which of them are real (D31).
 
     `algorithm` is an ordinary parameter, so changing it reruns this step
     and shows up in the methods paragraph. What pins the *rules* is

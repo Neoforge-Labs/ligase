@@ -133,17 +133,44 @@ Reading a codon:
 1. Every base of the codon must be covered to `depth`, or the codon is
    left out. Two bases out of three is not two thirds of an amino acid.
 2. Each base's alleles are taken from the VCF's `AD`, keeping those at or
-   above `mixture`.
-3. The combinations are enumerated and translated, giving the set of amino
-   acids present.
+   above `mixture`. Every combination of them is a *candidate*.
+3. The reads decide which candidates are real. Reads spanning all three
+   bases of the codon are counted as the triplets they carry, and the
+   codon holds the amino acids whose share of those reads reaches
+   `mixture`.
 
-Step 3 is where phasing is lost. A VCF says what is at each position, not
-what travels together, so a codon with two ambiguous bases yields up to
-four amino acids and some may be carried by no read. This is a real
-limitation with a real effect at low thresholds — see
-[validation](../concepts/validation.md#what-disagrees-and-why). The fix,
-if it is ever wanted, is to count codon haplotypes from reads spanning the
-codon, which the alignment already makes available.
+Step 3 is what D31 added, and step 2 is why it is needed: a VCF says what
+is at each position, not what travels together, so the candidates for a
+codon with two ambiguous bases include codons no read carries. All four
+used to be reported, which was six of M6's nine published discrepancies.
+
+Three properties of step 3 are deliberate, and
+[D31](../decisions.md#d31-a-codon-no-read-spans-keeps-its-per-base-reading)
+argues each of them:
+
+- It only ever *removes* a candidate. Which alleles are present at a
+  position stays the caller's quality-aware judgement.
+- The threshold is applied to the amino acid, summed over the triplets
+  that spell it, not to each triplet on its own.
+- A codon the reads cannot settle — no read spanning it `depth` times, or
+  no candidate among the reads at all — keeps its per-base reading, and
+  `Reading::notes` says how many codons of which gene did that.
+
+### What it costs
+
+`codon::scan` makes one pass over the BAM and answers both questions from
+the same bases: a dense `u32` counter per gene position for coverage, and
+a dense `[u32; 64]` of triplet counts per codon, indexed by the triplet's
+place in the codon table. Dense because it is written once per codon per
+read — a few million times on a deep amplicon — and the whole table is a
+megabyte, which is cheaper to allocate once than to look a key up that
+often.
+
+Reading sequences rather than spans roughly doubles the step: on the
+deepest run of the validation, 95,000 reads, `resistance` goes from 0.6s
+to 1.1s. It stays the cheapest step in the pipeline — half a second
+against an alignment that takes tens of them, and less than the demo's
+own run-to-run variation on the same code.
 
 ## How the rules reach the cache key
 

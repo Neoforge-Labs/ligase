@@ -621,13 +621,12 @@ thirty-two thousand reads map to HXB2, and a pipeline that read "no
 variant called" as "agrees with the reference" would report a tube of
 water as fully susceptible to twenty-seven drugs.
 
-What this does **not** fix is phasing. A codon is assembled from a VCF,
-which says what is at each position rather than what travels together, so
-two ambiguous bases in one codon yield up to four amino acids and some may
-be carried by no read. That is visible in the validation at the 2%
-threshold, it is stated there rather than hidden, and the remedy —
-counting codon haplotypes from reads spanning the codon — is available
-whenever it is wanted, because the alignment is already an input.
+A fourth judgement joined them with D31, and it goes the same way.
+**A codon is only the combinations the reads carry.** A VCF says what is
+at each position rather than what travels together, so enumerating two
+ambiguous bases in one codon yields up to four amino acids and some are
+carried by no read at all. The alignment settles it, and what happens
+where it cannot is [D31](#d31-a-codon-no-read-spans-keeps-its-per-base-reading).
 
 ## D30 — A consensus caller cannot answer a resistance question
 
@@ -660,3 +659,89 @@ The rejected alternative was to keep the caller and document the limit.
 It is cheaper and it is what the old docstring did — but a limitation
 documented in a docstring is not visible in a report, and this one changes
 the clinical answer.
+
+## D31 — A codon no read spans keeps its per-base reading
+
+A codon was assembled from the VCF: the alleles the caller credited at
+each of the three bases, then every combination of them, translated. A VCF
+says what is at each position and not what travels together, so the
+combinations include codons no read carries.
+
+That is not hypothetical. On SRR32217726 the caller credits G at the
+first base of RT codon 219 in 43% of the reads it counted there, and at
+the second base in 2.4%. At a 2% threshold both pass, and the four
+combinations read K, R, E and G — where of the 4,347 reads spanning the
+whole codon, 54% carry `AAA` and 45% carry `GAA`, and `AGA` and `GGA` are
+under two tenths of a per cent each. Two of those amino acids are
+arithmetic rather than virus. Six of M6's nine published discrepancies
+were this, and although none of them changed a score, it is the kind of
+wrong the project exists to avoid.
+
+So codons are read from the alignment, which was already an input for
+coverage. Reads spanning all three bases of a codon are counted as the
+triplets they carry, and the codon holds the amino acids whose share of
+those reads reaches `mixture`.
+
+Three things about that had to be decided, and each could have gone the
+other way.
+
+**Phasing narrows a reading and never widens one.** Which alleles are
+*present* at a position stays the caller's judgement, because `bcftools
+mpileup` weighs base quality and a raw read base does not. Sample 30 is
+the case that proves it: at HXB2 2773 the raw bases carry the V75A base in
+3.2% of the reads there, where the caller credits it in 1.7% of the reads
+it counted. Taking the raw count would "find" a mutation at 2% — and
+would agree with the published report, by accident, on evidence the
+caller had already judged too poor to report. So phasing only chooses
+among the combinations of alleles the caller credited; it never adds
+one.
+
+**The threshold applies to the amino acid, not to the spelling of it.**
+Two synonymous triplets each below `mixture` can hold an amino acid well
+above it, and the report is about amino acids. Thresholding each triplet
+on its own would lose one that is there, which is the one direction
+[D29](#d29-an-interpretation-never-invents-a-susceptible-result) forbids.
+
+**A codon no read spans keeps its per-base reading.** Paired-end reads can
+cover a codon between them without either mate spanning it, and a codon
+with an indel across it is not read whole by anything. Three answers were
+available:
+
+- *Report it unread.* Honest about the phase, but wrong about the rest:
+  the per-base evidence does establish which alleles are there, and only
+  their phase is unknown. An unread codon makes every drug whose rules
+  name that position report a floor, so discarding what is known would
+  spread a hedge across a report over one missing read.
+- *Guess a phase*, for instance by pairing majority with majority. This
+  invents exactly what the change exists to stop, and it can drop a
+  resistant amino acid — D29's forbidden direction.
+- *Keep the per-base reading*, which is what Ligase does, with a note
+  saying how many codons of which gene fell back and why. The reading is
+  then wider than the truth rather than narrower: it can over-report
+  resistance, never under-report it, which is the direction D29 commits
+  to everywhere else.
+
+That note is a `Reading::notes` entry, which is where the "no alignment
+was supplied" note already goes, and it is as far as the hedge is visible
+today: `interpret_resistance` returns those notes and the Python wrapper
+drops them, so nothing renders them beside the report. That is a gap in
+the plumbing rather than in this decision, and the next thing to fix
+about it.
+
+The same fallback covers a codon the reads span but say nothing useful
+about — fewer than `depth` spanning reads, or no credited combination
+among them. All of those mean one thing, "the reads cannot settle this
+codon", and they get one answer.
+
+In practice the fallback does not fire. On each of the validation's three
+covered samples, all 1,178 covered codons are spanned whole by at least a
+hundred reads, because the window is three bases and the reads are a
+hundred and fifty. It is a guarantee rather than a path, which is the
+right shape for a hedge: it exists so that a shallow or short-read
+dataset degrades towards over-reporting rather than towards silence.
+
+The cost is reading sequences where coverage alone needed only spans. On
+the deepest run of the validation — 95,000 reads — the `resistance` step
+goes from 0.6s to 1.1s, and the three-threshold validation run from 14s
+to 21s. Doubling the cheapest step in the pipeline to stop it inventing
+amino acids is not a close call.

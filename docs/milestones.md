@@ -34,8 +34,13 @@ Cargo workspace (`ligase-core`, `ligase-py`), maturin, `python/ligase`, CI runni
 
 **Done.** The calls are checked against the published Stanford HIVdb
 reports for PRJNA1218827: 81 of 81 drug calls agree exactly at the 15% and
-5% thresholds, and the nine that differ at 2% each carry a cause. The
+5% thresholds, and the three that differ at 2% each carry a cause. The
 scoring engine separately reproduces 3,348 published expectations.
+
+There were nine. Six of them were an artefact of reading codons from a
+VCF, which carries no phasing, and went when codons started being read
+from the haplotypes the reads carry
+([D31](decisions.md#d31-a-codon-no-read-spans-keeps-its-per-base-reading)).
 
 PRJNA517147 could not serve as a source of expected answers: its
 per-sample calls are published only as colour in a heatmap, reverse

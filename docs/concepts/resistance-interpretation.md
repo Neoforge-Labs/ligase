@@ -40,7 +40,7 @@ version number. Upstream publishes corrections under near-identical names
 with the name would happily serve a result computed under rules that have
 since changed.
 
-## Three judgements, all made the same way
+## Four judgements, all made the same way
 
 An interpretation can be wrong in two directions, and they are not
 equally bad. Reporting resistance that is not there costs a patient a drug
@@ -59,10 +59,32 @@ majority base would discard the minority virus — which is the entire
 reason anyone sequences deeply, and which in practice is where resistance
 shows up first.
 
-The cost is real and worth naming: a codon is assembled from a VCF, which
-carries no phasing. Where two bases of one codon are each ambiguous, the
-combinations are enumerated, and some of those codons may be carried by no
-actual read. See [the known discrepancies](validation.md#what-disagrees-and-why).
+### A codon is only the combinations the reads carry
+
+A mixture at two bases of one codon is where the first judgement could go
+wrong on its own. A VCF says what is at each position, not what travels
+together, so enumerating the combinations of two ambiguous bases invents
+codons no read carries.
+
+On Sample 3 of PRJNA1218827 the caller credits G at the first base of RT
+codon 219 in 43% of the reads there and at the second base in 2.4%. At a
+2% threshold both pass, and the four combinations spell lysine, arginine,
+glutamate and glycine — where the reads spanning the whole codon carry two
+of them: `AAA` in 54% of themselves and `GAA` in 45%. The other two are
+under two tenths of a per cent each.
+
+So the alignment settles it. Reads spanning all three bases are counted as
+the triplets they carry, and the codon holds the amino acids whose share
+of those reads reaches the mixture threshold. Two rules keep this from
+going wrong in the other direction:
+
+- **Phasing narrows a reading and never widens one.** What is *present* at
+  a position stays the caller's judgement, which weighs base quality; the
+  reads only decide which combinations of called alleles are real.
+- **A codon no read spans keeps its per-base reading**, noted rather than
+  dropped or guessed at — see
+  [D31](../decisions.md#d31-a-codon-no-read-spans-keeps-its-per-base-reading),
+  which also says how far that note is visible today.
 
 ### A position that was not read is not a wild-type position
 
