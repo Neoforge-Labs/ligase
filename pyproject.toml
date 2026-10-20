@@ -43,6 +43,13 @@ docs = [
   # that Material for MkDocs is built on, with no migration path.
   "mkdocs>=1.6,<2.0",
   "mkdocs-material>=9.5,<10",
+  # The API reference is generated from the package's own docstrings, so
+  # building the docs imports ligase.
+  "mkdocstrings[python]>=0.26",
+  # marimo authors and runs the example notebooks; their pages are generated
+  # from real runs rather than embedded as browser-executed islands, because
+  # ligase is a native extension and there is no emscripten wheel for it.
+  "marimo>=0.25",
 ]
 
 [tool.maturin]
@@ -78,6 +85,13 @@ convention = "google"
 [tool.ruff.lint.per-file-ignores]
 # Test function names describe the behaviour; a docstring would just repeat it.
 "tests/*" = ["D103"]
+# marimo writes every cell as `def _(dep):` -- no annotations, no docstring,
+# and the name is always `_`. That is the notebook file format, not code a
+# person wrote, so the rules that police signatures do not apply. Everything
+# else, including the import and correctness rules, still does.
+# B018 is marimo's cell-output idiom: a cell's trailing bare expression
+# is what the cell displays, which ruff reads as a useless expression.
+"examples/notebooks/*" = ["ANN", "B018", "D103"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -86,5 +100,10 @@ strict = true
 # should be one a type checker accepts, and this is what notices when it
 # stops being.
 files = ["python", "tests", "examples"]
+# marimo cells receive their dependencies as untyped parameters, so inside a
+# cell `lg` is a parameter and `lg.Reference` cannot resolve as an annotation.
+# These are checked by being executed on every docs build, which is a stronger
+# guarantee than annotation for an example anyway.
+exclude = ["^examples/notebooks/"]
 mypy_path = "python"
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
