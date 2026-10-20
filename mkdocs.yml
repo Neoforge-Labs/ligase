@@ -63,6 +63,7 @@ nav:
       - Writing up a pipeline: guide/provenance.md
       - Reading what the engine noticed: guide/notes.md
       - Interpreting resistance: guide/resistance-interpretation.md
+      - Releasing: guide/releasing.md
   - Architecture:
       - Workspace: architecture/workspace.md
       - Type system: architecture/type-system.md
