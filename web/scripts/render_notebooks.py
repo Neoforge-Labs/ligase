@@ -66,7 +66,14 @@ ORDER: tuple[tuple[str, str, str], ...] = (
     ),
 )
 
-REPO = "https://github.com/Neoforge-Labs/ligase/blob/main/examples/notebooks"
+BLOB = "https://github.com/Neoforge-Labs/ligase/blob/main/examples"
+REPO = f"{BLOB}/notebooks"
+DEMO = f"{BLOB}/hiv-resistance"
+
+
+def slug(stem: str) -> str:
+    """`01_what_a_dataset_knows` -> `what-a-dataset-knows`."""
+    return stem[3:].replace("_", "-")
 
 
 @dataclass
@@ -247,12 +254,12 @@ def index() -> str:
     the first time one was added.
     """
     rows = "\n".join(
-        f"| {n} | [{title}](/notebooks/{stem[3:].replace('_', '-')}/) | {blurb.rstrip('.')} |"
+        f"| {n} | [{title}](/notebooks/{slug(stem)}/) | {blurb.rstrip('.')} |"
         for n, (stem, title, blurb) in enumerate(ORDER, start=1)
     )
     return f"""---
 title: "About the notebooks"
-description: "Four marimo notebooks, executed on every docs build and rendered from the run."
+description: "Four marimo notebooks, executed on every docs build."
 ---
 
 # About the notebooks
@@ -310,7 +317,7 @@ cannot import the thing it documents.
 
 The notebooks are deliberately small. For the reference pipeline end to end —
 reads, alignment, variant calls, resistance — see
-[`examples/hiv-resistance/pipeline.py`]({REPO.replace("/examples/notebooks", "/examples/hiv-resistance")}/pipeline.py)
+[`examples/hiv-resistance/pipeline.py`]({DEMO}/pipeline.py)
 and [running a pipeline](/guide/running-a-pipeline/).
 """
 
@@ -322,7 +329,7 @@ def main() -> int:
     os.chdir(ROOT)
     OUT.mkdir(parents=True, exist_ok=True)
     for stem, title, blurb in ORDER:
-        (OUT / f"{stem[3:].replace('_', '-')}.mdx").write_text(
+        (OUT / f"{slug(stem)}.mdx").write_text(
             render(stem, title, blurb), encoding="utf-8"
         )
         print(f"  ran and rendered {stem}")
