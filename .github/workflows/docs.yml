@@ -1,0 +1,90 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Pages deployment needs these; building alone would not.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A queued deploy should supersede an older one, not race it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # mkdocstrings imports ligase to read its docstrings, and ligase is a
+      # compiled extension — so this job needs the Rust toolchain and a C
+      # compiler for the bundled SQLite, not just the docs tools. Installing
+      # the published wheel instead would document the released version rather
+      # than this branch, which is the wrong thing for a docs build.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the package and the docs extra
+        run: pip install -e ".[docs]"
+
+      # --strict turns a broken internal link or a page missing from the nav
+      # into a failed build. A docs site that silently loses a page is worse
+      # than one that fails to publish.
+      - name: Build
+        run: mkdocs build --strict
+
+      # The notebooks are the examples. marimo notebooks are importable
+      # Python, so running them is the whole check: if the API drifts from
+      # what an example claims, this fails here instead of shipping a page
+      # that does not work. They need no aligner — the ones that do live in
+      # the demo job in ci.yml.
+      - name: Check the example notebooks still run
+        run: |
+          set -euo pipefail
+          for nb in examples/notebooks/*.py; do
+            echo "── $nb"
+            python "$nb"
+          done
+
+      # Under Pages' build_type=workflow, a CNAME file in the artifact does
+      # NOT configure the custom domain — it is served as an ordinary static
+      # file while the Pages API still reports cname=null. This step only
+      # confirms mkdocs carried docs/CNAME into site/.
+      #
+      # The domain itself is set once, by hand, against the repository's Pages
+      # REST endpoint, and only after ligase.neoforgelabs.tech resolves.
+      # Setting it earlier breaks the working github.io URL by pointing it at
+      # a host that does not answer.
+      - name: Confirm mkdocs carried docs/CNAME into the artifact
+        run: |
+          test -f site/CNAME || { echo "FAIL: CNAME missing from site/"; exit 1; }
+          echo "site/CNAME: $(cat site/CNAME)"
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/
+
+  deploy:
+    name: Deploy to GitHub Pages
+    # Never publish from a pull request: it would let a fork overwrite the
+    # live site.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
