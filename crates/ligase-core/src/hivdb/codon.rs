@@ -2,7 +2,7 @@
 //!
 //! This is the step between "position 2750 of HXB2 is C rather than T" and
 //! "reverse transcriptase codon 67 holds asparagine". Everything the
-//! scoring engine reasons about comes from here, so the three judgements
+//! scoring engine reasons about comes from here, so the four judgements
 //! this module makes are the ones that decide whether a resistance report
 //! is honest.
 //!
@@ -16,10 +16,29 @@
 //!
 //! Where reads support both the reference and an alternate base above the
 //! mixture threshold, both bases are present, and the codon translates to
-//! every amino acid the combinations give. This is what an ambiguous
+//! every amino acid those bases can give. This is what an ambiguous
 //! nucleotide means to Stanford's own interpreter, and the alternative —
 //! taking the majority base — would discard the minority resistance that
 //! deep sequencing exists to find.
+//!
+//! # A codon is only the combinations the reads carry
+//!
+//! A VCF says what is at each position, not what travels together. Where
+//! two bases of one codon are each ambiguous, the combinations of them
+//! include codons no read carries, and translating those invents amino
+//! acids the virus does not hold.
+//!
+//! So the alignment settles it. Reads spanning all three bases of a codon
+//! are counted as the triplets they actually carry, and the codon holds
+//! the amino acids whose share of those reads reaches the mixture
+//! threshold — the amino acid's share rather than each triplet's, because
+//! two synonymous codons each below the threshold can spell one amino acid
+//! well above it.
+//!
+//! Phasing narrows a reading and never widens one: which alleles are
+//! *present* at a position is still the caller's own quality-aware allele
+//! depths, and a codon no read spans keeps its per-base reading and says
+//! so (D31).
 //!
 //! # A position with no coverage is not a wild-type position
 //!
@@ -37,7 +56,7 @@
 //! and treats every uncalled position as reference. That is the
 //! assumption a report must not make silently.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::path::Path;
 
@@ -155,9 +174,10 @@ pub struct Reading {
 ///
 /// - `reference` — the FASTA the variants were called against.
 /// - `variants` — the VCF, optionally compressed.
-/// - `alignment` — the BAM the variants were called from, for coverage.
-///   Without it no position can be known to be unread, and the reading
-///   says so.
+/// - `alignment` — the BAM the variants were called from, for coverage
+///   and for phasing. Without it no position can be known to be unread
+///   and no codon can be read as the triplets its reads carry, and the
+///   reading says so.
 /// - `mixture` — the fraction an allele must reach to count as present.
 /// - `depth` — the depth a position must reach to count as read.
 ///
@@ -175,12 +195,13 @@ pub fn read(
     let calls = calls(variants)?;
     let mut notes = Vec::new();
 
-    let covered = match alignment {
-        Some(path) => Some(coverage(path, depth)?),
+    let scanned = match alignment {
+        Some(path) => Some(scan(path, depth)?),
         None => {
             notes.push(
-                "no alignment was supplied, so coverage is unknown and every \
-                 position the caller did not report is taken to be reference"
+                "no alignment was supplied, so coverage is unknown, no codon \
+                 can be phased, and every position the caller did not report \
+                 is taken to be reference"
                     .to_owned(),
             );
             None
@@ -202,15 +223,16 @@ pub fn read(
         }
 
         let mut protein = Protein::new();
+        let mut unphased = 0_u32;
         for codon in 1..=gene.codons() {
             let first = gene.base_of(codon);
             let bases = [first, first + 1, first + 2];
 
             // The whole codon has to be readable. Two bases out of three
             // is not two thirds of an amino acid.
-            if covered
+            if scanned
                 .as_ref()
-                .is_some_and(|read| bases.iter().any(|base| !read.contains(base)))
+                .is_some_and(|scan| bases.iter().any(|base| !scan.positions.contains(base)))
             {
                 continue;
             }
@@ -254,10 +276,36 @@ pub fn read(
                 }
             }
 
-            for first_base in &alternatives[0] {
-                for second in &alternatives[1] {
-                    for third in &alternatives[2] {
-                        if let Some(acid) = translate(&[*first_base, *second, *third]) {
+            // Every combination of the alleles the caller credited: the
+            // candidates, before the reads are asked which of them travel
+            // together. A bit per place in the codon table.
+            let mut candidates = 0_u64;
+            for one in &alternatives[0] {
+                for two in &alternatives[1] {
+                    for three in &alternatives[2] {
+                        if let Some(place) = places(&[*one, *two, *three]) {
+                            candidates |= 1 << place;
+                        }
+                    }
+                }
+            }
+
+            let phased = scanned
+                .as_ref()
+                .and_then(|scan| scan.at(first))
+                .and_then(|carried| phase(candidates, carried, mixture, depth));
+            match phased {
+                Some(phased) => acids = acids.with(phased),
+                None => {
+                    // Only where there was something to phase: a codon
+                    // whose reference base is not a base has no candidate
+                    // reading at all, which is a different complaint.
+                    if scanned.is_some() && candidates != 0 {
+                        unphased += 1;
+                    }
+                    for place in 0..64 {
+                        if candidates & (1 << place) != 0 {
+                            let acid = translated(place);
                             acids = acids.with(Acids::of(acid).unwrap_or_else(|_| Acids::none()));
                         }
                     }
@@ -288,6 +336,14 @@ pub fn read(
                 protein.read(),
                 gene.name,
                 gene.codons()
+            ));
+        }
+        if unphased > 0 {
+            notes.push(format!(
+                "{unphased} of {}'s codons were read base by base because no \
+                 read spans all three of their bases {depth} times over, so a \
+                 combination of bases no read carries may be reported there",
+                gene.name
             ));
         }
         observed.with(gene.name, protein);
@@ -452,8 +508,84 @@ fn calls(path: &Path) -> Result<BTreeMap<(String, u32), Called>, LoadError> {
     Ok(calls)
 }
 
-/// Every reference position an alignment covers to at least `depth`.
-fn coverage(path: &Path, depth: u32) -> Result<std::collections::BTreeSet<u32>, LoadError> {
+/// What an alignment says about the codons: what it covers, and what
+/// travels together.
+#[derive(Debug)]
+struct Scan {
+    /// Every reference position covered to at least `depth`.
+    positions: BTreeSet<u32>,
+    /// The first reference position `triplets` is indexed from.
+    first: u32,
+    /// How many of the reads spanning each codon carried each of the
+    /// sixty-four triplets: indexed by the codon's first base, and then
+    /// by the triplet's place in the codon table.
+    ///
+    /// Dense because it is written once per codon per read, which on a
+    /// deep amplicon is a few million times, and because the whole table
+    /// is a megabyte — cheaper to allocate once than to look a key up
+    /// that often.
+    ///
+    /// A read only counts here if it says what all three bases are. One
+    /// that ends inside the codon, or carries an indel across it, or
+    /// holds an `N` in it, says nothing about which amino acid the codon
+    /// holds — and a read that says nothing should not dilute the reads
+    /// that do, so it is left out of the denominator as well.
+    triplets: Vec<[u32; 64]>,
+}
+
+impl Scan {
+    /// What the reads spanning a codon carried, by triplet.
+    fn at(&self, base: u32) -> Option<&[u32; 64]> {
+        self.triplets.get(base.checked_sub(self.first)? as usize)
+    }
+}
+
+/// Which amino acids the reads support, or `None` if they cannot say.
+///
+/// `candidates` is the alleles the caller credited, as a bit per place in
+/// the codon table: phasing decides which combinations of called alleles
+/// are real, and is not a second opinion about which alleles there are.
+///
+/// The threshold applies to the amino acid rather than to the triplet
+/// spelling it. Two synonymous codons each below `mixture` can hold an
+/// amino acid well above it, and losing an amino acid that is there is the
+/// one direction D29 forbids.
+///
+/// `None` where fewer than `depth` reads span the codon, and where the
+/// reads support no candidate reading of it at all. Both mean the same
+/// thing — the reads cannot settle this codon — and the caller then falls
+/// back to the per-base reading, which is wider rather than narrower
+/// (D31).
+fn phase(candidates: u64, carried: &[u32; 64], mixture: f64, depth: u32) -> Option<Acids> {
+    let spanning: u32 = carried.iter().sum();
+    if spanning < depth {
+        return None;
+    }
+
+    // Summed by amino acid, so a lysine spelled two ways counts once.
+    let mut by_acid: BTreeMap<char, u32> = BTreeMap::new();
+    for (place, &count) in carried.iter().enumerate() {
+        if count > 0 && candidates & (1 << place) != 0 {
+            *by_acid.entry(translated(place)).or_default() += count;
+        }
+    }
+
+    let mut acids = Acids::none();
+    let mut kept = false;
+    for (acid, count) in &by_acid {
+        if f64::from(*count) / f64::from(spanning) >= mixture {
+            acids = acids.with(Acids::of(*acid).unwrap_or_else(|_| Acids::none()));
+            kept = true;
+        }
+    }
+    kept.then_some(acids)
+}
+
+/// Read an alignment's coverage of the genes, and its codon triplets.
+///
+/// One pass, because the reads are the expensive part of this module and
+/// both questions are asked of the same bases.
+fn scan(path: &Path, depth: u32) -> Result<Scan, LoadError> {
     let file = File::open(path).map_err(|error| LoadError::io(path, error))?;
     let mut reader = bam::io::Reader::new(file);
     reader
@@ -465,7 +597,21 @@ fn coverage(path: &Path, depth: u32) -> Result<std::collections::BTreeSet<u32>, 
     // dense count over them is cheaper than a map over the whole thing.
     let first = GENES.iter().map(|gene| gene.start).min().unwrap_or(1);
     let last = GENES.iter().map(|gene| gene.end).max().unwrap_or(1);
-    let mut depths = vec![0_u32; (last - first + 1) as usize];
+    let width = (last - first + 1) as usize;
+    let mut depths = vec![0_u32; width];
+    let mut triplets = vec![[0_u32; 64]; width];
+
+    // Which of those positions a codon begins at, so a read is asked
+    // about codons rather than about every base it covers.
+    let mut starts = vec![false; width];
+    for gene in GENES {
+        for codon in 1..=gene.codons() {
+            let base = gene.base_of(codon);
+            if base >= first && base <= last {
+                starts[(base - first) as usize] = true;
+            }
+        }
+    }
 
     for record in reader.records() {
         let record = record.map_err(|error| LoadError::format(path, format!("record: {error}")))?;
@@ -473,42 +619,91 @@ fn coverage(path: &Path, depth: u32) -> Result<std::collections::BTreeSet<u32>, 
             continue;
         };
         let mut position = u32::try_from(usize::from(start)).unwrap_or(u32::MAX);
+        let sequence = record.sequence();
+        let mut index = 0_usize;
+
         for operation in record.cigar().iter() {
             let Ok(operation) = operation else { continue };
             let length = u32::try_from(operation.len()).unwrap_or(0);
             match operation.kind() {
                 Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch => {
-                    for base in position..position.saturating_add(length) {
-                        if base >= first && base <= last {
-                            depths[(base - first) as usize] += 1;
+                    for step in 0..length {
+                        let base = position.saturating_add(step);
+                        if base < first || base > last {
+                            continue;
+                        }
+                        let at = (base - first) as usize;
+                        depths[at] += 1;
+
+                        // A codon this block holds whole is one this
+                        // read can settle: three bases of a single
+                        // aligned run, so nothing was inserted or
+                        // deleted between them.
+                        if !starts[at] || step + 2 >= length {
+                            continue;
+                        }
+                        let read_at = index + step as usize;
+                        let codon = [
+                            sequence.get(read_at).unwrap_or(b'N'),
+                            sequence.get(read_at + 1).unwrap_or(b'N'),
+                            sequence.get(read_at + 2).unwrap_or(b'N'),
+                        ];
+                        if let Some(place) = places(&codon) {
+                            triplets[at][place] += 1;
                         }
                     }
+
                     position = position.saturating_add(length);
+                    index += length as usize;
                 }
                 Kind::Deletion | Kind::Skip => position = position.saturating_add(length),
+                Kind::Insertion | Kind::SoftClip => index += length as usize,
                 _ => {}
             }
         }
     }
 
-    Ok((first..=last)
-        .filter(|base| depths[(base - first) as usize] >= depth)
-        .collect())
+    Ok(Scan {
+        positions: (first..=last)
+            .filter(|base| depths[(base - first) as usize] >= depth)
+            .collect(),
+        first,
+        triplets,
+    })
+}
+
+/// Where a base sits in the codon table: two bits, `A C G T`.
+///
+/// `None` for anything that is not a base. An `N` in a read says nothing
+/// about which amino acid a codon holds, and neither does the `=` a BAM
+/// writes where a base matches the reference it was not given.
+const fn place(base: u8) -> Option<usize> {
+    match base {
+        b'A' => Some(0),
+        b'C' => Some(1),
+        b'G' => Some(2),
+        b'T' | b'U' => Some(3),
+        _ => None,
+    }
+}
+
+/// Where a codon sits in the codon table, or `None` if it holds a base
+/// that is not a base.
+const fn places(codon: &[u8; 3]) -> Option<usize> {
+    match (place(codon[0]), place(codon[1]), place(codon[2])) {
+        (Some(one), Some(two), Some(three)) => Some(one * 16 + two * 4 + three),
+        _ => None,
+    }
+}
+
+/// What the codon at a place in the table translates to.
+fn translated(place: usize) -> char {
+    // Stops are `*`, as Stanford writes them, not `X`.
+    const CODE: &[u8; 64] = b"KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVV*Y*YSSSS*CWCLFLF";
+    char::from(CODE[place & 0x3f])
 }
 
 /// Translate one codon, or `None` if it holds a base that is not a base.
 fn translate(codon: &[u8; 3]) -> Option<char> {
-    // Stops are `*`, as Stanford writes them, not `X`.
-    const CODE: &str = "KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVV*Y*YSSSS*CWCLFLF";
-    let index = |base: u8| -> Option<usize> {
-        match base {
-            b'A' => Some(0),
-            b'C' => Some(1),
-            b'G' => Some(2),
-            b'T' | b'U' => Some(3),
-            _ => None,
-        }
-    };
-    let offset = index(codon[0])? * 16 + index(codon[1])? * 4 + index(codon[2])?;
-    CODE.chars().nth(offset)
+    places(codon).map(translated)
 }
