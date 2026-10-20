@@ -111,9 +111,12 @@ pub const GENES: [Gene; 4] = [
         end: 4229,
     },
     Gene {
+        // 5093 rather than the 5096 where pol ends: the last three bases
+        // are the stop codon, and integrase is 288 amino acids, which is
+        // how HIVdb numbers it and how its mutation lists read.
         name: "IN",
         start: 4230,
-        end: 5096,
+        end: 5093,
     },
 ];
 

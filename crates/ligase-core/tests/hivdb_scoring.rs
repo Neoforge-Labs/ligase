@@ -27,10 +27,13 @@
 //! `unread` list, which is why these tests do not assert on it — the
 //! tests that do are the ones that construct coverage deliberately.
 //!
-//! The one way that could hide a bug is a rule naming the wild-type amino
-//! acid at some position: every sample would then match it, and the
-//! fixture could not tell us. `hivdb_codons.rs` closes that by checking no
-//! such rule exists.
+//! That leaves one thing worth stating, because it looks like a hole and
+//! is not. If some rule named the *wild-type* amino acid at its position,
+//! Stanford — who has the whole sequence — would score it on nearly every
+//! sample, while this engine, seeing only the listed mutations, would
+//! score nothing. Those two numbers would differ. Across 3,348
+//! expectations they never do, so no such rule fires for any of these
+//! thirty samples.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;
@@ -137,6 +140,20 @@ fn the_global_range_maps_scores_to_levels() {
     }
 }
 
+/// How many of the published expectations are a score other than zero.
+///
+/// A fixture in which everything is susceptible would be reproduced by an
+/// engine that always answered zero, so this is what makes the comparison
+/// above worth making.
+fn assessed(ruleset: &Ruleset, cases: &BTreeMap<String, Observed>) -> usize {
+    cases
+        .values()
+        .filter_map(|observed| interpret(ruleset, observed).ok())
+        .flatten()
+        .filter(|assessment| assessment.score.is_some_and(|score| score != 0))
+        .count()
+}
+
 #[test]
 fn every_published_expectation_is_reproduced() {
     let ruleset = Ruleset::read(&rulesets().join("HIVDB_9.8.ruleset")).unwrap();
@@ -176,6 +193,12 @@ fn every_published_expectation_is_reproduced() {
     }
 
     assert!(checked > 3000, "only {checked} expectations were checked");
+    // A fixture of all-zero scores would pass whatever the engine did.
+    let scored = assessed(&ruleset, &cases);
+    assert!(
+        scored > 100,
+        "only {scored} expectations are non-zero; this fixture proves little"
+    );
     assert!(
         wrong.is_empty(),
         "{} of {checked} disagree with Stanford:\n  {}",
