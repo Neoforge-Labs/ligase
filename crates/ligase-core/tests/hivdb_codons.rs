@@ -9,14 +9,18 @@
 //! These are the judgements that decide whether a resistance report is
 //! honest, so each gets a test that would fail if it were made the other
 //! way round: a codon assembled from one record rather than all of them, a
-//! mixture reduced to its majority, or an uncovered position read as
-//! wild-type.
+//! mixture reduced to its majority, an uncovered position read as
+//! wild-type, or a combination of bases no read carries reported as an
+//! amino acid.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::io::Write;
+use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 
+use ligase::hivdb::Reading;
 use ligase::hivdb::codon::{DEPTH, GENES, Gene, MIXTURE, read};
+use noodles::sam::alignment::io::Write as _;
+use noodles::{bam, sam};
 use tempfile::TempDir;
 
 /// The gene a test is about, by name.
@@ -71,22 +75,67 @@ fn variants(directory: &Path, records: &[(u32, &str, &str, u32, u32)]) -> PathBu
     path
 }
 
-/// What amino acids a codon came out holding.
-fn acids(
+/// A BAM of the given reads, each `(first reference position, the bases
+/// it carries from there, how many copies of it to write)`.
+///
+/// Written through a SAM, for the reason `tests/common/mod.rs` gives: what
+/// a test says about its reads is then text, rather than a binary this
+/// test wrote and read back to itself.
+fn alignment(directory: &Path, reads: &[(u32, &str, u32)]) -> PathBuf {
+    let length = GENES.iter().map(|gene| gene.end).max().unwrap() + 200;
+    let sam = directory.join("alignment.sam");
+    let mut text = String::from("@HD\tVN:1.6\n");
+    text.push_str(&format!("@SQ\tSN:K03455.1\tLN:{length}\n"));
+    let mut serial = 0_u32;
+    for (position, bases, copies) in reads {
+        for _ in 0..*copies {
+            serial += 1;
+            text.push_str(&format!(
+                "read{serial}\t0\tK03455.1\t{position}\t60\t{}M\t*\t0\t0\t{bases}\t{}\n",
+                bases.len(),
+                "I".repeat(bases.len()),
+            ));
+        }
+    }
+    std::fs::write(&sam, text).unwrap();
+
+    let path = directory.join("alignment.bam");
+    let mut reader = sam::io::Reader::new(BufReader::new(std::fs::File::open(&sam).unwrap()));
+    let header = reader.read_header().unwrap();
+    let mut writer = bam::io::Writer::new(std::fs::File::create(&path).unwrap());
+    writer.write_alignment_header(&header).unwrap();
+    for record in reader.records() {
+        writer
+            .write_alignment_record(&header, &record.unwrap())
+            .unwrap();
+    }
+    writer.try_finish().unwrap();
+    path
+}
+
+/// One reading of a planted reference, its calls and, where given, its
+/// reads.
+fn reading(
     directory: &TempDir,
     planted: &[(&str, u32, &str)],
     records: &[(u32, &str, &str, u32, u32)],
-    name: &str,
-    codon: u32,
-) -> String {
-    let reading = read(
+    reads: Option<&[(u32, &str, u32)]>,
+    mixture: f64,
+) -> Reading {
+    read(
         &reference(directory.path(), planted),
         &variants(directory.path(), records),
-        None,
-        MIXTURE,
+        reads
+            .map(|reads| alignment(directory.path(), reads))
+            .as_deref(),
+        mixture,
         DEPTH,
     )
-    .unwrap();
+    .unwrap()
+}
+
+/// What amino acids a codon came out holding.
+fn held(reading: &Reading, name: &str, codon: u32) -> String {
     reading
         .observed
         .protein(name)
@@ -94,6 +143,21 @@ fn acids(
         .at(codon)
         .map(|acids| acids.to_string())
         .unwrap_or_default()
+}
+
+/// What amino acids a codon came out holding, with no alignment.
+fn acids(
+    directory: &TempDir,
+    planted: &[(&str, u32, &str)],
+    records: &[(u32, &str, &str, u32, u32)],
+    name: &str,
+    codon: u32,
+) -> String {
+    held(
+        &reading(directory, planted, records, None, MIXTURE),
+        name,
+        codon,
+    )
 }
 
 #[test]
@@ -226,4 +290,126 @@ fn the_genes_cover_every_position_the_rules_name() {
     // three bases are a stop codon, not an amino acid.
     assert_eq!(gene("IN").codons(), 288);
     assert_eq!(gene("CA").codons(), 231);
+}
+
+/// The reads behind the discrepancy that motivated phasing, in miniature.
+///
+/// RT codon 219 begins at HXB2 3204. On SRR32217726 the caller credits G
+/// there in 43% of the reads and at 3205 in 2.4%; both pass at 2%.
+const K219: [(u32, &str, u32); 4] = [
+    (3204, "AAA", 540),
+    (3204, "GAA", 450),
+    (3204, "AGA", 5),
+    (3204, "GGA", 5),
+];
+
+/// The calls those reads produce: two ambiguous bases in one codon.
+const TWO_AMBIGUOUS: [(u32, &str, &str, u32, u32); 2] =
+    [(3204, "A", "G", 55, 45), (3205, "A", "G", 97, 3)];
+
+#[test]
+fn a_codon_is_read_from_the_combinations_reads_actually_carry() {
+    let directory = TempDir::new().unwrap();
+
+    // Without the reads there is nothing to say which substitution
+    // travels with which, so every combination of the two ambiguous bases
+    // is a candidate: AAA, AGA, GAA, GGA -- lysine, arginine, glutamate
+    // and glycine. Two of the four are carried by no read at all, as the
+    // alignment below says.
+    assert_eq!(
+        held(
+            &reading(&directory, &[], &TWO_AMBIGUOUS, None, 0.02),
+            "RT",
+            219,
+        ),
+        "EGKR"
+    );
+
+    // With them, the codon holds what the virus holds. 54% of the reads
+    // spanning it read AAA and 45% read GAA; AGA and GGA are half a per
+    // cent each, which is a long way below the 2% an allele must reach.
+    assert_eq!(
+        held(
+            &reading(&directory, &[], &TWO_AMBIGUOUS, Some(&K219), 0.02),
+            "RT",
+            219,
+        ),
+        "EK"
+    );
+}
+
+#[test]
+fn a_codon_no_read_spans_keeps_its_per_base_reading_and_says_so() {
+    let directory = TempDir::new().unwrap();
+
+    // Every base of codon 219 is covered a hundred and fifty times over,
+    // and no single read spans all three of them -- which is what
+    // paired-end reads do to a codon that falls between the mates.
+    // Phasing is unavailable for exactly this codon.
+    let split = [(3203, "AAA", 150), (3205, "AAA", 150)];
+    let reading = reading(&directory, &[], &TWO_AMBIGUOUS, Some(&split), 0.02);
+
+    // So the per-base reading stands. Dropping the codon instead would
+    // discard evidence; narrowing it by guessing a phase would invent
+    // one. D31 keeps the wider answer, which is the direction D29 commits
+    // to -- and says so.
+    assert_eq!(held(&reading, "RT", 219), "EGKR");
+    assert!(
+        reading
+            .notes
+            .iter()
+            .any(|note| note.contains("no read spans")),
+        "{:?}",
+        reading.notes
+    );
+}
+
+#[test]
+fn phasing_narrows_a_reading_and_never_widens_one() {
+    let directory = TempDir::new().unwrap();
+
+    // The reads carry GCA -- alanine -- in a tenth of the reads spanning
+    // the codon, and the caller credited no such allele at 3204. It is
+    // not reported, because what counts as *present* at a position is
+    // still the caller's own allele depths: they are quality-aware, and
+    // raw read bases are not.
+    //
+    // This is Sample 30's V75A in miniature, and the reason that
+    // discrepancy survives this change: at HXB2 2773 the reads carry the
+    // alanine base in 3.2% of themselves, where the caller credits 1.7%.
+    // Phasing decides which combinations of called alleles are real; it
+    // is not a second opinion about which alleles there are.
+    let reads = [(3204, "AAA", 900), (3204, "GCA", 100)];
+    assert_eq!(
+        held(
+            &reading(&directory, &[], &[], Some(&reads), 0.02),
+            "RT",
+            219
+        ),
+        "K"
+    );
+}
+
+#[test]
+fn an_amino_acid_split_across_two_haplotypes_is_still_present() {
+    let directory = TempDir::new().unwrap();
+
+    // 3204 is 80% G and 3206 is 20% G, so the candidates are AAA and AAG
+    // -- both lysine -- and GAA and GAG, both glutamate. The reads split
+    // the lysine between its two synonymous codons: a tenth each.
+    //
+    // Lysine is a fifth of this virus. Thresholding each combination on
+    // its own would lose it at 15%, and losing an amino acid that is
+    // there is the one direction D29 forbids, so the threshold applies to
+    // the amino acid rather than to the spelling of it.
+    let records = [(3204, "A", "G", 20, 80), (3206, "A", "G", 80, 20)];
+    let reads = [(3204, "AAA", 100), (3204, "AAG", 100), (3204, "GAA", 800)];
+    assert_eq!(
+        held(
+            &reading(&directory, &[], &records, Some(&reads), MIXTURE),
+            "RT",
+            219,
+        ),
+        "EK"
+    );
 }
