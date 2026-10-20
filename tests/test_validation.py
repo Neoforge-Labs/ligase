@@ -38,6 +38,11 @@ set of alignments therefore validates all three.
 2% is where the agreement stops, and the discrepancies there are listed
 below one by one with their causes, so that a change in any of them fails
 this test rather than passing quietly.
+
+There were nine. Six were the Cartesian product of per-base ambiguities
+inventing codons no read carried; codons are read from read-level
+haplotypes now (D31), and the three that remain are a sensitivity limit of
+aligning to HXB2 rather than anything this engine decides.
 """
 
 from __future__ import annotations
@@ -98,29 +103,21 @@ ALGORITHM = "HIVDB_9.8"
 #: rather than tolerating them is the point: a discrepancy that changes
 #: shape fails here, and a new one fails here too.
 KNOWN_AT_TWO_PERCENT = {
-    # A codon is read from a VCF, which carries no phasing. At 2% both the
-    # 45% G at HXB2 3204 and the 2.75% G at 3205 pass, and enumerating the
-    # combinations yields AAA/AGA/GAA/GGA -- K, R, E and G -- although no
-    # single read need carry both substitutions. Stanford's consensus for
-    # this sample did not include the 3205 base, so it reports K and E
-    # alone. Neither extra amino acid matches a rule, so every score and
-    # level is identical; only the mutation string differs.
-    ("Sample_3", "ABC"): ("5", "1", "K219KEGR"),
-    ("Sample_3", "AZT"): ("10", "2", "K219KEGR"),
-    ("Sample_3", "D4T"): ("10", "2", "K219KEGR"),
-    ("Sample_3", "DDI"): ("5", "1", "K219KEGR"),
-    ("Sample_3", "TDF"): ("5", "1", "K219KEGR"),
-    # The same threshold effect on the reference allele: capsid 105 still
-    # shows A in 2-5% of reads here, where Stanford's consensus had moved
-    # wholly to T. Score and level identical.
-    ("Sample_4", "LEN"): ("160", "5", "M66I,Q67H,N74D,A105AT"),
-    # The one that changes a call, and the only false negative in the set.
-    # Stanford reports V75VA; our alignment supports the V75A base in 3 of
-    # 392 reads at HXB2 2773, which is 0.77% -- below 2%, so it is not
-    # there to be found. HIVGenoPipe realigns against a sample-specific
-    # reference, which is the paper's whole method and which places reads
-    # this pipeline's alignment to HXB2 does not. A sensitivity limit at
-    # the 1% level, not a disagreement about what the reads mean.
+    # One missed mutation, counted once per drug it scores against, and
+    # the only false negative in the set. Stanford reports V75VA; the
+    # caller credits the V75A base in 4 of the 239 reads it counted at
+    # HXB2 2773, which is 1.7% -- below 2%, so it is not there to be
+    # found. HIVGenoPipe realigns against a sample-specific reference,
+    # which is that paper's whole method and which places reads this
+    # pipeline's alignment to HXB2 does not. A sensitivity limit at the
+    # 1% level, not a disagreement about what the reads mean.
+    #
+    # Phasing does not reach it, and must not. The raw read bases at 2773
+    # carry the alanine base in 3.2% of themselves, where `bcftools
+    # mpileup` credits 1.7% of the reads it counted once base quality is
+    # taken into account. Which alleles are *present* stays the caller's
+    # judgement; phasing only decides which combinations of called
+    # alleles are real (D31).
     ("Sample_30", "AZT"): ("0", "1", ""),
     ("Sample_30", "D4T"): ("0", "1", ""),
     ("Sample_30", "DDI"): ("0", "1", ""),
@@ -281,19 +278,20 @@ def test_the_remaining_discrepancies_are_the_explained_ones(
     assert not unexplained, "\n  ".join(["unexplained at 2%:", *unexplained])
 
 
-def test_only_one_discrepancy_changes_a_clinical_call(
+def test_every_remaining_discrepancy_is_the_one_missed_mutation(
     demo: ModuleType, cache: Path
 ) -> None:
-    """Only one mutation among the nine would change what anyone did.
+    """What is left is one missed mutation, counted three times.
 
-    Worth asserting rather than describing. Six differ only in the mutation
-    string while the score and the level are identical, so no clinician
-    reading the report would act differently. The other three are one
-    missed mutation counted once per drug it scores against: Sample 30's
-    V75A, which this alignment supports in 3 of 392 reads and so cannot see
-    at a 2% threshold. It moves three NRTIs off susceptible, and that is
-    the honest cost of aligning to HXB2 rather than to a sample-specific
-    reference.
+    Worth asserting rather than describing. Six of the nine used to be
+    cosmetic -- the score and the level identical, only the mutation
+    string differing -- because a codon was read as the combinations of
+    its ambiguous bases rather than as the haplotypes the reads carry.
+    Those are gone, so every discrepancy that remains is Sample 30's V75A:
+    4 of 239 counted reads at a 2% threshold, moving three NRTIs off
+    susceptible.
+    That is the honest cost of aligning to HXB2 rather than to a
+    sample-specific reference, and nothing in this engine can recover it.
     """
     expected = published()
 
@@ -303,7 +301,7 @@ def test_only_one_discrepancy_changes_a_clinical_call(
         want = expected[sample, "Amb2", drug]
         (cosmetic if got[:2] == want[:2] else clinical).append((sample, drug))
 
-    assert len(cosmetic) == 6, cosmetic
+    assert not cosmetic, cosmetic
     assert sorted(clinical) == [
         ("Sample_30", "AZT"),
         ("Sample_30", "D4T"),
