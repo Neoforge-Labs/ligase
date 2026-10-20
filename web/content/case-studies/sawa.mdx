@@ -1,0 +1,82 @@
+---
+title: "SAWA: an evaluation in progress"
+description: "SAWA, a sibling project, is evaluating Ligase for HIV drug-resistance surveillance. The evaluation has already found a silent coordinate hazard in HIV pol numbering."
+---
+
+# SAWA: an evaluation in progress
+
+<Lede>
+SAWA is a sibling project working on HIV drug-resistance surveillance. It is
+evaluating whether to use Ligase's resistance interpretation in place of calling
+out to Stanford's Sierra service. **This is not a decision to adopt**, and SAWA
+is not an independent third party — it shares an author with Ligase.
+</Lede>
+
+It is on this page for one reason: somebody tried to use Ligase for real work
+and immediately hit a way in which Ligase is silently wrong. That is worth more
+than a feature list, and burying it would be the wrong instinct.
+
+## What it found: *pol*-relative coordinates are read as whole-genome ones
+
+Ligase's `lg.hivdb.interpret` expects positions in **HXB2 K03455 whole-genome
+coordinates**, with the gene windows for protease, reverse transcriptase and
+integrase fixed in the engine.
+
+SAWA's sequences are *pol*-relative. Its reference spans K03455 2085–5096, so
+every position carries an offset of 2084.
+
+Hand Ligase a *pol*-relative reference and it does not complain. It reads what
+is actually reverse transcriptase and integrase as though it were protease, and
+reports **intermediate protease-inhibitor resistance** — a clinically
+meaningful, entirely wrong result, with no error and no warning.
+
+This is exactly the class of bug the rest of this site is about, in Ligase
+itself. A coordinate system that the data does not state, assumed by a
+consumer, with plausible output when the assumption is wrong.
+
+<Note kind="warning" title="If you are using lg.hivdb.interpret">
+Supply whole-genome HXB2 coordinates. A *pol*-only reference must be padded to
+its true offset and named for the accession — `"N" * 2084 + hxb2_pol`, named
+`K03455` — or the gene windows land on the wrong genes.
+
+This is a real sharp edge in v0.1 and not yet guarded by the type system. The
+`coordinates` dimension distinguishes 0-based from 1-based conventions; it does
+not yet carry a reference-relative origin, which is what would have caught this.
+</Note>
+
+## Other findings so far
+
+**Mutation names are relative to the supplied reference, not to HIVdb consensus
+B.** Scoring HXB2 against itself produces a name like `N232N` — a position
+called as itself — with a score that agrees with Stanford while the name does
+not. Sierra emits no such names.
+
+**Absent positions read as wild type.** Where a sequence does not cover a gene,
+Ligase scores that gene as susceptible rather than declining to assess it. For
+partial sequences this produces false *susceptible* calls, which is the
+dangerous direction for a resistance report. The pipeline's own reference demo
+does not hit this because it supplies an alignment and has coverage; a consumer
+passing a bare VCF can.
+
+**The input shape is the fit problem, not the scoring.** `lg.hivdb.interpret`
+takes a VCF plus a reference FASTA, optionally with a BAM for coverage. SAWA
+holds consensus sequences. The scoring engine is not what is in question — it
+reproduces 3,348 Stanford expectations exactly, as
+[the HIV-1 worked case](/case-studies/hiv-1-resistance/) describes.
+
+## What is not here
+
+The evaluation has run a comparison across SAWA's own cohort, and this page
+deliberately does not quote its agreement figures. That work belongs to SAWA,
+is not yet published by SAWA, and is theirs to report. When it is published,
+this page will link to it.
+
+What can be said is that the evaluation's recommendation, as it stands, is
+conditional rather than either an adoption or a rejection.
+
+<Note kind="note" title="On reading this page sceptically">
+Ligase and SAWA share an author. An evaluation of one project by another with
+the same author is not independent validation and this page does not present it
+as any. Its value is in the specific defects it names, each of which is
+reproducible against v0.1.0 by anyone who wants to check.
+</Note>

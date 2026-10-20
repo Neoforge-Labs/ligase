@@ -1,0 +1,97 @@
+---
+title: "My variant positions are wrong"
+description: "Reads aligned against GRCh37, variants called against GRCh38. Every position is valid and refers to the wrong place in the genome."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# My variant positions are wrong
+
+<Lede>
+Your variant calls look fine. The positions are plausible, the depths are
+plausible, the quality scores are plausible. Then an annotation step puts a
+variant in a gene it has no business being in, or a known pathogenic site comes
+back as reference, and you start checking **which build everything was against**.
+</Lede>
+
+## What actually happened
+
+The reads were aligned against one human reference build and the variants were
+called against another. GRCh37 and GRCh38 — equivalently hg19 and hg38 — differ
+by much more than a renaming. Between them the assembly gained sequence, closed
+gaps, fixed errors, and moved the coordinates of nearly everything.
+
+The practical consequence is that a position means a different place in each
+build. For most of the genome the offset is in the thousands to hundreds of
+thousands of bases; around regions that were substantially reassembled it can be
+far more, and some sequence present in one build is absent from the other.
+
+A position reported in the wrong build is not approximately right. It is a valid
+coordinate pointing somewhere else.
+
+## Why nothing crashed
+
+A variant caller takes a reference and an alignment. If both name a contig `1`
+with a length that matches, the caller has everything it needs and proceeds. The
+build is not written in the file.
+
+This is the heart of it: **neither FASTA nor BAM carries a build identifier.**
+A FASTA is sequence names and sequence. A BAM's `@SQ` lines carry a name and a
+length, and optionally an `M5` checksum that almost nothing writes. The two
+builds share contig names, and GRCh37 and GRCh38 chromosome lengths differ — but
+nothing checks the length unless a tool chooses to, and the common ones treat a
+mismatch as a warning at most.
+
+So the information that would catch the error is either absent from the files or
+present and unexamined.
+
+## What Ligase says
+
+Here the build is declared on each input — which is how it must work, since the
+files do not record it — and the sequence content is compared regardless.
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.wrongReferenceBuild}</Diagnostic>
+
+The declared names are reported first, because they are what you will recognise.
+But the engine did not take your word for it. The line that actually proves the
+mismatch is the third one: a contig with **the same name and the same length but
+a different MD5**. That is a statement about sequence, and it holds whether or
+not anybody declared anything.
+
+Reference identity in Ligase is contig names plus lengths plus MD5s, never a
+filename and never a declaration alone. Two files you have both labelled
+`GRCh38` will still be reported as different references if their sequence
+differs.
+
+## How it is caught
+
+Declare the build once, on load:
+
+```python
+import ligase as lg
+
+grch38 = lg.reference("data/refs/GRCh38.fasta", organism="human", build="GRCh38")
+aln = lg.alignment("data/alignments/sample01.bam")
+
+# Nothing has run. This reads the FASTA index and the BAM header.
+lg.check_step("call", {"ref": grch38, "aln": aln})
+```
+
+The declaration gives the error message a name a human recognises. The
+fingerprint does the actual work. If the BAM's `@SQ` lines carry `M5` values they
+are compared directly; where they do not, the reference's own contig checksums
+are compared against the lengths and names the BAM does carry, which catches
+every case where sequence differs at a shared length.
+
+<Note kind="note" title="Why a declaration is not enough on its own">
+Data checked *against* a reference need only be contained in it: every contig
+the data mentions must appear in the reference with a matching length and MD5,
+and extra contigs in the reference are fine. A VCF whose header lists only
+`chr20` is correct against a whole-genome reference, and rejecting it would be a
+false alarm. Two *references* compared with each other must be identical. The
+rules are in [the dimension catalogue](/design/dimensions/).
+</Note>
+
+Pinning the reference by accession and checksum is also what makes the generated
+methods paragraph trustworthy — see
+[how was this produced?](/concepts/provenance/).

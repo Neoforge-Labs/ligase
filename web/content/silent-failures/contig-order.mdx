@@ -1,0 +1,77 @@
+---
+title: "GATK rejects my sequence dictionary"
+description: "The same contigs in a different order. htslib does not care; GATK refuses. The tool that is silent about it is the dangerous one."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# GATK rejects my sequence dictionary
+
+<Lede>
+This is the one failure in this section that is **loud** — and that is what makes
+it worth a page. GATK stops and tells you the sequence dictionaries do not
+match. `bcftools`, run on the same two files, does not, because htslib matches
+contigs by name and has no reason to care about their order.
+</Lede>
+
+## What actually happened
+
+Your reference and your alignment list the same contigs, with the same lengths
+and the same sequence, in a different order.
+
+This happens when a reference is rebuilt from a differently-ordered source, when
+contigs are concatenated in a new order, or when a sorted glob puts `chr10`
+before `chr2`.
+
+## Why it matters even though one tool catches it
+
+The failure mode here is not the error. It is the **inconsistency between
+tools**:
+
+| Tool | On a reordered dictionary |
+|---|---|
+| `bcftools`, and htslib generally | proceeds; matches contigs by name |
+| GATK | refuses, requiring a matching sequence dictionary order |
+
+A pipeline that uses both will work for months and then fail when someone adds a
+GATK step — or, worse, will have a GATK step removed and quietly start accepting
+inputs it used to reject.
+
+Ligase reports it because silence here would hide a real failure in a tool the
+user may add tomorrow. This is a deliberate choice: the alternative is to ignore
+contig order because the common case tolerates it, and then be unable to explain
+why the pipeline broke when it stopped being tolerated.
+
+## What Ligase says
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.contigOrder}</Diagnostic>
+
+It names the tool. An error that says "the contigs agree but their order
+differs" tells you what is true; one that goes on to say "tools that require a
+matching sequence dictionary order, such as GATK, will reject this" tells you
+whether you need to care.
+
+Note also that this is `ContigOrderError`, a type of its own — not folded into
+`DimensionError`. A pipeline that knowingly uses only htslib-based tools can
+catch and ignore this one class without having to ignore reference mismatches
+along with it.
+
+## How it is caught
+
+Contig order comes out of the files: FASTA defline order, or the order of `@SQ`
+lines in a SAM or BAM header. Like contig naming, it cannot be declared and so
+cannot be declared wrongly.
+
+The four relations Ligase distinguishes between a reference and data checked
+against it:
+
+| Situation | Reported as |
+|---|---|
+| A contig the data mentions is absent from the reference | reference mismatch |
+| A shared contig disagrees on length or MD5 | reference mismatch |
+| Contigs agree once `chr` prefixes are normalised | contig naming mismatch |
+| Shared contigs agree but their relative order differs | contig order mismatch |
+
+Four distinguishable situations, four distinguishable errors. The reasoning is
+in [the dimension catalogue](/design/dimensions/) and the implementation in
+[the type system](/architecture/type-system/).

@@ -1,0 +1,131 @@
+---
+title: "HIV-1 drug resistance"
+description: "The reference pipeline takes HIV-1 reads to drug-resistance calls. Its calls match the published Stanford HIVdb results on 81 of 81 drug calls at both 15% and 5% thresholds."
+---
+
+# HIV-1 drug resistance
+
+<Lede>
+Ligase's reference pipeline takes HIV-1 reads, aligns them to HXB2, calls
+variants, and interprets those variants as drug-resistance calls. Whether it
+gets the right answer is checkable, because somebody has published the right
+answer.
+</Lede>
+
+This page is the project's own validation of its own pipeline. It is the
+acceptance test for v0.1's last milestone, not an independent assessment, and
+should be read as that. Everything here is reproduced by
+[`tests/test_validation.py`](https://github.com/Neoforge-Labs/ligase/blob/main/tests/test_validation.py),
+which runs the real pipeline over real reads on every CI run of the `demo` job.
+
+## What was compared
+
+<Stats>
+  <Stat value="81 / 81" label="Drug calls agreeing at 15%" note="3 samples × 27 drugs" tone="agree" />
+  <Stat value="81 / 81" label="Drug calls agreeing at 5%" note="3 samples × 27 drugs" tone="agree" />
+  <Stat value="72 / 81" label="Drug calls agreeing at 2%" note="9 differ, each explained" tone="notice" />
+  <Stat value="3,348" label="Scoring expectations reproduced exactly" note="30 samples × 4 thresholds" tone="agree" />
+</Stats>
+
+Two things were validated, separately, and the distinction matters.
+
+**The scoring engine** was checked against Stanford's own answers: thirty
+clinical samples at four ambiguity thresholds, 3,348 expectations, produced by
+Sierra 3.5.3 against HIVDB 9.8 and published as supplementary data by the
+HIVGenoPipe study. All 3,348 are reproduced exactly — every drug, every score,
+every level.
+
+That oracle was chosen because the obvious alternative is circular. Checking the
+scorer against expectations derived from the same XML rule file it reads would
+test the parser against itself. Sierra is a different implementation, in a
+different language, by the algorithm's own authors.
+
+**The pipeline end to end** was checked by running it on reads whose published
+answers are known — four runs from PRJNA1218827, the HIVGenoPipe study's MiSeq
+data, with SRA metadata mapping each run to the sample identifier the paper
+uses, so that nothing rests on reading a figure.
+
+| Run | Sample | What it is |
+|---|---|---|
+| SRR32217726 | Sample 3 | a mixture: `K219KE`, and `L100LI` below it |
+| SRR32217715 | Sample 4 | multi-class positive: NRTI, INSTI and capsid |
+| SRR32217716 | Sample 30 | fully susceptible — a clean negative |
+| SRR32217714 | — | the study's no-template control |
+
+A mixture, a strong positive, a true negative and a blank. Between them they
+exercise every judgement the interpreter makes.
+
+## What agrees
+
+At 15% and 5% the agreement is exact: every score, every level, every mutation
+string, for all twenty-seven drugs on all three samples. That includes the cases
+worth naming — Sample 3 gaining `L100LI` and high-level resistance to four
+NNRTIs when the threshold drops from 15% to 5%, on the same reads and the same
+alignment; Sample 4's `T97A + E138T + G140S + Q148H` giving high-level
+resistance to all five INSTIs; Sample 30 coming back susceptible on all
+twenty-seven with no false positives; and the no-template control returning
+`Not assessed` on all twenty-seven with no score.
+
+## What disagrees
+
+Nine of the 243 drug calls differ, all at the 2% threshold. Each is listed with
+its cause in `KNOWN_AT_TWO_PERCENT` in the test, and **the test fails if one of
+them changes shape or a new one appears** — which is what keeps "discrepancies
+explained" from decaying into "discrepancies tolerated".
+
+**Six are cosmetic.** Ligase reads `K219KEGR` where Stanford reads `K219KE`, and
+`A105AT` where Stanford reads `A105T`. Every score and every level is identical.
+The cause is a real limitation of reading codons from a VCF: a VCF says what is
+at each position, not what travels together, so enumerating two ambiguous bases
+yields amino acids that no single read need carry. Neither extra amino acid
+matches a rule, so nothing clinical follows.
+
+**Three are one missed mutation, and it is a real one.** Stanford reports
+`V75VA` for Sample 30 at 2%. This alignment supports that base in 3 of 392 reads
+— 0.77%, below any threshold that would report it. HIVGenoPipe realigns against
+a sample-specific reference, which is that paper's whole method, and places
+reads that an alignment to HXB2 does not.
+
+That is a sensitivity limit, not a disagreement about what the reads mean, and
+it is the honest cost of the demo's approach. It is also the only one of the nine
+that would change what anyone did.
+
+## What validating it changed
+
+This is the part worth reading, and it is not a success story.
+
+The demo's `call` step used to run `bcftools call -mv --ploidy 1`. On Sample 3,
+the reads at HXB2 3204 are A 238, G 192 — **a 45% `K219E`** — and `bcftools
+call` emitted no record for it at all, because the majority allele is the
+reference and there was therefore no variant to call. The report came back
+susceptible to all twenty-seven drugs.
+
+It was *right* to, given that input. It matches Stanford's own
+majority-consensus report for the same sample exactly, which is itself useful
+evidence that the interpreter is sound. But Stanford's 5% report for that sample
+finds `L100I` as well and reads high-level resistance to four NNRTIs.
+
+A pipeline whose answer flips from "fully susceptible" to "resistant to most of
+the NNRTI class" on a threshold it never exposed is not doing what it says it
+does. So the caller is gone, the pileup's own allele depths are the evidence,
+and `min_freq` now means what its name says.
+
+<Note kind="note" title="Why a second dataset is not used for this">
+`docs/milestones.md` also names PRJNA517147, the Washington DC cohort study. Its
+per-sample resistance calls are published only as colour in a heatmap — reverse
+transcriptase only, protease and integrase not shown, no supporting tables. Of
+the four runs fetched from it, three are blank rows and the fourth cannot be
+separated from its neighbour by eye.
+
+It remains the demo's default dataset and M3, M4 and M5 are still signed off on
+it. It is not used as a source of expected resistance answers, because a number
+transcribed from a figure is not a citable value.
+</Note>
+
+## Reading further
+
+The full comparison, with every discrepancy and its cause, is in
+[validation](/concepts/validation/). How the HIVdb rules are read and scored is
+in [resistance interpretation](/architecture/hivdb/). How to write a
+`resistance` step and choose a threshold is in
+[interpreting resistance](/guide/resistance-interpretation/).

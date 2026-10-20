@@ -1,0 +1,92 @@
+---
+title: "My BED file intersects nothing"
+description: "chr1 against 1: the same genome under UCSC and Ensembl naming. Tools match contigs by name, find no overlap, and exit zero."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# My BED file intersects nothing
+
+<Lede>
+You intersect a BED file of regions against a VCF of variants. The command
+succeeds, exits zero, and the output is **empty**. There is no error. There is
+no warning. The obvious conclusion — that there are genuinely no variants in
+your regions — is wrong.
+</Lede>
+
+## What actually happened
+
+Your BED file calls the first chromosome `chr1`. Your VCF calls it `1`. They
+are the same chromosome, the same length, the same sequence.
+
+This is not a mistake anyone made. It is two conventions that have coexisted for
+twenty years:
+
+| Source | First chromosome | Mitochondrion |
+|---|---|---|
+| UCSC Genome Browser, and anything downloaded from it | `chr1` | `chrM` |
+| Ensembl, NCBI, and most European resources | `1` | `MT` |
+
+A single project routinely pulls annotation from one and reference sequence from
+the other.
+
+## Why nothing crashed
+
+Contig names are strings, and interval tools match them as strings. `bedtools
+intersect` builds a map keyed on the contig name, looks up `chr1`, finds no key
+`chr1` in a file that only contains `1`, and correctly reports no overlaps.
+
+There is nothing for it to complain about. An empty intersection is a legitimate
+answer to a legitimate question. The tool cannot tell the difference between
+"these regions contain no variants" and "these two files are not talking about
+the same thing", because at the level a tool works at, those are the same
+situation.
+
+This is the precise reason this class of bug is so expensive. The failure is
+*indistinguishable from a real negative result*, and negative results are rarely
+re-examined.
+
+## What Ligase says
+
+Both of these files describe the same two contigs, at the same lengths, with
+every base agreeing. Only the naming differs.
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.contigNaming}</Diagnostic>
+
+Three things are worth noticing.
+
+It names **where each value came from** — the FASTA deflines and the SAM `@SQ`
+header, with the file paths — so the next thing you do is open a file rather
+than form a theory.
+
+It says **the contigs are otherwise identical**. That single clause is the
+difference between a five-minute fix and an afternoon: it tells you this is a
+naming problem and not the wrong genome, which is the other thing it could have
+been.
+
+And its type is `ContigNamingError`, not `DimensionError` and not a string. A
+caller can branch on a naming mismatch without parsing English — which is what
+makes the planned automatic fix, inserting a renaming step, possible at all.
+
+## How it is caught
+
+`contig_naming` is a dimension in its own right, inferred from the files rather
+than declared:
+
+```python
+>>> bare = lg.reference("refs/ensembl.fasta", organism="human")
+>>> prefixed = lg.alignment("aln/ucsc.bam")
+>>> bare.dimension("contig_naming").value
+'bare (Ensembl/NCBI style)'
+>>> prefixed.dimension("contig_naming").value
+'chr-prefixed (UCSC style)'
+```
+
+Because it is inferred, you cannot get it wrong by declaring it wrong. And
+because naming is separated from reference identity, a naming mismatch is
+reported as a naming mismatch even though the two files also, strictly, have
+different contig names.
+
+See [types and dimensions](/concepts/types-and-dimensions/) for why that
+separation matters, and [the dimension catalogue](/design/dimensions/) for the
+rules on how references are compared.

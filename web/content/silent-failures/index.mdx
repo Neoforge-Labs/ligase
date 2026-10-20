@@ -1,0 +1,83 @@
+---
+title: "What goes wrong silently"
+description: "The failure modes Ligase exists to catch: wrong reference build, contig naming, coordinate conventions, sample order, and contig order. Each with the error the engine actually produces."
+---
+
+# What goes wrong silently
+
+<Lede>
+Every page in this section is a bug that **does not raise an exception, does not
+log a warning, and does not change the shape of the output**. It produces a file
+of the right size, in the right format, with plausible numbers in it. The only
+way to find it is to check before computing, or to catch it in review.
+</Lede>
+
+These are not hypothetical. Each is a documented hazard with a literature of
+its own, and each has an entry in Ligase's dimension catalogue because it was
+worth building a type system to prevent.
+
+<HazardGrid>
+  <Hazard href="/silent-failures/contig-naming/" symptom="My BED file intersects nothing" left="chr1" right="1">
+    UCSC names contigs `chr1`; Ensembl and NCBI name them `1`. Tools match by
+    name, find no overlap, and report zero.
+  </Hazard>
+  <Hazard href="/silent-failures/wrong-reference-build/" symptom="My variant positions are wrong" left="GRCh37" right="GRCh38">
+    Reads aligned against one build, variants called against another. Positions
+    are valid, and refer to the wrong place.
+  </Hazard>
+  <Hazard href="/silent-failures/coordinate-systems/" symptom="My intervals are off by one" left="0-based" right="1-based">
+    BED counts from zero and excludes its end; GFF counts from one and includes
+    it. Mixing them moves every boundary by a base.
+  </Hazard>
+  <Hazard href="/silent-failures/shuffled-samples/" symptom="My sample labels look swapped" left="[a, b]" right="[b, a]">
+    Two files with the same cohort in a different column order. Every genotype
+    is attributed to the wrong person.
+  </Hazard>
+  <Hazard href="/silent-failures/contig-order/" symptom="GATK rejects my sequence dictionary" left="2, 1" right="1, 2">
+    The one in this list that *is* loud — but only in some tools, which is its
+    own kind of trap.
+  </Hazard>
+</HazardGrid>
+
+## What these pages show
+
+Each page states the bug, explains why nothing crashed, and then shows the
+diagnostic Ligase produces for it.
+
+The diagnostics are not written for these pages. They are captured from a real
+run of the engine by
+[`web/scripts/capture_diagnostics.py`](https://github.com/Neoforge-Labs/ligase/blob/main/web/scripts/capture_diagnostics.py)
+on every docs build, against the committed test fixtures, and the build fails if
+the engine stops producing the error a page claims it produces. What you read
+here is what you would see in your terminal.
+
+<Note kind="note" title="Small files, real engine">
+The fixtures are deliberately tiny — two contigs, forty bases — so that they can
+live in the repository and run in milliseconds. The file paths in the
+diagnostics are those fixtures, and you can go and read them. The engine's
+behaviour on a 3 GB reference is the same; only the fingerprints are longer.
+</Note>
+
+## The general shape of the fix
+
+In every case the fix is the same two moves: declare what the files cannot say
+about themselves, then let `check()` compare the whole graph before anything
+runs.
+
+```python
+import ligase as lg
+
+ref = lg.reference("data/refs/GRCh38.fasta", organism="human", build="GRCh38")
+aln = lg.alignment("data/alignments/sample01.bam")
+
+pipe = lg.Pipeline(call(aln, ref))
+pipe.check()   # reads headers only; no compute
+```
+
+`organism` and `build` are declared because no FASTA records them. Everything
+else — contig names, lengths, MD5s, coordinate convention, sample set — is read
+out of the files, so it cannot be declared wrongly.
+
+See [declaring dimensions](/guide/declaring-dimensions/) for the walkthrough and
+[the dimension catalogue](/design/dimensions/) for what is inferred from which
+format.

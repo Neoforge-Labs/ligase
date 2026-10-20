@@ -1,0 +1,48 @@
+---
+title: "Where it has been used"
+description: "Ligase v0.1.0 was published on 20 October 2026 and has no outside users. This is what has actually been run with it, and by whom."
+---
+
+# Where it has been used
+
+<Lede>
+Ligase v0.1.0 was published on 20 October 2026. **It has no outside users.** There
+are no case studies here in the usual sense — nobody outside the project has
+reported their experience of it, because nobody outside the project has used it.
+</Lede>
+
+What there is, is work that has actually been run. Two pieces:
+
+## The reference pipeline, validated against published results
+
+HIV-1 reads to drug-resistance calls, checked against the Stanford HIVdb
+results published by the HIVGenoPipe study. This is the project's own work, and
+it is the acceptance test for v0.1's last milestone rather than an independent
+assessment.
+
+It is worth reading anyway, for two reasons. The agreement is exact at the
+thresholds that matter clinically, and every remaining discrepancy has a
+recorded cause — including one that is a genuine sensitivity limit and is
+described as one. And validating the pipeline is what found its largest bug,
+which is a more useful thing to know about a tool than its success rate.
+
+[The HIV-1 worked case →](/case-studies/hiv-1-resistance/)
+
+## An evaluation by a sibling project
+
+[SAWA](/case-studies/sawa/) is evaluating Ligase for HIV drug-resistance
+surveillance. It is a sibling project rather than a third party, and the
+evaluation is not a decision to adopt.
+
+It has already found a real problem — a coordinate-system hazard in HIV *pol*
+numbering that Ligase handles silently and wrongly — which is documented on that
+page because a limitation found by someone trying to use the thing is worth more
+than a feature list.
+
+[What the evaluation found →](/case-studies/sawa/)
+
+<Note kind="note" title="What you will not find on this page">
+No logos, no quotes, no adoption figures, no "trusted by" list. The project's first
+release is days old and none of those would be true. If that
+changes, this page changes.
+</Note>
