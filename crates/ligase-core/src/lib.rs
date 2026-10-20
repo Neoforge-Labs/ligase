@@ -47,6 +47,7 @@ pub mod dim;
 pub mod exec;
 pub mod graph;
 pub mod hash;
+pub mod hivdb;
 pub mod key;
 pub mod load;
 pub mod prov;
