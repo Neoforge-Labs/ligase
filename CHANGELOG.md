@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0] - 2026-10-20
+
 ### Added
 
 **M6 — Validation.** The reference pipeline interprets as well as
@@ -562,4 +566,5 @@ functionality yet; the engine's only behaviour is reporting its own version.
   whole rather than to the end of their first block.
 - `tempfile` as a dev-dependency, for writing BAM fixtures during tests.
 
-[Unreleased]: https://github.com/Neoforge-Labs/ligase/commits/main
+[Unreleased]: https://github.com/Neoforge-Labs/ligase/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Neoforge-Labs/ligase/releases/tag/v0.1.0
