@@ -52,6 +52,8 @@ nav:
       - What a file means: concepts/semantic-hashing.md
       - How was this produced?: concepts/provenance.md
       - When a tool names a sample after a file: concepts/notes.md
+      - Resistance interpretation: concepts/resistance-interpretation.md
+      - Validation: concepts/validation.md
   - Guide:
       - Installation: guide/installation.md
       - Declaring dimensions: guide/declaring-dimensions.md
@@ -60,6 +62,7 @@ nav:
       - Semantic hashing and auditing: guide/semantic-hashing.md
       - Writing up a pipeline: guide/provenance.md
       - Reading what the engine noticed: guide/notes.md
+      - Interpreting resistance: guide/resistance-interpretation.md
   - Architecture:
       - Workspace: architecture/workspace.md
       - Type system: architecture/type-system.md
@@ -68,6 +71,7 @@ nav:
       - Cache: architecture/cache.md
       - Canonicalisation: architecture/canonicalisation.md
       - Provenance: architecture/provenance.md
+      - Resistance interpretation: architecture/hivdb.md
   - Design:
       - Golden example: golden-example.md
       - Dimensions: dimensions.md

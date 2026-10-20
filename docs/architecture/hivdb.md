@@ -1,0 +1,194 @@
+# Resistance interpretation, internally
+
+Three layers in `crates/ligase-core/src/hivdb/`, none of which knows about
+Python:
+
+| Module | Job |
+|---|---|
+| `ruleset` | read a vendored algorithm |
+| `codon` | reference + VCF + BAM → the amino acids each protein holds |
+| `score` | amino acids + algorithm → a level per drug |
+| `report` | write the TSV |
+
+## The ruleset is derived, not parsed as XML
+
+Stanford's algorithm is ASI2 XML, about 190 KB of it. Two files are
+committed per algorithm: that XML byte-for-byte, pinned by SHA-256 in
+`rulesets/PROVENANCE.tsv`, and a `.ruleset` derived from it by
+`scripts/vendor_hivdb_algorithm.py`.
+
+The engine reads only the `.ruleset`, which means **no XML parser in the
+core and no new dependency**. The XML stays as the auditable thing you
+diff against upstream. `tests/test_rulesets.py` re-derives every
+`.ruleset` from its XML on every test run, so the two cannot drift apart
+unnoticed — a derived file that nothing re-derives is a file that can
+quietly stop matching its source.
+
+The rulesets are then embedded with `include_str!`, so an installed wheel
+carries its own rules and a run cannot depend on where a file was
+unpacked. A test ties the embedded copy to the committed one.
+
+### The grammar is small enough to be strict about
+
+Every HIVDB release from 9.8 to 10.2 uses one shape:
+
+```text
+SCORE FROM ( <item>, <item>, ... )
+```
+
+where an item is `<residue> => <score>`, several residues joined by `AND`,
+or `MAX(` several such `)`. There is no `ATLEAST`, `NOTMORETHAN`, `SELECT`
+or `EXCLUDE`; all 27 drugs use `USE_GLOBALRANGE`; and the global range is
+the same in both versions:
+
+```text
+(-INF TO 9 => 1, 10 TO 14 => 2, 15 TO 29 => 3, 30 TO 59 => 4, 60 TO INF => 5)
+```
+
+So both the derivation and the reader refuse anything they do not
+recognise, rather than skipping it. That is
+[D21](../decisions.md#d21-canonicalisation-falls-back-to-the-bytes)'s rule
+applied here: a reader that skipped what it did not understand would
+silently drop a drug, and a dropped drug reads as susceptible.
+
+### The derived format
+
+```text
+#ligase-hivdb-ruleset 1
+algorithm   HIVDB   9.8   2025-01-05
+level       1       S     Susceptible
+range       *       9     1
+gene        RT      NRTI,NNRTI
+class       NRTI    ABC,AZT,D4T,DDI,FTC,3TC,TDF
+drug        ABC     abacavir        NRTI
+rule        ABC     2       45      65R
+rule        ABC     21      10      65RN+151M
+```
+
+A `rule` row is `drug, group, score, residues`. Rows sharing a group are
+`MAX` alternatives; residues joined by `+` are the rule language's `AND`.
+A drug's score is **the sum over groups of the largest matching item in
+each**, which is exactly what `SCORE FROM` with `MAX` means.
+
+Two details that matter:
+
+- **A group with nothing matching contributes nothing**, and the running
+  maximum starts at `None` rather than at zero. Scores can be negative —
+  `184V => -10` for zidovudine — and seeding at zero would silently turn a
+  −10 into a 0.
+- **Nothing is clamped.** Stanford's own reports carry `AZT -10.0` at
+  level 1, and so does Ligase's.
+
+## Amino acids are a bitset
+
+`Acids` is a `u32`: bits 0–25 for `A`–`Z`, bit 26 for a deletion, bit 27
+for an insertion, bit 28 for a stop codon. Matching a rule is then an
+intersection test, done once per rule position per drug per sample.
+
+A stop codon can be observed but is never named by a rule, so it can never
+satisfy one — which is the right answer rather than a gap. A stop in the
+middle of protease is a defective virus, not a resistant one.
+
+## Coverage, and the three states of a position
+
+`Protein` holds only the positions that were **read**. A position read and
+agreeing with the reference is in it, holding the reference amino acid; a
+position with no coverage is absent. That absence is the whole mechanism:
+
+| State | How | What a rule does |
+|---|---|---|
+| read, matches | in the map, intersects | the item matches |
+| read, does not match | in the map, disjoint | the item is **refuted** |
+| not read | absent from the map | the item is **undetermined** |
+
+An item is undetermined only when every residue that *was* read matches
+and at least one was not. An item already refuted by a read position is
+settled, so its unread positions are not reported — otherwise every drug
+would list most of its rule positions and the warning would mean nothing.
+
+A gene absent from `Observed` altogether was never supplied, and its drugs
+come back `Not assessed` with no score.
+
+## Codons
+
+`codon::GENES` holds the HXB2 landmarks:
+
+| Gene | HXB2 | Codons |
+|---|---|---|
+| CA | 1186–1878 | 231 |
+| PR | 2253–2549 | 99 |
+| RT | 2550–4229 | 560 |
+| IN | 4230–5093 | 288 |
+
+Two of these were wrong in the demo before M6, and both errors were
+silent. Reverse transcriptase ran to 440 codons — the p51 subunit — where
+HIVdb numbers RT 1–560 and its published mutation lists reach 558.
+Integrase ran to 5096, which is where *pol* ends and includes its stop
+codon; the protein is 288 amino acids. `hivdb_codons.rs` now checks the
+windows against the rules, because a rule about a position outside the
+window would never fire and would do so quietly.
+
+Reading a codon:
+
+1. Every base of the codon must be covered to `depth`, or the codon is
+   left out. Two bases out of three is not two thirds of an amino acid.
+2. Each base's alleles are taken from the VCF's `AD`, keeping those at or
+   above `mixture`.
+3. The combinations are enumerated and translated, giving the set of amino
+   acids present.
+
+Step 3 is where phasing is lost. A VCF says what is at each position, not
+what travels together, so a codon with two ambiguous bases yields up to
+four amino acids and some may be carried by no read. This is a real
+limitation with a real effect at low thresholds — see
+[validation](../concepts/validation.md#what-disagrees-and-why). The fix,
+if it is ever wanted, is to count codon haplotypes from reads spanning the
+codon, which the alignment already makes available.
+
+## How the rules reach the cache key
+
+A callback step's recipe describes as the constant `"callback"`, and
+`code` is the step function's source, not what a library it calls reads.
+So the rules had no home in a key at all.
+
+They go in through `tool=`. That field already means "something whose
+version is part of the result", and its version string is already
+free-form — the whole of `<tool> --version`. `exec::BUILT_IN`, one entry
+long, makes the exception visible rather than hiding it inside the probe,
+and `hivdb` resolves to:
+
+```text
+HIVdb rules as shipped: 9.8 2025-01-05 blake3:a1139c…; 10.2 2026-04-26 blake3:3268c9…
+```
+
+Three consequences, all deliberate:
+
+- **By content, not by name.** Upstream publishes corrections under
+  near-identical names, so a key that moved only with the version number
+  would serve a result computed under rules that have since changed.
+- **Every shipped algorithm, not only the one in use**, because the probe
+  runs before any step body has said which it wants. Editing 10.2 reruns a
+  pipeline pinned to 9.8. That is over-conservative in the direction
+  [D20](../decisions.md#d20-a-tolerance-is-a-quantisation) already commits
+  to: a cache that is too cold costs time, one that is too warm is wrong.
+- **"as shipped"**, because a methods paragraph renders a tool version
+  after "ran with", and a step that named 9.8 must not appear to have run
+  with 10.2. Which one a step used is its `algorithm` parameter, reported
+  beside it.
+
+Doing it this way also picks up provenance, the methods sentence and
+[D24](../decisions.md#d24-a-citation-is-curated-or-declared-never-guessed)'s
+citation table for free — and HIVdb genuinely needs a citation, which a
+plain parameter gave no home.
+
+## What is not here
+
+**Comments.** Stanford's reports carry explanatory prose per mutation and
+per result. They are in the vendored XML, the derivation drops them, and
+Ligase reports levels, scores and mutations. They are the obvious addition
+if a report ever wants prose.
+
+**Any network call.** Stanford's Sierra service appears in this repository
+exactly once: as the source of `tests/fixtures/hivdb/expected.tsv`, which
+was built once from published supplementary data and committed. Nothing
+queries it at run time or in CI.

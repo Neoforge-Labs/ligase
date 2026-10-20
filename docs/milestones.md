@@ -31,3 +31,13 @@ Cargo workspace (`ligase-core`, `ligase-py`), maturin, `python/ligase`, CI runni
 
 ## M6 — Validation
 **Done when:** resistance calls match published results for PRJNA517147 and the Sanger ground truth for PRJNA1218827, with discrepancies explained.
+
+**Done.** The calls are checked against the published Stanford HIVdb
+reports for PRJNA1218827: 81 of 81 drug calls agree exactly at the 15% and
+5% thresholds, and the nine that differ at 2% each carry a cause. The
+scoring engine separately reproduces 3,348 published expectations.
+
+PRJNA517147 could not serve as a source of expected answers: its
+per-sample calls are published only as colour in a heatmap, reverse
+transcriptase only. It remains the demo'''s default dataset. See
+[validation](concepts/validation.md).

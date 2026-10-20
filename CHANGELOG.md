@@ -9,6 +9,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+**M6 — Validation.** The reference pipeline interprets as well as
+computes, and its answers are checked against someone else's.
+
+- **`lg.hivdb.interpret`** scores a sample's variants against the Stanford
+  HIVdb algorithm and reports a level for each of twenty-seven drugs, with
+  the mutations that got it there. The last unimplemented call in
+  `docs/golden-example.md` now exists.
+- **The rules are vendored, not fetched** (**D28**). HIVDB 9.8 and 10.2
+  are committed byte-for-byte from Stanford's own repository, which
+  carries the Unlicense, and pinned by SHA-256. An interpretation that
+  reached the network would depend on the day it was asked for, which no
+  cache key can see and no bundle can reproduce.
+- Each algorithm is committed **twice**: the ASI2 XML as published, and a
+  `.ruleset` derived from it, which is what the engine reads — so there is
+  no XML parser in the core and no new dependency. The test suite
+  re-derives one from the other on every run.
+- **The rules enter the cache key by content**, through `tool="hivdb"`,
+  which reports every vendored algorithm by version, date and the BLAKE3
+  of its bytes. Pinning by version *number* would not have been enough:
+  upstream publishes corrections under near-identical names, and a key
+  that moved only with the name would serve a result computed under rules
+  that have since changed. It picks up provenance, the methods sentence
+  and D24's citation table at the same time.
+- **An interpretation never invents a susceptible result** (**D29**). A
+  mixture is every amino acid it could be; a position that was not read is
+  reported as unread rather than as wild-type, so a score reads as a
+  floor; and a drug scored against a gene the pipeline never supplied is
+  `Not assessed` rather than `Susceptible`. The test that pins all three
+  is a no-template control, which a less careful engine would report as a
+  fully susceptible patient.
+- **The demo's variant caller changed** (**D30**). `bcftools call -mv` is
+  a consensus caller, and on one validation sample it emitted no record at
+  all for a 45% zidovudine-resistance mutation. The pileup's own allele
+  depths are the evidence now, `min_freq` means what its name says, and
+  what counts as *present* is a separate `mixture` parameter.
+
+### Validated
+
+- The scoring engine reproduces **3,348 published Stanford HIVdb
+  expectations** exactly — thirty samples at four thresholds, every drug,
+  every score, every level — from reports produced by Sierra 3.5.3, an
+  independent implementation by the algorithm's own authors.
+- The pipeline end to end agrees with the published calls for
+  PRJNA1218827 on **81 of 81 drug calls at both the 15% and 5%
+  thresholds**. The nine that differ at 2% each carry a recorded cause:
+  six are a phasing artefact of reading codons from a VCF and change no
+  score, and three are one mutation present in 0.77% of reads here,
+  below any threshold that could report it.
+- PRJNA517147 could not supply expected answers — its per-sample calls are
+  published only as colour in a heatmap, reverse transcriptase only. It
+  remains the demo's default dataset. See `docs/concepts/validation.md`.
+
+### Fixed
+
+- **Reverse transcriptase ran to 440 codons**, the p51 subunit, where
+  HIVdb numbers RT 1–560 and its published mutation lists reach 558.
+- **Integrase ran to HXB2 5096**, which is where *pol* ends and includes
+  its stop codon; the protein is 288 amino acids, ending at 5093.
+
+  Both were silent: a rule about a position outside the window would
+  simply never have fired. The gene windows are now checked against the
+  rules.
+
 **M5 — Provenance.** `ligase methods` says how the results were produced,
 and writes a bundle that lets someone else check them.
 

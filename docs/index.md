@@ -35,10 +35,15 @@ DimensionError in step `call`:
 
 ## Status
 
-**Pre-alpha**, building towards v0.1. Milestones **M0 (scaffold)**,
+**Pre-alpha**, at v0.1's last milestone. **M0 (scaffold)**,
 **M1 (types and dimensions)**, **M2 (the graph)**,
-**M3 (execution and cache)**, **M4 (semantic hashing and early cutoff)** and
-**M5 (provenance)** are complete.
+**M3 (execution and cache)**, **M4 (semantic hashing and early cutoff)**,
+**M5 (provenance)** and **M6 (validation)** are complete.
+
+The reference pipeline now interprets as well as computes: its resistance
+calls reproduce published Stanford HIVdb results exactly at the 15% and 5%
+thresholds, with every remaining discrepancy
+[explained](concepts/validation.md).
 
 You can write a pipeline of annotated steps, have the whole graph
 type-checked without running any of it, be told every mistake at once, and
@@ -187,6 +192,10 @@ acceptance test for each step.
 | Fix an output named after a file rather than a sample | [Reading what the engine noticed](guide/notes.md) |
 | Write a methods paragraph and a bundle | [Writing up a pipeline](guide/provenance.md) |
 | Know how provenance is stored and checked | [Provenance](architecture/provenance.md) |
+| Turn variant calls into drug-resistance calls | [Resistance interpretation](concepts/resistance-interpretation.md) |
+| Write a `resistance` step, and pick a threshold | [Interpreting resistance](guide/resistance-interpretation.md) |
+| Know how the HIVdb rules are read and scored | [Resistance interpretation](architecture/hivdb.md) |
+| See what the calls were checked against | [Validation](concepts/validation.md) |
 | Know which dimensions exist and how they are inferred | [Dimensions](dimensions.md) |
 | Follow the build order | [Milestones](milestones.md) |
 | Understand a design choice | [Decisions](decisions.md) |

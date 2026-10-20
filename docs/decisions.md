@@ -535,3 +535,128 @@ against the old scheduler rather than hanging
 ([the scheduler](architecture/execution.md#nothing-waits-for-work)). It also
 pays something back: a parked twin no longer occupies a `--jobs` slot doing
 nothing.
+
+## D28 — The rules are vendored, and enter a key by content
+
+Interpreting a mutation needs a ruleset. Stanford publishes the HIVdb
+algorithm as ASI2 XML in its own repository, `hivdb/hivfacts`, under the
+Unlicense — a dedication to the public domain. Two versions are vendored
+byte-for-byte and pinned by SHA-256: 9.8, which is what the published
+results M6 validates against were produced with, and 10.2, which is
+current.
+
+Calling Stanford's web service was the alternative, and it fails on the
+project's own terms: an answer that depends on the day it was asked for
+cannot be put in a cache key or carried in a bundle. D8 puts public-data
+fetching out of scope for v0.1 in any case.
+
+Each algorithm is committed twice — the XML as published, and a
+`.ruleset` derived from it by `scripts/vendor_hivdb_algorithm.py`. The XML
+is what you audit against upstream; the derived file is what the engine
+reads, which means no XML parser in the core and no new dependency.
+`tests/test_rulesets.py` re-derives every `.ruleset` on every run, because
+a derived file nothing re-derives is one that can quietly stop matching
+its source.
+
+**What the rules enter the key as** took longer to settle. A callback
+step's recipe describes as the constant `"callback"` and `code` is the
+step function's source, not what a library it calls reads, so they had no
+home at all. The obvious fix — an `algorithm="HIVDB_9.8"` parameter —
+pins by *name*, which this project refuses everywhere else:
+`docs/dimensions.md` says reference identity is never by filename alone,
+and `load::variants` distrusts `##reference` because it holds a path.
+Upstream ships both `HIVDB_10.0.xml` and `HIVDB_10.0-1.xml`, so a
+correction republished under a near-identical name is not hypothetical,
+and a key that moved only with the name would serve a result computed
+under rules that have since changed.
+
+So `tool=` carries it. That field already means "something whose version
+changes the answer", and its version string is already free-form. A
+built-in list, one entry long, keeps the exception visible instead of
+hiding it in the probe, and `hivdb` resolves to every vendored algorithm
+by version, date and the BLAKE3 of its bytes. Doing it this way picks up
+the key, provenance, the methods sentence and D24's citation table at
+once — and HIVdb needs a citation, which a parameter gave no home.
+
+Every shipped algorithm is named rather than only the one in use, because
+the probe runs before any step body has said which it wants. Editing 10.2
+reruns a pipeline pinned to 9.8. That is over-conservative in the
+direction D20 already commits to: a cache that is too cold costs time, one
+that is too warm is wrong. The string reads "as shipped" because a methods
+paragraph renders it after "ran with", and a step that named 9.8 must not
+appear to have run with 10.2.
+
+## D29 — An interpretation never invents a susceptible result
+
+An interpretation can be wrong in two directions and they are not equally
+bad. Reporting resistance that is not there costs a patient a drug they
+could have taken. Reporting *susceptibility* that is not there costs them
+a drug that will fail. Three judgements could each have gone either way,
+and all three go the same way.
+
+**A mixture is every amino acid it could be.** Where the reads support
+both the reference and an alternate above the threshold, the codon holds
+both, and a rule is satisfied if any of them satisfies it. An ambiguous
+position is two viruses, not an average of one, and taking the majority
+would discard the minority virus — which is what deep sequencing is for.
+
+**A position that was not read is not a wild-type position.** `bcftools`
+writes only the sites it has something to say about, so a position missing
+from a VCF is ambiguous between "agrees with the reference" and "nothing
+aligned here". Coverage is read from the alignment; a codon not covered to
+depth is *unread*, and a drug whose rules mention one reports its score as
+a floor and names what it could not see. An item already refuted by a
+position that *was* read is settled, so its unread positions are not
+reported — otherwise every drug would list most of its positions and the
+warning would mean nothing.
+
+**A gene nobody sequenced is not assessed.** HIVDB 9.8 scores lenacapavir
+against capsid, which is in gag. A pol pipeline has nothing to say about
+it, so the report says so. This is D24's reasoning about citations applied
+to a drug class: a named gap is honest, a gap filled with a cheerful
+default is not.
+
+The test that pins all three is a no-template control. Sixty of its
+thirty-two thousand reads map to HXB2, and a pipeline that read "no
+variant called" as "agrees with the reference" would report a tube of
+water as fully susceptible to twenty-seven drugs.
+
+What this does **not** fix is phasing. A codon is assembled from a VCF,
+which says what is at each position rather than what travels together, so
+two ambiguous bases in one codon yield up to four amino acids and some may
+be carried by no read. That is visible in the validation at the 2%
+threshold, it is stated there rather than hidden, and the remedy —
+counting codon haplotypes from reads spanning the codon — is available
+whenever it is wanted, because the alignment is already an input.
+
+## D30 — A consensus caller cannot answer a resistance question
+
+The demo's `call` step ran `bcftools call -mv --ploidy 1` through M5, and
+its docstring defended the choice: `bcftools call` is a consensus caller,
+a threshold below a half rarely removes anything, and a low-frequency
+caller is a change of tool rather than of threshold. All of that was true.
+
+M6 measured the cost. On SRR32217726 the reads at HXB2 3204 are A 238,
+G 192 — a 45% K219E, a zidovudine resistance mutation — and `bcftools
+call -mv` emitted no record for it, because the majority allele is the
+reference and there was no variant to call. The report came back
+susceptible to all twenty-seven drugs.
+
+Given that input it was *right*: it matches Stanford's own
+majority-consensus report for the same sample exactly, which is useful
+evidence that the interpreter is sound. But Stanford's 5% report for that
+sample also finds L100I and reads high-level resistance to four NNRTIs.
+A pipeline whose answer flips from "fully susceptible" to "resistant to
+most of the NNRTI class" on a threshold it never exposed is not doing what
+it says it does.
+
+So the caller is gone. The pileup's own allele depths are the evidence,
+`min_freq` is applied to them directly, and the parameter now means what
+its name says. What counts as *present* for interpretation is a separate
+parameter, `mixture`, because the two are different questions: one is
+about what the reads show, the other about what you are willing to act on.
+
+The rejected alternative was to keep the caller and document the limit.
+It is cheaper and it is what the old docstring did — but a limitation
+documented in a docstring is not visible in a report, and this one changes
+the clinical answer.
