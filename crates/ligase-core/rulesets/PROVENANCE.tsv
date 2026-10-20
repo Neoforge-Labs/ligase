@@ -1,0 +1,12 @@
+#Vendored Stanford HIVdb resistance algorithms, pinned by checksum.
+#
+#Every row names a file in this directory, the upstream repository and
+#commit it was taken from byte-for-byte, its SHA-256, and the algorithm
+#name, version and date read from inside the file itself.
+#
+#README.md in this directory records the licence and the citation.
+#scripts/vendor_hivdb_algorithm.py verifies these checksums before parsing
+#anything, and tests/test_rulesets.py runs it on every test run.
+file	sha256	source	commit	algorithm	version	date
+HIVDB_9.8.xml	1da5fd1fd20c6be3474b57665ae2d146eac3d6b0bf3af3075a118971b6046e4f	https://github.com/hivdb/hivfacts/blob/main/data/algorithms/HIVDB_9.8.xml	7cd1521a4dcecef516c2e118383c796e314f7d27	HIVDB	9.8	2025-01-05
+HIVDB_10.2.xml	4676d08a1dfb263e3a0a178ed886a9b68b0f380bfd162f11a52edb6d48baa339	https://github.com/hivdb/hivfacts/blob/main/data/algorithms/HIVDB_10.2.xml	7cd1521a4dcecef516c2e118383c796e314f7d27	HIVDB	10.2	2026-04-26
