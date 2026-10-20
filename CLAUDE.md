@@ -45,8 +45,46 @@ HIV-1 reads → alignment to HXB2 → variant calling → drug-resistance calls.
 
 ## Documentation rule (mandatory)
 Every feature ships with docs in the same change:
-- `docs/concepts/<feature>.md` — what it is and why it exists
-- `docs/guide/<feature>.md` — how to use it, with a runnable example
-- `docs/architecture/<component>.md` — how it works internally, design decisions, trade-offs
-- Update `docs/index.md` and `CHANGELOG.md`.
-A feature is not done until its docs are written. Docs use MkDocs Material.
+- `concepts/<feature>.md` — what it is and why it exists
+- `guide/<feature>.md` — how to use it, with a runnable example
+- `architecture/<component>.md` — how it works internally, design decisions, trade-offs
+- Update `CHANGELOG.md`.
+A feature is not done until its docs are written.
+
+### Where the docs live
+Two sites exist during the migration, and a change touches both:
+- `docs/` — MkDocs Material, Markdown. **This is what is live** at
+  ligase.neoforgelabs.tech, built and deployed by `.github/workflows/docs.yml`.
+- `web/` — Nextra, MDX. The replacement, built and checked by
+  `.github/workflows/web.yml`, which does not deploy. Pages are
+  `web/content/<section>/<page>.mdx`, and the nav is the `_meta.ts` in each
+  directory.
+
+Until the switch, `web/scripts/port_docs.py` and `gen_meta.py` re-port `docs/`
+into `web/content/`, so writing the Markdown page is still the way in. After
+the switch, `docs/`, `mkdocs.yml`, the MkDocs entries in the `docs` extra and
+those two scripts all go, and the MDX becomes the source.
+
+### What the site generates rather than stores
+Never write these by hand; they are produced on every docs build and
+gitignored:
+- `web/content/api/` — from the package's docstrings, by `generate_api.py`.
+  It fails the build on an export in no group, a group entry that is not
+  exported, or any exported name, method or property with no docstring. A new
+  public name therefore has to be documented and placed in a group.
+- `web/lib/diagnostics.generated.ts` — the engine's real error text, by
+  `capture_diagnostics.py`, which fails if the engine stops producing the
+  error a page claims. Never paste engine output into a page; add a scenario.
+- `web/content/notebooks/` — the marimo notebooks, executed by
+  `render_notebooks.py` and rendered from the run.
+
+### Writing rules
+- Engine output on a page comes from a real run, never from imagination.
+- `<Diagnostic>` for a diagnostic, `<RunReport>` for a run transcript,
+  `<Note kind="note|warning|tip|caution">` for a callout. They are in the
+  global MDX map; no import needed.
+- `npm run check` in `web/` is the gate: it regenerates, builds, and then
+  fails on a broken link, a dangling anchor, a page nothing links to, or a
+  Markdown link that never resolved.
+- Claims about use or adoption must be true. The project has no outside
+  users; do not imply otherwise, and do not invent quotes, logos or metrics.

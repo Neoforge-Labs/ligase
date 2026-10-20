@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A second documentation site, in Nextra, under `web/`.** Built and checked
+  by a new `Docs site (Nextra)` workflow that deliberately does not deploy:
+  ligase.neoforgelabs.tech is still served by MkDocs from `docs/`, and stays
+  that way until the switch is made. A pilot for a house style across the
+  NeoForge Labs projects, so it is a custom design rather than a themed
+  install: serif body text at a 72-character measure, a four-colour signal
+  palette that means what the engine means, and components that render the
+  engine's own voice — `<Diagnostic>` sets a diagnostic the way rustc does,
+  with the mismatched values in a shared column so the mismatch lines up, and
+  `<RunReport>` gives `ran`/`cached`/`skipped`/`noticed` a column and a colour
+  each.
+- **Pages for the failures Ligase exists to catch**, titled after the symptom
+  somebody would search for rather than the feature that catches it: a BED
+  file that intersects nothing, variant positions that are wrong, intervals
+  off by one, sample labels that look swapped, and a sequence dictionary GATK
+  rejects. Each states the bug, says why nothing crashed, and then shows the
+  engine's real diagnostic.
+- **`web/scripts/capture_diagnostics.py`**, which captures those diagnostics
+  from a live run on every docs build rather than letting them be pasted in.
+  It fails the build if the engine stops producing the error a page claims it
+  produces, so it is a test of the engine as much as a generator.
+- **`web/scripts/generate_api.py`**, the replacement for mkdocstrings, which
+  has no equivalent in the JavaScript ecosystem. It imports the package and
+  writes MDX, grouped by what a reader is trying to do. It treats the grouping
+  as a contract with `__all__` in both directions, which mkdocstrings could
+  not: a name exported and ungrouped fails the build, and so does a grouped
+  name that is not exported, or any exported name, method or property without
+  a docstring.
+- **`web/scripts/render_notebooks.py`**, which executes the four marimo
+  notebooks and renders each page from the run. The previous site executed
+  them in CI and then linked to GitHub, so a reader saw the source and never
+  the result; now every value on those pages was computed during the build.
+- **`web/scripts/check-links.mjs`**, the replacement for `mkdocs --strict`,
+  run over the exported HTML. It fails on a broken internal link, an anchor
+  that does not exist on its target, and a page nothing links to. It also
+  catches the class `--strict` missed: a reference-style link whose definition
+  is absent is not a broken link to Markdown but literal text, which is how a
+  broken link survived in `docs/decisions.md`.
+- **Case pages for what has actually been run**: the HIV-1 validation as a
+  worked case, and a note that SAWA is evaluating Ligase for drug-resistance
+  surveillance. Both say plainly that the project has no outside users.
 - **Example notebooks**, four [marimo](https://marimo.io) notebooks from
   dimensions and their provenance, through an error caught before compute and
   a fanned-out graph that has not run, to resistance interpretation and why
@@ -31,6 +72,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   nav ending in the API reference and the licence. mkdocstrings reads
   google-style docstrings here, which is the convention ruff enforces for this
   package, rather than the numpy style the sibling repositories use.
+- `Step.output` and `Step.parameters` are documented. Both are public and
+  neither appeared in `Step`'s `Attributes:` section; the new API generator
+  refused to build until they did, which is the point of it.
+- The documentation rule in `CLAUDE.md` describes both sites and what the
+  Nextra one generates rather than stores, and the `docs` extra in
+  `pyproject.toml` separates the MkDocs dependencies — to be removed at the
+  switch — from `marimo`, which both sites need. `mypy --strict` now covers
+  `web/scripts`, the code most likely to break on an API change and least
+  likely to be covered by a test.
 
 ### Fixed
 
