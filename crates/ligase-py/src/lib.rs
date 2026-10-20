@@ -21,6 +21,7 @@ use ligase::check::{Binding, CheckError, check_step as core_check_step, render, 
 use ligase::dim::{CoordinateSystem, Dimension};
 use ligase::exec::{self, Host, Options, Recipe, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
+use ligase::hivdb;
 use ligase::load::{self, Declared, IntervalFormat, LoadError as CoreLoadError};
 use ligase::prov::{self, Prov};
 use ligase::types::{DataKind, Dataset};
@@ -329,6 +330,62 @@ impl PyDataset {
                 .to_vec(),
         )
     }
+}
+
+/// Interpret variant calls as drug resistance, writing the report.
+///
+/// The reference is required and not a convenience: a VCF holds only the
+/// positions that differ, and two of the three bases of a codon are
+/// usually not among them, so nothing can be translated without the
+/// sequence those positions sit in.
+///
+/// Returns what the reading noticed about itself -- an empty list in the
+/// ordinary case.
+#[pyfunction]
+#[pyo3(signature = (reference, variants, out, alignment=None, algorithm=None, mixture=None, depth=None))]
+fn interpret_resistance(
+    reference: PathBuf,
+    variants: PathBuf,
+    out: PathBuf,
+    alignment: Option<PathBuf>,
+    algorithm: Option<String>,
+    mixture: Option<f64>,
+    depth: Option<u32>,
+) -> PyResult<Vec<String>> {
+    hivdb::write_report(
+        &reference,
+        &variants,
+        alignment.as_deref(),
+        algorithm.as_deref().unwrap_or(hivdb::ruleset::DEFAULT),
+        mixture.unwrap_or(hivdb::codon::MIXTURE),
+        depth.unwrap_or(hivdb::codon::DEPTH),
+        &out,
+    )
+    .map_err(PyValueError::new_err)
+}
+
+/// Every resistance algorithm this engine ships, newest first.
+#[pyfunction]
+fn resistance_algorithms() -> Vec<String> {
+    hivdb::ruleset::VENDORED
+        .iter()
+        .map(|(name, _)| (*name).to_owned())
+        .collect()
+}
+
+/// The default algorithm, used when a pipeline does not name one.
+#[pyfunction]
+fn default_resistance_algorithm() -> &'static str {
+    hivdb::ruleset::DEFAULT
+}
+
+/// What the vendored algorithms are, by version, date and content.
+///
+/// This is what a step declaring `tool="hivdb"` records as its version,
+/// so it is what puts the rules into the cache key.
+#[pyfunction]
+fn resistance_fingerprint() -> PyResult<String> {
+    hivdb::ruleset::fingerprint().map_err(PyValueError::new_err)
 }
 
 #[pyfunction]
@@ -953,6 +1010,10 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_intervals, m)?)?;
     m.add_function(wrap_pyfunction!(load_samples, m)?)?;
     m.add_function(wrap_pyfunction!(check_step, m)?)?;
+    m.add_function(wrap_pyfunction!(interpret_resistance, m)?)?;
+    m.add_function(wrap_pyfunction!(resistance_algorithms, m)?)?;
+    m.add_function(wrap_pyfunction!(default_resistance_algorithm, m)?)?;
+    m.add_function(wrap_pyfunction!(resistance_fingerprint, m)?)?;
     m.add_class::<PyDataset>()?;
     m.add_class::<PyGraph>()?;
     m.add("LoadError", m.py().get_type::<LoadError>())?;

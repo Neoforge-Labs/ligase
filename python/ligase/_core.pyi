@@ -68,6 +68,21 @@ def check_step(
     bindings: list[tuple[str, Dataset]],
 ) -> list[Finding]: ...
 
+# -------------------------------------------------- resistance (M6) --
+
+def interpret_resistance(
+    reference: str,
+    variants: str,
+    out: str,
+    alignment: str | None = None,
+    algorithm: str | None = None,
+    mixture: float | None = None,
+    depth: int | None = None,
+) -> list[str]: ...
+def resistance_algorithms() -> list[str]: ...
+def default_resistance_algorithm() -> str: ...
+def resistance_fingerprint() -> str: ...
+
 # One task: node, code, command, callback, tools, parameters, citations.
 # Exactly one of the command and the callback is set.
 Task = tuple[

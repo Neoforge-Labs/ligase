@@ -20,7 +20,7 @@ from __future__ import annotations
 from glob import glob
 from typing import TYPE_CHECKING
 
-from . import _core
+from . import _core, hivdb
 from .audit import AuditReport, StepAudit
 from .errors import (
     CheckError,
@@ -107,6 +107,7 @@ __all__ = [
     "check_step",
     "dimension_errors",
     "handle",
+    "hivdb",
     "intervals",
     "reads",
     "reference",

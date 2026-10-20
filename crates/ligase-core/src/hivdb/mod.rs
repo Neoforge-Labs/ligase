@@ -25,9 +25,56 @@
 //! and a rerun in 2030 agree or explain themselves.
 
 pub mod codon;
+pub mod report;
 pub mod ruleset;
 pub mod score;
 
 pub use codon::{Gene, Reading, read};
 pub use ruleset::{Acids, Ruleset};
 pub use score::{Assessment, Observed, Protein, interpret};
+
+use std::path::Path;
+
+use crate::load::LoadError;
+
+/// Interpret one sample's calls and write the report.
+///
+/// This is the whole of what a `resistance` step does: read the
+/// reference and the calls into amino acids, score them against a
+/// vendored algorithm, and write the result.
+///
+/// # Arguments
+///
+/// - `reference` — the FASTA the variants were called against. Codons
+///   cannot be named without it: a VCF holds only the positions that
+///   differ, and two of the three bases of a codon are usually not among
+///   them.
+/// - `variants` — the calls.
+/// - `alignment` — the BAM they were called from, for coverage. Without
+///   it the report says, in a note, that it is treating every uncalled
+///   position as reference.
+/// - `algorithm` — which vendored algorithm to use, e.g. `HIVDB_9.8`.
+/// - `mixture` — the fraction an allele must reach to count as present.
+/// - `depth` — the depth a position must reach to count as read.
+///
+/// # Errors
+///
+/// If a file cannot be read, the algorithm is not one this engine ships,
+/// or a score falls outside the algorithm's own ranges.
+pub fn write_report(
+    reference: &Path,
+    variants: &Path,
+    alignment: Option<&Path>,
+    algorithm: &str,
+    mixture: f64,
+    depth: u32,
+    out: &Path,
+) -> Result<Vec<String>, String> {
+    let ruleset = Ruleset::vendored(algorithm)?;
+    let reading = read(reference, variants, alignment, mixture, depth)
+        .map_err(|error: LoadError| error.to_string())?;
+    let assessments = interpret(&ruleset, &reading.observed)?;
+    std::fs::write(out, report::render(&ruleset, &reading, &assessments))
+        .map_err(|error| format!("{}: {error}", out.display()))?;
+    Ok(reading.notes)
+}
