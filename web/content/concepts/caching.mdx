@@ -1,0 +1,174 @@
+---
+title: "Running, and not running"
+description: "pipe.run() computes whatever is not already known. A step runs when something that could change its result has changed, and not otherwise:"
+---
+# Running, and not running
+
+## What it is
+
+`pipe.run()` computes whatever is not already known. A step runs when
+something that could change its result has changed, and not otherwise:
+
+```console
+$ ligase run examples/hiv-resistance/pipeline.py
+running 12 steps in examples/hiv-resistance/pipeline.py
+
+ran       `align` (sample SRR8525904)        4.5s
+ran       `call` (sample SRR8525904)         513ms
+ran       `resistance` (sample SRR8525904)   3ms
+ran       `align` (sample SRR8525908)        9.4s
+...
+
+12 steps: 12 ran.
+```
+
+Run it again and nothing happens, because nothing changed:
+
+```console
+$ ligase run examples/hiv-resistance/pipeline.py
+running 12 steps in examples/hiv-resistance/pipeline.py
+
+cached    `align` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+cached    `call` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+cached    `resistance` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+
+12 steps: 12 from cache.
+```
+
+Eleven seconds became two tenths of one. The interesting part is not the
+speed; it is that the second run is *entitled* to be that fast, and can say
+why.
+
+## What a step's identity is
+
+Every step gets a key:
+
+> **hash(function code, parameters, input content hashes, tool versions)**
+
+If the key is in the cache, the step does not run. That list is exactly the
+set of things that can change a step's result, and the words in it are
+chosen carefully.
+
+**Function code**, not a name. Editing a step's body reruns it. Renaming a
+file does not.
+
+**Parameters**, by value and by type. `min_freq=0.01` and `min_freq=0.05`
+are different steps; so are `0.01` and `"0.01"`, because a framework that
+hashed them the same would be guessing. A random seed is an ordinary
+parameter, which is why a seed has to be declared rather than drawn: a step that reaches for an unseeded random number is not
+reproducible, and no cache can make it so.
+
+**Input content hashes**, never timestamps
+([D2](/design/decisions/#d2--content-hashing-not-timestamps)). Timestamps lie.
+`cp` moves them, `git clone` moves them, `touch` moves them, and a restored
+backup moves them backwards. A pipeline that reran on a fresh checkout — or
+worse, *did not* rerun after a file was quietly replaced — would be a
+pipeline nobody trusts.
+
+**Tool versions.** `@lg.step(tool="bcftools")` is not decoration: the step's
+key includes what `bcftools --version` says. Two bcftools releases that
+disagree about a call are precisely the reproducibility failure this project
+exists to catch, so an upgrade reruns the steps it could have changed. A
+tool that is not installed is an error, not an empty string, because
+hashing an absent tool as "no version" would let two machines with
+different tools agree on a key.
+
+## Why outputs are named after their contents
+
+A finished output goes into a content-addressed store: its name *is* the
+BLAKE3 hash of its bytes. Two steps that produced identical results share
+one file between them, and an object's name is a claim about its contents
+that anyone can check.
+
+That is also what makes **early cutoff** fall out rather than being bolted
+on. A downstream key is built from its inputs' *contents*, so if a step
+reruns and produces the same bytes as before, every key below it is
+unchanged and nothing below it is redone:
+
+```console
+$ ligase run pipeline.py      # after a comment-only edit to `align`
+ran       `align`   17ms
+skipped   `call`
+
+2 steps: 1 ran, 1 skipped.
+```
+
+`align` reran — its code changed, and the cache is not in the business of
+deciding which edits matter. But its output did not change, so `call` had
+nothing to do. The report distinguishes the two cases on purpose: `cached`
+means nothing above it ran, `skipped` means something did and came out the
+same.
+
+"The same" means *scientifically* the same, not byte-identical:
+[semantic hashing](/concepts/semantic-hashing/) sorts an output's records and drops
+the fields that say when and how it was made before hashing it. With bytes
+the example above would not work at all on a real aligner, because
+`minimap2` writes its own command line — including the output path — into
+the BAM's `@PG` line.
+
+## Why every sample is its own work
+
+One written step becomes one step per sample
+([per-sample fan-out](/concepts/pipelines/)), and each of those gets its own key. So
+adding a sample to a cohort of four hundred is three new steps rather than
+twelve hundred:
+
+```console
+$ ligase run pipeline.py      # one more sample arrived
+ran       `align` (sample SRR8525942)        8.2s
+ran       `call` (sample SRR8525942)         430ms
+ran       `resistance` (sample SRR8525942)   0ms
+cached    `align` for SRR8525904, SRR8525908, SRR8525920
+cached    `call` for SRR8525904, SRR8525908, SRR8525920
+cached    `resistance` for SRR8525904, SRR8525908, SRR8525920
+
+12 steps: 3 ran, 9 from cache.
+```
+
+Independent samples also run at once, at whatever width the machine allows.
+Nothing special makes that true: samples have no edges between them, so the
+engine has nothing to serialise.
+
+## What the cache cannot see
+
+Two honest limitations, both worth knowing before trusting a result.
+
+**A file rewritten in place.** Hashing every input on every run would make a
+40 GB BAM expensive to look at, so a file whose size *and* modification time
+are unchanged is not read again
+([D3](/design/decisions/#d3--blake3-with-sizemtime-prefilter)). Note the shape
+of that bet: a match skips work, a mismatch only causes a rehash, and the
+hash itself is never taken from a timestamp. The one case it can miss is a
+file edited in place, keeping its exact length, within the same timestamp
+granularity. `--force` exists for it.
+
+**A step that lies about what it reads.** A command that opens a file no
+parameter mentions has an input the key knows nothing about. Ligase cannot
+see inside `bcftools`; it can only hash what the step says it uses. This is
+the same bargain every build system makes, and the reason steps declare
+their inputs as parameters rather than reaching for paths.
+
+## Where it all goes
+
+A single directory, `.ligase/`, under wherever you ran from:
+
+```text
+.ligase/
+├── cache.sqlite          what has been computed, and what it produced
+├── store/                outputs, named after the hash of their contents
+│   └── 3c/73431de6...eeaa85.tsv
+└── tmp/                  steps write here, before the store knows them
+```
+
+It is derived data, all of it: delete the directory and the next run
+recomputes. Keep it and the next run is instant. It belongs in
+`.gitignore`, which is where this project's own is.
+
+## Read next
+
+- [Running a pipeline](/guide/running-a-pipeline/) — how to do it, with
+  a pipeline that works.
+- [Cache architecture](/architecture/cache/) — the store, the schema,
+  and how a key is actually composed.
+- [Execution architecture](/architecture/execution/) — how a graph
+  becomes parallel work without Python in the hot path.

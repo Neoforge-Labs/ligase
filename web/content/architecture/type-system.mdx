@@ -1,0 +1,361 @@
+---
+title: "Type system architecture"
+description: "How dimension checking is built, and why it is built this way. The user-facing view is Types and dimensions."
+---
+# Type system architecture
+
+How dimension checking is built, and why it is built this way. The user-facing
+view is [Types and dimensions](/concepts/types-and-dimensions/).
+
+## Where the code lives
+
+```text
+crates/ligase-core/src/
+  dim/mod.rs        Source, Dim<T>, Dimension, Dimensions, and the value types
+  dim/reference.rs  Contig, ReferenceId, and the relation between references
+  types.rs          DataKind, Dataset, and the applicability matrix
+  check.rs          check_step, the requirements table, error rendering
+  load/fasta.rs     streaming FASTA scan with computed MD5
+  load/alignment.rs SAM and BAM headers
+  load/variants.rs  VCF headers
+  load/reads.rs     FASTQ pairing, quality encoding, grouping into samples
+  load/intervals.rs BED and GFF records
+
+crates/ligase-py/src/lib.rs   thin PyO3 translation, no logic
+python/ligase/__init__.py     loaders, exception hierarchy, docstrings
+python/ligase/types.py        Dataset and its per-kind subclasses
+```
+
+All correctness-critical logic is in `ligase-core`, which has no PyO3
+dependency and can be tested and fuzzed as an ordinary Rust crate. The
+binding layer translates and nothing more; in particular, **error wording is
+generated in Rust** so the Rust tests own it, and asserting on exact message
+text does not require a Python round trip.
+
+## Provenance lives in the value
+
+```rust
+pub enum Dim<T> {
+    Known { value: T, source: Source },
+    Unknown { reason: &'static str },
+}
+
+pub enum Source {
+    Inferred { path: PathBuf, detail: &'static str },
+    Declared,
+    Derived { step: String },
+}
+```
+
+The alternative — storing bare values and reconstructing provenance when an
+error is built — was rejected. Reconstruction means the error site has to
+re-derive which file a value came from, which is guesswork once values have
+been propagated through a graph. Storing it costs one `PathBuf` per dimension
+and makes the error site trivial.
+
+`Unknown` carries a reason rather than being a bare `None`, because
+"unknown" is a thing the user has to act on and the reason is the instruction:
+`"no @RG lines with an SM tag in the header"` tells them what to look at,
+where `None` tells them nothing.
+
+## Reference identity
+
+```rust
+pub struct Contig {
+    pub name: String,
+    pub length: Option<u64>,
+    pub md5: Option<String>,
+}
+
+pub struct ReferenceId { label: Option<String>, contigs: Vec<Contig> }
+```
+
+`label` is display only and never participates in comparison. `length` is
+optional because `##contig=<ID=1>` without a length is legal VCF; storing a
+zero there would be a value that compares equal to another lie. `md5` is
+optional because VCF `##contig` lines frequently omit it and FASTQ has no
+concept of one.
+
+Two contigs are the same contig when their normalised names match, their
+lengths agree *if both are recorded*, and their checksums agree *if both are
+recorded*. Comparing only what is present is the honest middle between
+refusing to compare at all (which makes VCFs uncheckable) and treating an
+absent digest as agreement (which is the lie this whole system guards
+against).
+
+### Name normalisation
+
+A leading `chr` is stripped, case-insensitively, because naming style is its
+own dimension. A stripped `M` then becomes `MT`, reconciling UCSC's `chrM`
+with Ensembl's `MT`.
+
+The alias applies **only** to the prefixed form. A bare `M` is left alone, so
+it does not silently equate to `MT`. This is not fussiness: hg19's `chrM` is
+the older NC_001807 at 16571 bp, while GRCh37's `MT` is the rCRS at 16569 bp.
+They are different sequences. Normalising the name is safe only because
+length and MD5 are still compared, and the narrow alias keeps the one case
+that is genuinely the same contig from needing a special case.
+
+### The relation, and why it is not equality
+
+```rust
+pub enum Relation {
+    Identical,   // two references compared with each other
+    DataWithin,  // data checked against a reference
+    Compatible,  // two datasets, neither of which is the reference
+}
+```
+
+Decision [D10](/design/decisions/). Strict equality everywhere was the first
+design and it is wrong: a VCF header routinely lists only the contigs it has
+variants on, so `##contig=<ID=chr20>` against whole-genome hg38 is correct
+input that equality rejects.
+
+Rejecting correct input is not a safe failure. It teaches users to work
+around `check()`, and a bypassed checker catches nothing. So data need only
+be *contained* in the reference, while two references compared with each
+other must still match exactly.
+
+Orientation follows the **kinds**, not the argument order — data is checked
+against a reference, never the reverse — so the relation is the same however
+the bindings happen to be listed.
+
+### Classifying a failure
+
+`relate` compares twice: once on the names as written, and if that fails,
+once on normalised names.
+
+```text
+raw comparison agrees                     -> Agree
+raw fails, normalised agrees              -> NamingDiffers
+otherwise, report the normalised verdict  -> MissingContig | ContigConflict | OrderDiffers
+```
+
+A failure that becomes a success under normalisation *is* a naming
+difference. That two-pass structure is what makes `chr1` against `1` a
+distinct error rather than a reference mismatch, and it generalises to
+containment for free.
+
+`OrderDiffers` is its own verdict rather than being folded into a reference
+mismatch or ignored. htslib matches contigs by name, so `bcftools` does not
+care — but GATK requires sequence dictionaries in matching order and will
+reject the input. Reporting it as a reference mismatch would misdirect;
+staying silent would hide a real failure.
+
+### Fingerprints
+
+`ReferenceId::fingerprint()` is a 12-hex-character MD5 over the canonical
+contig list, used for display only, when two references' human descriptions
+collide. Two files both labelled `hg38` must not render identically in an
+error message.
+
+It is computed over *normalised* names, so a reference fingerprints the same
+as its `chr`-prefixed twin — naming is a separate dimension and must not leak
+into identity.
+
+## Checked against required
+
+This is the central design decision of the checker.
+
+```rust
+// Checked:  both sides state a value -> they must agree. Every dimension.
+// Required: additionally, the value must not be unknown. Only these pairs:
+pub const fn required_pair(left: DataKind, right: DataKind) -> &'static [Dimension]
+```
+
+| Kinds joined | Must be known |
+|---|---|
+| Reference ↔ Reference / Alignment / Variants | `reference` |
+| Alignment ↔ Alignment | `reference` |
+| Alignment ↔ Variants, Variants ↔ Variants | `reference`, `sample_set` |
+| Reads ↔ Reads | `sample_set`, `pairing` |
+| Reads ↔ Alignment / Variants | `sample_set` |
+| Reads ↔ Reference | *nothing* |
+| Intervals ↔ anything but Reads | `coordinates` |
+| Reads ↔ Intervals | *nothing* |
+| anything ↔ ResistanceReport | *nothing* |
+
+`docs/dimensions.md` says unknown dimensions are allowed only if no
+downstream step requires them. Checking one step in isolation has no
+downstream, so `check_step` takes "required" from the kinds being joined. A
+whole pipeline does have one: [the graph](/architecture/graph/) uses `disagreements()`
+and `requires()` to decide for itself, attributing a gap to the input that
+has to declare it, and this table is its default.
+
+Three entries deserve their reasoning spelled out:
+
+- **Reads ↔ Reference requires nothing.** Introducing the reference is what
+  alignment *does*. The golden example's `lg.samples()` takes no organism,
+  and demanding one would break a documented API for no safety gain.
+- **`organism` is required nowhere.** Reference identity already implies it:
+  if two inputs agree on contig checksums, they agree on the organism.
+  Requiring a declaration would add a hurdle without adding safety. It is
+  still *checked* when both sides state one.
+- **`quality_encoding` is required nowhere.** The catalogue gives no way to
+  declare it, so requiring it would be an unsatisfiable check — the user
+  could not comply.
+- **`reference` is required nowhere for intervals.** The same reasoning. A
+  BED's contigs come from its records, so an empty one knows none and
+  `build=` is a display label that cannot carry contigs. `coordinates` is
+  required instead: it is a property of the format, so it is always known
+  and always satisfiable.
+
+The bias throughout is toward demanding less. Under-demanding loses a check
+that another dimension usually catches anyway; over-demanding produces false
+alarms, and false alarms are how a correctness tool gets switched off.
+
+## The applicability matrix
+
+`DataKind::applies(Dimension) -> bool` encodes the `n/a` cells of the
+catalogue table. A dimension outside a kind's set is never compared and never
+demanded.
+
+This keeps "does not apply" genuinely distinct from "unknown", which matters
+for the error messages: `check_step` should never ask a user to declare a
+FASTA's quality encoding.
+
+`Alignment` reports `pairing` as applicable but unknown, because the
+information is in the SAM flags and M1 reads headers only. The unknown reason
+says exactly that rather than falling back to a generic one.
+
+## Rendering
+
+```rust
+pub struct CheckError {
+    kind: ErrorKind,      // Dimension | ContigNaming | ContigOrder | Undeclared
+    step: String,
+    dimension: Dimension,
+    lines: Vec<String>,   // one per binding
+    detail: Option<String>,
+    conclusion: String,
+}
+```
+
+`lines` is pre-rendered free-form text rather than structured values, because
+the three error shapes genuinely differ: a dimension mismatch reads
+`aln.reference = HXB2 (...)`, an order mismatch reads `aln.reference lists
+contigs in the order 2, 1 (...)`, and an undeclared dimension reads
+`aln.organism is unknown (...)`.
+
+Two rendering details that are easy to get wrong:
+
+- Naming and order lines are rendered from **each binding's own** dimensions
+  rather than from the verdict's `left`/`right`. The verdict is oriented by
+  kind while the lines are ordered by binding, so reading the styles off the
+  verdict would eventually mislabel which file had which naming style.
+- The preposition belongs to the `Source`, not the template around it:
+  `describe()` returns `"from BAM @SQ header: path"` but plain `"declared"`,
+  because `"(from declared)"` does not read as English.
+
+The undeclared message puts the **unknown** side first regardless of binding
+order, because that is the side the user has to change.
+
+`check_step` returns every error rather than the first. `ligase check` has
+to report all type errors in one pass, and fixing errors one per overnight
+run is the problem Ligase exists to remove. The Python `check_step` raises
+the first but attaches all of them to `.errors`; `dimension_errors` returns
+the list without raising.
+
+`dimension` is an `Option<Dimension>`. A `StepType` error — a step handed a
+VCF where it declared a FASTA — blames no dimension, and storing one anyway
+would mean choosing a lie for the Python layer to report.
+
+## Loading
+
+### FASTA is hand-rolled
+
+`noodles` is used for SAM, BAM, VCF and FASTQ, but **not** FASTA. Its FASTA
+reader materialises each record's sequence, and a human reference is three
+gigabases — a loader that held each contig in memory to checksum it would
+need gigabytes of RAM to answer a question about a header.
+
+The replacement is a ~60-line streaming scan that updates an MD5 and a length
+counter line by line and holds no sequence at all. It also handles the
+canonical form the `M5` checksum is defined over: uppercased, whitespace
+stripped, so soft-masked repeats do not change a reference's identity.
+
+### Gzip is read with a multi-member decoder
+
+`flate2::bufread::MultiGzDecoder`, never the single-member decoder. BGZF — the
+block-gzip that `bgzip`, `samtools` and `bcftools` produce — is a *sequence*
+of gzip members, and a single-member decoder stops silently after the first
+block. That failure mode is reading the start of a file and believing it to
+be all of it, which is exactly the class of silent wrongness this project
+targets.
+
+### `##reference` is deliberately ignored
+
+A VCF's `##reference` holds a path or URL. `docs/dimensions.md` is explicit
+that reference identity never rests on a filename, so identity comes from
+`##contig` alone and a VCF with no `##contig` lines reports its reference as
+unknown rather than trusting the path.
+
+### `@SQ SP` is not a source for organism
+
+The SAM specification has a species tag, and reading it would be easy. It is
+deliberately unused: matching a free-text `"Homo sapiens"` against a declared
+`"human"` needs an alias table, and a wrong answer there passes `check()`
+silently. Organism on a BAM is unknown unless declared.
+
+Organism comparison itself normalises case and surrounding whitespace and
+nothing else. No alias table, documented as such, so users declare one
+spelling and use it.
+
+### Quality encoding is bounded and may abstain
+
+Up to 10 000 records are sampled. Any byte below 59 means Phred+33
+definitively (no 64-offset encoding can produce it) and the scan stops early;
+a maximum above 74 means Phred+64. Anything else returns unknown.
+
+The bound means a file whose only distinguishing scores appear late reports
+unknown — the safe direction to be wrong in. Guessing would shift every
+quality value by 31, and nothing downstream would notice.
+
+## Testing
+
+Format fixtures live in `crates/ligase-core/tests/fixtures/`, generated by a
+committed `generate.py` so they are reproducible and so the MD5s baked into
+the `@SQ M5` and `##contig md5` fields are derived rather than hand-typed.
+Running it on an unchanged tree rewrites the same bytes, so
+`git diff --exit-code` after running it checks that the fixtures match the
+generator.
+
+Fixtures are committed as **text** — SAM, VCF, FASTA, FASTQ — so a reviewer
+can read an `@SQ M5` and check it by hand. BAM, being binary, is written at
+test time from a committed SAM's header. That keeps binaries out of git while
+leaving the text fixture as the source of truth: a BAM test is not merely
+noodles' writer agreeing with noodles' reader about a header neither was
+given.
+
+Because `data/` is gitignored, anything touching real data skips when absent
+rather than failing in CI. Two tests do:
+
+- the real HXB2 FASTA, after `scripts/fetch_test_data.sh`
+- the real minimap2 alignment, after `scripts/make_demo_alignment.sh`
+
+That second script rebuilds the BAM header with `samtools dict` so the `@SQ`
+lines carry M5 checksums. minimap2 does not write them, and without them a
+reference check falls back to names and lengths — the weak check Ligase exists
+to replace, since hg19 and hg38 share plenty of both. The payoff is that the
+test verifies a checksum *we* computed from the FASTA against one *samtools*
+computed independently, on a header a real aligner produced.
+
+## Trade-offs and known gaps
+
+- **`noodles` is pre-1.0.** It bumps minor versions often and its MSRV sets
+  ours (currently Rust 1.91). The alternative, `rust-htslib`, needs a C
+  htslib at build time, which would break `pip install ligase-bio` on any
+  machine without one. See [D11](/design/decisions/).
+- **Contig order is compared strictly** even for a contained subset. Tools
+  differ on whether they care; reporting it separately lets a caller decide,
+  but a pipeline that legitimately reorders will see an error it must handle.
+- **Contig order is only compared between dictionaries.** `ReferenceId`
+  records whether its contigs came from a sequence dictionary or were merely
+  *observed* in records, and `Observed` lists are never compared for order.
+  See [the graph](/architecture/graph/#intervals-and-the-order-that-is-not-an-order).
+- **No conversion graph yet.** `check_step` reports a mismatch; it does not
+  search for a `liftover` or a renaming step that would fix it. That is v2,
+  by [D5](/design/decisions/) and [D8](/design/decisions/).
+- **Organism aliases are not resolved.** `human` and `Homo sapiens` are
+  different strings and will be reported as a mismatch if both are declared.
+  Deliberate, per the reasoning above, but it is a rough edge.

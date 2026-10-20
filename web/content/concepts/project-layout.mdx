@@ -1,0 +1,113 @@
+---
+title: "Project layout"
+description: "Ligase is one repository holding three layers: a Rust engine, a thin binding crate, and a Python package. One pip install gets you all three."
+---
+# Project layout
+
+## What it is
+
+Ligase is one repository holding three layers: a Rust engine, a thin binding
+crate, and a Python package. One `pip install` gets you all three.
+
+```text
+crates/ligase-core/   Rust engine. Published as the `ligase` crate.
+crates/ligase-py/     PyO3 bindings. Compiled to `ligase._core`.
+python/ligase/        The Python API you import.
+```
+
+## Why it exists
+
+The two requirements pull in opposite directions.
+
+Scientists live in Python. An API that is not importable from a notebook will
+not be used, however correct it is.
+
+But the parts of Ligase that must not be wrong — dimension checking, content
+hashing of multi-gigabyte BAMs, graph construction, the cache — want a
+language with real types and real speed. Hashing a 40 GB alignment in Python
+is not a serious proposal, and a type system that silently coerces is not a
+type system.
+
+So the engine is Rust and the surface is Python ([decision
+D1](/design/decisions/)). The boundary between them is deliberately narrow.
+
+## The three layers
+
+### `crates/ligase-core` — the engine
+
+The correctness-critical logic: biological types and their dimensions, the
+dimension checker, the dependency graph, the content-addressed cache, the
+executor, provenance recording.
+
+This crate **knows nothing about Python**. No `pyo3` dependency, no
+`PyObject` in a signature. That keeps it testable with plain `cargo test`,
+usable from other Rust programs, and honest: if a type only makes sense
+because of how Python calls it, it belongs one layer up.
+
+It is published under the name `ligase`, even though its directory is
+`ligase-core`. The directory says what role it plays in the workspace; the
+crate name is what you would type in a `Cargo.toml`.
+
+### `crates/ligase-py` — the bindings
+
+A `cdylib` compiled to a single shared object and imported as
+`ligase._core`. Its job is translation and nothing else: take Python
+arguments, call the engine, turn Rust errors into Python exceptions.
+
+It is private, by the leading underscore and by intent. It is also
+`publish = false` — it is not a Rust library anyone should depend on.
+
+### `python/ligase` — the surface
+
+The public API: the `@lg.step` decorator, `lg.Pipeline`, the type names, the
+CLI. This is what [the golden example](/design/golden-example/) imports.
+
+Python is the right language for this layer. Decorators that read function
+signatures, friendly error messages, notebook integration — all of it is
+easier and better in Python, and none of it is correctness-critical.
+
+## Why the extension module is private
+
+`ligase._core` is an implementation detail. Nothing outside
+`python/ligase/__init__.py` should import it.
+
+This matters more than it looks. The compiled module is where the Rust/Python
+boundary lives, and that boundary will move: a function that starts in Python
+may move into Rust for speed, and a Rust function may gain a Python wrapper
+that does argument validation. If users import `ligase._core` directly, every
+such move is a breaking change. With the boundary hidden, it is an
+implementation detail.
+
+The version is the smallest example of the pattern already in place:
+
+```python
+>>> import ligase
+>>> ligase.__version__        # Python attribute...
+'0.1.0'
+>>> ligase._core.version()    # ...reporting what Rust was compiled as
+'0.1.0'
+```
+
+`__version__` is not a string typed into a Python file. It is read from the
+compiled engine, so a wheel cannot report a version it was not built from —
+a small instance of the same principle the cache rests on: never trust
+metadata you can derive from content.
+
+## Where everything else lives
+
+```text
+tests/              pytest acceptance tests (the Python side)
+scripts/            fetch_test_data.sh and friends
+docs/               this site, including the design docs
+data/               fetched test data. Gitignored, never committed.
+```
+
+Test data is downloaded, not committed, and pinned by checksum. See
+[installation](/guide/installation/#test-data).
+
+## Related
+
+- [Workspace architecture](/architecture/workspace/) — how the build is
+  wired, and the trade-offs taken
+- [Installation](/guide/installation/) — getting it running
+- [Decisions](/design/decisions/) — D1 covers the Rust/Python split
