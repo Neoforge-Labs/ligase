@@ -304,10 +304,24 @@ impl Host for NoCallbacks {
     }
 }
 
-/// The version an external tool reports.
+/// A dependency whose version is part of a result but which is not a
+/// program to run.
 ///
-/// The whole of `<tool> --version`, because the parts a tool prints below
-/// the first line — the htslib a samtools was built against, say — change
+/// `tool=` means "something whose version changes the answer". Almost
+/// always that is an external program, probed with `--version`. The
+/// resistance algorithm is the exception: it is a body of versioned
+/// knowledge compiled into the engine, with no process to run and no
+/// `--version` to print, and it changes answers exactly as a tool does.
+///
+/// Naming it here rather than special-casing it inside the probe keeps
+/// the exception visible, and keeps it to one place.
+const BUILT_IN: &[&str] = &["hivdb"];
+
+/// The version a step's dependency reports.
+///
+/// For a built-in, what the engine carries. For everything else, the
+/// whole of `<tool> --version`, because the parts a tool prints below the
+/// first line — the htslib a samtools was built against, say — change
 /// results too.
 ///
 /// # Errors
@@ -316,6 +330,10 @@ impl Host for NoCallbacks {
 /// as "no version" would let two machines with different tools agree on a
 /// key, which is exactly the failure this is here to prevent.
 pub fn tool_version(tool: &str) -> Result<String, String> {
+    if BUILT_IN.contains(&tool) {
+        return crate::hivdb::ruleset::fingerprint();
+    }
+
     let output = Command::new(tool)
         .arg("--version")
         .output()

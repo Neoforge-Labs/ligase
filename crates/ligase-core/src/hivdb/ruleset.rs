@@ -20,6 +20,65 @@ use std::path::Path;
 /// `.ruleset`'s first line.
 const FORMAT: u32 = 1;
 
+/// Every algorithm shipped inside the engine, newest first.
+///
+/// Embedded rather than read from disk, so an installed wheel carries its
+/// own rules and a run cannot depend on where a file was unpacked. The
+/// XML each was derived from is in `crates/ligase-core/rulesets/`, pinned
+/// by SHA-256; these are the derived form, and the test suite re-derives
+/// them from the XML on every run.
+pub const VENDORED: &[(&str, &str)] = &[
+    (
+        "HIVDB_10.2",
+        include_str!("../../rulesets/HIVDB_10.2.ruleset"),
+    ),
+    (
+        "HIVDB_9.8",
+        include_str!("../../rulesets/HIVDB_9.8.ruleset"),
+    ),
+];
+
+/// The algorithm used when a pipeline does not name one.
+///
+/// 9.8 rather than the newer 10.2, because it is the version the
+/// published results in `tests/test_validation.py` were produced with,
+/// and a default that disagreed with the suite's own reference answers
+/// would make every validation run an argument about algorithm drift.
+/// A pipeline that wants today's science names `HIVDB_10.2`.
+pub const DEFAULT: &str = "HIVDB_9.8";
+
+/// What every vendored algorithm is, by name, version, date and content.
+///
+/// This is what a `hivdb` step records as its tool version, so it is what
+/// puts the rules into the cache key. The digest is of the bytes, not of
+/// the name: upstream publishes corrections under near-identical names —
+/// `HIVDB_10.0.xml` and `HIVDB_10.0-1.xml` both exist — and a key that
+/// moved only with the name would serve a result computed under rules
+/// that have since changed.
+///
+/// Every vendored algorithm is named, not only the one in use, because
+/// the probe runs before any step body has said which it wants. That is
+/// over-conservative: editing 10.2 reruns a pipeline pinned to 9.8. It is
+/// the direction [D20](../../../docs/decisions.md) already commits to — a
+/// cache that is too cold costs time, one that is too warm is wrong.
+///
+/// # Errors
+///
+/// If any embedded ruleset does not parse, which would mean the engine
+/// was built from a broken derivation.
+pub fn fingerprint() -> Result<String, String> {
+    let mut parts = Vec::with_capacity(VENDORED.len());
+    for (name, text) in VENDORED {
+        let ruleset = Ruleset::parse(text).map_err(|error| format!("{name}: {error}"))?;
+        parts.push(format!(
+            "{} blake3:{}",
+            ruleset.describe(),
+            blake3::hash(text.as_bytes()).to_hex()
+        ));
+    }
+    Ok(parts.join("; "))
+}
+
 /// The amino acids a rule may name at one position.
 ///
 /// A bitset rather than a sorted string: matching a rule against an
@@ -243,6 +302,31 @@ impl Ruleset {
             .iter()
             .find(|level| level.order == order)
             .ok_or_else(|| format!("no level {order}"))
+    }
+
+    /// One of the algorithms shipped inside the engine.
+    ///
+    /// # Errors
+    ///
+    /// If no vendored algorithm has that name, or it does not parse. The
+    /// error names every algorithm there is, because a typo in a
+    /// pipeline's `algorithm=` is the likely cause and a list is the
+    /// answer to it.
+    pub fn vendored(name: &str) -> Result<Self, String> {
+        let (_, text) = VENDORED
+            .iter()
+            .find(|(vendored, _)| *vendored == name)
+            .ok_or_else(|| {
+                format!(
+                    "no vendored algorithm called {name:?}; this engine ships {}",
+                    VENDORED
+                        .iter()
+                        .map(|(vendored, _)| *vendored)
+                        .collect::<Vec<_>>()
+                        .join(" and ")
+                )
+            })?;
+        Self::parse(text).map_err(|error| format!("{name}: {error}"))
     }
 
     /// Read a `.ruleset` from disk.

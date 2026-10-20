@@ -58,6 +58,16 @@ pub const KNOWN: &[Citation] = &[
                of SAMtools and BCFtools. GigaScience 10(2):giab008.",
         doi: "10.1093/gigascience/giab008",
     },
+    // The resistance algorithm is not a program, but it is software that
+    // produced a result and a reviewer will want the reference. Stanford
+    // asks for this one by name on its own terms-of-use page.
+    Citation {
+        tool: "hivdb",
+        text: "Rhee SY, Gonzales MJ, Kantor R, Betts BJ, Ravela J, Shafer RW (2003) \
+               Human immunodeficiency virus reverse transcriptase and protease \
+               sequence database. Nucleic Acids Research 31(1):298-303.",
+        doi: "10.1093/nar/gkg100",
+    },
     Citation {
         tool: "bcftools",
         text: "Danecek P, Bonfield JK, Liddle J, Marshall J, Ohan V, Pollard MO, \

@@ -330,3 +330,78 @@ fn a_ruleset_this_engine_does_not_understand_is_refused() {
         );
     }
 }
+
+#[test]
+fn the_engine_carries_its_own_rules() {
+    // An installed wheel interprets without reading anything from disk,
+    // so a run cannot depend on where a file was unpacked.
+    for (name, _) in ligase::hivdb::ruleset::VENDORED {
+        let ruleset = Ruleset::vendored(name).unwrap();
+        assert!(
+            name.ends_with(&ruleset.version),
+            "{name} vs {}",
+            ruleset.version
+        );
+    }
+
+    let unknown = Ruleset::vendored("HIVDB_7.0").unwrap_err();
+    assert!(unknown.contains("no vendored algorithm"), "{unknown}");
+    // The error lists what there is, because a typo is the likely cause.
+    assert!(unknown.contains("HIVDB_9.8"), "{unknown}");
+    assert!(unknown.contains("HIVDB_10.2"), "{unknown}");
+}
+
+#[test]
+fn an_embedded_ruleset_is_the_file_it_was_derived_from() {
+    // The embedded copy and the committed one must not drift: the Python
+    // suite re-derives the committed `.ruleset` from its XML, and this
+    // ties what the engine actually uses to that same file.
+    for (name, embedded) in ligase::hivdb::ruleset::VENDORED {
+        let committed = std::fs::read_to_string(rulesets().join(format!("{name}.ruleset")))
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert_eq!(
+            *embedded, committed,
+            "{name} drifted from its committed file"
+        );
+    }
+}
+
+#[test]
+fn the_rules_enter_a_cache_key_by_content_rather_than_by_name() {
+    let fingerprint = ligase::hivdb::ruleset::fingerprint().unwrap();
+
+    // Both algorithms are named, because the probe runs before any step
+    // has said which it wants. Over-conservative on purpose (D20).
+    assert!(
+        fingerprint.contains("HIVDB 9.8 (2025-01-05)"),
+        "{fingerprint}"
+    );
+    assert!(
+        fingerprint.contains("HIVDB 10.2 (2026-04-26)"),
+        "{fingerprint}"
+    );
+
+    // And each by the digest of its bytes. Upstream publishes corrections
+    // under near-identical names -- HIVDB_10.0 and HIVDB_10.0-1 both
+    // exist -- so a key that moved only with the name would serve a
+    // result computed under rules that have since changed.
+    assert_eq!(fingerprint.matches("blake3:").count(), 2, "{fingerprint}");
+
+    // This is what a step declaring `tool="hivdb"` records, with no
+    // binary of that name anywhere.
+    assert_eq!(ligase::exec::tool_version("hivdb").unwrap(), fingerprint);
+}
+
+#[test]
+fn the_algorithm_is_cited_like_any_other_software() {
+    // A methods section names the software that produced a result. An
+    // interpretation algorithm is software, and D24 forbids both guessing
+    // a reference and quietly omitting one.
+    let citation = ligase::prov::cite::KNOWN
+        .iter()
+        .find(|citation| citation.tool == "hivdb")
+        .expect("the resistance algorithm needs a reference");
+
+    assert!(citation.text.contains("Rhee SY"), "{}", citation.text);
+    assert_eq!(citation.doi, "10.1093/nar/gkg100");
+}
