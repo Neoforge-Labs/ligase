@@ -120,6 +120,10 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@v1.14.2
         with:
           repository-url: ${{ github.event.inputs.mode == 'testpypi' && 'https://test.pypi.org/legacy/' || '' }}
+          # PyPI refuses a file it already has, and refuses it again even if the
+          # version was deleted. Without this, re-running a release fails on the
+          # upload rather than reporting there was nothing new to do.
+          skip-existing: true
 
   crate:
     name: crates.io
@@ -135,8 +139,45 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: rehearse
         run: cargo publish --dry-run -p ligase
+
+      # crates.io will not accept a version twice, and the crate may have been
+      # published by hand. Ask the registry first so a re-run or a retag skips
+      # cleanly instead of failing on `already exists`.
+      - name: is this version already on crates.io?
+        id: probe
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name=="ligase") | .version')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # The sparse index is the registry's own source of truth and needs no
+          # auth. Anything other than a confirmed "present" falls through to the
+          # publish below, so a failed probe fails loudly rather than silently
+          # skipping a release.
+          present="$(curl -sS --max-time 30 -H 'User-Agent: ligase-release' \
+              https://index.crates.io/li/ga/ligase \
+            | jq -s --arg v "$version" 'any(.[]; .vers == $v)' 2>/dev/null || echo unknown)"
+          if [ "$present" = "true" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "ligase $version is already on crates.io."
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "ligase $version is not on crates.io (probe said: $present)."
+          fi
+
       - name: publish
-        if: github.event_name == 'push' || github.event.inputs.mode == 'publish'
+        if: >-
+          (github.event_name == 'push' || github.event.inputs.mode == 'publish')
+          && steps.probe.outputs.present != 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish -p ligase
+
+      - name: already published
+        if: >-
+          (github.event_name == 'push' || github.event.inputs.mode == 'publish')
+          && steps.probe.outputs.present == 'true'
+        run: >-
+          echo "::notice::ligase ${{ steps.probe.outputs.version }} is already on
+          crates.io, so this job published nothing. Bump the workspace version to
+          release a new one."
