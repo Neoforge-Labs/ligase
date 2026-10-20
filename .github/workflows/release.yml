@@ -125,7 +125,10 @@ jobs:
     name: crates.io
     needs: [wheels, sdist, verify-wheel]
     runs-on: ubuntu-24.04
-    environment: ${{ (github.event_name == 'push' || github.event.inputs.mode == 'publish') && 'crates-io' || '' }}
+    # Declared unconditionally: an empty environment name is not valid, and
+    # naming it always means required reviewers can gate an irreversible
+    # publish. The token is read from here or from a repository secret.
+    environment: crates-io
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
