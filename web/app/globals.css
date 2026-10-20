@@ -1,0 +1,405 @@
+@import './tokens.css';
+
+/* ===================================================================
+   Base
+   =================================================================== */
+
+html {
+  font-family: var(--lg-font-ui);
+  background: var(--lg-paper);
+  color: var(--lg-ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--lg-paper);
+}
+
+::selection {
+  background: var(--lg-brand-soft);
+  color: var(--lg-ink);
+}
+
+/* ===================================================================
+   Prose
+   -------------------------------------------------------------------
+   Serif body at a 72ch measure. The content is 52,000 words of careful
+   technical prose written for scientists; it deserves to be set like
+   prose rather than like UI copy.
+   =================================================================== */
+
+.nextra-content :is(p, li, dd, blockquote, td, th) {
+  font-family: var(--lg-font-prose);
+  font-size: var(--lg-prose-size);
+  line-height: var(--lg-prose-leading);
+  letter-spacing: -0.003em;
+}
+
+.nextra-content p {
+  margin-block: 1.1em;
+  max-width: var(--lg-measure);
+  color: var(--lg-ink);
+}
+
+.nextra-content :is(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--lg-font-ui);
+  color: var(--lg-ink);
+  text-wrap: balance;
+}
+
+.nextra-content h1 {
+  font-size: clamp(2.1rem, 1.6rem + 1.8vw, 2.9rem);
+  font-weight: 680;
+  letter-spacing: -0.032em;
+  line-height: 1.08;
+  margin-block: 0 0.65em;
+  max-width: 30ch;
+}
+
+/* A hairline above every h2 does the work a heavier font weight would
+   otherwise have to do, and keeps long pages scannable. */
+.nextra-content h2 {
+  font-size: 1.55rem;
+  font-weight: 620;
+  letter-spacing: -0.022em;
+  line-height: 1.22;
+  margin-block: 2.9em 0.8em;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--lg-rule);
+  max-width: 40ch;
+}
+
+.nextra-content h3 {
+  font-size: 1.16rem;
+  font-weight: 620;
+  letter-spacing: -0.013em;
+  margin-block: 2.1em 0.6em;
+}
+
+.nextra-content h4 {
+  font-size: 1rem;
+  font-weight: 620;
+  letter-spacing: 0.005em;
+  margin-block: 1.9em 0.5em;
+  color: var(--lg-ink-muted);
+}
+
+/* Anchor links: visible on hover only, and set in mono so they read as a
+   fragment identifier rather than a decoration. */
+.nextra-content :is(h2, h3, h4) a[href^='#']::after {
+  content: '#';
+  font-family: var(--lg-font-mono);
+  font-size: 0.78em;
+  font-weight: 400;
+  color: var(--lg-ink-faint);
+  margin-left: 0.5ch;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.nextra-content :is(h2, h3, h4):hover a[href^='#']::after {
+  opacity: 1;
+}
+
+/* ---- Links ---- */
+
+.nextra-content a:not([class]) {
+  color: var(--lg-brand);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+  text-decoration-color: var(--lg-brand-rule);
+  transition: text-decoration-color 120ms ease, color 120ms ease;
+}
+
+.nextra-content a:not([class]):hover {
+  color: var(--lg-brand-hover);
+  text-decoration-color: var(--lg-brand);
+}
+
+/* ---- Lists ---- */
+
+.nextra-content :is(ul, ol) {
+  margin-block: 1.1em;
+  max-width: var(--lg-measure);
+  padding-left: 1.4em;
+}
+
+.nextra-content li {
+  margin-block: 0.4em;
+}
+
+.nextra-content ul > li::marker {
+  color: var(--lg-ink-faint);
+}
+
+.nextra-content ol > li::marker {
+  color: var(--lg-ink-faint);
+  font-family: var(--lg-font-mono);
+  font-size: 0.85em;
+}
+
+/* ---- Blockquote: a thin rule, no background tint ---- */
+
+.nextra-content blockquote {
+  border-left: 2px solid var(--lg-rule-strong);
+  padding-left: 1.3em;
+  margin-block: 1.6em;
+  color: var(--lg-ink-muted);
+  font-style: normal;
+}
+
+/* ---- Tables ---- */
+
+.nextra-content table {
+  width: 100%;
+  margin-block: 1.8em;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  display: table;
+}
+
+.nextra-content thead {
+  border-bottom: 1px solid var(--lg-rule-strong);
+}
+
+.nextra-content th {
+  font-family: var(--lg-font-ui);
+  font-size: 0.73rem;
+  font-weight: 620;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--lg-ink-muted);
+  text-align: left;
+  padding: 0 1.1em 0.7em 0;
+  background: none;
+}
+
+.nextra-content td {
+  padding: 0.72em 1.1em 0.72em 0;
+  border-bottom: 1px solid var(--lg-rule);
+  vertical-align: baseline;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.nextra-content :is(th, td):last-child {
+  padding-right: 0;
+}
+
+.nextra-content tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---- Horizontal rule ---- */
+
+.nextra-content hr {
+  border: none;
+  border-top: 1px solid var(--lg-rule);
+  margin-block: 3em;
+}
+
+/* ===================================================================
+   Code
+   -------------------------------------------------------------------
+   Inline code sits inside serif prose, so it needs to be optically
+   matched down, not left at its natural size.
+   =================================================================== */
+
+.nextra-content :not(pre) > code {
+  font-family: var(--lg-font-mono);
+  font-size: 0.855em;
+  background: var(--lg-paper-sunken);
+  border: 1px solid var(--lg-rule);
+  border-radius: 3px;
+  padding: 0.1em 0.34em;
+  color: var(--lg-ink);
+  word-break: break-word;
+}
+
+.nextra-content a:not([class]) > code {
+  color: inherit;
+  border-color: var(--lg-brand-rule);
+  background: var(--lg-brand-soft);
+}
+
+/* ---- Fenced blocks ---- */
+
+.nextra-content pre {
+  font-family: var(--lg-font-mono);
+  font-size: 0.875rem;
+  line-height: 1.62;
+  background: var(--lg-paper-raised) !important;
+  border: 1px solid var(--lg-rule);
+  border-radius: var(--lg-radius-lg);
+  padding: 1.05rem 1.15rem;
+  overflow-x: auto;
+  tab-size: 2;
+}
+
+.nextra-content figure[data-rehype-pretty-code-figure] {
+  margin-block: 1.7em;
+}
+
+/* The language/filename tab reads as a label on the panel, not a chip
+   floating above it. */
+.nextra-content [data-rehype-pretty-code-title] {
+  font-family: var(--lg-font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--lg-ink-muted);
+  background: var(--lg-paper-sunken);
+  border: 1px solid var(--lg-rule);
+  border-bottom: none;
+  border-radius: var(--lg-radius-lg) var(--lg-radius-lg) 0 0;
+  padding: 0.5rem 1.15rem;
+}
+
+.nextra-content [data-rehype-pretty-code-title] + pre {
+  border-radius: 0 0 var(--lg-radius-lg) var(--lg-radius-lg);
+  border-top-color: var(--lg-rule);
+}
+
+/* Line numbers, when a block asks for them, in the faintest ink. */
+.nextra-content code[data-line-numbers] > [data-line]::before {
+  color: var(--lg-ink-faint);
+  margin-right: 1.4ch;
+}
+
+/* A `console` block is a transcript, not source: no syntax colour, and the
+   prompt is dimmed so the typed command reads first. */
+.nextra-content pre:has(code[data-language='console']),
+.nextra-content pre:has(code[data-language='text']) {
+  background: var(--lg-paper-sunken) !important;
+}
+
+/* ===================================================================
+   Sidebar
+   -------------------------------------------------------------------
+   Section labels in small caps; the active page marked with a rule in
+   the brand colour rather than a filled pill. The nav is a table of
+   contents for a document, so it should look like one.
+   =================================================================== */
+
+.nextra-sidebar-container {
+  font-family: var(--lg-font-ui);
+}
+
+.nextra-sidebar-container .nextra-menu-desktop > li > a,
+.nextra-sidebar-container .nextra-menu-desktop > li > button {
+  font-size: 0.875rem;
+}
+
+/* Top-level group headings */
+.nextra-sidebar-container [data-nextra-sidebar-group-title],
+.nextra-sidebar-container .nextra-menu-desktop > li.nextra-menu-separator {
+  font-size: 0.7rem !important;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.085em;
+  color: var(--lg-ink-faint) !important;
+  margin-top: 1.9rem !important;
+  margin-bottom: 0.45rem !important;
+}
+
+.nextra-sidebar-container a {
+  border-radius: 0 !important;
+  border-left: 2px solid transparent;
+  padding-left: 0.85rem !important;
+  color: var(--lg-ink-muted) !important;
+  background: none !important;
+  transition: color 120ms ease, border-color 120ms ease;
+  line-height: 1.45;
+}
+
+.nextra-sidebar-container a:hover {
+  color: var(--lg-ink) !important;
+  border-left-color: var(--lg-rule-strong);
+}
+
+.nextra-sidebar-container a[data-active='true'],
+.nextra-sidebar-container .active > a {
+  color: var(--lg-brand) !important;
+  font-weight: 560;
+  border-left-color: var(--lg-brand);
+  background: none !important;
+}
+
+/* ===================================================================
+   Table of contents (right rail)
+   =================================================================== */
+
+.nextra-toc {
+  font-family: var(--lg-font-ui);
+}
+
+.nextra-toc li {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.nextra-toc a {
+  color: var(--lg-ink-faint) !important;
+  transition: color 120ms ease;
+}
+
+.nextra-toc a:hover,
+.nextra-toc a[aria-selected='true'] {
+  color: var(--lg-brand) !important;
+}
+
+/* ===================================================================
+   Navbar
+   =================================================================== */
+
+.nextra-navbar {
+  font-family: var(--lg-font-ui);
+  border-bottom: 1px solid var(--lg-rule);
+  background: color-mix(in srgb, var(--lg-paper) 86%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.nextra-navbar nav {
+  font-size: 0.875rem;
+}
+
+/* ===================================================================
+   Breadcrumbs / pagination / footer
+   =================================================================== */
+
+.nextra-breadcrumb {
+  font-family: var(--lg-font-mono);
+  font-size: 0.76rem;
+  letter-spacing: 0.01em;
+  color: var(--lg-ink-faint);
+}
+
+.nextra-content hr + div a,
+footer {
+  font-family: var(--lg-font-ui);
+}
+
+/* ===================================================================
+   Focus
+   =================================================================== */
+
+:focus-visible {
+  outline: 2px solid var(--lg-brand);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ===================================================================
+   Reduced motion
+   =================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

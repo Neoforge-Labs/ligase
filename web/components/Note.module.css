@@ -1,0 +1,88 @@
+.note {
+  margin-block: 1.8em;
+  padding: 0.95rem 1.15rem 1rem;
+  border: 1px solid var(--lg-rule);
+  border-radius: var(--lg-radius-lg);
+  background: var(--lg-paper-raised);
+  box-shadow: inset 3px 0 0 0 var(--lg-ink-faint);
+  max-width: var(--lg-measure);
+}
+
+.note[data-kind='note'] {
+  border-color: var(--lg-brand-rule);
+  background: var(--lg-brand-soft);
+  box-shadow: inset 3px 0 0 0 var(--lg-brand);
+}
+
+.note[data-kind='warning'] {
+  border-color: var(--lg-refuse-rule);
+  background: var(--lg-refuse-soft);
+  box-shadow: inset 3px 0 0 0 var(--lg-refuse);
+}
+
+.note[data-kind='tip'] {
+  border-color: var(--lg-agree-rule);
+  background: var(--lg-agree-soft);
+  box-shadow: inset 3px 0 0 0 var(--lg-agree);
+}
+
+.note[data-kind='caution'] {
+  border-color: var(--lg-notice-rule);
+  background: var(--lg-notice-soft);
+  box-shadow: inset 3px 0 0 0 var(--lg-notice);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75ch;
+  flex-wrap: wrap;
+  margin: 0 0 0.35em !important;
+  font-family: var(--lg-font-ui) !important;
+  font-size: 0.95rem !important;
+  line-height: 1.45 !important;
+}
+
+.label {
+  font-family: var(--lg-font-mono);
+  font-size: 0.68rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  padding-top: 0.22em;
+  flex: none;
+}
+
+.note[data-kind='note'] .label {
+  color: var(--lg-brand);
+}
+.note[data-kind='warning'] .label {
+  color: var(--lg-refuse);
+}
+.note[data-kind='tip'] .label {
+  color: var(--lg-agree);
+}
+.note[data-kind='caution'] .label {
+  color: var(--lg-notice);
+}
+
+.title {
+  font-weight: 620;
+  letter-spacing: -0.012em;
+  color: var(--lg-ink);
+}
+
+/* Callout prose is set a notch smaller than body prose, so an aside reads as
+   an aside without needing a smaller colour contrast. */
+.body > :is(p, ul, ol) {
+  font-size: 1.0625rem !important;
+  margin-block: 0.6em !important;
+}
+
+.body > :first-child {
+  margin-top: 0 !important;
+}
+
+.body > :last-child {
+  margin-bottom: 0 !important;
+}

@@ -1,0 +1,66 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.9rem;
+  margin-block: 2em;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.05rem 1.15rem 1.2rem;
+  border: 1px solid var(--lg-rule);
+  border-radius: var(--lg-radius-lg);
+  background: var(--lg-paper-raised);
+  text-decoration: none !important;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.card:hover {
+  border-color: var(--lg-refuse-rule);
+  box-shadow: inset 3px 0 0 0 var(--lg-refuse);
+}
+
+/* The mismatch, set as a comparison. This is the whole point of the card. */
+.pair {
+  display: flex;
+  align-items: center;
+  gap: 0.7ch;
+  flex-wrap: wrap;
+  font-family: var(--lg-font-mono);
+  font-size: 0.8rem;
+}
+
+.left,
+.right {
+  font-family: var(--lg-font-mono);
+  font-size: 1em;
+  background: var(--lg-paper-sunken);
+  border: 1px solid var(--lg-rule);
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+  color: var(--lg-ink);
+}
+
+.vs {
+  color: var(--lg-refuse);
+  font-weight: 650;
+}
+
+.symptom {
+  font-family: var(--lg-font-ui);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.016em;
+  line-height: 1.3;
+  color: var(--lg-ink);
+  margin-top: 0.15rem;
+}
+
+.body {
+  font-family: var(--lg-font-prose);
+  font-size: 1rem;
+  line-height: 1.52;
+  color: var(--lg-ink-muted);
+}

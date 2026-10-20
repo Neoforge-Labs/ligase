@@ -27,3 +27,14 @@ dist/
 
 # Run cache (content-addressed store + SQLite metadata)
 /.ligase/
+
+# Nextra docs site (web/)
+/web/node_modules/
+/web/.next/
+/web/out/
+# Generated on every docs build from the package itself, the way mkdocstrings
+# generated the old API reference: nothing here is edited by hand, and a
+# committed copy could only ever be stale.
+/web/content/api/
+/web/content/notebooks/
+/web/lib/diagnostics.generated.ts
