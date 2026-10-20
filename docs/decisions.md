@@ -429,7 +429,9 @@ This is [D22](#d22-a-tools-signature-is-not-part-of-its-result)'s pattern in
 a field that cannot be dropped. A command line says how a file was made; a
 sample identifier is part of what the file is **about**, and a sample set is
 one of the dimensions this engine exists to keep straight. So the hash
-stands and the engine **says what it saw**: a [`Note`], carried beside the
+stands and the engine **says what it saw**: a
+[`Note`](architecture/canonicalisation.md#what-a-canonical-form-notices),
+carried beside the
 hash into the run report, provenance, the bundle and the methods section.
 A note is not an error, never changes a hash, and the fix is one line in the
 pipeline the user is the only one who can make.
@@ -468,8 +470,6 @@ worse than none. `CANON_VERSION` does **not** move: the rule changes nothing
 about what is hashed. The cache's `SCHEMA_VERSION` does, for the new column,
 which clears the cache's tables — the same practical cost, for a reason that
 can be stated honestly.
-
-[`Note`]: architecture/canonicalisation.md#what-a-canonical-form-notices
 
 ## D27 — A worker that waits is a worker rayon cannot use
 
