@@ -7,6 +7,8 @@ hierarchy is a promise about what each error means you should do:
 
 - a `ContigNamingError` means add a renaming step
 - a `ContigOrderError` means reorder a sequence dictionary
+- a `ReferenceFrameError` means put the sequence back where its own
+  positions mean what the step reads them as
 - an `UndeclaredDimensionError` means declare something where you load data
 - a `StepTypeError` means pass a different value, or fix an annotation
 
@@ -22,6 +24,7 @@ __all__ = [
     "ContigNamingError",
     "ContigOrderError",
     "DimensionError",
+    "ReferenceFrameError",
     "StepDefinitionError",
     "StepTypeError",
     "UndeclaredDimensionError",
@@ -32,7 +35,11 @@ class CheckError(Exception):
     """A pipeline will not work, found before anything ran.
 
     Attributes:
-        step: The step the problem was found in.
+        step: The step the problem was found in. `None` for the one error
+            that a step body can raise while running rather than a check
+            raise before anything runs -- a `ReferenceFrameError` from
+            `lg.hivdb.interpret` called outside a pipeline, which has no
+            step to name.
         dimension: The name of the dimension involved, where one is. `None`
             for a `StepTypeError`, which blames no dimension.
         scope: What distinguishes that step from the others of the same name,
@@ -52,8 +59,8 @@ class CheckError(Exception):
     def __init__(
         self,
         message: str,
-        step: str,
-        dimension: str | None,
+        step: str | None = None,
+        dimension: str | None = None,
         scope: tuple[str, str] | None = None,
     ) -> None:
         """Record a problem, its step, its dimension and which step it was."""
@@ -89,6 +96,27 @@ class ContigOrderError(DimensionError):
 
     htslib matches contigs by name, so `bcftools` does not mind. GATK
     requires sequence dictionaries in matching order and will reject this.
+    """
+
+
+class ReferenceFrameError(DimensionError):
+    """A reference is not numbered along the frame a step reads positions in.
+
+    A step whose own coordinates are fixed -- `lg.hivdb.interpret` holds the
+    HIV-1 gene windows as positions in HXB2 K03455 -- cannot read them
+    against a reference numbered along something else. A pol-relative
+    reference is the case that matters: it is a slice of K03455 starting at
+    2085, so every position in it is 2084 lower, and reading it anyway puts
+    integrase under the window named protease.
+
+    Distinct from a plain `DimensionError` because the fix is distinct. The
+    reference is not the wrong file; it is the right sequence in the wrong
+    place, and the fix is to put it back -- pad a pol-relative reference with
+    `"N" * 2084` and declare `frame=("K03455", 1)` where you load it.
+
+    Raised by `check()` before anything runs, where the reference's declared
+    frame is known. Also raised by `lg.hivdb.interpret` itself, for a caller
+    who reached the engine without a pipeline; that one names no step.
     """
 
 
@@ -128,6 +156,7 @@ CLASSES: dict[str, type[CheckError]] = {
     "dimension": DimensionError,
     "contig_naming": ContigNamingError,
     "contig_order": ContigOrderError,
+    "reference_frame": ReferenceFrameError,
     "undeclared": UndeclaredDimensionError,
     "step_type": StepTypeError,
 }

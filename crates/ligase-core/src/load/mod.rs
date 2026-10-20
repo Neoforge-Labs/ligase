@@ -43,6 +43,12 @@ pub struct Declared {
     /// The sample identifiers, in order, when the filename should not be
     /// trusted to supply them.
     pub samples: Option<Vec<String>>,
+    /// The coordinate frame a reference's positions are numbered along, as
+    /// `(frame, first)`: base 1 of the file is base `first` of `frame`.
+    ///
+    /// Declared and never inferred, for the reason [`crate::dim::Frame`]
+    /// gives: no FASTA records where its first base sits in anything else.
+    pub frame: Option<(String, u64)>,
 }
 
 /// Why a file could not be loaded.
@@ -58,6 +64,18 @@ pub enum LoadError {
     /// Files could not be grouped into samples.
     Pairing {
         /// What went wrong, phrased for a user.
+        detail: String,
+    },
+    /// A reference is not numbered along the frame the reader's own
+    /// coordinates are stated in.
+    ///
+    /// Its own variant rather than a [`Self::Format`]: the file parsed, and
+    /// the fix is not a different file but the same sequence put back where
+    /// its numbers mean what they say.
+    Frame {
+        /// The reference in question.
+        path: PathBuf,
+        /// What is wrong and what to do, phrased for a user.
         detail: String,
     },
     /// The file was read but did not parse as the expected format.
@@ -83,6 +101,13 @@ impl LoadError {
             detail: detail.into(),
         }
     }
+
+    pub(crate) fn frame(path: &Path, detail: impl Into<String>) -> Self {
+        Self::Frame {
+            path: path.to_path_buf(),
+            detail: detail.into(),
+        }
+    }
 }
 
 impl fmt::Display for LoadError {
@@ -91,6 +116,9 @@ impl fmt::Display for LoadError {
             Self::Io { path, source } => write!(f, "cannot read {}: {source}", path.display()),
             Self::Format { path, detail } => {
                 write!(f, "cannot parse {}: {detail}", path.display())
+            }
+            Self::Frame { path, detail } => {
+                write!(f, "cannot interpret against {}: {detail}", path.display())
             }
             Self::Pairing { detail } => {
                 write!(f, "cannot group reads into samples: {detail}")
@@ -103,7 +131,7 @@ impl Error for LoadError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
-            Self::Format { .. } | Self::Pairing { .. } => None,
+            Self::Format { .. } | Self::Frame { .. } | Self::Pairing { .. } => None,
         }
     }
 }

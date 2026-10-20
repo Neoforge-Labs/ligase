@@ -24,6 +24,14 @@ use noodles::sam::alignment::io::Write as _;
 use noodles::{bam, sam};
 use tempfile::TempDir;
 
+/// Assess a gene however little of it was read.
+///
+/// These tests are about what one codon comes out holding, and several of
+/// them cover a single codon deliberately. The share of a gene that has to
+/// be read before it is assessed at all is a separate judgement, tested in
+/// `hivdb_frame.rs`; here it would only throw away the gene under test.
+const ANY: f64 = 0.0;
+
 /// The gene a test is about, by name.
 fn gene(name: &str) -> Gene {
     *GENES.iter().find(|gene| gene.name == name).unwrap()
@@ -131,6 +139,7 @@ fn reading(
             .as_deref(),
         mixture,
         DEPTH,
+        ANY,
     )
     .unwrap()
 }
@@ -239,6 +248,7 @@ fn without_an_alignment_the_reading_says_what_it_assumed() {
         None,
         MIXTURE,
         DEPTH,
+        ANY,
     )
     .unwrap();
 

@@ -11,7 +11,7 @@ use std::path::Path;
 use md5::{Digest as _, Md5};
 
 use super::{Declared, LoadError, open};
-use crate::dim::{Contig, Dim, Dimensions, Organism, ReferenceId, Source};
+use crate::dim::{Contig, Dim, Dimensions, Frame, Organism, ReferenceId, Source};
 use crate::types::{DataKind, Dataset};
 
 /// Load a reference FASTA, inferring its contigs.
@@ -34,7 +34,12 @@ pub fn reference(path: &Path, declared: &Declared) -> Result<Dataset, LoadError>
             Dim::unknown("the FASTA contains no sequences"),
         )
     } else {
-        let identity = ReferenceId::new(declared.build.clone(), contigs);
+        let identity = ReferenceId::new(declared.build.clone(), contigs).with_frame(
+            declared
+                .frame
+                .as_ref()
+                .map(|(name, first)| Frame::new(name, *first)),
+        );
         let naming = identity.naming();
         (
             Dim::known(
