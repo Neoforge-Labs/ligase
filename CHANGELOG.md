@@ -7,7 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Example notebooks**, four [marimo](https://marimo.io) notebooks from
+  dimensions and their provenance, through an error caught before compute and
+  a fanned-out graph that has not run, to resistance interpretation and why
+  the rules are content-hashed rather than named by version. They are plain
+  Python, so they run as notebooks or scripts, and the docs build executes
+  every one of them: an example that no longer works fails the build instead
+  of misleading a reader. The first three need no data and no aligner.
+- **An API reference** generated from the package's docstrings with
+  mkdocstrings, grouped by what you are trying to do, and a **licence page**
+  recording the vendored algorithm's provenance.
+- **A docs site that actually publishes.** `mkdocs build --strict` ran in CI
+  but nothing ever deployed, so the configured Pages URL had never served
+  anything. A `Docs` workflow now builds and deploys to GitHub Pages, with
+  `docs/CNAME` for `ligase.neoforgelabs.tech`.
+
+### Changed
+
+- The docs now match the other NeoForge Labs sites: author and copyright,
+  `navigation.instant` and `navigation.tracking`, the `search` plugin, and a
+  nav ending in the API reference and the licence. mkdocstrings reads
+  google-style docstrings here, which is the convention ruff enforces for this
+  package, rather than the numpy style the sibling repositories use.
+
+### Fixed
+
+- D26's link to the canonicalisation notes rendered as the literal text
+  ``[`Note`]``. A reference-style label containing a code span does not match
+  its definition in Python-Markdown, and `mkdocs --strict` does not catch an
+  unresolved reference definition. It is an inline link now.
 
 ## [0.1.0] - 2026-10-20
 
