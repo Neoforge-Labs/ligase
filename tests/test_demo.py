@@ -118,14 +118,18 @@ def test_the_demo_runs_end_to_end_on_three_runs(
     assert set(by_step(report, "align")) == {"ran"}
     assert report.summary == "9 steps: 9 ran."
 
-    # Every sample came out with a report, and the variants in it were
-    # placed in the genes resistance is named by.
+    # Every sample came out with an interpreted report: one row per drug,
+    # naming the gene it was scored against and the algorithm that scored
+    # it. What those rows should *say* is checked against published
+    # results in `tests/test_validation.py`; what matters here is that the
+    # pipeline produced them at all.
     for output in report.outputs("resistance"):
         rows = Path(output).read_text().splitlines()
-        assert rows[0] == "contig\tposition\tref\talt\tgene\tcodon"
-        assert len(rows) > 1, f"no variants at all in {output}"
-        genes = {row.split("\t")[4] for row in rows[1:]}
-        assert genes & {"PR", "RT", "IN"}, f"nothing placed in pol: {genes}"
+        assert rows[0].split("\t")[:4] == ["gene", "drug_class", "drug", "drug_name"]
+        assert len(rows) == 28, f"27 drugs and a header, not {len(rows)}: {output}"
+        genes = {row.split("\t")[0] for row in rows[1:]}
+        assert genes == {"PR", "RT", "IN", "CA"}, f"unexpected genes: {genes}"
+        assert all("HIVDB" in row.split("\t")[9] for row in rows[1:]), output
 
 
 def test_every_alignment_is_against_hxb2(demo: ModuleType, shared: Path) -> None:
@@ -284,16 +288,31 @@ def test_the_methods_paragraph_names_what_the_milestone_asks_for(
     methods = pipe.methods(cache=shared)
     text = methods.text
 
-    # Tool versions, as the tools themselves reported them.
+    # Tool versions, as the tools themselves reported them -- and, since
+    # M6, the resistance algorithm, which is not a program to run but is
+    # software whose version changes the answer.
     tools = dict(methods.tools)
-    assert set(tools) == {"minimap2", "samtools", "bcftools"}
+    assert set(tools) == {"minimap2", "samtools", "bcftools", "hivdb"}
     for tool, version in tools.items():
         assert version.strip(), f"{tool} reported no version"
         assert version.split()[0] in text or tool in text
 
+    # The algorithm by version, date and the digest of its rules. A
+    # methods section that named "HIVdb" alone would not say which
+    # HIVdb, and upstream republishes corrections under near-identical
+    # version numbers.
+    assert "9.8 2025-01-05" in tools["hivdb"]
+    assert "blake3:" in tools["hivdb"]
+    # It names what is shipped rather than what ran, because the sentence
+    # renders as "ran with ...": claiming 10.2 for a step that named 9.8
+    # would be a false statement in a methods section.
+    assert tools["hivdb"].startswith("HIVdb rules as shipped:")
+
     # Parameters, as they were hashed.
     assert "min_freq = 0.01" in text
     assert "threads = " in text
+    assert "algorithm = 'HIVDB_9.8'" in text
+    assert "mixture = 0.15" in text
 
     # The reference accession, read from the FASTA rather than declared,
     # with the checksum the loader computed from the sequence.
@@ -306,6 +325,10 @@ def test_the_methods_paragraph_names_what_the_milestone_asks_for(
     # Citations, for every tool that has one.
     assert any("Minimap2" in citation for citation in methods.citations)
     assert any("SAMtools and BCFtools" in citation for citation in methods.citations)
+    # The interpretation algorithm is software too, and Stanford asks for
+    # this reference by name. D24 forbids both guessing one and quietly
+    # leaving one out.
+    assert any("Rhee SY" in citation for citation in methods.citations)
     assert methods.uncited == [], methods.citations
 
     # And nothing unaccounted for.

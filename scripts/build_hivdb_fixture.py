@@ -47,10 +47,15 @@ to a size worth reading. The full lists for the three samples the
 validation uses are kept separately, where they are compared as mutation
 lists rather than used as scorer input.
 
-`expected.tsv` is what HIVdb 9.8 said: a score and a level for every drug,
-for every case. Scores are integers here although the reports write them as
-`-10.0`; HIVdb scores are whole numbers, and reading them as integers is
-what stops a float comparison creeping into a test that should be exact.
+`expected.tsv` is what HIVdb 9.8 said: a score, a level and the
+contributing mutations for every drug, for every case. Scores are integers
+here although the reports write them as `-10.0`; HIVdb scores are whole
+numbers, and reading them as integers is what stops a float comparison
+creeping into a test that should be exact.
+
+The mutations are re-sorted by position. Stanford lists them in the order
+its rules matched, which carries no meaning a reader needs and would make
+an otherwise identical answer compare unequal.
 """
 
 from __future__ import annotations
@@ -147,7 +152,7 @@ def main() -> int:
 
     scored = _scored_positions()
     cases: list[tuple[str, str, int, str]] = []
-    expected: list[tuple[str, str, int, int]] = []
+    expected: list[tuple[str, str, int, int, str]] = []
 
     for resistance in sorted(arguments.reports.glob("*.Drug_Resistance.tsv")):
         case = resistance.name.removesuffix(".Drug_Resistance.tsv")
@@ -182,7 +187,23 @@ def main() -> int:
                     file=sys.stderr,
                 )
                 return 1
-            expected.append((case, row["drug_abbr"], int(score), int(row["level"])))
+            mutations = [
+                mutation.strip()
+                for mutation in row["mutations"].split(",")
+                if mutation.strip()
+            ]
+            mutations.sort(
+                key=lambda mutation: int(re.sub(r"\D", " ", mutation).split()[0])
+            )
+            expected.append(
+                (
+                    case,
+                    row["drug_abbr"],
+                    int(score),
+                    int(row["level"]),
+                    ",".join(mutations),
+                )
+            )
 
     FIXTURES.mkdir(parents=True, exist_ok=True)
     credit = CREDIT.format(algorithm=ALGORITHM)
@@ -197,10 +218,10 @@ def main() -> int:
     )
     (FIXTURES / "expected.tsv").write_text(
         credit
-        + "case\tdrug\tscore\tlevel\n"
+        + "case\tdrug\tscore\tlevel\tmutations\n"
         + "".join(
-            f"{case}\t{drug}\t{score}\t{level}\n"
-            for case, drug, score, level in sorted(expected)
+            f"{case}\t{drug}\t{score}\t{level}\t{mutations}\n"
+            for case, drug, score, level, mutations in sorted(expected)
         )
     )
 

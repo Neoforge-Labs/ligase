@@ -395,12 +395,13 @@ fn the_rules_enter_a_cache_key_by_content_rather_than_by_name() {
 
     // Both algorithms are named, because the probe runs before any step
     // has said which it wants. Over-conservative on purpose (D20).
+    assert!(fingerprint.contains("9.8 2025-01-05"), "{fingerprint}");
+    assert!(fingerprint.contains("10.2 2026-04-26"), "{fingerprint}");
+    // It says what is shipped, not what was used: this string lands in a
+    // methods paragraph after "ran with", and a step that named 9.8 must
+    // not appear to have run with 10.2.
     assert!(
-        fingerprint.contains("HIVDB 9.8 (2025-01-05)"),
-        "{fingerprint}"
-    );
-    assert!(
-        fingerprint.contains("HIVDB 10.2 (2026-04-26)"),
+        fingerprint.starts_with("HIVdb rules as shipped:"),
         "{fingerprint}"
     );
 

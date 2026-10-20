@@ -117,13 +117,17 @@ jobs:
           path: |
             data/reads
             data/refs
-          key: ligase-data-PRJNA517147-${{ hashFiles('scripts/fetch_test_data.sh') }}
+          key: ligase-data-both-${{ hashFiles('scripts/fetch_test_data.sh') }}
 
-      # PRJNA517147 and not the smaller project: tests/test_demo.py names
-      # four of this project's runs, and the demo pipeline reads from this
-      # directory. About 103 MB, which is the price of the demo being real.
+      # Both projects now. PRJNA517147 is what tests/test_demo.py runs the
+      # pipeline on, about 103 MB. PRJNA1218827 is M6's validation set, a
+      # further 27 MB: its samples have published Stanford HIVdb calls, so
+      # tests/test_validation.py can check this pipeline's resistance
+      # calls against someone else's answers rather than against itself.
       - name: fetch the test data
-        run: scripts/fetch_test_data.sh --project PRJNA517147
+        run: |
+          scripts/fetch_test_data.sh --project PRJNA517147
+          scripts/fetch_test_data.sh --project PRJNA1218827
 
       - name: pip install -e .
         run: pip install -e ".[dev]"

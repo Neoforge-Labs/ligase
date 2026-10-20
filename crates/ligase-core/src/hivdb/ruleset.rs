@@ -50,8 +50,14 @@ pub const DEFAULT: &str = "HIVDB_9.8";
 /// What every vendored algorithm is, by name, version, date and content.
 ///
 /// This is what a `hivdb` step records as its tool version, so it is what
-/// puts the rules into the cache key. The digest is of the bytes, not of
-/// the name: upstream publishes corrections under near-identical names —
+/// puts the rules into the cache key. It names what the engine *ships*,
+/// not what a step chose: a methods paragraph renders a tool version
+/// after "ran with", and a step that named 9.8 must not appear to have
+/// run with 10.2. Which algorithm a step used is its `algorithm`
+/// parameter, reported beside this.
+///
+/// The digest is of the bytes, not of the name: upstream publishes
+/// corrections under near-identical names —
 /// `HIVDB_10.0.xml` and `HIVDB_10.0-1.xml` both exist — and a key that
 /// moved only with the name would serve a result computed under rules
 /// that have since changed.
@@ -68,15 +74,20 @@ pub const DEFAULT: &str = "HIVDB_9.8";
 /// was built from a broken derivation.
 pub fn fingerprint() -> Result<String, String> {
     let mut parts = Vec::with_capacity(VENDORED.len());
-    for (name, text) in VENDORED {
+    for (name, text) in VENDORED.iter().rev() {
         let ruleset = Ruleset::parse(text).map_err(|error| format!("{name}: {error}"))?;
         parts.push(format!(
-            "{} blake3:{}",
-            ruleset.describe(),
+            "{} {} blake3:{}",
+            ruleset.version,
+            ruleset.date,
             blake3::hash(text.as_bytes()).to_hex()
         ));
     }
-    Ok(parts.join("; "))
+    // "as shipped" rather than a bare list of versions, because a methods
+    // paragraph renders this after "ran with" -- and "ran with HIVdb 10.2"
+    // would be a false statement about a step that named 9.8. Which one a
+    // step used is its `algorithm` parameter, reported beside this.
+    Ok(format!("HIVdb rules as shipped: {}", parts.join("; ")))
 }
 
 /// The amino acids a rule may name at one position.
