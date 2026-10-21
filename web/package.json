@@ -8,7 +8,8 @@
     "dev": "npm run generate && next dev",
     "build": "npm run generate && next build && pagefind --site out --output-subdir _pagefind && node scripts/write-redirects.mjs",
     "links": "node scripts/check-links.mjs",
-    "check": "npm run build && npm run links",
+    "contrast": "node scripts/check-contrast.mjs",
+    "check": "npm run build && npm run links && npm run contrast",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
