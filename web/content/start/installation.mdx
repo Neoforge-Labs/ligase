@@ -1,0 +1,85 @@
+---
+title: "Installation"
+description: "pip install ligase-bio. Wheels for Linux, macOS and Windows; no Rust toolchain needed."
+---
+
+# Installation
+
+<Lede>
+One command, and nothing to compile. Ligase ships as a wheel with the Rust
+core already built.
+</Lede>
+
+```bash
+pip install ligase-bio
+```
+
+<Note kind="note" title={<>The distribution and the import have different names</>}>
+
+The PyPI distribution is **`ligase-bio`** but you `import ligase`. The name
+`ligase` on PyPI is taken by an unrelated project, and the import name is the
+one you live with, so that is the one that stayed short.
+
+</Note>
+
+Check it:
+
+```bash
+python -c "import ligase; print(ligase.version())"
+ligase --help
+```
+
+## What you need
+
+**Python 3.11 or newer.** Wheels are published for Linux (manylinux), macOS
+and Windows, so there is no Rust toolchain and no C compiler involved in
+installing it.
+
+**The tools your pipeline shells out to.** Ligase does not bundle an aligner
+or a variant caller, and does not want to: a step names the tool it runs, and
+that tool's real version goes into the cache key and the methods paragraph.
+Install whatever your pipeline names. For the HIV-1 reference pipeline that is
+`minimap2`, `samtools` and `bcftools`:
+
+```bash
+conda install -c bioconda minimap2 samtools bcftools
+```
+
+Ligase itself is also on conda-forge via a Bioconda recipe, and on
+[crates.io](https://crates.io/crates/ligase) as `ligase` if you want the Rust
+core directly.
+
+## Verifying a step's tools
+
+A pipeline that names a tool you do not have fails at `check`, not halfway
+through an overnight run:
+
+```bash
+ligase check
+```
+
+That is worth doing on a new machine before anything else.
+
+## Where to next
+
+<HazardGrid>
+  <Hazard href="/start/quickstart/" symptom="Write your first pipeline" left="check" right="run">
+    Five minutes: two steps, a type error on purpose, then a real run and a
+    cache hit.
+  </Hazard>
+  <Hazard href="/reference/cli/" symptom="Look up a command or a flag" left="ligase" right="--help">
+    Every command and option, generated from the parser so it cannot drift.
+  </Hazard>
+</HazardGrid>
+
+<Note kind="caution" title="Pre-alpha">
+Ligase is at v0.1. The API will change, and it has no outside users yet. Pin
+the version if you build on it.
+</Note>
+
+## Working on Ligase itself
+
+Building from source, running the test suite, fetching the demo data and
+rebuilding after a Rust change are all in
+[building Ligase](/project/building/). You do not need any of it to use the
+package.
