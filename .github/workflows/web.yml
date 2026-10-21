@@ -88,6 +88,9 @@ jobs:
       #                                                commands stop producing
       #                                                what the page claims
       #                         render_notebooks.py    a notebook does not run
+      #   selectors           the stylesheet is keyed to elements the built
+      #                       HTML has (a selector for a class Nextra does
+      #                       not emit styles nothing, silently)
       #   links               a broken link, a dangling anchor, a page
       #                       nothing links to, or a Markdown link that never
       #                       resolved (the replacement for
