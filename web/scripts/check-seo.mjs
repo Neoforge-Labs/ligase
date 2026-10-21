@@ -392,6 +392,10 @@ for (const [label, text] of [['llms.txt', llms], ['llms-full.txt', full]]) {
       }
     }
     for (const a of allowed) {
+      // At least once as well as at most: if the content page is reworded the
+      // entry would otherwise sit here as dead config, still looking like a
+      // standing exemption.
+      assert(exempted >= 1, `${label}: the allowlisted sentence for "${w}" was never found, so the ALLOWED entry is dead config: ${a.sentence}`)
       assert(exempted <= a.times, `${label}: the allowlisted sentence for "${w}" appears ${exempted} times, expected at most ${a.times}`)
     }
   }

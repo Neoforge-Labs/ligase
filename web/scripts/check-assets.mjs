@@ -1,8 +1,8 @@
 /**
  * Fail when the generated raster assets stop meeting the spec.
  *
- * Three routes produce files at export time: app/opengraph-image.tsx (the
- * social card), app/apple-icon.tsx (the home-screen icon) and
+ * Three routes produce files at export time: app/opengraph-image.png/route.tsx
+ * (the social card), app/apple-icon.png/route.tsx (the home-screen icon) and
  * app/not-found.tsx (the 404). This checks the build output, so it needs
  * `out/` to exist: run `npm run build` first.
  *

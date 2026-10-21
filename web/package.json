@@ -10,7 +10,11 @@
     "links": "node scripts/check-links.mjs",
     "seo": "node scripts/check-seo.mjs",
     "contrast": "node scripts/check-contrast.mjs",
-    "check": "npm run build && npm run links && npm run contrast && npm run seo",
+    "orphans": "node scripts/check-contrast.mjs --orphans",
+    "mark": "node scripts/check-mark.mjs",
+    "furniture": "node scripts/check-furniture.mjs",
+    "assets": "node scripts/check-assets.mjs",
+    "check": "npm run contrast && npm run orphans && npm run mark && npm run furniture && npm run build && npm run links && npm run assets && npm run seo",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

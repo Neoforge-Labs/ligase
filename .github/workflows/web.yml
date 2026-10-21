@@ -27,7 +27,11 @@ jobs:
       group: web-${{ github.ref }}
       cancel-in-progress: true
     steps:
+      # Full history, because check-assets compares package.json with the
+      # merge-base against main, and a shallow clone has no merge-base.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -59,28 +63,50 @@ jobs:
         working-directory: web
         run: npm run typecheck
 
-      # `npm run build` regenerates everything that comes out of the package
-      # before building, and each generator fails loudly rather than emitting
-      # something empty:
+      # One command, the same one a contributor runs: `npm run check`. It is
+      # the whole gate, in this order, so the cheap source-only checks fail
+      # before the build is paid for:
       #
-      #   generate_api.py        fails on an export in no group, a group entry
-      #                          that is not exported, or a missing docstring
-      #   generate_cli.py        fails on a command or flag with no help text
-      #   capture_diagnostics.py fails if the engine stops producing the error
-      #                          a page says it produces
-      #   capture_quickstart.py  fails if the quickstart's own commands do not
-      #                          produce what the page claims
-      #   render_notebooks.py    fails if a notebook does not run
-      - name: Build
+      #   contrast, orphans   the palette meets WCAG AA and both themes
+      #                       declare the same tokens
+      #   mark                the two SVGs of the ligature stay legible
+      #   furniture           the journal styling, including the print
+      #                       stylesheet and the display weight
+      #   build               regenerates everything that comes out of the
+      #                       package, then builds; each generator fails
+      #                       loudly rather than emitting something empty:
+      #                         generate_api.py        an export in no group, a
+      #                                                group entry that is not
+      #                                                exported, a missing
+      #                                                docstring
+      #                         generate_cli.py        a command or flag with
+      #                                                no help text
+      #                         capture_diagnostics.py the engine stops
+      #                                                producing the error a
+      #                                                page says it produces
+      #                         capture_quickstart.py  the quickstart's
+      #                                                commands stop producing
+      #                                                what the page claims
+      #                         render_notebooks.py    a notebook does not run
+      #   links               a broken link, a dangling anchor, a page
+      #                       nothing links to, or a Markdown link that never
+      #                       resolved (the replacement for
+      #                       `mkdocs build --strict`)
+      #   assets              the social card and app icon are real PNGs of
+      #                       the right size, and no dependency was added
+      #   seo                 sitemap, robots, canonicals, JSON-LD and the
+      #                       machine-readable prose, and no adoption claims
+      #
+      # Running the scripts individually here instead would let a new checker
+      # be written and never wired in, which is how three of them went unrun.
+      - name: Check
         working-directory: web
-        run: npm run build
-
-      # The replacement for `mkdocs build --strict`: a broken internal link, a
-      # dangling anchor, a page nothing links to, or a Markdown link that never
-      # resolved all fail here. This is the ninth check of the gate.
-      - name: Check links
-        working-directory: web
-        run: npm run links
+        env:
+          # The base for check-assets' dependency comparison. On a push to
+          # main it is HEAD itself, so it passes trivially, which is correct:
+          # the guard is for feature branches.
+          LIGASE_BASE_REF: origin/main
+        run: npm run check
 
       # A static Next.js export puts every asset under `_next/`, and Jekyll
       # drops underscore-prefixed paths. Pages does not run Jekyll under
