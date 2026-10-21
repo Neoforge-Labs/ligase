@@ -258,18 +258,22 @@ the parent site pixel for pixel on most machines. It matches the intent, and it
 is more consistent than the original, because every reader gets the same face.
 Whether to change that is a decision for the parent site, not for this one.
 
-### 7. Light-mode code comments are 4.21:1
+### 7. Code colours come from a bundled theme, and are measured
 
 The code themes were chosen by measuring every token colour against the
-surfaces a block is drawn on. `github-light-high-contrast` and
-`github-dark-high-contrast` clear 4.5:1 on all of them except one: comments in
-the light theme, which are 4.21:1 on white. That is below AA, and it is taken
-knowingly. It is the best pair among Shiki's bundled themes, a custom theme is
-more surface than this earns, and a comment is supplementary to the code it
-annotates, not the thing being read. It is recorded here because four palette
-values were moved for exactly this reason, and an exception nobody wrote down
-would be inconsistent with them. `check-contrast.mjs` does not cover it: it
-reads `tokens.css`, and a Shiki theme is not in it.
+surface a block is drawn on: the stylesheet forces `pre` to `--lg-paper-raised`,
+which is white in the light theme and `#17171c` in the dark one.
+`github-light-high-contrast` and `github-dark-high-contrast` clear AA on every
+colour either theme emits. The closest is the light-mode comment colour,
+`#66707B`, at 5.04:1 on white; the worst dark token is 8.42:1. That is a pair of
+bundled Shiki themes rather than a custom one, because a custom theme is more
+surface than this earns.
+
+This is checked rather than asserted. `check-contrast.mjs` reads `tokens.css`,
+and a Shiki theme is not in it, so a separate check covers code: `npm run shiki`
+reads
+the colours Shiki wrote into the built HTML and fails the build if any is under
+4.5:1 on `--lg-paper-raised`.
 
 ## Where things live
 

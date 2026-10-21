@@ -32,14 +32,17 @@
  *   node scripts/check-contrast.mjs --self-test   verify the maths, then stop
  *   node scripts/check-contrast.mjs --orphans     check both themes declare the same colour (and theme-dependent) tokens
  *
+ *   node scripts/check-contrast.mjs --shiki       measure every syntax colour in the built HTML (run after a build)
+ *
  * The self-test also runs before every real check: a checker whose arithmetic
  * is wrong would pass or fail the palette for the wrong reasons.
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const TOKENS_CSS = fileURLToPath(new URL('../app/tokens.css', import.meta.url))
+const BUILT_DIR = fileURLToPath(new URL('../out', import.meta.url))
 
 /** Used as normal-size text, so all need 4.5:1. */
 const TEXT_TOKENS = ['ink', 'ink-muted', 'ink-faint', 'brand', 'refuse', 'agree', 'notice']
@@ -280,6 +283,57 @@ export function orphans(light, dark) {
   return out
 }
 
+// --- syntax colours --------------------------------------------------------
+
+/**
+ * Every colour Shiki wrote into the built HTML, per theme. Code is drawn with
+ * `style="--shiki-light:#A0111F;--shiki-dark:#FF9492"` on each token span, so
+ * reading the output measures the colours that are actually painted, not the
+ * ones a theme file declares (a theme also lists colours for diff markers and
+ * ignored text that no code block here ever uses).
+ */
+export function shikiColours(html) {
+  const found = { light: new Set(), dark: new Set() }
+  for (const m of html.matchAll(/--shiki-(light|dark):(#[0-9a-fA-F]{3,8})\b/g)) {
+    found[m[1]].add(m[2].toLowerCase())
+  }
+  return found
+}
+
+/**
+ * Check syntax colours against the surface a code block is drawn on. The
+ * stylesheet forces `pre` to `--lg-paper-raised` in both themes, so that is the
+ * only surface code tokens sit on; `paper-sunken` is not one of them.
+ * Returns violations in the same shape as `check`.
+ */
+export function checkShiki(colours, light, dark) {
+  const violations = []
+  for (const [mode, tokens] of [['light', light], ['dark', dark]]) {
+    const surface = tokens['paper-raised']
+    if (surface === undefined) {
+      violations.push({ mode, pair: '--lg-paper-raised', kind: 'missing', detail: 'token is not defined' })
+      continue
+    }
+    for (const colour of [...colours[mode]].sort()) {
+      const ratio = contrast(colour, surface)
+      if (ratio < AA_TEXT) {
+        violations.push({ mode, pair: `code token ${colour}`, kind: 'contrast', ratio, required: AA_TEXT, fg: colour, bg: surface })
+      }
+    }
+  }
+  return violations
+}
+
+function builtHtml(dir) {
+  const files = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = `${dir}/${entry.name}`
+    if (entry.isDirectory()) files.push(...builtHtml(path))
+    else if (entry.name.endsWith('.html')) files.push(path)
+  }
+  return files
+}
+
 // --- self-test -------------------------------------------------------------
 
 /*
@@ -292,6 +346,8 @@ const CASES = [
   { fg: '#E36414', bg: '#0A0A0B', expect: 5.75, label: 'brand orange on near-black passes AA' },
   { fg: '#F5F5F0', bg: '#0A0A0B', expect: 18.1, label: 'cream on near-black' },
   { fg: '#ffffff1a', bg: '#0A0A0B', expect: 1.26, label: '8-digit hex composites over its surface' },
+  { fg: '#66707B', bg: '#ffffff', expect: 5.04, label: 'light code comments on the code surface pass AA' },
+  { fg: '#66707B', bg: '#ebebe4', expect: 4.21, label: 'the same comments on paper-sunken, a surface no code is drawn on, would not' },
 ]
 
 function selfTest() {
@@ -323,6 +379,14 @@ function selfTest() {
   const parsed = parseTokens(css)
   assert(parsed.light.a === '#fff' && !('b' in parsed.light), 'parseTokens light', JSON.stringify(parsed.light))
   assert(parsed.dark.a === '#000' && parsed.dark.c === 'red', 'parseTokens dark', JSON.stringify(parsed.dark))
+
+  const html = '<span style="--shiki-light:#A0111F;--shiki-dark:#FF9492">x</span><span style="--shiki-light:#66707B;--shiki-dark:#BDC4CC">y</span>'
+  const seen = shikiColours(html)
+  assert(seen.light.size === 2 && seen.light.has('#66707b') && seen.dark.has('#ff9492'), 'shikiColours', JSON.stringify([seen.light, seen.dark].map((x) => [...x])))
+  const surfaces = { 'paper-raised': '#ffffff' }
+  assert(checkShiki(seen, surfaces, { 'paper-raised': '#17171c' }).length === 0, 'checkShiki passes AA colours', 'reported a violation')
+  const pale = checkShiki({ light: new Set(['#aaaaaa']), dark: new Set() }, surfaces, { 'paper-raised': '#17171c' })
+  assert(pale.length === 1 && pale[0].pair === 'code token #aaaaaa', 'checkShiki flags a pale token', JSON.stringify(pale))
 
   const lopsided = orphans({ a: '#fff', b: '#000', size: '1rem' }, { a: '#000', c: '#111' })
   assert(
@@ -370,6 +434,39 @@ function main(args) {
 
   const file = args.find((a) => !a.startsWith('--')) ?? TOKENS_CSS
   const { light, dark } = parseTokens(readFileSync(file, 'utf8'))
+
+  if (args.includes('--shiki')) {
+    let pages
+    try {
+      pages = builtHtml(BUILT_DIR)
+    } catch {
+      console.error(`\nno build to read: ${BUILT_DIR} does not exist. Run npm run build first.\n`)
+      process.exit(1)
+    }
+    const colours = { light: new Set(), dark: new Set() }
+    for (const page of pages) {
+      const seen = shikiColours(readFileSync(page, 'utf8'))
+      for (const mode of ['light', 'dark']) for (const c of seen[mode]) colours[mode].add(c)
+    }
+    if (!colours.light.size || !colours.dark.size) {
+      console.error('\nno Shiki colours found in the built HTML; the check is looking at nothing\n')
+      process.exit(1)
+    }
+    const bad = checkShiki(colours, light, dark)
+    if (bad.length) {
+      console.error(`\n${bad.length} code-token contrast problem(s) in ${BUILT_DIR}:\n`)
+      for (const v of bad) console.error(`    ${v.mode.padEnd(6)} ${describe(v)}`)
+      console.error('')
+      process.exit(1)
+    }
+    const worst = (mode) =>
+      Math.min(...[...colours[mode]].map((c) => contrast(c, (mode === 'light' ? light : dark)['paper-raised'])))
+    console.log(
+      `shiki ok: ${colours.light.size} light and ${colours.dark.size} dark code colours in ${pages.length} pages all reach ${AA_TEXT}:1 on paper-raised ` +
+        `(worst: light ${worst('light').toFixed(2)}, dark ${worst('dark').toFixed(2)})`,
+    )
+    return
+  }
 
   if (args.includes('--orphans')) {
     const lost = orphans(light, dark)

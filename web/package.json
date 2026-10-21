@@ -11,11 +11,12 @@
     "seo": "node scripts/check-seo.mjs",
     "contrast": "node scripts/check-contrast.mjs",
     "orphans": "node scripts/check-contrast.mjs --orphans",
+    "shiki": "node scripts/check-contrast.mjs --shiki",
     "mark": "node scripts/check-mark.mjs",
     "furniture": "node scripts/check-furniture.mjs",
     "selectors": "node scripts/check-furniture.mjs --built",
     "assets": "node scripts/check-assets.mjs",
-    "check": "npm run contrast && npm run orphans && npm run mark && npm run furniture && npm run build && npm run selectors && npm run links && npm run assets && npm run seo",
+    "check": "npm run contrast && npm run orphans && npm run mark && npm run furniture && npm run build && npm run selectors && npm run shiki && npm run links && npm run assets && npm run seo",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

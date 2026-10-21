@@ -218,14 +218,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   measured against the surfaces a block is actually drawn on (the stylesheet
   overrides the theme's own background): on white its keywords were 3.8:1 and
   its variables 2.9:1. `github-light-high-contrast` and
-  `github-dark-high-contrast` clear 4.5:1 on every token colour except
-  light-mode comments, which sit at 4.2:1, and their hues (deep red, blue,
-  brown, green) stay out of the way of the orange. **That 4.2:1 is
-  below AA and is accepted knowingly**: it is the best pair among the bundled
-  themes, a custom theme is more surface than this earns, and a comment is
-  supplementary to the code it annotates. It is recorded on the identity page
-  beside the four palette values that were moved for the same reason, because
-  an exception nobody wrote down would be inconsistent with them. Still one theme per colour
+  `github-dark-high-contrast` clear 4.5:1 on every token colour they emit,
+  the closest being light-mode comments at 5.04:1 on white (the worst dark
+  token is 8.42:1), and their hues (deep red, blue, brown, green) stay out of
+  the way of the orange. `npm run shiki` re-measures this against the built
+  HTML, because `check-contrast.mjs` reads `tokens.css` and a Shiki theme is
+  not in it. Still one theme per colour
   scheme rather than one forced through a filter, and still Shiki's bundled
   themes, so nothing was added to `package.json`.
 - **`npm run check` is the whole gate.** The branch wrote five checkers and
@@ -238,6 +236,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   its steps, which is how a new checker would otherwise be written and never
   wired in. The dependency guard compares `package.json` with the merge-base,
   so CI now checks out full history and names `origin/main` as the base.
+  Two checks were added after that: `npm run shiki` measures every syntax
+  colour in the built HTML against the surface code is drawn on, and
+  `--orphans` now also requires theme-dependent non-colour tokens
+  (`--lg-shadow-raised`) in both themes.
 - **Codons are read from the reads, not from the combinations of their
   bases** (**D31**). A codon used to be assembled from the VCF — the
   alleles credited at each of its three bases, then every combination of
