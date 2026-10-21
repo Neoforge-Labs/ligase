@@ -185,14 +185,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   weight that exists, and `check-furniture.mjs` fails if any rule asks the
   display face for a weight `layout.tsx` does not load.
 
-  **`VOL. 02 — THE ENGINE` is a placeholder, and it is not on the site.**
-  The design borrowed the parent site's masthead, a rule reading
-  `VOL. 01 — A RESEARCH HOLDING / NEOFORGE LABS / MMXXV`, and for Ligase
-  proposed `VOL. 02 — THE ENGINE`. Which volume this is belongs to the
-  author, who has not said, and inventing a number that contradicts the parent
-  site would be worse than leaving it out. No masthead was built, so the
-  landing page carries none; this entry records the wording as an open
-  decision so it is not mistaken for a settled one.
+  **`VOL. 02 — THE ENGINE` is a knowing placeholder.** The landing page
+  opens with the parent site's device, a three-part letterspaced row above
+  the hero (`VOL. 02 — THE ENGINE`, `◉ WESTLANDS, NAIROBI`, `MMXXVI`) with a
+  hairline beneath, and the footer repeats the place and the year on every
+  page. The parent site is `VOL. 01`, so `02` is a guess at the sequence, and
+  which volume this is belongs to the author, who has not said. It ships as
+  written so the cover is judged with a realistic line in it, and is recorded
+  here so it is not mistaken for a settled number. The masthead was named in
+  the design and went unbuilt until the last review caught it; the checker
+  now reads the built HTML and fails unless it is on the landing page exactly
+  once, on no other page, and every footer carries the locality line.
 - **The 404 is the mark, refusing.** It is the same `l` and `i`, but the tie
   is cut in two, the halves offset, and drawn in the refusal colour rather
   than the brand orange. Ligase's job is to refuse a connection that does not
@@ -217,7 +220,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   its variables 2.9:1. `github-light-high-contrast` and
   `github-dark-high-contrast` clear 4.5:1 on every token colour except
   light-mode comments, which sit at 4.2:1, and their hues (deep red, blue,
-  brown, green) stay out of the way of the orange. Still one theme per colour
+  brown, green) stay out of the way of the orange. **That 4.2:1 is
+  below AA and is accepted knowingly**: it is the best pair among the bundled
+  themes, a custom theme is more surface than this earns, and a comment is
+  supplementary to the code it annotates. It is recorded on the identity page
+  beside the four palette values that were moved for the same reason, because
+  an exception nobody wrote down would be inconsistent with them. Still one theme per colour
   scheme rather than one forced through a filter, and still Shiki's bundled
   themes, so nothing was added to `package.json`.
 - **`npm run check` is the whole gate.** The branch wrote five checkers and

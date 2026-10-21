@@ -146,6 +146,19 @@ numbered.
 - **Eyebrows** are `.lg-eyebrow`: 10px mono, 0.28em tracking, uppercase, in
   the brand colour. A quieter sibling, `.lg-mono`, is 11px, 0.22em, in muted
   ink, and is what a UI label uses.
+- **The masthead** opens the landing page: `VOL. 02 — THE ENGINE`,
+  `◉ WESTLANDS, NAIROBI` and `MMXXVI` in one letterspaced row, with a hairline
+  beneath, above the hero's eyebrow. It mirrors how neoforgelabs.tech opens
+  (`VOL. 01 — A RESEARCH HOLDING`) and is set in the quiet `.lg-mono` voice,
+  not the orange eyebrow, as the parent's is. `Hero` draws it only when given
+  the `masthead` prop, which only `content/index.mdx` passes, so no other page
+  has a cover. On a narrow screen the centre part goes rather than the row
+  overflowing. **`VOL. 02` is a placeholder:** the parent site is `VOL. 01`,
+  the sequence is a guess, and the volume number is the author's to give. The
+  footer repeats the place and the year (`◉ WESTLANDS, NAIROBI · MMXXVI`) on
+  every page. `check-assets.mjs` reads the built HTML and fails unless the
+  masthead is on the landing page exactly once and on no other page, and
+  unless every footer carries the line.
 - **Grain and aurora** are the site's two atmosphere layers. The
   grain, `.lg-grain`, is a fixed 256px tile of fractal noise at 3.5% opacity.
   It is noise, not orange. The aurora, `.lg-aurora`, is three orange radial
@@ -237,6 +250,19 @@ the parent site pixel for pixel on most machines. It matches the intent, and it
 is more consistent than the original, because every reader gets the same face.
 Whether to change that is a decision for the parent site, not for this one.
 
+### 7. Light-mode code comments are 4.21:1
+
+The code themes were chosen by measuring every token colour against the
+surfaces a block is drawn on. `github-light-high-contrast` and
+`github-dark-high-contrast` clear 4.5:1 on all of them except one: comments in
+the light theme, which are 4.21:1 on white. That is below AA, and it is taken
+knowingly. It is the best pair among Shiki's bundled themes, a custom theme is
+more surface than this earns, and a comment is supplementary to the code it
+annotates, not the thing being read. It is recorded here because four palette
+values were moved for exactly this reason, and an exception nobody wrote down
+would be inconsistent with them. `check-contrast.mjs` does not cover it: it
+reads `tokens.css`, and a Shiki theme is not in it.
+
 ## Where things live
 
 | What | File |
@@ -246,4 +272,5 @@ Whether to change that is a decision for the parent site, not for this one.
 | The wordmark and display mark | `web/components/Mark.tsx` |
 | The two drawings | `web/public/icon.svg`, `web/public/favicon.svg` |
 | The card lockup | `web/components/BrandCard.tsx` |
+| The masthead | `web/components/Masthead.tsx`, drawn by `Hero` |
 | The gates | `web/scripts/check-contrast.mjs`, `check-mark.mjs`, `check-furniture.mjs` |
