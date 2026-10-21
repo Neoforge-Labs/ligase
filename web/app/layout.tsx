@@ -123,6 +123,7 @@ const footer = (
         Dual-licensed <a href="/licence/">MIT or Apache-2.0</a>. Copyright © 2026 Kelyn
         Paul Njeri, NeoForge Labs.
       </p>
+      <p className="lg-mono">◉ WESTLANDS, NAIROBI · MMXXVI</p>
     </div>
   </Footer>
 )

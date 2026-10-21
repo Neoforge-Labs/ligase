@@ -158,6 +158,42 @@ for (const page of ['index.html', '404.html', 'concepts/pipelines/index.html']) 
   assert(/property="og:image:height" content="630"/.test(html), `${page}: og:image:height must be 630`)
 }
 
+// ---- the masthead and the locality line ------------------------------------
+//
+// The journal treatment named both in the design and neither was built, and
+// nothing noticed. The masthead is the landing page's cover: it must be on
+// the landing page exactly once and on no other page. The locality line is the
+// footer's: every page that has a footer must carry it. Redirect stubs have
+// no footer, so they are exempt from the second and still bound by the first.
+
+const MASTHEAD = /<div[^>]*\bdata-masthead\b[^>]*>/g
+const LOCALITY = '◉ WESTLANDS, NAIROBI'
+if (existsSync(OUT)) {
+  for (const file of walk(OUT).filter((f) => f.endsWith('.html'))) {
+    const rel = file.slice(OUT.length + 1)
+    const html = readFileSync(file, 'utf8')
+    const mastheads = html.match(MASTHEAD)?.length ?? 0
+    if (rel === 'index.html') {
+      assert(mastheads === 1, `index.html: expected exactly one masthead, found ${mastheads}`)
+      const m = html.match(/<div[^>]*data-masthead[^>]*>([\s\S]*?)<\/div>/)?.[1] ?? ''
+      const text = m.replace(/<[^>]+>/g, '|').split('|').filter(Boolean)
+      assert(
+        text.join(' / ') === `VOL. 02 — THE ENGINE / ${LOCALITY} / MMXXVI`,
+        `index.html: the masthead reads "${text.join(' / ')}"`,
+      )
+      assert(
+        html.indexOf('data-masthead') < html.search(/<h1[ >]/),
+        'index.html: the masthead must sit above the hero title',
+      )
+    } else {
+      assert(mastheads === 0, `${rel}: the masthead appears here, but only the landing page has one`)
+    }
+    if (html.includes('<footer')) {
+      assert(html.includes(`${LOCALITY} · MMXXVI`), `${rel}: the footer is missing the locality line`)
+    }
+  }
+}
+
 const notFound = readOut('404.html')
 if (notFound) {
   assert(/Nothing is bound to this address/.test(notFound), '404.html is not the refusal page')

@@ -474,6 +474,18 @@ assert(
   '.hero must not clip: a focusable control at its edge would lose its focus ring',
 )
 
+// The masthead is drawn by Hero on request and the landing page requests it;
+// it is the muted .lg-mono voice, not a second set of type declarations.
+const mastheadTsx = read('components/Masthead.tsx')
+assert(/className=\{`lg-mono /.test(mastheadTsx), 'the masthead must carry .lg-mono rather than redeclare its type')
+const mastheadCss = stripComments(read('components/Masthead.module.css'))
+assert(!/font-(family|size)|letter-spacing|text-transform/.test(mastheadCss), 'Masthead.module.css must not redeclare the .lg-mono type')
+assert(has(rules(mastheadCss, '.masthead'), /border-bottom:\s*1px solid/), 'the masthead needs a hairline beneath it')
+assert(/@media[^{]*max-width[^{]*\{[^]*?\.place\s*\{[^}]*display:\s*none/.test(mastheadCss), 'on a narrow screen the masthead must drop its centre rather than overflow')
+assert(/masthead\s*\?\s*<Masthead\s*\/>/.test(read('components/Hero.tsx')), 'Hero must draw <Masthead /> only when asked')
+assert(/<Hero\s+masthead\b/.test(read('content/index.mdx')), 'the landing page must pass masthead to Hero')
+assert(/lg-mono[^>]*>◉ WESTLANDS, NAIROBI · MMXXVI</.test(read('app/layout.tsx')), 'the footer must carry the locality line in .lg-mono')
+
 // Comments that were corrected must stay corrected.
 const tokensHeader = read('app/tokens.css').match(/^\s*\/\*[\s\S]*?\*\//)?.[0] ?? ''
 assert(!/3\.13:1/.test(tokensHeader) && /3\.15:1/.test(tokensHeader), 'tokens.css must quote 3.15:1 for brand on cream')
