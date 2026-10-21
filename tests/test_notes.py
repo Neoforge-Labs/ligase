@@ -61,8 +61,16 @@ def confused(ref: Reference) -> Variants:
     `Path.write_text` returns how many characters it wrote, and
     `lg.write(lambda out: out.write_text(...))` is the natural one-liner,
     so this is the mistake a user makes rather than an invented one.
+
+    `mypy --strict` refuses this line, which is the first line of defence
+    and the reason for the `ignore` below. The message it earns at run time
+    is for a pipeline nobody type-checks.
     """
-    return lg.write(lambda out: out.write_text("##fileformat=VCFv4.3\n"))
+    return lg.write(
+        lambda out: out.write_text(  # type: ignore[arg-type, return-value]
+            "##fileformat=VCFv4.3\n"
+        )
+    )
 
 
 @lg.step

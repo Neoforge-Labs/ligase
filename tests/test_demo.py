@@ -132,6 +132,37 @@ def test_the_demo_runs_end_to_end_on_three_runs(
         assert all("HIVDB" in row.split("\t")[9] for row in rows[1:]), output
 
 
+def test_the_demo_says_what_its_readings_rested_on(
+    demo: ModuleType, shared: Path
+) -> None:
+    """The hedges a real sample produces, where a user reads them.
+
+    On this data the coverage note does not fire -- the demo passes the
+    alignment -- so what is left is what the alignment itself could not
+    settle: codons below a hundred-fold, and codons no read spans all three
+    bases of (D31). Both say the score of a drug whose rules name such a
+    position is a floor rather than a call, which is a clinical
+    distinction, so the thing being checked here is that it is said.
+    """
+    report = demo.pipeline(runs=RUNS).run(cache=shared)
+
+    readings = [step for step in report.steps if step.step == "resistance"]
+    assert len(readings) == len(RUNS)
+    for step in readings:
+        assert step.notes, f"{step.sample} hedged nothing at all"
+        assert not any("coverage is unknown" in note for note in step.notes), (
+            f"{step.sample} was interpreted without its alignment"
+        )
+        assert any(
+            "-fold coverage" in note or "no read spans" in note for note in step.notes
+        ), step.notes
+
+    # And in the text the command line prints, once per kind rather than
+    # once per sample (D15).
+    assert "noticed" in report.text
+    assert "sequence deeper" in report.text.lower()
+
+
 def test_every_alignment_is_against_hxb2(demo: ModuleType, shared: Path) -> None:
     # The dimensions the graph propagated are a claim about files that now
     # exist, so it is worth checking the claim against them.
