@@ -1,8 +1,8 @@
-name: Docs site (Nextra)
+name: Docs
 
-# Builds and checks the new site in web/. It does not deploy: the live site
-# at ligase.neoforgelabs.tech is still produced by docs.yml from docs/, and
-# stays that way until the switch is made deliberately.
+# Builds the site in web/ and, on main, deploys it to GitHub Pages as
+# ligase.neoforgelabs.tech. This is the only workflow that touches the live
+# site; `mkdocs` and docs/ are gone.
 
 on:
   push:
@@ -10,17 +10,22 @@ on:
   pull_request:
   workflow_dispatch:
 
+# `pages: write` and `id-token: write` are what the deploy needs; building
+# alone would not.
 permissions:
   contents: read
-
-concurrency:
-  group: web-${{ github.ref }}
-  cancel-in-progress: true
+  pages: write
+  id-token: write
 
 jobs:
   build:
     name: Build and check
     runs-on: ubuntu-24.04
+    # Superseded builds of the same branch are worth cancelling. The deploy
+    # job below uses the `pages` group instead, which must not cancel.
+    concurrency:
+      group: web-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v7
 
@@ -60,8 +65,11 @@ jobs:
       #
       #   generate_api.py        fails on an export in no group, a group entry
       #                          that is not exported, or a missing docstring
+      #   generate_cli.py        fails on a command or flag with no help text
       #   capture_diagnostics.py fails if the engine stops producing the error
       #                          a page says it produces
+      #   capture_quickstart.py  fails if the quickstart's own commands do not
+      #                          produce what the page claims
       #   render_notebooks.py    fails if a notebook does not run
       - name: Build
         working-directory: web
@@ -69,14 +77,46 @@ jobs:
 
       # The replacement for `mkdocs build --strict`: a broken internal link, a
       # dangling anchor, a page nothing links to, or a Markdown link that never
-      # resolved all fail here.
+      # resolved all fail here. This is the ninth check of the gate.
       - name: Check links
         working-directory: web
         run: npm run links
 
-      - name: Keep the built site for inspection
-        uses: actions/upload-artifact@v5
+      # A static Next.js export puts every asset under `_next/`, and Jekyll
+      # drops underscore-prefixed paths. Pages does not run Jekyll under
+      # build_type=workflow, but `.nojekyll` costs nothing and removes the
+      # dependency on that staying true: without it every stylesheet and
+      # script on the site 404s.
+      - name: Keep Jekyll away from _next/
+        run: |
+          set -euo pipefail
+          touch web/out/.nojekyll
+          test -f web/out/.nojekyll
+          test -d web/out/_next
+
+      # No CNAME file. Under build_type=workflow a CNAME in the artifact does
+      # NOT configure the custom domain — it would be served as an ordinary
+      # static file while the Pages API reported cname=null. The domain is
+      # already set on the repository's Pages REST endpoint and is left alone.
+      - uses: actions/upload-pages-artifact@v5
         with:
-          name: nextra-site
           path: web/out/
-          retention-days: 7
+
+  deploy:
+    name: Deploy to GitHub Pages
+    # Never publish from a pull request: it would let a fork overwrite the
+    # live site.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    # One deploy at a time, and a queued one supersedes rather than races.
+    # Cancelling in progress would abandon a half-finished publish.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
