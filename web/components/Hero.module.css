@@ -1,10 +1,8 @@
 .hero {
-  /* The aurora is absolutely positioned and blurred 60px: its parent must clip
-     it, or the blur spills past the page and scrolls it sideways. `isolate`
-     gives the hero its own stacking context so the aurora can sit behind the
-     text without sinking behind the page. */
+  /* `isolate` gives the hero its own stacking context, so the atmosphere can
+     sit behind the text without sinking behind the page. The hero itself must
+     not clip: a focusable control at its edge would lose its focus ring. */
   position: relative;
-  overflow: hidden;
   isolation: isolate;
   padding-block: 1rem 0.5rem;
   border-bottom: 1px solid var(--lg-rule);
@@ -12,8 +10,15 @@
   padding-bottom: 2.2rem;
 }
 
-.hero > :global(.lg-aurora) {
+/* The aurora is absolutely positioned and blurred 60px, so its parent must
+   clip it or the blur scrolls the page sideways. That parent is this wrapper,
+   which holds nothing else, so the clip cannot reach a focusable descendant. */
+.atmosphere {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
   z-index: -1;
+  pointer-events: none;
 }
 
 /* Status, set in mono so it reads as a fact rather than a badge. The same

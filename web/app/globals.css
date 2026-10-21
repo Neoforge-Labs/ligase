@@ -589,7 +589,9 @@ footer {
     color: #000 !important;
   }
 
-  .lg-grain,
+  /* The grain is a pseudo-element: .lg-grain itself is mounted on body, and
+     hiding body would print a blank page. */
+  .lg-grain::before,
   .lg-aurora,
   .nextra-sidebar-container,
   .nextra-toc {

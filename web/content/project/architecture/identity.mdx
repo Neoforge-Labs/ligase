@@ -57,8 +57,9 @@ thin diagonal is the first thing to alias. `favicon.svg` also carries a
 `prefers-color-scheme` rule that flips its letterforms to cream, since a tab
 strip can be light or dark whatever the page is doing. `icon.svg` is drawn in
 cream and expects a dark ground. In both, the tie is the brand hex `#E36414`
-exactly: a mark is not text, so it is not subject to the darkening described in
-the decisions below.
+exactly. The `Mark` component, which draws the navbar wordmark, is different:
+its tie and its italic `ase` take `var(--lg-brand)`, so in the light theme they
+darken to `#a8460a` with everything else, as described in the decisions below.
 
 `check-mark.mjs` holds both drawings to this geometry, and holds the favicon to
 its colour-scheme handling first, because a favicon that vanishes on a light
@@ -89,6 +90,12 @@ exist. "Open" appears on the right of the code row only when the card is given
 somewhere to open, for the same reason. The code and the colour above are
 placeholders for how the card reads, not a claim about how Ligase is catalogued
 anywhere.
+
+That also costs the card something. `#332C5C` is a deep violet, and as a 2px
+rule against the dark card surface it is nearly invisible. On the parent site
+the same colours sit over photography, which is what makes them read. The card
+keeps the colour and the geometry and states the limitation rather than
+inventing imagery to hide it.
 
 ## The palette
 
@@ -138,14 +145,15 @@ numbered.
 - **Eyebrows** are `.lg-eyebrow`: 10px mono, 0.28em tracking, uppercase, in
   the brand colour. A quieter sibling, `.lg-mono`, is 11px, 0.22em, in muted
   ink, and is what a UI label uses.
-- **Grain and aurora** are two atmosphere layers, two classes. The
+- **Grain and aurora** are the site's two atmosphere layers. The
   grain, `.lg-grain`, is a fixed 256px tile of fractal noise at 3.5% opacity.
   It is noise, not orange. The aurora, `.lg-aurora`, is three orange radial
   gradients at 8%, 5% and 4% under a 60px blur; its parent must be
   `position: relative` with `overflow: hidden`, or the blur spills out and
   causes horizontal scroll. The grain is mounted globally, on `body` in
-  `layout.tsx`; the aurora is mounted on the landing page's hero, whose
-  stylesheet supplies the clipping parent. Both switch off under
+  `layout.tsx`; the aurora is mounted on the landing page's hero, inside a
+  wrapper that does nothing but clip it, so the hero itself never clips a
+  focus ring. Both switch off under
   `prefers-reduced-motion` and in print.
 
 The landing page is not a numbered section of the journal. Its bands render an
@@ -177,8 +185,9 @@ Playfair is a Didone: high contrast, with hairlines so fine that they vanish at
 
 The brand orange, `#e36414`, is 3.15:1 on the cream paper. That fails WCAG AA
 for text, and links are text. Light-mode brand is therefore `#a8460a`, which is
-5.42:1 on cream. Only light-mode text darkens: dark mode and the mark use the
-brand hex exactly. `check-contrast.mjs` pins the dark brand to `#e36414` and
+5.42:1 on cream. Only the light theme darkens: dark mode and the SVG assets use
+the brand hex exactly, while the `Mark` component follows `--lg-brand` and so
+darkens with the light theme. `check-contrast.mjs` pins the dark brand to `#e36414` and
 polices the light one by contrast alone.
 
 ### 3. `--lg-ink-faint` is louder than designed

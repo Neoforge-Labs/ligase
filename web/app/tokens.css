@@ -29,7 +29,9 @@
  *
  * Light-mode orange is darker than the brand's. The brand orange is 3.15:1 on
  * cream, which fails AA as link text, so only light-mode text darkens. Dark
- * mode and the mark use the brand hex exactly.
+ * mode and the SVG assets (icon.svg, favicon.svg) use the brand hex exactly;
+ * the Mark component's tie and italic follow --lg-brand, so they darken with
+ * the light theme.
  *
  * Neutrals are warm: cream ink on near-black, near-black ink on cream. Every
  * -soft and -rule value is an opaque colour blended from its signal onto the

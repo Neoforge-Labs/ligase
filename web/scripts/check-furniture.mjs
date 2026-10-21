@@ -167,12 +167,18 @@ assert(
     has(rules(printCss, 'html, body'), /color:\s*#000\b/),
   'print must force html, body to background: #fff and color: #000',
 )
-for (const sel of ['.lg-grain', '.lg-aurora', '.nextra-sidebar-container', '.nextra-toc']) {
+for (const sel of ['.lg-grain::before', '.lg-aurora', '.nextra-sidebar-container', '.nextra-toc']) {
   assert(
     has(rules(printCss, sel), /display:\s*none/),
     `print must hide ${sel}`,
   )
 }
+// .lg-grain is mounted on body: a bare `.lg-grain` selector that hides it hides
+// the whole page, and every printed sheet comes out blank.
+assert(
+  !/(^|[\s,{}])\.lg-grain\s*[,{]/.test(printCss),
+  'print must not hide a bare .lg-grain: it is mounted on body, so that would blank every page',
+)
 assert(
   has(rules(printCss, '.nextra-content h2::before'), /color:\s*(#000|inherit)\b/),
   'print must drop the section counter colour to ink',
@@ -450,8 +456,13 @@ assert(/className="[^"]*\blg-grain\b/.test(read('app/layout.tsx')), 'layout.tsx 
 assert(/className="[^"]*\blg-aurora\b/.test(markup), '.lg-aurora must be mounted by a component')
 const heroCss = stripComments(read('components/Hero.module.css'))
 assert(
-  has(rules(heroCss, '.hero'), /position:\s*relative/) && has(rules(heroCss, '.hero'), /overflow:\s*hidden/),
-  "the aurora's parent (.hero) must be position: relative with overflow: hidden",
+  has(rules(heroCss, '.atmosphere'), /position:\s*absolute/) &&
+    has(rules(heroCss, '.atmosphere'), /overflow:\s*hidden/),
+  "the aurora's parent (.atmosphere) must be positioned and clip it",
+)
+assert(
+  !has(rules(heroCss, '.hero'), /overflow\s*:/),
+  '.hero must not clip: a focusable control at its edge would lose its focus ring',
 )
 
 // Comments that were corrected must stay corrected.

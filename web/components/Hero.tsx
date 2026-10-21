@@ -24,7 +24,9 @@ export function Hero({
 }) {
   return (
     <header className={styles.hero}>
-      <div className="lg-aurora" aria-hidden="true" />
+      <div className={styles.atmosphere} aria-hidden="true">
+        <div className="lg-aurora" />
+      </div>
       {eyebrow ? <p className={styles.eyebrow}>{eyebrow}</p> : null}
       <h1 className={styles.title}>{title}</h1>
       <div className={styles.lede}>{children}</div>
