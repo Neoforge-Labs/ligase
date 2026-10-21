@@ -266,12 +266,17 @@ for (const u of urls) {
 }
 
 const COMPONENT_TAG = /<\/?(Diagnostic|RunReport|Hero|Band|Hazard|HazardGrid|Note|Stat|Stats|Lede|Action|BrandCard)\b/
+const JSX_TAG = /<\/?[A-Z][A-Za-z0-9.]*(?=[\s/>])/
 for (const [path, md] of mds) {
   // An `import` is MDX only outside a code block: the guides' Python examples
   // legitimately start lines with `import ligase`.
   const prose = withoutCode(md)
   assert(!/^import\s.+\sfrom\s+['"]/m.test(prose), `${path}: an MDX import leaked into the markdown`)
   assert(!COMPONENT_TAG.test(prose), `${path}: a component tag leaked instead of its text`)
+  // Backstop for a component added later: generate-llms.mjs only converts the
+  // ones it knows, so any other capitalised tag outside code is raw JSX.
+  const unknownTag = JSX_TAG.exec(prose)
+  assert(!unknownTag, `${path}: raw JSX outside a code block (${unknownTag?.[0]}); teach generate-llms.mjs the component`)
   assert(!/\{\s*(diagnostics|quickstart)\./.test(md), `${path}: an unresolved {diagnostics.*} or {quickstart.*} expression`)
   assert(!/<\/?>/.test(prose), `${path}: a JSX fragment leaked`)
   assert(!/^---\n(title|description):/m.test(md), `${path}: frontmatter leaked`)
@@ -335,10 +340,15 @@ assert(!/import \{ x \}/.test(converted), 'toPlainMarkdown kept an MDX import')
 assert(!COMPONENT_TAG.test(withoutCode(converted)), 'toPlainMarkdown left a component tag')
 
 // 6. the honesty rule, automated (CLAUDE.md) ----------------------------
-// The project has no outside users. Nothing published for a model may say
-// otherwise. A phrase is only exempt where the page is disclaiming it: in
-// quotation marks, in a sentence that says there is none ("no 'trusted by'
-// list"). Every such mention is printed, so an exemption cannot go unseen.
+// The project has no outside users. This is a check for the specific phrases
+// we know to avoid, not a complete guard: a claim worded some other way
+// ("used by 40 labs") passes it. It fails closed on those phrases.
+//
+// One mention is allowed, and it is pinned: the sentence in the in-use page
+// that says there is no "trusted by" list. The allowance is that exact
+// sentence at that exact place, once. Any other occurrence of the phrase, or
+// the same sentence a second time, or the phrase beside different words, is a
+// failure. Widening this means editing ALLOWED below on purpose.
 const CLAIMS = [
   'trusted by',
   'used by thousands',
@@ -355,15 +365,34 @@ const CLAIMS = [
   'loved by',
   'world-class',
 ]
-const disclaimed = []
+const ALLOWED = [
+  {
+    file: 'llms-full.txt',
+    phrase: 'trusted by',
+    sentence: 'No logos, no quotes, no adoption figures, no "trusted by" list.',
+    times: 1,
+  },
+]
+const phrasePattern = (w) => new RegExp(w.replace(/[-\s]/g, '[-\\s]'), 'gi')
 for (const [label, text] of [['llms.txt', llms], ['llms-full.txt', full]]) {
   for (const w of CLAIMS) {
-    for (const m of text.matchAll(new RegExp(w.replace(/[-\s]/g, '[-\\s]'), 'gi'))) {
-      const before = text.slice(Math.max(0, m.index - 80), m.index)
-      const quoted = /["“‘']$/.test(before) && /^["”’']/.test(text.slice(m.index + w.length))
-      const negated = /\b(no|not|never|without|none)\b[^.\n]*$/i.test(before)
-      if (quoted && negated) disclaimed.push(`${label}: "${w}" ("...${before.slice(-40).replace(/\n/g, ' ')}${m[0]}...")`)
-      else assert(false, `${label} claims "${w}": the project has no outside users (CLAUDE.md)`)
+    const allowed = ALLOWED.filter((a) => a.file === label && a.phrase === w)
+    let exempted = 0
+    for (const m of text.matchAll(phrasePattern(w))) {
+      const hit = allowed.find((a) => {
+        const at = m.index - a.sentence.indexOf(w)
+        return at >= 0 && text.slice(at, at + a.sentence.length) === a.sentence
+      })
+      if (hit) {
+        exempted += 1
+        console.log(`note: exempted by the pinned allowlist, ${label}: ${hit.sentence}`)
+      } else {
+        const context = text.slice(Math.max(0, m.index - 40), m.index + w.length + 40).replace(/\s+/g, ' ')
+        assert(false, `${label} claims "${w}" (...${context}...): the project has no outside users (CLAUDE.md)`)
+      }
+    }
+    for (const a of allowed) {
+      assert(exempted <= a.times, `${label}: the allowlisted sentence for "${w}" appears ${exempted} times, expected at most ${a.times}`)
     }
   }
 }
@@ -373,7 +402,6 @@ if (failures.length > 0) {
   for (const f of failures) console.error(`  - ${f}`)
   process.exit(1)
 }
-for (const d of disclaimed) console.log(`note: disclaimed, not claimed: ${d}`)
 console.log(
   `OK: ${urls.length} sitemap URLs all exported, every exported page listed and canonical, ` +
     `AI crawlers named, structured data claims no adoption, llms.txt lists every page, ` +
