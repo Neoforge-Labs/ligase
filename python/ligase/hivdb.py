@@ -105,7 +105,8 @@ def interpret(
         reference: The reference they were called against. Required:
             codons cannot be assembled without it.
         coverage: The alignment the calls came from. Without it no
-            position can be known to be unread, and the report says so.
+            position can be known to be unread and no codon can be
+            phased, and the reading notes both assumptions.
         algorithm: Which vendored algorithm to use, from `ALGORITHMS`.
         mixture: The fraction of reads an allele must reach to count as
             present. Where both the reference and an alternate reach it
@@ -113,6 +114,12 @@ def interpret(
             base does to Stanford's own interpreter -- taking the majority
             instead would discard the minority resistance that deep
             sequencing exists to find.
+
+            With an alignment it also decides which *combinations* of
+            those alleles are real: a VCF says what is at each position
+            and not what travels together, so reads spanning a codon are
+            counted as the triplets they carry and the codon holds the
+            amino acids reaching this fraction of them.
         depth: The depth a position must reach to count as read. A codon
             whose bases do not all reach it is reported as unread rather
             than as reference.
