@@ -48,11 +48,10 @@ export const metadata: Metadata = {
   description:
     'Biological data carries dimensions — organism, reference build, coordinate system, sample set — and Ligase refuses to connect steps whose dimensions disagree. A Rust core with a Python surface.',
   applicationName: 'Ligase',
+  // Only the small variant is declared: icon.svg's thin slabs collapse at 16px.
   icons: {
-    icon: [
-      { url: '/favicon.svg', type: 'image/svg+xml' },
-      { url: '/icon.svg', type: 'image/svg+xml' },
-    ],
+    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+    shortcut: '/favicon.svg',
   },
   authors: [{ name: 'Kelyn Njeri' }],
   openGraph: {

@@ -97,7 +97,14 @@ assert(!/nick|double helix/.test(mark), 'Mark.tsx still carries the old docstrin
 assert(/Playfair_Display/.test(layout), 'layout.tsx must load Playfair_Display')
 assert(/variable:\s*'--font-playfair'/.test(layout), "Playfair variable must be '--font-playfair'")
 assert(/playfair\.variable/.test(layout), 'Playfair .variable must be on <html>')
-assert(/favicon\.svg/.test(layout) && /icon\.svg/.test(layout), 'metadata.icons must point at both SVGs')
+// metadata.icons.icon must be the SMALL variant only. icon.svg (display) collapses at 16px, and
+// listing both lets the browser choose it for the tab strip. Note 'favicon.svg' contains 'icon.svg'
+// as a substring, so match on the quoted path.
+const iconsBlock = layout.match(/icons:\s*\{[\s\S]*?\n  \},/)?.[0] ?? ''
+assert(iconsBlock !== '', 'layout.tsx must declare metadata.icons')
+assert(/'\/favicon\.svg'/.test(iconsBlock), 'metadata.icons must reference /favicon.svg')
+assert(!/'\/icon\.svg'/.test(iconsBlock), 'metadata.icons must not declare /icon.svg (display variant)')
+assert(!/apple/.test(iconsBlock), 'metadata.icons must not set apple; app/apple-icon.tsx owns it')
 
 if (failures.length) {
   for (const f of failures) console.error(`FAIL: ${f}`)
