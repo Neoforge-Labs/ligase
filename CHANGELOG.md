@@ -191,6 +191,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Three pages still said nine discrepancies at 2%.** The count dropped to
+  three when codons started being read from the reads spanning them (D31),
+  and the validation page was corrected with it. The home page's figure and
+  the HIV-1 resistance page under `project/in-use/` were written for this
+  site rather than ported to it, so the change that corrected the Markdown
+  never reached them, and the site said both numbers at once. The home page
+  also cited the validation page at the path it had before the docs switch.
 - **Six of the nine validation discrepancies at the 2% threshold.** They
   were all one cause, the phasing a VCF cannot carry: five NRTI rows on
   Sample 3 reading `K219KEGR` for `K219KE`, and Sample 4's lenacapavir row
