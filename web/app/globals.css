@@ -6,8 +6,10 @@
  * because this is 52,000 words of long-form reading, and because people
  * print it: the print stylesheet at the foot of this file forces black ink on
  * white paper whatever theme the reader is in. Every colour here is a token
- * from tokens.css; nothing in this file picks a hue of its own except the
- * grain and the aurora, which are the brand orange at a few percent.
+ * from tokens.css; the only values this file sets itself are the aurora,
+ * which is the brand orange at a few percent, and the neutral black, white and
+ * greys of the print stylesheet. The grain has no hue: it is multichannel
+ * fractal noise at 3.5% opacity.
  *
  * Type has three voices. Playfair is the display face and sets h1 and the
  * large titles only: its hairlines vanish at body size. Source Serif sets the
@@ -565,6 +567,20 @@ footer {
     --lg-brand-rule: #999;
     --lg-rule: #999;
     --lg-rule-strong: #666;
+
+    /* The signal triples too. Under .dark these are light text on dark soft
+       backgrounds, and a printer drops backgrounds: a Diagnostic or RunReport
+       would come out as pale text on white. The words that carry the meaning
+       (the error type, "noticed", "failed") are in the text, not the colour. */
+    --lg-refuse: #000;
+    --lg-refuse-soft: #fff;
+    --lg-refuse-rule: #999;
+    --lg-agree: #000;
+    --lg-agree-soft: #fff;
+    --lg-agree-rule: #999;
+    --lg-notice: #000;
+    --lg-notice-soft: #fff;
+    --lg-notice-rule: #999;
   }
 
   html,
