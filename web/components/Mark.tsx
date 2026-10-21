@@ -17,9 +17,11 @@ import styles from './Mark.module.css'
  * The letterforms take currentColor and the tie takes the brand token, so the
  * single-colour variant needs no second drawing. Nothing here depends on a
  * webfont: stems, serifs and tittle are rectangles and a circle, so the glyph
- * rasterises the same everywhere. This is the display variant, the geometry of
- * public/icon.svg. At 16px it collapses, which is why public/favicon.svg is a
- * separate drawing with thicker slabs and a flatter tie.
+ * rasterises the same everywhere. This is the small variant, the geometry of
+ * public/favicon.svg, because the glyph is drawn at 24px and the display
+ * variant's 3.5-unit slabs would land at 0.84px there. The rule is in
+ * identity.mdx: the small drawing is for anything below 32px, the display
+ * drawing (public/icon.svg) for 32px and up.
  *
  * The wordmark is Lig plus an italic orange ase. -ase is the suffix most
  * enzyme names carry by IUBMB convention (not all: trypsin, pepsin and papain
@@ -37,15 +39,15 @@ export function Mark() {
         aria-hidden="true"
       >
         <g fill="currentColor">
-          <rect x="30" y="14" width="10" height="68" />
-          <rect x="24" y="14" width="22" height="3.5" />
-          <rect x="22" y="78.5" width="26" height="3.5" />
-          <rect x="62" y="42" width="10" height="40" />
-          <rect x="56" y="42" width="22" height="3.5" />
-          <rect x="54" y="78.5" width="26" height="3.5" />
-          <circle cx="67" cy="28" r="6" />
+          <rect x="26" y="10" width="16" height="76" />
+          <rect x="18" y="10" width="32" height="6" />
+          <rect x="15" y="80" width="38" height="6" />
+          <rect x="60" y="44" width="16" height="42" />
+          <rect x="52" y="44" width="32" height="6" />
+          <rect x="49" y="80" width="38" height="6" />
+          <circle cx="68" cy="26" r="9" />
         </g>
-        <polygon points="30,56 72,48 72,57 30,65" className={styles.tie} />
+        <polygon points="26,58 76,52 76,66 26,72" className={styles.tie} />
       </svg>
       <span className={styles.word}>
         Lig<span className={styles.ase}>ase</span>

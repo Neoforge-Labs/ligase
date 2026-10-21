@@ -87,8 +87,17 @@ assert(/viewBox="0 0 100 100"/.test(favicon) && /viewBox="0 0 100 100"/.test(ico
 // neither file depends on a webfont
 assert(!/font-family|<text/.test(favicon + icon), 'SVGs must not use text or fonts')
 
-// the React mark draws the display geometry, with theme-aware colour
-assert(/<polygon/.test(mark) && /points="30,56 72,48 72,57 30,65"/.test(mark), 'Mark.tsx must draw the slanted tie')
+// the React mark is drawn at 24px, below the 32px at which the display variant
+// holds up, so it draws the SMALL geometry, with theme-aware colour
+assert(/<polygon/.test(mark) && /points="26,58 76,52 76,66 26,72"/.test(mark), 'Mark.tsx must draw the small variant\'s slanted tie')
+assert(!/points="30,56 72,48 72,57 30,65"/.test(mark), 'Mark.tsx must not draw the display variant\'s tie')
+for (const s of [
+  '<rect x="26" y="10" width="16" height="76"',
+  '<rect x="18" y="10" width="32" height="6"',
+  '<circle cx="68" cy="26" r="9"',
+]) assert(has(mark, s), `Mark.tsx (24px, small variant) missing ${s}`)
+const glyphSize = Number(mark.match(/<svg[^>]*\swidth="(\d+)"/)?.[1])
+assert(glyphSize > 0 && glyphSize < 32, `Mark.tsx draws the glyph at ${glyphSize}px; below 32px it must use the small variant, and from 32px up the display one`)
 assert(/currentColor/.test(mark), 'Mark.tsx letterforms must use currentColor')
 assert(/--lg-brand/.test(mark + read('components/Mark.module.css')), 'Mark tie must use --lg-brand')
 assert(!/nick|double helix/.test(mark), 'Mark.tsx still carries the old docstring')

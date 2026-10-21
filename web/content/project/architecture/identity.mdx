@@ -41,17 +41,17 @@ a circle, so it rasterises identically everywhere.
 
 ### Two optical sizes
 
-A drawing that is right at 24px is wrong at 16px: its thin slabs fall between
+A drawing that is right at 48px is wrong at 24px: its thin slabs fall between
 pixels and the mark turns to dust. So it is drawn twice, on the same 100 by 100
 grid.
 
-| | Display (`icon.svg`, `Mark.tsx`) | Small (`favicon.svg`) |
+| | Display (`icon.svg`) | Small (`favicon.svg`, `Mark.tsx`) |
 |---|---|---|
 | Stem width | 10 | 16 |
 | Serif slab thickness | 3.5 | 6 |
 | Tittle radius | 6 | 9 |
 | Tie | `30,56 72,48 72,57 30,65`, about 11 degrees | `26,58 76,52 76,66 26,72`, about 7 degrees, and thicker |
-| Used for | the nav, the card, any size from 24px up | the browser tab |
+| Used for | any size from 32px up | anything below 32px: the browser tab, the navbar glyph (24px, `Mark.tsx`) |
 
 The small drawing is thicker everywhere and its tie is flatter, because a steep
 thin diagonal is the first thing to alias. `favicon.svg` also carries a
@@ -170,6 +170,14 @@ numbered.
   focus ring. Both switch off under
   `prefers-reduced-motion` and in print.
 
+A heading that numbers itself is not given a second number. Six headings on
+the quickstart read `## 1. Two files that do not agree` and so on: those are
+steps the reader follows in order, which a section marker does not say, and the
+page's prose is not ours to reword. Nextra's heading ids start with the number
+(`1-two-files-...`), so a heading whose id begins with a digit and a hyphen
+keeps its slot in the count but hides its `§` marker, which means the closing
+"What to read next" is `§ 07` and not `§ 01`.
+
 The landing page is not a numbered section of the journal. Its bands render an
 `h2`, and `content/_meta.ts` gives the page `layout: 'full'` with no sidebar or
 contents list, so a `§ NN` above each band would be noise. `Band` suppresses
@@ -269,7 +277,7 @@ reads `tokens.css`, and a Shiki theme is not in it.
 |---|---|
 | Colour, type and space tokens | `web/app/tokens.css` |
 | Journal furniture, counters, print | `web/app/globals.css` |
-| The wordmark and display mark | `web/components/Mark.tsx` |
+| The wordmark and its 24px glyph (small variant) | `web/components/Mark.tsx` |
 | The two drawings | `web/public/icon.svg`, `web/public/favicon.svg` |
 | The card lockup | `web/components/BrandCard.tsx` |
 | The masthead | `web/components/Masthead.tsx`, drawn by `Hero` |
