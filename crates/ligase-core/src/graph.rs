@@ -44,6 +44,7 @@ use std::fmt;
 
 use crate::check::{self, Binding, CheckError, Scope};
 use crate::dim::{CoordinateSystem, Dim, Dimension, Dimensions, Source, display_path};
+use crate::hivdb::frame;
 use crate::types::{DataKind, Dataset};
 
 /// A handle on one node of a [`Graph`].
@@ -278,6 +279,7 @@ impl Graph {
                 let bindings = self.bindings(spec);
                 found.extend(check::disagreements(&spec.name, &bindings));
                 self.demand(spec, &bindings, &mut demanded, &mut found);
+                found.extend(frame_errors(spec, &bindings));
             }
 
             // Every error says which node it came from, so a count of
@@ -628,6 +630,39 @@ fn single_sample(dataset: &Dataset) -> Option<String> {
 }
 
 /// Whether a step states a dimension itself rather than inheriting it.
+/// Refuse a resistance step whose reference is not in the frame the gene
+/// windows are stated in.
+///
+/// The one place a step's *own* coordinates are part of the engine rather
+/// than of the data, so the one check that compares a reference against
+/// something no input supplied. Keyed on the output kind, which is a typed
+/// statement in the step's signature: a step annotated
+/// `-> ResistanceReport` has said it interprets resistance, and
+/// `hivdb::frame` knows what that reads in. The exception is visible here
+/// for the reason `exec::BUILT_IN` is visible — an engine that knew this
+/// privately would be an engine nobody could check.
+fn frame_errors(spec: &StepSpec, bindings: &[Binding]) -> Vec<CheckError> {
+    if spec.output != DataKind::ResistanceReport {
+        return Vec::new();
+    }
+
+    bindings
+        .iter()
+        .filter(|binding| binding.dataset.kind() == DataKind::Reference)
+        .filter_map(|binding| {
+            let reference = binding.dataset.dimensions().reference.value()?;
+            let mismatch = frame::mismatch(reference)?;
+            Some(check::reference_frame(
+                &spec.name,
+                binding,
+                &frame::expected(),
+                mismatch.detail(),
+                mismatch.conclusion(),
+            ))
+        })
+        .collect()
+}
+
 fn introduces(spec: &StepSpec, dimension: Dimension) -> bool {
     // Coordinates are the only one. Nothing upstream of an alignment carries
     // a coordinate system — FASTQ and FASTA have none — so the step is where

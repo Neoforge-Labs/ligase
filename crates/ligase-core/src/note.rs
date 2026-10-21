@@ -115,24 +115,23 @@ pub enum Note {
     /// from, so every position the caller did not report was taken to be
     /// reference (D29).
     ReadingWithoutCoverage,
-    /// A gene that runs off the end of the reference it was read against,
-    /// so none of it was read at all.
-    GenePastReference {
-        /// The gene.
-        gene: String,
-        /// The last base of the gene, in the reference's coordinates.
-        end: u32,
-        /// The contig it was looked for in.
-        contig: String,
-        /// How long that contig is.
-        length: u32,
-    },
     /// A gene no codon of which reached the depth asked for.
     GeneUnread {
         /// The gene.
         gene: String,
         /// The depth a position had to reach to count as read.
         depth: u32,
+    },
+    /// A gene too little of which was read to be assessed at all (D34).
+    GeneBarelyRead {
+        /// The gene.
+        gene: String,
+        /// How many of its codons were read.
+        read: u32,
+        /// How many codons it has.
+        codons: u32,
+        /// How many had to be read for it to be assessed.
+        needed: u32,
     },
     /// A gene some of whose codons did not reach the depth asked for.
     CodonsUnread {
@@ -177,8 +176,8 @@ impl Note {
         match self {
             Self::SampleIsAFile { .. } => "sample-is-a-file",
             Self::ReadingWithoutCoverage => "reading-without-coverage",
-            Self::GenePastReference { .. } => "gene-past-the-reference",
             Self::GeneUnread { .. } => "gene-unread",
+            Self::GeneBarelyRead { .. } => "gene-barely-read",
             Self::CodonsUnread { .. } => "codons-unread",
             Self::CodonsUnphased { .. } => "codons-unphased",
         }
@@ -196,13 +195,13 @@ impl Note {
         match self {
             Self::SampleIsAFile { sample } => sample.clone(),
             Self::ReadingWithoutCoverage => String::new(),
-            Self::GenePastReference {
-                gene,
-                end,
-                contig,
-                length,
-            } => format!("gene={gene} end={end} contig={contig} length={length}"),
             Self::GeneUnread { gene, depth } => format!("gene={gene} depth={depth}"),
+            Self::GeneBarelyRead {
+                gene,
+                read,
+                codons,
+                needed,
+            } => format!("gene={gene} read={read} codons={codons} needed={needed}"),
             Self::CodonsUnread {
                 gene,
                 read,
@@ -241,15 +240,15 @@ impl Note {
                 sample: value.to_owned(),
             }),
             "reading-without-coverage" => Some(Self::ReadingWithoutCoverage),
-            "gene-past-the-reference" => Some(Self::GenePastReference {
-                gene: named(value, "gene")?.to_owned(),
-                end: counted(value, "end")?,
-                contig: named(value, "contig")?.to_owned(),
-                length: counted(value, "length")?,
-            }),
             "gene-unread" => Some(Self::GeneUnread {
                 gene: named(value, "gene")?.to_owned(),
                 depth: counted(value, "depth")?,
+            }),
+            "gene-barely-read" => Some(Self::GeneBarelyRead {
+                gene: named(value, "gene")?.to_owned(),
+                read: counted(value, "read")?,
+                codons: counted(value, "codons")?,
+                needed: counted(value, "needed")?,
             }),
             "codons-unread" => Some(Self::CodonsUnread {
                 gene: named(value, "gene")?.to_owned(),
@@ -283,13 +282,13 @@ impl Note {
                 "Pass the alignment — `coverage=aln` — so uncalled positions are reported as \
                  unread rather than as reference."
             }
-            Self::GenePastReference { .. } => {
-                "Interpret against a reference that spans the gene — HXB2 for HIV-1 — rather \
-                 than a fragment of one."
-            }
             Self::GeneUnread { .. } => {
                 "Sequence deeper, or lower the depth this reading asks for — `depth=` — so this \
                  gene's drugs can be assessed at all."
+            }
+            Self::GeneBarelyRead { .. } => {
+                "Sequence more of this gene, or lower the share this reading asks for — \
+                 `gene_coverage=` — if a floor is of more use to you than no answer."
             }
             Self::CodonsUnread { .. } => {
                 "Read a drug whose `unread` column is not empty as a floor, and sequence deeper \
@@ -321,15 +320,16 @@ impl Note {
                  cannot mark, because its `unread` column is empty for want of coverage to read \
                  rather than because everything was read."
             }
-            Self::GenePastReference { .. } => {
-                "A gene that was not read scores no drug, so every drug whose rules name it is \
-                 absent from the report rather than reported as susceptible: an absent drug \
-                 class means no data and not a negative result."
-            }
             Self::GeneUnread { .. } => {
                 "A drug with nothing to score against is left out of the report rather than \
                  called susceptible, so the absence of this gene's drugs means no data and not \
                  a negative result."
+            }
+            Self::GeneBarelyRead { .. } => {
+                "A gene read in part refutes nothing and shows nothing, so every drug scored \
+                 against it would land at zero, which this algorithm's own ranges read as \
+                 susceptible. The gene is left out of the report instead, so the absence of \
+                 its drugs means no data and not a negative result."
             }
             Self::CodonsUnread { .. } => {
                 "A drug whose rules name an unread position has that position listed in the \
@@ -359,20 +359,21 @@ impl fmt::Display for Note {
                 "no alignment was supplied, so coverage is unknown, no codon can be phased, \
                  and every position the caller did not report is taken to be reference",
             ),
-            Self::GenePastReference {
-                gene,
-                end,
-                contig,
-                length,
-            } => write!(
-                f,
-                "{gene} ends at {end} of {contig}, which is {length} bases long, \
-                 so it was not read"
-            ),
             Self::GeneUnread { gene, depth } => write!(
                 f,
                 "no codon of {gene} reached {depth}-fold coverage, so no drug scored \
                  against it could be assessed"
+            ),
+            Self::GeneBarelyRead {
+                gene,
+                read,
+                codons,
+                needed,
+            } => write!(
+                f,
+                "only {read} of {gene}'s {codons} codons were read, where this reading \
+                 required {needed}, so {gene} was not assessed rather than scored against \
+                 what little was seen"
             ),
             Self::CodonsUnread {
                 gene,
@@ -493,15 +494,15 @@ mod tests {
                 sample: "/tmp/x.bam".to_owned(),
             },
             Note::ReadingWithoutCoverage,
-            Note::GenePastReference {
-                gene: "IN".to_owned(),
-                end: 5096,
-                contig: "K03455.1".to_owned(),
-                length: 1200,
-            },
             Note::GeneUnread {
                 gene: "CA".to_owned(),
                 depth: 100,
+            },
+            Note::GeneBarelyRead {
+                gene: "IN".to_owned(),
+                read: 92,
+                codons: 288,
+                needed: 231,
             },
             Note::CodonsUnread {
                 gene: "RT".to_owned(),

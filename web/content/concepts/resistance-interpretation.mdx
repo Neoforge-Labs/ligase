@@ -51,7 +51,7 @@ version number. Upstream publishes corrections under near-identical names
 with the name would happily serve a result computed under rules that have
 since changed.
 
-## Four judgements, all made the same way
+## Six judgements, all made the same way
 
 An interpretation can be wrong in two directions, and they are not
 equally bad. Reporting resistance that is not there costs a patient a drug
@@ -130,6 +130,25 @@ thirty-two thousand reads map to HXB2. A pipeline that read "no variant
 called" as "agrees with the reference" would report a tube of water as
 fully susceptible to all twenty-seven drugs.
 
+### A reference has to be the genome the windows mean
+
+The gene windows are positions in HXB2 K03455, counted from the first base
+of the genome, and they are built into the engine. A *pol*-relative
+reference — the natural thing to have when the amplicon is *pol* — is a
+slice starting at K03455 2085, so every position in it is 2084 lower and
+the window named protease lands in integrase.
+
+For a while Ligase read that without complaint and reported
+protease-inhibitor resistance from integrase sequence. It was found by
+[somebody trying to use it](/project/in-use/sawa/), which is the only way
+a bug like this is ever found: there is nothing wrong with the output to
+notice.
+
+A reference now carries the frame its positions are numbered along, and a
+reference that is not the frame the windows mean is a
+[`ReferenceFrameError`](/reference/errors/#referenceframeerror) before any
+compute.
+
 ### A gene nobody sequenced is not assessed
 
 HIVDB 9.8 scores lenacapavir against capsid, which is in *gag*. A pipeline
@@ -139,6 +158,19 @@ report says "Not assessed" rather than "Susceptible".
 This is [D24](/project/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)'s
 reasoning about citations applied to a drug class: a gap that is named is
 honest, and a gap that is filled with a cheerful default is not.
+
+### A gene barely sequenced is not assessed either
+
+The same argument one step further in. A gene read in *part* refutes nothing
+and shows nothing, so every drug scored against it lands at zero — which the
+algorithm's own global range reads as level 1, Susceptible.
+
+That is the worst shape this failure can take: not a missing drug class, which
+a reader notices, but a full set of clean negatives from a gene the run barely
+covered. A sequence with 32% of integrase came back as five susceptible
+integrase inhibitors. So a gene read below a stated share of its codons is
+reported as Not assessed, and the reading says by how much it fell short
+([D34](/project/decisions/#d34--a-gene-barely-read-is-not-assessed)).
 
 ## What it is checked against
 

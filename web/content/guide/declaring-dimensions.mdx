@@ -259,6 +259,22 @@ ref = lg.reference("refs/mystery.fa", build="hg38")
 That is deliberate. A label that could override identity would be a way to
 silence the check, and the check is the product.
 
+What you **can** state about a reference, besides its organism and its
+label, is the coordinate frame its positions are numbered along:
+
+```python
+# Base 1 of this file is base 2085 of K03455: a pol-relative reference.
+pol = lg.reference("refs/hxb2_pol.fasta", organism="HIV-1", frame=("K03455", 2085))
+```
+
+This one has to be declared because no FASTA records it — a slice of a
+genome and a genome of its own are identical from the outside. Only steps
+whose own coordinates are fixed read it, and
+[resistance interpretation](/guide/resistance-interpretation/) is the one
+that does. A whole-genome HXB2 reference needs nothing said:
+[reference/dimensions](/reference/dimensions/#a-reference-carries-the-frame-it-is-numbered-along)
+has the rule.
+
 ## Intervals: the format is the dimension
 
 A BED or GFF carries its coordinate convention, and that convention is the

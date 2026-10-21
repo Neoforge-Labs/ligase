@@ -55,6 +55,31 @@
 //! Where no alignment is supplied the reading says so, with a [`Note`],
 //! and treats every uncalled position as reference. That is the
 //! assumption a report must not make silently.
+//!
+//! # A gene barely read cannot be called susceptible
+//!
+//! Scoring survives a few unread codons honestly: an unread position makes
+//! every rule that names it undetermined, so the score it would have
+//! contributed is absent, the score is reported as a floor and the unread
+//! positions are listed. What that does not survive is a gene that was
+//! mostly *not* seen. Nothing there refutes resistance and nothing there
+//! shows it, so every drug comes out at zero, which the algorithm's own
+//! ranges read as susceptible — a clean clinical negative from a gene the
+//! run never covered. SAWA found this in the field: a sequence with 32% of
+//! integrase reported all five integrase inhibitors susceptible, where
+//! Stanford's own service declines to report the gene at all.
+//!
+//! So a gene read below `gene_coverage` of its codons is left out of the
+//! reading, which makes its drugs *not assessed* — the same state as a gene
+//! the pipeline never supplied, which is what it effectively is.
+//!
+//! # The windows mean nothing without the frame they are stated in
+//!
+//! [`GENES`] holds positions in HXB2 K03455 counted from the first base of
+//! the genome. A reference too short to hold them cannot be the frame they
+//! are stated in, and reading it anyway puts a different gene under each
+//! window; [`super::frame`] has the whole argument and the rest of the
+//! check, which happens before any compute.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
@@ -63,6 +88,7 @@ use std::path::Path;
 use noodles::bam;
 use noodles::sam::alignment::record::cigar::op::Kind;
 
+use super::frame;
 use super::ruleset::Acids;
 use super::score::{Observed, Protein};
 use crate::load::{LoadError, open};
@@ -152,6 +178,23 @@ pub const MIXTURE: f64 = 0.15;
 /// The default depth a position must reach to count as read.
 pub const DEPTH: u32 = 100;
 
+/// The default share of a gene's codons that must be read for the gene to
+/// be assessed at all.
+///
+/// A policy rather than a fact, which is why it is a parameter: how much of
+/// a gene a surveillance programme is willing to call susceptible on is its
+/// own decision, and a judgement belongs in a cache key rather than in a
+/// constant nobody can see. Four fifths is the default because the failure
+/// it guards against is a *susceptible* call made from a gene that was
+/// largely not sequenced, and a gene missing more than a fifth of its
+/// codons cannot support one.
+///
+/// It is deliberately blunt. The exact question is whether the positions
+/// *this drug's rules* name were read, which the report already answers
+/// per drug by marking the score as a floor and listing what was unread;
+/// turning that into a refusal to state a level is D34's deferred half.
+pub const GENE_COVERAGE: f64 = 0.8;
+
 /// What was read, and what could not be.
 #[derive(Clone, Debug)]
 pub struct Reading {
@@ -182,18 +225,36 @@ pub struct Reading {
 ///   reading says so.
 /// - `mixture` — the fraction an allele must reach to count as present.
 /// - `depth` — the depth a position must reach to count as read.
+/// - `gene_coverage` — the share of a gene's codons that must be read for
+///   the gene to be assessed rather than left out.
 ///
 /// # Errors
 ///
-/// If any file cannot be read or does not parse as its format.
+/// If any file cannot be read or does not parse as its format, or if the
+/// reference cannot be the frame [`GENES`] is stated in.
 pub fn read(
     reference: &Path,
     variants: &Path,
     alignment: Option<&Path>,
     mixture: f64,
     depth: u32,
+    gene_coverage: f64,
 ) -> Result<Reading, LoadError> {
     let (contig, sequence) = sequence(reference)?;
+    // Before anything is translated: these windows are positions in a
+    // particular genome, and a reference that cannot hold them is not it.
+    // A pipeline is refused earlier than this, at check time, where the
+    // reference's declared frame is known; this is the floor under a
+    // caller who reached the engine without one.
+    if (sequence.len() as u64) < frame::LAST {
+        return Err(LoadError::frame(
+            reference,
+            frame::Mismatch::TooShort {
+                bases: sequence.len() as u64,
+            }
+            .describe(),
+        ));
+    }
     let calls = calls(variants)?;
     let mut notes = Vec::new();
 
@@ -209,16 +270,6 @@ pub fn read(
     let mut reference_acids = BTreeMap::new();
 
     for gene in GENES {
-        if gene.end as usize > sequence.len() {
-            notes.push(Note::GenePastReference {
-                gene: gene.name.to_owned(),
-                end: gene.end,
-                contig: contig.clone(),
-                length: u32::try_from(sequence.len()).unwrap_or(u32::MAX),
-            });
-            continue;
-        }
-
         let mut protein = Protein::new();
         let mut unphased = 0_u32;
         for codon in 1..=gene.codons() {
@@ -318,6 +369,7 @@ pub fn read(
             protein.saw(codon, acids);
         }
 
+        let codons = gene.codons() as usize;
         if protein.read() == 0 {
             notes.push(Note::GeneUnread {
                 gene: gene.name.to_owned(),
@@ -325,7 +377,21 @@ pub fn read(
             });
             continue;
         }
-        if protein.read() < gene.codons() as usize {
+        // A gene read this thinly refutes nothing and shows nothing, so
+        // every drug scored against it would come out at zero, which the
+        // algorithm's own ranges read as susceptible. Not assessed is the
+        // honest answer, and the same one Stanford's service gives (D34).
+        let needed = needed(gene.codons(), gene_coverage);
+        if protein.read() < needed as usize {
+            notes.push(Note::GeneBarelyRead {
+                gene: gene.name.to_owned(),
+                read: u32::try_from(protein.read()).unwrap_or(u32::MAX),
+                codons: gene.codons(),
+                needed,
+            });
+            continue;
+        }
+        if protein.read() < codons {
             notes.push(Note::CodonsUnread {
                 gene: gene.name.to_owned(),
                 read: u32::try_from(protein.read()).unwrap_or(u32::MAX),
@@ -366,6 +432,24 @@ enum Allele {
 struct Called {
     /// Each allele and the fraction of reads supporting it.
     alleles: Vec<(Allele, f64)>,
+}
+
+/// How many of a gene's codons must be read, at this share of them.
+///
+/// Rounded up, so the share is a floor: a gene cannot be a fraction of a
+/// codon short of it. Counted rather than kept as a share because a note
+/// is read by a person and stored in a bundle, and `231 of 288` says what
+/// `80%` leaves them to work out.
+///
+/// A share above one asks for more codons than the gene has, which no
+/// reading could satisfy; it is taken as one, which asks for all of them.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the share is clamped to [0, 1], so the result is at most `codons`"
+)]
+fn needed(codons: u32, share: f64) -> u32 {
+    (f64::from(codons) * share.clamp(0.0, 1.0)).ceil() as u32
 }
 
 /// Read a FASTA's first contig: its name, and its bases uppercased.

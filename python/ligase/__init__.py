@@ -27,6 +27,7 @@ from .errors import (
     ContigNamingError,
     ContigOrderError,
     DimensionError,
+    ReferenceFrameError,
     StepDefinitionError,
     StepTypeError,
     UndeclaredDimensionError,
@@ -83,6 +84,7 @@ __all__ = [
     "Pipeline",
     "Reads",
     "Reference",
+    "ReferenceFrameError",
     "Report",
     "ResistanceReport",
     "ResultCheck",
@@ -139,6 +141,7 @@ def reference(
     *,
     organism: str | None = None,
     build: str | None = None,
+    frame: tuple[str, int] | None = None,
 ) -> Reference:
     """Load a reference FASTA, inferring its contigs.
 
@@ -152,6 +155,20 @@ def reference(
         build: A human label such as `HXB2` or `hg38`. Display only --
             reference identity never rests on a label, so two files both
             labelled `hg38` still fail to match if their contigs disagree.
+        frame: Which coordinate frame this reference's positions are
+            numbered along, as `(frame, first)`: base 1 of this file is
+            base `first` of `frame`, 1-based, so a whole genome declares
+            `("K03455", 1)` and the usual pol slice declares
+            `("K03455", 2085)`.
+
+            Declared because no FASTA records it. A 3,012-base slice of
+            K03455 and a 3,012-base genome of something else are identical
+            from the outside, and a step whose own coordinates are fixed --
+            `lg.hivdb.interpret` holds the HIV-1 gene windows as positions
+            in K03455 -- cannot tell them apart without being told. Leave
+            it unset for a whole-genome reference such as HXB2 itself,
+            which is recognised by its length; a step that needs a frame
+            and cannot work one out asks for it by name.
 
     Returns:
         The loaded reference.
@@ -159,7 +176,7 @@ def reference(
     Raises:
         LoadError: If the file cannot be read or is not a FASTA.
     """
-    return Reference(_core.load_reference(path, organism, build))
+    return Reference(_core.load_reference(path, organism, build, frame))
 
 
 def alignment(

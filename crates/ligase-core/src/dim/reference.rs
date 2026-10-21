@@ -48,12 +48,91 @@ pub enum ContigOrder {
     Observed,
 }
 
+/// The coordinate frame a reference's positions are numbered in.
+///
+/// A reference that is a whole genome *is* its own frame: base 1 of the file
+/// is base 1 of the thing it is named after. A reference that is a slice of
+/// one is not, and the difference is invisible in the file. `hxb2_pol.fasta`
+/// holds K03455 2085..5096; every position in it is 2084 lower than the same
+/// base of K03455, and nothing about the bases, the defline or the length
+/// says so out loud.
+///
+/// That is why this is declared and never inferred: no FASTA records where
+/// its first base sits in anything else. A step whose own coordinates are
+/// stated in some frame — `hivdb`'s gene windows are stated in K03455 — can
+/// then ask, before any compute, whether the reference it was handed is in
+/// that frame or merely named after it.
+///
+/// Not a reading frame. This is about which coordinate system the numbers
+/// mean, in the sense `docs/dimensions.md` gives the `coordinates`
+/// dimension, one axis further out: that dimension says whether a position
+/// is counted from zero or from one, and this says what it is counted along.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Frame {
+    name: String,
+    first: u64,
+}
+
+impl Frame {
+    /// Declare that base 1 of this reference is base `first` of `name`.
+    ///
+    /// `first` is 1-based, so a whole genome declares `1`.
+    #[must_use]
+    pub fn new(name: &str, first: u64) -> Self {
+        Self {
+            name: name.trim().to_owned(),
+            first,
+        }
+    }
+
+    /// The frame's name, as declared: an accession, a build, a contig.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Which base of the frame this reference's first base is, 1-based.
+    #[must_use]
+    pub const fn first(&self) -> u64 {
+        self.first
+    }
+
+    /// How much lower this reference's positions are than the frame's.
+    #[must_use]
+    pub const fn offset(&self) -> u64 {
+        self.first.saturating_sub(1)
+    }
+
+    /// Whether this reference is the whole of its frame, not a slice of it.
+    #[must_use]
+    pub const fn is_whole(&self) -> bool {
+        self.first == 1
+    }
+
+    /// How this reads in a message.
+    #[must_use]
+    pub fn describe(&self) -> String {
+        if self.is_whole() {
+            format!("{}, from its first base", self.name)
+        } else {
+            format!("{} from base {}", self.name, self.first)
+        }
+    }
+}
+
+impl fmt::Display for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.describe())
+    }
+}
+
 /// The identity of a reference: its contigs, plus an optional human label.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReferenceId {
     label: Option<String>,
     contigs: Vec<Contig>,
     order: ContigOrder,
+    frame: Option<Frame>,
 }
 
 impl ReferenceId {
@@ -64,6 +143,7 @@ impl ReferenceId {
             label,
             contigs,
             order: ContigOrder::Dictionary,
+            frame: None,
         }
     }
 
@@ -77,6 +157,7 @@ impl ReferenceId {
             label,
             contigs,
             order: ContigOrder::Observed,
+            frame: None,
         }
     }
 
@@ -84,6 +165,26 @@ impl ReferenceId {
     #[must_use]
     pub const fn order(&self) -> ContigOrder {
         self.order
+    }
+
+    /// Record the coordinate frame this reference's positions are numbered
+    /// in, as the user declared it.
+    #[must_use]
+    pub fn with_frame(mut self, frame: Option<Frame>) -> Self {
+        self.frame = frame;
+        self
+    }
+
+    /// The declared coordinate frame, if one was declared.
+    ///
+    /// Never inferred: see [`Frame`]. Two references whose contigs agree on
+    /// name, length and checksum are the same sequence and so cannot
+    /// honestly differ here, which is why [`relate`] does not compare it —
+    /// a frame is read by the step that needs one, not by reference
+    /// comparison.
+    #[must_use]
+    pub const fn frame(&self) -> Option<&Frame> {
+        self.frame.as_ref()
     }
 
     /// The declared or recorded label, if any. Display only.
