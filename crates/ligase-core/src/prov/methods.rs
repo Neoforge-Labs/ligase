@@ -1,8 +1,8 @@
 //! Turning provenance records into the paragraph a paper needs.
 //!
-//! `docs/milestones.md` says what M5 is signed off on: a methods paragraph
-//! with tool versions, parameters, reference accession and citations. Each
-//! of those four is already recorded by the time this runs
+//! `web/content/project/milestones.mdx` says what M5 is signed off on: a
+//! methods paragraph with tool versions, parameters, reference accession and
+//! citations. Each of those four is already recorded by the time this runs
 //! ([`super::Record`]); this module's whole job is to say them in order, in
 //! sentences, without adding anything that was not recorded.
 //!

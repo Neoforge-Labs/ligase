@@ -14,12 +14,12 @@ can reproduce.
 
 ## Why the reference is a parameter
 
-`docs/golden-example.md` writes this step as `lg.hivdb.interpret(v)`, and
-that turned out to be one argument short. A VCF holds only the positions
-that *differ* from the reference, and two of the three bases of a codon
-are usually not among them -- so there is nothing to translate without the
-sequence those positions sit in. The reference is not a convenience here;
-without it the step cannot name a single amino acid.
+`web/content/project/golden-example.mdx` writes this step as
+`lg.hivdb.interpret(v)`, and that turned out to be one argument short. A VCF
+holds only the positions that *differ* from the reference, and two of the
+three bases of a codon are usually not among them -- so there is nothing to
+translate without the sequence those positions sit in. The reference is not
+a convenience here; without it the step cannot name a single amino acid.
 
 Passing it has a second effect worth having. The reference becomes an
 input to the step, so `check()` compares it against the calls before

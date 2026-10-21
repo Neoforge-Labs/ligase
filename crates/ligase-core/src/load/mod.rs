@@ -1,9 +1,10 @@
 //! Loading data and inferring its dimensions from file headers.
 //!
 //! Each loader reads only as much of a file as it needs, and reports a
-//! dimension as unknown rather than guessing. `docs/dimensions.md` says which
-//! dimensions each format can speak to; anything outside that is declared by
-//! the user or left unknown.
+//! dimension as unknown rather than guessing.
+//! `web/content/reference/dimensions.mdx` says which dimensions each format
+//! can speak to; anything outside that is declared by the user or left
+//! unknown.
 
 mod alignment;
 mod fasta;
@@ -27,7 +28,8 @@ pub use variants::variants;
 
 /// Dimensions the user states, for the ones a file cannot record.
 ///
-/// `docs/dimensions.md` marks these "declared": stated once, then propagated.
+/// `web/content/reference/dimensions.mdx` marks these "declared": stated
+/// once, then propagated.
 #[derive(Clone, Debug, Default)]
 pub struct Declared {
     /// Which organism the data is from, e.g. `HIV-1`.

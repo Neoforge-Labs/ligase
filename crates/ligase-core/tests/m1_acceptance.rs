@@ -1,4 +1,4 @@
-//! M1 acceptance tests, verbatim from `docs/milestones.md`:
+//! M1 acceptance tests, verbatim from `web/content/project/milestones.mdx`:
 //!
 //! - HXB2 FASTA and a sample BAM are loaded with dimensions inferred from
 //!   headers.

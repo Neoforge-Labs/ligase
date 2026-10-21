@@ -1,4 +1,5 @@
-//! M1: dimensions are inferred from file headers, per `docs/dimensions.md`.
+//! M1: dimensions are inferred from file headers, per
+//! `web/content/reference/dimensions.mdx`.
 //!
 //! Every assertion here is a claim about what a real header says. Where a
 //! dimension cannot be inferred, the test asserts it comes back *unknown*
@@ -173,10 +174,11 @@ fn unaligned_bam_has_unknown_reference() {
 
 #[test]
 fn bam_organism_is_unknown_unless_declared() {
-    // `docs/dimensions.md` says a BAM's organism comes "from reference". We
-    // cannot resolve a reference to an organism, and the free-text @SQ SP tag
-    // is not a safe source: matching "Homo sapiens" against a declared
-    // "human" would produce false mismatches. So: unknown unless declared.
+    // `web/content/reference/dimensions.mdx` says a BAM's organism comes
+    // "from reference". We cannot resolve a reference to an organism, and the
+    // free-text @SQ SP tag is not a safe source: matching "Homo sapiens"
+    // against a declared "human" would produce false mismatches. So: unknown
+    // unless declared.
     let (_dir, bam) = bam_from_sam("tiny_bare.sam");
     let dataset = load::alignment(&bam, &Declared::default()).unwrap();
 

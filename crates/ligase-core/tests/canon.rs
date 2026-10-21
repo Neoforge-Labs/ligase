@@ -320,9 +320,9 @@ fn a_command_line_and_its_date_are_not_part_of_a_vcf() {
 
 #[test]
 fn a_file_date_and_a_source_and_a_reference_path_are_not_part_of_a_vcf() {
-    // `##reference` holds a path, and `docs/dimensions.md` is explicit that
-    // reference identity never rests on a filename -- the `##contig` lines
-    // carry it, and they are kept.
+    // `##reference` holds a path, and `web/content/reference/dimensions.mdx`
+    // is explicit that reference identity never rests on a filename -- the
+    // `##contig` lines carry it, and they are kept.
     let files = Files::new();
     let first = files.write(
         "first.vcf",

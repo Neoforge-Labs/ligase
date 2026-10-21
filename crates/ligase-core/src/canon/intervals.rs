@@ -1,10 +1,10 @@
 //! BED: the intervals, as a bag.
 //!
-//! Intervals are **sorted**, and that is not an arbitrary choice but the
-//! one [D14](../../../docs/decisions.md) already made: a BED's record order
-//! is whatever order the intervals happened to be sorted in, which is why
-//! the dimension checker does not compare it as contig order. The same
-//! reasoning applies to its hash.
+//! Intervals are **sorted**, and that is not an arbitrary choice but the one
+//! [D14](https://ligase.neoforgelabs.tech/project/decisions/) already made: a
+//! BED's record order is whatever order the intervals happened to be sorted
+//! in, which is why the dimension checker does not compare it as contig
+//! order. The same reasoning applies to its hash.
 //!
 //! `track` and `browser` lines are display instructions for a genome
 //! browser, and `#` lines are comments. None of them is an interval.

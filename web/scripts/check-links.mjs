@@ -16,7 +16,7 @@
  * whose definition is absent -- `[like this][ref]` with no `[ref]: ...`
  * anywhere -- is not a broken link to Markdown. It is not a link at all: the
  * text passes through as literal square brackets and renders as prose. That
- * is how a broken link survived in docs/decisions.md. Here, square brackets
+ * is how a broken link survived in the design decisions. Here, square brackets
  * surviving into the rendered text are treated as the mistake they almost
  * always are.
  *

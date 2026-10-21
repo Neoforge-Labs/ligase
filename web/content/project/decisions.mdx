@@ -89,8 +89,8 @@ dataset that knows which graph it belongs to cannot be used in two.
 
 ## D13 — The graph decides requirements and blames the origin
 
-`docs/dimensions.md` allows an unknown dimension unless a downstream step
-requires it. Only a graph can answer that, so `required_pair` — which reads
+[The dimension catalogue](/reference/dimensions/) allows an unknown dimension unless a
+downstream step requires it. Only a graph can answer that, so `required_pair` — which reads
 requirements off the pair of kinds a step joins — becomes the default, and
 the graph adds what the table cannot know: where the gap started.
 
@@ -142,8 +142,8 @@ added only where the step's own name is ambiguous — more than one node in the
 pipeline being checked shares it — and then only with something that tells
 *those* nodes apart.
 
-Both halves of that condition matter. `docs/golden-example.md` fixes the
-shape as `in step `call`:` and the project treats it as fixed, so a suffix on
+Both halves of that condition matter.
+[The golden example](/project/golden-example/) fixes the shape as `in step `call`:` and the project treats it as fixed, so a suffix on
 a step nobody could confuse is noise on the commonest path. And the sample is
 not always the discriminator: two same-named steps fed different alignments
 of one sample would both read `(sample sample_a)`, which looks exactly like
@@ -567,7 +567,8 @@ step's recipe describes as the constant `"callback"` and `code` is the
 step function's source, not what a library it calls reads, so they had no
 home at all. The obvious fix — an `algorithm="HIVDB_9.8"` parameter —
 pins by *name*, which this project refuses everywhere else:
-`docs/dimensions.md` says reference identity is never by filename alone,
+[the dimension catalogue](/reference/dimensions/) says reference identity is never by
+filename alone,
 and `load::variants` distrusts `##reference` because it holds a path.
 Upstream ships both `HIVDB_10.0.xml` and `HIVDB_10.0-1.xml`, so a
 correction republished under a near-identical name is not hypothetical,

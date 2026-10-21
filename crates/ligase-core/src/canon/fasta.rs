@@ -7,7 +7,8 @@
 //! the case, deliberately: a lowercased repeat region is an annotation
 //! applied to a sequence, not a different sequence.
 //!
-//! Contigs keep their order ([D14](../../../docs/decisions.md)): a reference
+//! Contigs keep their order
+//! ([D14](https://ligase.neoforgelabs.tech/project/decisions/)): a reference
 //! *is* a sequence dictionary, and two of them have to agree on order.
 //!
 //! The description after a contig's name is dropped. It is free text — "HIV-1

@@ -1,9 +1,10 @@
 //! M1: `check_step` refuses to connect steps whose dimensions disagree.
 //!
 //! The error text is asserted verbatim. It is a deliverable, specified at the
-//! end of `docs/golden-example.md`: it names the step, both conflicting
-//! values, where each value came from, and asks a leading question. A
-//! message that does not say where a value came from cannot be acted on.
+//! end of `web/content/project/golden-example.mdx`: it names the step, both
+//! conflicting values, where each value came from, and asks a leading
+//! question. A message that does not say where a value came from cannot be
+//! acted on.
 //!
 //! Datasets here are built in memory rather than loaded from files, so the
 //! rendered paths are fixed and the assertions stay exact.

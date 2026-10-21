@@ -12,12 +12,12 @@ use crate::types::{DataKind, Dataset};
 
 /// Load variant calls, inferring dimensions from the header.
 ///
-/// `##reference` is deliberately **not** used for identity. It holds a path or
-/// URL, and `docs/dimensions.md` is explicit that reference identity never
-/// rests on a filename: two runs pointing at `/refs/genome.fa` can be
-/// pointing at different genomes. Identity comes from `##contig` alone, and a
-/// VCF with no `##contig` lines reports its reference as unknown rather than
-/// trusting the path.
+/// `##reference` is deliberately **not** used for identity. It holds a path
+/// or URL, and `web/content/reference/dimensions.mdx` is explicit that
+/// reference identity never rests on a filename: two runs pointing at
+/// `/refs/genome.fa` can be pointing at different genomes. Identity comes
+/// from `##contig` alone, and a VCF with no `##contig` lines reports its
+/// reference as unknown rather than trusting the path.
 pub fn variants(path: &Path, declared: &Declared) -> Result<Dataset, LoadError> {
     let header = vcf::io::Reader::new(open(path)?)
         .read_header()

@@ -42,29 +42,16 @@ docs = [
   # marimo authors and runs the example notebooks. Their pages are generated
   # from real runs rather than embedded as browser-executed islands, because
   # ligase is a native extension and there is no emscripten wheel for it.
-  # Needed by both sites below.
   "marimo>=0.25",
-
-  # --- The MkDocs site (docs/, mkdocs.yml) --------------------------------
-  # Being replaced by the Nextra site in web/, and kept until that switch is
-  # made: it is what ligase.neoforgelabs.tech currently serves. Remove these
-  # three, and docs/ and mkdocs.yml with them, when the switch happens.
-  #
-  # Capped below 2.0: MkDocs 2.0 removes the plugin and theming systems
-  # that Material for MkDocs is built on, with no migration path.
-  "mkdocs>=1.6,<2.0",
-  "mkdocs-material>=9.5,<10",
-  # mkdocstrings renders the API reference by importing ligase. Its successor
-  # is web/scripts/generate_api.py, which needs no dependency beyond the
-  # package itself.
-  "mkdocstrings[python]>=0.26",
 ]
 
-# The Nextra site in web/ needs Node, not Python packages: `npm ci` there
-# installs it. Its generators -- the API reference, the captured diagnostics
-# and the rendered notebooks -- import `ligase` itself and use nothing else,
-# so a docs build still needs the Rust toolchain and a C compiler to build
-# the extension, exactly as the mkdocstrings build did.
+# This is the whole Python side of the docs. The site itself is Nextra, in
+# web/, and needs Node rather than Python packages: `npm ci` there installs
+# it. Its generators -- the API reference, the CLI reference, the captured
+# diagnostics, the quickstart and the rendered notebooks -- import `ligase`
+# itself and use nothing else, so a docs build still needs the Rust toolchain
+# and a C compiler to build the extension, exactly as the mkdocstrings build
+# it replaced did.
 
 [tool.maturin]
 manifest-path = "crates/ligase-py/Cargo.toml"
@@ -79,10 +66,6 @@ addopts = "-ra --strict-markers --strict-config"
 line-length = 88
 target-version = "py311"
 src = ["python", "tests"]
-# Design docs under docs/ are the specification, not shipped source.
-# Recent ruff formats Python inside fenced Markdown blocks, which would
-# rewrite docs/golden-example.md -- whose shape is deliberately fixed.
-extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["A", "ANN", "B", "C4", "D", "E", "F", "I", "N", "PT", "RUF", "SIM", "UP", "W"]

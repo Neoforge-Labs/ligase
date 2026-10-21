@@ -98,11 +98,11 @@ pub fn alignment(path: &Path, declared: &Declared) -> Result<Dataset, LoadError>
     };
 
     // -- organism ----------------------------------------------------------
-    // `docs/dimensions.md` says a BAM's organism comes "from reference", and
-    // we cannot resolve a reference to an organism. The free-text `@SQ SP`
-    // tag is deliberately not used as a source: matching "Homo sapiens"
-    // against a declared "human" would need an alias table, and a wrong
-    // guess there passes `check()` silently.
+    // `web/content/reference/dimensions.mdx` says a BAM's organism comes
+    // "from reference", and we cannot resolve a reference to an organism. The
+    // free-text `@SQ SP` tag is deliberately not used as a source: matching
+    // "Homo sapiens" against a declared "human" would need an alias table,
+    // and a wrong guess there passes `check()` silently.
     let organism = match &declared.organism {
         Some(organism) => Dim::known(Organism::new(organism), Source::Declared),
         None => Dim::unknown("not recorded in SAM/BAM headers; declare it"),

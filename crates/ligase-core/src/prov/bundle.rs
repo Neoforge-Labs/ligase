@@ -1,10 +1,11 @@
 //! A bundle: everything needed to reproduce a result, and to check that it was.
 //!
-//! `docs/milestones.md` asks for "a bundle that reproduces the results on a
-//! clean machine". The phrase needs pinning down before it can be built,
-//! because taken literally it is impossible: the reference demo's inputs are
-//! sequencing runs from the SRA, and a bundle that carried them would be
-//! gigabytes. Fetching them is out of scope for v0.1 anyway (D8).
+//! `web/content/project/milestones.mdx` asks for "a bundle that reproduces
+//! the results on a clean machine". The phrase needs pinning down before it
+//! can be built, because taken literally it is impossible: the reference
+//! demo's inputs are sequencing runs from the SRA, and a bundle that carried
+//! them would be gigabytes. Fetching them is out of scope for v0.1 anyway
+//! (D8).
 //!
 //! So what a bundle carries is everything *except* the data, and the data is
 //! named firmly enough that it cannot be substituted: every input by content

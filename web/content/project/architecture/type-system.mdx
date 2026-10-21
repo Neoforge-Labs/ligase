@@ -175,8 +175,8 @@ pub const fn required_pair(left: DataKind, right: DataKind) -> &'static [Dimensi
 | Reads ↔ Intervals | *nothing* |
 | anything ↔ ResistanceReport | *nothing* |
 
-`docs/dimensions.md` says unknown dimensions are allowed only if no
-downstream step requires them. Checking one step in isolation has no
+[The dimension catalogue](/reference/dimensions/) says unknown dimensions are allowed
+only if no downstream step requires them. Checking one step in isolation has no
 downstream, so `check_step` takes "required" from the kinds being joined. A
 whole pipeline does have one: [the graph](/project/architecture/graph/) uses `disagreements()`
 and `requires()` to decide for itself, attributing a gap to the input that
@@ -285,8 +285,9 @@ targets.
 
 ### `##reference` is deliberately ignored
 
-A VCF's `##reference` holds a path or URL. `docs/dimensions.md` is explicit
-that reference identity never rests on a filename, so identity comes from
+A VCF's `##reference` holds a path or URL.
+[The dimension catalogue](/reference/dimensions/) is explicit that reference identity
+never rests on a filename, so identity comes from
 `##contig` alone and a VCF with no `##contig` lines reports its reference as
 unknown rather than trusting the path.
 

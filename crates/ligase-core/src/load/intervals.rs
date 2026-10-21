@@ -115,12 +115,12 @@ impl IntervalFormat {
 
 /// Load genomic intervals, inferring what a BED or GFF can tell us.
 ///
-/// Contigs come from the records, as `docs/dimensions.md` specifies, and
-/// carry neither a length nor a checksum — a BED records neither, and a GFF
-/// records a length only in a `##sequence-region` directive. Comparing only
-/// what is present is what lets these files be checked against a reference
-/// at all; inventing the rest would be the lie the whole system guards
-/// against.
+/// Contigs come from the records, as `web/content/reference/dimensions.mdx`
+/// specifies, and carry neither a length nor a checksum — a BED records
+/// neither, and a GFF records a length only in a `##sequence-region`
+/// directive. Comparing only what is present is what lets these files be
+/// checked against a reference at all; inventing the rest would be the lie
+/// the whole system guards against.
 ///
 /// Because the contigs come from records rather than from a sequence
 /// dictionary, their order carries no meaning and is never compared. A BED

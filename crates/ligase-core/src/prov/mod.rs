@@ -2,10 +2,10 @@
 //!
 //! The cache answers one question — "has this been computed?" — and is
 //! designed to be thrown away, because everything in it can be recomputed
-//! ([D19](../../../docs/decisions.md)). This module answers a different one:
-//! "how was this produced?" And that answer cannot be recomputed, because
-//! the machine, the tool versions and the command that produced an object a
-//! year ago are gone.
+//! ([D19](https://ligase.neoforgelabs.tech/project/decisions/)). This module
+//! answers a different one: "how was this produced?" And that answer cannot
+//! be recomputed, because the machine, the tool versions and the command that
+//! produced an object a year ago are gone.
 //!
 //! # Why this exists at all
 //!

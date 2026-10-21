@@ -1,9 +1,10 @@
 //! Reference identity: what makes two references the same reference.
 //!
-//! `docs/dimensions.md`: identity is contig names plus lengths plus MD5 where
-//! available, never the filename. A label such as `hg38` is for humans and
-//! carries no weight — two files can both claim to be hg38 and hold different
-//! sequence, which is precisely the bug this exists to catch.
+//! `web/content/reference/dimensions.mdx`: identity is contig names plus
+//! lengths plus MD5 where available, never the filename. A label such as
+//! `hg38` is for humans and carries no weight — two files can both claim to
+//! be hg38 and hold different sequence, which is precisely the bug this
+//! exists to catch.
 
 use std::borrow::Cow;
 use std::collections::HashMap;

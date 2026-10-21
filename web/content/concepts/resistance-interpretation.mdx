@@ -41,8 +41,8 @@ Stanford also runs a web service that does this interpretation. Ligase
 does not call it, and the reason is the same one behind every other
 decision here: an answer that depends on the day it was asked for is not
 reproducible. No cache key can see a remote service change its mind, and
-no [reproducibility bundle](/concepts/provenance/) can carry it. `docs/decisions.md`
-D8 puts public-data fetching out of scope for v0.1 in any case.
+no [reproducibility bundle](/concepts/provenance/) can carry it. [D8](/project/decisions/) puts
+public-data fetching out of scope for v0.1 in any case.
 
 So the rules are part of the engine, and *which* rules were used is part
 of the cache key — by the digest of their bytes rather than by their
