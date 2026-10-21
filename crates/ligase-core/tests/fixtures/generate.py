@@ -32,6 +32,11 @@ C3 = "CCCCAAAATTTTGGGGCCCC"
 C1_OTHER = "GGGGCCCCAAAATTTTGGGG"
 # A contig that appears in no reference, for the containment failure case.
 C9 = "AAAAAAAAAACCCCCCCCCC"
+# A pol-relative HIV-1 reference: 3,012 bases, which is the length of K03455
+# 2085..5096 and the shape of the file SAWA was interpreting from. What makes
+# this fixture what it is, is its length and the frame nobody declared, not
+# its sequence, so the bases are synthetic like every other fixture here.
+POL = "ACGT" * 753
 
 
 def m5(sequence: str) -> str:
@@ -157,6 +162,11 @@ def main() -> None:
     )
     # The same two contigs in the opposite order.
     fasta("tiny_reordered.fasta", [("2", "contig two", C2), ("1", "contig one", C1)])
+    # A reference too short to hold the HIV-1 gene windows, which is what a
+    # pol-relative reference is. Declaring nothing about its frame is the
+    # point: a FASTA cannot record where its first base sits in anything
+    # else, so the engine has to refuse rather than guess.
+    fasta("hivdb_pol.fasta", [("K03455", "HIV-1 pol, K03455 2085..5096", POL)])
     # tiny_bare plus a third contig: data on 1 and 2 is contained in this.
     fasta(
         "tiny_superset.fasta",
@@ -180,6 +190,9 @@ def main() -> None:
     vcf("tiny_bare.vcf", [("1", C1), ("2", C2)], ["sample_a"], "tiny_bare.fasta")
     # Only contig one: correct against tiny_bare, and must not be an error.
     vcf("tiny_subset.vcf", [("1", C1)], ["sample_a"], "tiny_bare.fasta")
+    # Calls against the pol-relative reference, agreeing with it about the
+    # contig, so a frame error is the only thing a check can find.
+    vcf("hivdb_pol.vcf", [("K03455", POL)], ["sample_a"], "hivdb_pol.fasta")
     vcf("tiny_other.vcf", [("1", C1_OTHER)], ["sample_a"], "tiny_other.fasta")
     vcf(
         "tiny_two_samples.vcf",

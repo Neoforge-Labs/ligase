@@ -1,0 +1,5 @@
+##fileformat=VCFv4.3
+##reference=hivdb_pol.fasta
+##contig=<ID=K03455,length=3012,md5=069dfbfbee62f8d7ca20d4da8d46fd40>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample_a
+K03455	5	.	A	G	30	PASS	.	GT	0/1

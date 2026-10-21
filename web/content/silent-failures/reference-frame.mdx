@@ -1,0 +1,170 @@
+---
+title: "My resistance report names the wrong gene"
+description: "A pol-relative reference against gene windows stated in whole-genome coordinates. Every position is 2,084 lower than the engine means, so the window named protease lands in integrase."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# My resistance report names the wrong gene
+
+<Lede>
+You sequenced a *pol* amplicon, called variants against your *pol* reference,
+and asked for drug resistance. The report comes back with **protease-inhibitor
+resistance at a clinical level** — from a region that, in your file, is
+integrase. Nothing failed. The mutations are spelled correctly, the positions
+are inside the sequence, and the levels are ones the algorithm really assigns.
+</Lede>
+
+## What actually happened
+
+Resistance interpretation is not a calculation over sequence. It is a lookup
+of amino acids at **named positions in named genes**, and those names come
+from windows the engine holds as nucleotide ranges:
+
+```text
+CA  1186..1878
+PR  2253..2549
+RT  2550..4229
+IN  4230..5093
+```
+
+Those numbers are positions in HIV-1 HXB2, accession K03455, counted from the
+first base of the genome. They are not a property of your file; they are built
+into the engine, because that is how the mutation lists are published.
+
+A *pol*-relative reference is the obvious thing to have when the amplicon is
+*pol*: K03455 2085..5096, 3,012 bases, numbered from 1. Every position in it is
+therefore **2,084 lower** than the same number means to the engine. Base 2253,
+where the engine looks for the first codon of protease, is base 4337 of
+K03455 — which is inside integrase.
+
+So the engine read integrase, named it protease, found the amino acids that
+differ from HXB2 at those offsets, matched them against the protease mutation
+list, and scored them. Every step did exactly what it was built to do.
+
+## Why nothing crashed
+
+Because there is nothing to crash on. A reference in the wrong frame is the
+right length for *something*, holds valid bases, and names its contig in a way
+the VCF agrees with. The reference dimension — contig names, lengths, MD5s —
+is perfectly self-consistent: the file really is the file it says it is.
+
+The missing fact is not inside any of them. **No FASTA records where its first
+base sits in anything else.** A 3,012-base slice of K03455 and a 3,012-base
+genome of something else are indistinguishable in the one respect that matters
+here, so no amount of reading the inputs settles it.
+
+And the output gives nothing away. A resistance report for the wrong gene has
+the same columns, the same shape, and the same kind of content as one for the
+right gene. There is no empty field, no zero count, no warning line. It is a
+clinically meaningful answer that is entirely wrong, which is the most
+dangerous thing a pipeline can produce.
+
+<Note kind="caution" title="This one was found in Ligase itself">
+Every other page in this section describes a hazard with a literature of its
+own. This one happened here. SAWA hit it while
+[evaluating Ligase](/project/in-use/sawa/) for drug-resistance surveillance,
+against this engine, which reported intermediate protease-inhibitor resistance
+from a sequence that contained no protease at all. It is exactly the class of
+bug the project exists to prevent, found in the project — and the reason the
+check below exists.
+</Note>
+
+## What Ligase says
+
+A step annotated `-> ResistanceReport` has said what coordinates it reads in.
+That is a claim the engine can compare against the reference, so it does,
+before any compute.
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.referenceFrame}</Diagnostic>
+
+Both sides are named, and so is where each came from: the reference's own
+contigs on one line, and `built into this engine` on the other, which is the
+part that tells you the engine is not going to bend. Then what is wrong, and
+then the padding that fixes it.
+
+## How it is caught
+
+A whole-genome reference needs no declaration. 9,719 bases *is* K03455 — or
+something deliberately numbered along it, such as an HXB2-coordinate consensus
+of another subtype, which is a legitimate thing to interpret against. Length is
+the one fact the windows actually depend on, so that case passes silently:
+
+```python
+import ligase as lg
+
+hxb2 = lg.reference("data/refs/HXB2.fasta", organism="HIV-1", build="HXB2")
+```
+
+Anything else is declared, because it cannot be read:
+
+```python
+# Base 1 of this file is base 2085 of K03455 — which is what a pol-relative
+# reference is. True, and still refused: see below.
+pol = lg.reference("data/refs/pol.fasta", organism="HIV-1", frame=("K03455", 2085))
+```
+
+The fix the diagnostic suggests is to put the sequence back where its own
+numbers mean what the engine reads them as — pad the front, and declare the
+whole frame:
+
+```python
+from pathlib import Path
+
+pol = Path("data/refs/pol.fasta").read_text().split("\n", 1)[1].replace("\n", "")
+Path("data/refs/padded.fasta").write_text(">K03455\n" + "N" * 2084 + pol + "\n")
+
+reference = lg.reference(
+    "data/refs/padded.fasta", organism="HIV-1", frame=("K03455", 1)
+)
+```
+
+The padding is `N`, which is read as unsequenced rather than as agreeing with
+HXB2 — so the genes outside *pol* are reported as not assessed, which is what
+they are.
+
+<Note kind="note" title="Why an honest declaration is still refused">
+Declaring `frame=("K03455", 2085)` is true, and the answer is still no.
+Shifting the windows by 2,084 to meet the file would be a **coordinate
+conversion**, and conversions are typed functions in their own right rather
+than something a check does quietly on your behalf — the whole point being that
+the engine does not adjust data to make a mismatch go away. v0.1 refuses and
+names the padding; registering liftover-style conversions as steps, so a path
+through them can be searched for, is
+[D33](/project/decisions/#d33--the-frame-a-reference-is-numbered-along-is-declared-not-guessed)'s
+deferred half.
+</Note>
+
+## The other half of the same evaluation
+
+The same evaluation found a second way to get a confident wrong answer, and it
+is not about coordinates at all.
+
+A gene that was *barely sequenced* used to be scored against the little that
+was seen. A gene mostly unread refutes no mutation and shows none, so every
+drug scored against it came out at zero — and zero is inside the range the
+algorithm itself calls susceptible. SAWA saw a sequence covering 32% of
+integrase report all five integrase inhibitors as susceptible: a clean clinical
+negative from a gene the run never covered, which is the dangerous direction,
+and again with nothing in the report's shape to give it away.
+
+So a gene read below `gene_coverage` of its codons — four fifths by default —
+is now left out of the reading and reported as not assessed, with a note saying
+how little was read:
+
+```console
+noticed   `resistance`: only 92 of IN's 288 codons were read, where this reading required 231, so IN was not assessed rather than scored against what little was seen
+          Sequence more of this gene, or lower the share this reading asks for — `gene_coverage=` — if a floor is of more use to you than no answer.
+```
+
+[A gene barely sequenced is not assessed either](/concepts/resistance-interpretation/#a-gene-barely-sequenced-is-not-assessed-either)
+is the reasoning;
+[D34](/project/decisions/#d34--a-gene-barely-read-is-not-assessed) is the
+decision.
+
+## Related
+
+- [A reference has to be the genome the windows mean](/concepts/resistance-interpretation/#a-reference-has-to-be-the-genome-the-windows-mean) — where this sits among the judgements a reading makes
+- [`ReferenceFrameError`](/reference/errors/#referenceframeerror) — the error, and what catching it means
+- [The frame the windows are stated in](/project/architecture/hivdb/#the-frame-the-windows-are-stated-in) — how the check works, and why it runs twice
+- [My variant positions are wrong](/silent-failures/wrong-reference-build/) — the same shape of bug one level up, between builds rather than within one
