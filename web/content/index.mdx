@@ -1,0 +1,142 @@
+---
+title: Type-safe, reproducible computational biology pipelines
+description: Biological data carries dimensions — organism, reference build, coordinate system, sample set — and Ligase refuses to connect steps whose dimensions disagree.
+sidebarTitle: Home
+---
+
+import { diagnostics } from '../lib/diagnostics.generated'
+
+<Hero
+  eyebrow={<>v0.1.0 · pre-alpha · Rust core, Python surface</>}
+  title="The worst bugs in computational biology do not crash."
+  actions={
+    <>
+      <Action href="/start/quickstart/" primary>Quickstart — 5 minutes</Action>
+      <Action href="/start/installation/">Install it</Action>
+    </>
+  }
+>
+  hg19 against hg38. `chr1` against `1`. Sample IDs that shifted by one somewhere in a
+  join. None of these fail — they produce **plausible numbers that are wrong**, and you
+  find out in review, or never.
+
+  Ligase gives biological data **dimensions**, the way physics gives quantities units,
+  and refuses to connect two steps whose dimensions disagree. It checks before it
+  computes.
+</Hero>
+
+<Band label="What that looks like" title="A pipeline that would have run overnight, refused in milliseconds">
+
+Two files describing the same two contigs, at the same lengths, with every base
+agreeing. One calls them `chr1`-style and the other bare. Nothing crashes, downstream
+tools match contigs by name, and the numbers come out wrong.
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.contigNaming}</Diagnostic>
+
+It names where each value came from, so you can go and look rather than guess. It says
+the contigs are otherwise identical, which tells you this is a naming problem and not
+the wrong genome. And its type is `ContigNamingError`, not a string — so a caller can
+branch on a naming mismatch without parsing English.
+
+</Band>
+
+<Band label="The failures it exists to catch" title="Four ways a pipeline lies to you">
+
+Each of these is a documented hazard in the field. Each page states the bug, then shows
+the error Ligase actually produces for it.
+
+<HazardGrid>
+  <Hazard href="/silent-failures/wrong-reference-build/" symptom="My variant positions are all slightly wrong" left="GRCh37" right="GRCh38">
+    Reads aligned to one build, variants called against another. Coordinates shift by
+    thousands of bases and every annotation lands on the wrong gene.
+  </Hazard>
+  <Hazard href="/silent-failures/contig-naming/" symptom="My BED file intersects nothing" left="chr1" right="1">
+    The same genome under two naming conventions. Tools match contigs by name, find no
+    overlap, and report zero rather than an error.
+  </Hazard>
+  <Hazard href="/silent-failures/shuffled-samples/" symptom="My sample labels look swapped" left="[a, b]" right="[b, a]">
+    A join that reordered a cohort. Every genotype is attributed to the wrong person,
+    and nothing in the output says so.
+  </Hazard>
+  <Hazard href="/silent-failures/coordinate-systems/" symptom="My intervals are off by one" left="0-based" right="1-based">
+    BED half-open intervals handed to a tool expecting GFF's closed ones. Every feature
+    boundary moves by a base.
+  </Hazard>
+</HazardGrid>
+
+</Band>
+
+<Band label="How it works" title="Check, run, then say how it was produced">
+
+```python
+pipe.check()      # type-checks dimensions; no compute
+pipe.run()        # parallel, cached, per-sample fan-out
+pipe.methods()    # generated methods paragraph + reproducibility bundle
+```
+
+A step's cache key is built from its code, its parameters, its inputs' *contents* and
+its tools' versions. Run a pipeline twice and nothing is recomputed. Change a thread
+count and the aligner reruns — a thread count is a parameter, and nothing can know in
+advance that it will not change an answer — but the alignments come out the same, so
+nothing below them is.
+
+<RunReport>{`$ ligase run
+ran       \`align\` (sample SRR8525904)   3.3s
+ran       \`align\` (sample SRR8525908)   6.9s
+ran       \`align\` (sample SRR8525920)   3.7s
+ran       \`align\` (sample SRR8525942)   6.0s
+skipped   \`call\` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+skipped   \`resistance\` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+
+12 steps: 4 ran, 8 skipped.`}</RunReport>
+
+"The same" is not byte equality — `minimap2` writes `-t 8` and the output path into the
+BAM's `@PG` line — but what the file [means](/concepts/semantic-hashing/): its records
+sorted, and the fields recording when and how it was made dropped.
+
+</Band>
+
+<Band label="Does it work" title="Checked against published results, not against itself">
+
+The reference pipeline takes HIV-1 reads to drug-resistance calls. Its calls were
+compared against the Stanford HIVdb results published by the HIVGenoPipe study.
+
+<Stats>
+  <Stat value="81 / 81" label="Drug calls agreeing at a 15% threshold" note="tests/test_validation.py" tone="agree" />
+  <Stat value="81 / 81" label="Drug calls agreeing at a 5% threshold" note="tests/test_validation.py" tone="agree" />
+  <Stat value="3,348" label="Scoring expectations reproduced exactly" note="Sierra 3.5.3, HIVDB 9.8" tone="agree" />
+  <Stat value="9" label="Calls differing at 2%, each with a recorded cause" note="concepts/validation" tone="notice" />
+</Stats>
+
+The scoring engine is checked against Stanford's own answers rather than against
+expectations derived from the same rules it reads, because that would test the parser
+against itself. [What was compared, and what did not agree](/project/validation/).
+
+</Band>
+
+<Band label="Where to start" title="Three ways in">
+
+| If you want to | Go to |
+|---|---|
+| Run something in five minutes, with no aligner | [Quickstart](/start/quickstart/) |
+| Install it properly | [Installation](/start/installation/) |
+| Know why a step did not rerun, or what a flag does | [Command line](/reference/cli/) |
+| Understand the idea before the API | [Types and dimensions](/concepts/types-and-dimensions/) |
+| Work out what an error means | [Errors](/reference/errors/) |
+| Write a real pipeline | [Building a pipeline](/guide/building-a-pipeline/) |
+| Read how it works inside | [Architecture](/project/architecture/workspace/) |
+
+</Band>
+
+<Band label="Where it stands" title="Published, and not yet used by anyone but its author">
+
+v0.1.0 is on [crates.io](https://crates.io/crates/ligase) as `ligase` and on
+[PyPI](https://pypi.org/project/ligase-bio/) as `ligase-bio`. All six v0.1 milestones
+are done. It is **pre-alpha**: the API will change, and there are no outside users yet.
+
+[SAWA](/project/in-use/sawa/), a sibling project, is evaluating it for HIV drug-resistance
+surveillance. That evaluation has already turned up a silent coordinate hazard in *pol*
+numbering, which is written up rather than buried. Its agreement figures are SAWA's to
+publish, not this project's.
+
+</Band>

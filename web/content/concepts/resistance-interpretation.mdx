@@ -1,0 +1,126 @@
+---
+title: "Resistance interpretation"
+description: "The one part of Ligase that interprets rather than checks, and why its rules are hashed by content instead of named by version."
+---
+# Resistance interpretation
+
+<Lede>
+**Why does a framework about not interpreting your data ship an
+interpreter?** Because the reference pipeline has to end somewhere real — and
+because a clinical algorithm that changes under you is exactly the silent
+failure the rest of Ligase exists to catch.
+</Lede>
+
+Every other part of Ligase is about keeping data straight. This is the one
+part that says what the data *means*: it takes variant calls against HXB2,
+works out which amino acids each codon of protease, reverse transcriptase,
+integrase and capsid holds, and scores them against the Stanford HIVdb
+algorithm.
+
+```python
+@lg.step(tool="hivdb")
+def resistance(
+    v: Variants, ref: Reference, aln: Alignment
+) -> ResistanceReport:
+    return lg.hivdb.interpret(v, ref, coverage=aln)
+```
+
+The output is one row per drug: a score, a level from Susceptible to
+High-Level Resistance, the mutations that got it there, and the algorithm
+that decided.
+
+## The rules are vendored, not fetched
+
+Stanford publishes the HIVdb algorithm as ASI2 XML in its own repository,
+[`hivdb/hivfacts`](https://github.com/hivdb/hivfacts), under the Unlicense
+— a dedication to the public domain. Ligase ships two versions of it,
+pinned by checksum: **9.8**, which is what the published results it is
+validated against were produced with, and **10.2**, which is current.
+
+Stanford also runs a web service that does this interpretation. Ligase
+does not call it, and the reason is the same one behind every other
+decision here: an answer that depends on the day it was asked for is not
+reproducible. No cache key can see a remote service change its mind, and
+no [reproducibility bundle](/concepts/provenance/) can carry it. `docs/decisions.md`
+D8 puts public-data fetching out of scope for v0.1 in any case.
+
+So the rules are part of the engine, and *which* rules were used is part
+of the cache key — by the digest of their bytes rather than by their
+version number. Upstream publishes corrections under near-identical names
+(`HIVDB_10.0` and `HIVDB_10.0-1` both exist), and a key that moved only
+with the name would happily serve a result computed under rules that have
+since changed.
+
+## Three judgements, all made the same way
+
+An interpretation can be wrong in two directions, and they are not
+equally bad. Reporting resistance that is not there costs a patient a drug
+they could have taken. Reporting *susceptibility* that is not there costs
+them a drug that will fail. Everywhere these two could be traded off,
+Ligase takes the first.
+
+### A mixture is every amino acid it could be
+
+Where the reads support both the reference base and an alternate above the
+mixture threshold, the codon holds **both** amino acids, and a rule is
+satisfied if any of them satisfies it.
+
+An ambiguous position is two viruses, not an average of one. Taking the
+majority base would discard the minority virus — which is the entire
+reason anyone sequences deeply, and which in practice is where resistance
+shows up first.
+
+The cost is real and worth naming: a codon is assembled from a VCF, which
+carries no phasing. Where two bases of one codon are each ambiguous, the
+combinations are enumerated, and some of those codons may be carried by no
+actual read. See [the known discrepancies](/project/validation/#what-disagrees-and-why).
+
+### A position that was not read is not a wild-type position
+
+`bcftools` writes only the sites it has something to say about. A position
+missing from a VCF is therefore ambiguous between "agrees with the
+reference" and "nothing aligned here" — and those have opposite clinical
+meanings.
+
+So coverage is read from the alignment. A codon whose bases are not all
+covered to the required depth is **unread**, not reference, and a drug
+whose rules mention an unread position reports its score as a floor rather
+than as an answer, naming the positions it could not see.
+
+Without an alignment nothing can be known about coverage, and the report
+says so in a note rather than assuming quietly. That assumption has a
+direction — it manufactures susceptible results out of dropouts — and the
+one thing it must never be is silent.
+
+The test that pins this is a no-template control. Sixty of its
+thirty-two thousand reads map to HXB2. A pipeline that read "no variant
+called" as "agrees with the reference" would report a tube of water as
+fully susceptible to all twenty-seven drugs.
+
+### A gene nobody sequenced is not assessed
+
+HIVDB 9.8 scores lenacapavir against capsid, which is in *gag*. A pipeline
+that sequenced only *pol* has nothing whatever to say about it — so the
+report says "Not assessed" rather than "Susceptible".
+
+This is [D24](/project/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)'s
+reasoning about citations applied to a drug class: a gap that is named is
+honest, and a gap that is filled with a cheerful default is not.
+
+## What it is checked against
+
+The scoring engine reproduces **3,348 published Stanford HIVdb results**
+exactly — thirty clinical samples at four ambiguity thresholds, every drug,
+every score, every level. Those expectations come from Sierra 3.5.3, a
+different implementation in a different language by the algorithm's own
+authors, so agreeing with them is evidence rather than circularity.
+
+The pipeline end to end is checked in [validation](/project/validation/).
+
+## Reading more
+
+- [Using it](/guide/resistance-interpretation/) — the guide, with a
+  runnable example.
+- [How it works](/project/architecture/hivdb/) — the rule language, the
+  scoring, and why the ruleset is derived rather than parsed as XML.
+- [What it agrees and disagrees with](/project/validation/) — M6's acceptance.

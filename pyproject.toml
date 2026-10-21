@@ -39,18 +39,32 @@ dev = [
   "ruff>=0.6",
 ]
 docs = [
+  # marimo authors and runs the example notebooks. Their pages are generated
+  # from real runs rather than embedded as browser-executed islands, because
+  # ligase is a native extension and there is no emscripten wheel for it.
+  # Needed by both sites below.
+  "marimo>=0.25",
+
+  # --- The MkDocs site (docs/, mkdocs.yml) --------------------------------
+  # Being replaced by the Nextra site in web/, and kept until that switch is
+  # made: it is what ligase.neoforgelabs.tech currently serves. Remove these
+  # three, and docs/ and mkdocs.yml with them, when the switch happens.
+  #
   # Capped below 2.0: MkDocs 2.0 removes the plugin and theming systems
   # that Material for MkDocs is built on, with no migration path.
   "mkdocs>=1.6,<2.0",
   "mkdocs-material>=9.5,<10",
-  # The API reference is generated from the package's own docstrings, so
-  # building the docs imports ligase.
+  # mkdocstrings renders the API reference by importing ligase. Its successor
+  # is web/scripts/generate_api.py, which needs no dependency beyond the
+  # package itself.
   "mkdocstrings[python]>=0.26",
-  # marimo authors and runs the example notebooks; their pages are generated
-  # from real runs rather than embedded as browser-executed islands, because
-  # ligase is a native extension and there is no emscripten wheel for it.
-  "marimo>=0.25",
 ]
+
+# The Nextra site in web/ needs Node, not Python packages: `npm ci` there
+# installs it. Its generators -- the API reference, the captured diagnostics
+# and the rendered notebooks -- import `ligase` itself and use nothing else,
+# so a docs build still needs the Rust toolchain and a C compiler to build
+# the extension, exactly as the mkdocstrings build did.
 
 [tool.maturin]
 manifest-path = "crates/ligase-py/Cargo.toml"
@@ -92,14 +106,21 @@ convention = "google"
 # B018 is marimo's cell-output idiom: a cell's trailing bare expression
 # is what the cell displays, which ruff reads as a useless expression.
 "examples/notebooks/*" = ["ANN", "B018", "D103"]
+# The docs site's generators introspect the package at runtime: they are
+# handed the `ligase` module object, arbitrary exported objects and whatever
+# a notebook cell returned. `Any` is the honest annotation for all three --
+# the whole point of the code is that it does not know the type in advance.
+"web/scripts/*" = ["ANN401"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 # `examples/` is checked too: a pipeline shown to users of a typed framework
 # should be one a type checker accepts, and this is what notices when it
-# stops being.
-files = ["python", "tests", "examples"]
+# stops being. `web/scripts/` generates the docs site from the package's own
+# docstrings, so it is the thing most likely to break on an API change and
+# the least likely to be exercised by a test.
+files = ["python", "tests", "examples", "web/scripts"]
 # marimo cells receive their dependencies as untyped parameters, so inside a
 # cell `lg` is a parameter and `lg.Reference` cannot resolve as an annotation.
 # These are checked by being executed on every docs build, which is a stronger

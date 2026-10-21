@@ -1,0 +1,403 @@
+---
+title: "Declaring and running steps"
+description: "Ligase API reference: declaring and running steps."
+---
+
+# Declaring and running steps
+
+A step is an ordinary annotated Python function. The decorator records its signature; the graph is built from those signatures without calling any of them.
+
+## step
+
+```python
+step(
+    function: 'Callable[P,
+    R] | None' = None,
+    /,
+    *,
+    tool: 'str | Sequence[str] | None' = None,
+    coordinates: 'str | None' = None,
+    cite: 'str | Sequence[str] | None' = None,
+) -> 'Step[P, R] | Callable[[Callable[P, R]], Step[P, R]]'
+```
+
+Make a function a pipeline step, without ever running it.
+
+The signature is read once, here. Each parameter annotated with a Ligase
+data type becomes an edge in the graph; the rest are plain values. The
+return annotation is what says the step produces an `Alignment`, since
+nothing will ask the body.
+
+### Parameters
+
+| Parameter | Description |
+|---|---|
+| `function` | The function to decorate, when used bare as `@lg.step`. |
+| `tool` | The external tool the step shells out to, e.g. `minimap2`, or several of them: `tool=("minimap2", "samtools")` for a body that pipes one into the other. Each one's `--version` joins the cache key, so an upgrade that changes a result reruns the steps it could have changed. |
+| `coordinates` | The coordinate convention the step writes, one of `"0-based half-open"` or `"1-based closed"`. Only meaningful for a step that produces `Intervals`: alignments and variant calls are 1-based closed by specification, while a tool that writes BED from a VCF changes the convention and must say so. |
+| `cite` | How the step asks to be cited, as one reference or several. `ligase methods` knows the reference pipeline's own tools; a step using anything else names its reference here, or the methods section reports that tool as uncited. A citation never joins the cache key — it cannot change a result, so adding one must not rerun anything. |
+
+### Returns
+
+A `Step`, which a type checker sees as the function it decorated.
+
+### Raises
+
+| Raises | When |
+|---|---|
+| `StepDefinitionError` | If the signature is one a graph cannot use — an unannotated parameter, a missing or non-Ligase return annotation, or `*args`/`**kwargs`. |
+| `ValueError` | If `coordinates` is not one of the two conventions, or a tool was named as an empty string. |
+
+## sh
+
+```python
+sh(command: 'str') -> 'R'
+```
+
+Produce the output by running a shell command.
+
+The command is not run here and the string is not formatted here: the
+engine fills it in once it knows where the inputs are, and runs it at
+whatever width the machine allows.
+
+Placeholders name the step's own parameters:
+
+- `{ref}` — the file bound to the parameter `ref`.
+- `{reads.r1}`, `{reads.r2}` — the mates of a paired input.
+- `{min_freq}` — a plain parameter's value.
+- `{out}` — the file the step must write. A step that writes anywhere
+  else produces nothing, as far as the engine is concerned.
+
+Every value is substituted as exactly one shell word, so a path with a
+space in it stays one path. For a literal brace — an `awk '{{print $1}}'`
+— double it.
+
+### Parameters
+
+| Parameter | Description |
+|---|---|
+| `command` | The command, with placeholders. |
+
+### Returns
+
+A recipe, typed as the data the step declares, so a body reads as
+`return lg.sh(...)` under a `-> Alignment` annotation.
+
+## write
+
+```python
+write(function: 'Callable[[Path], None]') -> 'R'
+```
+
+Produce the output in Python, by writing the file yourself.
+
+`function` is called with the path to write to. It is the one thing in a
+run that takes the GIL, so steps written this way do not run in parallel
+with each other — which is the right trade for an interpretation step
+and the wrong one for anything that does real work. Prefer `lg.sh`.
+
+### Parameters
+
+| Parameter | Description |
+|---|---|
+| `function` | Called with the path to write to. |
+
+### Returns
+
+A recipe, typed as the data the step declares.
+
+## handle
+
+```python
+handle(output: 'object') -> 'StepOutput'
+```
+
+The handle behind what a step returned.
+
+A type checker sees `align(reads, ref)` as returning an `Alignment`,
+which is what lets it follow a pipeline and catch a mis-wired one while
+you are still editing. At runtime the value is a `StepOutput` — data that
+does not exist yet — and this is how to reach it without writing a cast
+at every call site.
+
+### Parameters
+
+| Parameter | Description |
+|---|---|
+| `output` | What a step returned. |
+
+### Returns
+
+The handle, with its step, its arguments and (once a `Pipeline` has
+been built) the dimensions the output will carry.
+
+### Raises
+
+| Raises | When |
+|---|---|
+| `TypeError` | If this is not a step's output — loaded data, say, which is already the thing itself. |
+
+## Pipeline
+
+```python
+class Pipeline(outputs: 'Dataset | Iterable[Dataset]') -> 'None'
+```
+
+A graph of steps, built from its outputs and checked before it runs.
+
+Construction walks back from the outputs through the handles each step
+was given, so a file passed to two steps becomes one node rather than
+two. Nothing is executed and nothing is read: the graph is built from
+signatures and from the dimensions the inputs were loaded with.
+
+### Pipeline.audit
+
+```python
+audit(
+    self,
+    step: 'str',
+    *,
+    sample: 'str | None' = None,
+    jobs: 'int | None' = None,
+    cache: 'str | Path | None' = None,
+) -> 'AuditReport'
+```
+
+Run one step twice and report whether it is reproducible.
+
+The pipeline is run first, normally and through the cache, so that
+the step being audited has its inputs. Then each node of that step
+is run twice more, into scratch files that are thrown away, and the
+two outputs are compared both as bytes and as meaning.
+
+Three verdicts, because two would not do. A step whose bytes move
+while its result does not — which is every tool that records its own
+command line — is `reproducible`, not a failure. Only a step whose
+*result* moves is `not reproducible`.
+
+#### Parameters
+
+| Parameter | Description |
+|---|---|
+| `step` | The step's name, as written. Under per-sample fan-out there is one node of it per sample, and all of them are audited. |
+| `sample` | Audit only the node for this sample. |
+| `jobs` | How many steps may run at once in the preliminary run. The audited steps are taken in turn whatever this says, so that the durations reported mean something. |
+| `cache` | Where to keep the cache. Defaults to `.ligase` under the working directory. |
+
+#### Returns
+
+What two runs of each node showed.
+
+#### Raises
+
+| Raises | When |
+|---|---|
+| `CheckError` | If the pipeline does not type-check. Nothing runs. |
+| `ValueError` | If no step of that name is in the pipeline, or no node of it is for that sample. |
+
+### Pipeline.check
+
+```python
+check(self) -> 'None'
+```
+
+Type-check the whole pipeline. Nothing is computed.
+
+Every problem is found before anything is raised, so the raised
+error's `errors` attribute holds all of them.
+
+#### Raises
+
+| Raises | When |
+|---|---|
+| `CheckError` | If anything is wrong. The subclass says what: `DimensionError` and its own subclasses for data that disagrees, `StepTypeError` for a step wired to the wrong kind of data. |
+
+### Pipeline.errors
+
+```python
+errors(self) -> 'list[CheckError]'
+```
+
+Return every problem in this pipeline, without raising.
+
+#### Returns
+
+One error per problem, in the order the steps run. Empty when
+the pipeline is consistent. Nothing is computed.
+
+### Pipeline.methods
+
+```python
+methods(
+    self,
+    *,
+    bundle: 'str | Path | None' = None,
+    verify: 'str | Path | None' = None,
+    include: 'Sequence[str | Path]' = (),
+    jobs: 'int | None' = None,
+    cache: 'str | Path | None' = None,
+) -> 'Methods'
+```
+
+Say how this pipeline's results were produced.
+
+The pipeline is run first, normally and through the cache, because a
+provenance record is filed under a step's key and computing keys is
+what a run does. A pipeline already computed costs a cache lookup
+per step, not a recomputation.
+
+What comes back names, for every step: the tools and the versions
+they ran at, the parameters as they were hashed, the command as
+written, and every reference by accession and checksum. A step whose
+output predates provenance is reported as a gap rather than left
+out, because nothing can reconstruct how it was produced — the
+command that would have said so is deliberately not in the hash.
+
+#### Parameters
+
+| Parameter | Description |
+|---|---|
+| `bundle` | Write a reproducibility bundle into this directory. |
+| `verify` | Check the bundle in this directory against what this machine just produced, and report where they differ. |
+| `include` | Files to copy into the bundle as they are, such as the pipeline itself. |
+| `jobs` | How many steps may run at once in the run beforehand. |
+| `cache` | Where to keep the cache. Defaults to `.ligase` under the working directory. |
+
+#### Returns
+
+How every step was produced, with the bundle written and the
+verification done, where either was asked for.
+
+#### Raises
+
+| Raises | When |
+|---|---|
+| `CheckError` | If the pipeline does not type-check. Nothing runs. |
+| `RuntimeError` | If a step failed, since a pipeline that did not finish has no methods section to write; or if a bundle cannot be written. |
+| `ValueError` | If the directory to verify against is not a bundle. |
+
+### Pipeline.report
+
+```python
+report(self) -> 'Report'
+```
+
+Check every step and return everything found, without raising.
+
+### Pipeline.run
+
+```python
+run(
+    self,
+    *,
+    jobs: 'int | None' = None,
+    force: 'bool' = False,
+    cache: 'str | Path | None' = None,
+) -> 'RunReport'
+```
+
+Check the pipeline, then compute whatever is not already known.
+
+The pipeline is checked first, every time: running an unchecked
+pipeline is how an overnight run ends in a dimension error.
+
+A step runs when something that could change its result has changed
+— its code, a parameter, an input's contents, or the version of a
+tool it calls — and not otherwise. Independent steps run at once,
+and a step whose rerun produced the same output as before leaves
+everything below it alone.
+
+#### Parameters
+
+| Parameter | Description |
+|---|---|
+| `jobs` | How many steps may run at once. Defaults to the number of cores. |
+| `force` | Run every step, cache or no cache. For the one case the cache cannot see: a file rewritten in place, keeping its length and its timestamp. |
+| `cache` | Where to keep the cache. Defaults to `.ligase` under the working directory. |
+
+#### Returns
+
+What every step did, and where its output is.
+
+#### Raises
+
+| Raises | When |
+|---|---|
+| `CheckError` | If the pipeline does not type-check. Nothing runs. |
+| `RunError` | If any step failed. Everything that did succeed is on the error's `report`, which for a cohort is usually most of it. |
+
+### Pipeline.steps
+
+```python
+steps: tuple[str, ...]  # property
+```
+
+The steps this pipeline runs, in dependency order.
+
+## Step
+
+```python
+class Step(
+    function: 'Callable[P,
+    R]',
+    *,
+    tool: 'str | Sequence[str] | None' = None,
+    coordinates: 'str | None' = None,
+    cite: 'str | Sequence[str] | None' = None,
+) -> 'None'
+```
+
+A function that records a call instead of running.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `function` | The undecorated callable. A run calls it once, before anything executes, to ask how the output is produced. |
+| `tool` | The external tools the step shells out to, as they were given. |
+| `tools` | Those tools as a tuple, whose versions join the cache key. |
+| `coordinates` | The coordinate convention the step writes, for the one output kind that does not imply one. |
+| `citations` | References the step asks to be cited by. |
+| `output` | The kind of data the step's return annotation declares, read once when the step is defined. |
+| `parameters` | Every parameter the function takes, in declaration order, each already classified as data or a plain value. |
+
+### Step.dataset_parameters
+
+```python
+dataset_parameters: tuple[Parameter, ...]  # property
+```
+
+The parameters that take data, in declaration order.
+
+Order matters: a dimension is inherited from the first argument that
+states it.
+
+### Step.name
+
+```python
+name: str  # property
+```
+
+The step's name, as it appears in messages.
+
+### Step.plain_parameters
+
+```python
+plain_parameters: tuple[Parameter, ...]  # property
+```
+
+The parameters that take plain values, in declaration order.
+
+## Shell
+
+```python
+class Shell(command: 'str') -> None
+```
+
+A shell command, with the step's inputs still to fill in.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `command` | The command as written, with `{placeholders}`. |

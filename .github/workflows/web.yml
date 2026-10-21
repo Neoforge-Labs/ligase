@@ -1,0 +1,82 @@
+name: Docs site (Nextra)
+
+# Builds and checks the new site in web/. It does not deploy: the live site
+# at ligase.neoforgelabs.tech is still produced by docs.yml from docs/, and
+# stays that way until the switch is made deliberately.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # The site's generators import ligase to read its docstrings, run its
+      # engine and execute the notebooks, and ligase is a compiled extension
+      # — so this job needs the Rust toolchain and a C compiler for the
+      # bundled SQLite, exactly as the mkdocstrings build did. Installing the
+      # published wheel instead would document the released version rather
+      # than this branch, which is the wrong thing for a docs build.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the package and the docs extra
+        run: pip install -e ".[docs]"
+
+      - name: Install the site's dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Type-check the site
+        working-directory: web
+        run: npm run typecheck
+
+      # `npm run build` regenerates everything that comes out of the package
+      # before building, and each generator fails loudly rather than emitting
+      # something empty:
+      #
+      #   generate_api.py        fails on an export in no group, a group entry
+      #                          that is not exported, or a missing docstring
+      #   capture_diagnostics.py fails if the engine stops producing the error
+      #                          a page says it produces
+      #   render_notebooks.py    fails if a notebook does not run
+      - name: Build
+        working-directory: web
+        run: npm run build
+
+      # The replacement for `mkdocs build --strict`: a broken internal link, a
+      # dangling anchor, a page nothing links to, or a Markdown link that never
+      # resolved all fail here.
+      - name: Check links
+        working-directory: web
+        run: npm run links
+
+      - name: Keep the built site for inspection
+        uses: actions/upload-artifact@v5
+        with:
+          name: nextra-site
+          path: web/out/
+          retention-days: 7

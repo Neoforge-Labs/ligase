@@ -1,0 +1,236 @@
+---
+title: "Writing up a pipeline"
+description: "Generate the methods paragraph for a paper, package a reproducibility bundle, and verify one on another machine."
+---
+# Writing up a pipeline
+
+<Lede>
+How to get the methods paragraph for your paper out of the pipeline that
+produced the results — naming every tool at the version it **actually ran
+at** — and how to package that so a reader can check it.
+</Lede>
+
+```bash
+ligase methods                      # the paragraph and the reference list
+ligase methods --bundle paper/      # package it for someone else
+ligase methods --verify paper/      # check a bundle against this machine
+```
+
+**Before you start:** a pipeline that runs. Every command below works on a
+pipeline of your own; the transcripts are from the HIV-1 demo. See
+[the CLI reference](/reference/cli/) for the flags.
+
+## The methods paragraph
+
+```console
+$ ligase methods examples/hiv-resistance/pipeline.py
+writing up 12 steps in examples/hiv-resistance/pipeline.py
+
+Analyses were run with Ligase 0.1.0 on macos-aarch64.
+
+`align` ran on 4 samples (SRR8525904, SRR8525908, SRR8525920, SRR8525942)
+with minimap2 2.31-r1302 and samtools 1.24, as `minimap2 -t {threads} -ax sr
+{ref} {reads.r1} {reads.r2} | samtools sort -@ {threads} -o {out}`, with
+threads = 4, against the HXB2 reference (K03455.1, 9719 bp, MD5
+c66838498aab02f786a6ec2f2d62cdc1).
+
+`call` ran on 4 samples (SRR8525904, SRR8525908, SRR8525920, SRR8525942)
+with bcftools 1.24, as `bcftools mpileup -a AD -f {ref} {aln} | bcftools
+call -mv --ploidy 1 -Oz | bcftools view -i '(AD[0:1])/(AD[0:0]+AD[0:1]) >=
+{min_freq}' -Oz -o {out}`, with min_freq = 0.01, against the HXB2 reference
+(K03455.1, 9719 bp, MD5 c66838498aab02f786a6ec2f2d62cdc1).
+
+`resistance` ran on 4 samples (SRR8525904, SRR8525908, SRR8525920,
+SRR8525942), by a function in the pipeline itself.
+
+References
+
+Danecek P, Bonfield JK, Liddle J, Marshall J, Ohan V, Pollard MO, Whitwham
+    A, Keane T, McCarthy SA, Davies RM, Li H (2021) Twelve years of SAMtools
+    and BCFtools. GigaScience 10(2):giab008. doi:10.1093/gigascience/giab008
+Li H (2018) Minimap2: pairwise alignment for nucleotide sequences.
+    Bioinformatics 34(18):3094-3100. doi:10.1093/bioinformatics/bty191
+```
+
+Four things are in there, and they are the four
+[M5 is signed off on](/project/milestones/): the version every tool actually
+ran at, every parameter as it was hashed, the reference by accession and
+checksum, and the references to cite.
+
+<Note kind="note" title="The wording is yours to fix; the facts are not yours to check">
+
+
+Every sentence follows a fixed form, and it will read like a
+machine wrote it, because one did. That is deliberate: a generator free
+to phrase things fluently would also be free to leave something out, and
+leaving something out is the one thing a methods section must not do.
+Rewrite the prose. Do not re-verify the versions.
+
+</Note>
+The pipeline is **run first**, normally and through the cache, because a
+provenance record is filed under a step's key and computing keys is what a
+run does. A pipeline already computed costs a cache lookup per step:
+
+```console
+$ time ligase methods examples/hiv-resistance/pipeline.py
+...
+1.127 total
+```
+
+## From Python
+
+```python
+methods = pipe.methods()
+print(methods.text)
+
+for step in methods.steps:
+    print(step.step, step.nodes, step.tools, step.parameters)
+
+for pinned in methods.references:
+    print(pinned.accession, pinned.checksum)
+```
+
+`methods.accounted_for` is `False` when something could not be explained,
+and `methods.gaps` says which steps those were.
+
+## Citing a tool the engine does not know
+
+Ligase has checked references for the tools its reference pipeline uses —
+`minimap2`, `samtools`, `bcftools`. For anything else, say what to cite:
+
+```python
+@lg.step(tool="fastp", cite="Chen S et al. (2018) fastp. Bioinformatics 34(17):i884.")
+def trim(reads: Reads) -> Reads:
+    return lg.sh("fastp -i {reads.r1} -I {reads.r2} --stdout | gzip > {out}")
+```
+
+Without it, the tool is reported as uncited rather than dropped from the
+reference list:
+
+```text
+No reference is recorded for fastp. Add one with `@lg.step(cite=...)`, or
+cite it by hand.
+```
+
+A citation never joins the cache key. It cannot change a result, so adding
+one to a step does not recompute a cohort.
+
+## The reproducibility bundle
+
+```console
+$ ligase methods examples/hiv-resistance/pipeline.py --bundle paper/bundle
+...
+wrote 13 files to paper/bundle
+```
+
+```text
+paper/bundle/
+├── METHODS.md          the paragraph and the reference list
+├── README.md           what this is, and how to check it
+├── results.tsv         every output by content hash -- the claim
+├── commands.tsv        the command that produced each one, as it ran
+├── inputs.tsv          every input by content hash
+├── notes.tsv           what canonicalising an output noticed; usually empty
+├── references.tsv      every reference by accession and checksum
+├── environment.tsv     the engine, the platform, every tool's full version
+├── steps/              the source of every step
+├── pipeline/           the pipeline file itself
+└── MANIFEST            every file above, hashed, so damage is visible
+```
+
+`commands.tsv` holds what a cache hit can no longer prove:
+
+```text
+align  SRR8525904  31f5306...  minimap2 -t '4' -ax sr '/…/HXB2.fasta' '/…/SRR8525904_1.fastq.gz' …
+```
+
+`notes.tsv` holds what the engine
+[noticed](/guide/notes/) about the outputs — almost always nothing, and a header
+line even then, so an empty file never has to be read as "an older bundle".
+A bundle with something in it gains a *What will not travel* section in its
+`README.md`.
+
+**The data is not in there.** Sequencing runs are gigabytes and a bundle is
+meant to be readable, so inputs are named rather than carried — every one by
+content hash, every reference by accession and checksum. Fetch them by those
+identifiers; nothing else will pass the check.
+
+## Checking a bundle
+
+With the data in place:
+
+```console
+$ ligase methods examples/hiv-resistance/pipeline.py --verify paper/bundle
+...
+identical        `align` (SRR8525904)
+    the same key, the same result   43c4c32bbd53
+identical        `call` (SRR8525904)
+    the same key, the same result   79224f737eeb
+...
+
+12 results: 12 identical.
+```
+
+`identical` means nothing that feeds the computation moved. On someone
+else's machine the usual answer is the more interesting one:
+
+```text
+reproduced       `align` (SRR8525904)
+    the result is the same          43c4c32bbd53
+    the key is not: something in the environment moved
+```
+
+A different key and the same result: their minimap2 is a different build, or
+their platform is, and the alignments came out the same anyway. That is the
+claim a bundle exists to let someone make.
+
+When something really moved:
+
+```text
+differs          `call` (SRR8525904)
+    expected 79224f737eeb and got 4b1c90ea2277
+
+1 of 12 inputs are not the ones this bundle was built from:
+    changed    `reads` of `align`: data/reads/PRJNA517147/SRR8525904_1.fastq.gz
+A changed input explains a changed output, so read these first.
+```
+
+The input lines come first for a reason: a `differs` with a changed input is
+a different experiment, not an irreproducible one.
+
+```python
+checked = pipe.methods(verify="paper/bundle").verification
+assert checked.reproduced, checked.text
+
+for check in checked.differing:
+    print(check.step, check.scope, check.expected, check.found)
+for moved in checked.moved:
+    print(moved.path, moved.presence)
+```
+
+## Exit codes
+
+| Code | When |
+|---|---|
+| 0 | Everything accounted for, and any bundle checked out. |
+| 1 | A step could not be accounted for, or a result differs from the bundle. |
+| 2 | The pipeline could not be read, or `--verify` was not pointed at a bundle. |
+
+## What this does not do
+
+**Fetch the data.** Pinning by accession and checksum is as far as v0.1 goes
+([D8](/project/decisions/#d8--out-of-scope-for-v01)); a bundle tells you exactly
+which files it needs and checks the ones it finds.
+
+**Validate the results against published ones.** That is
+[M6](/project/milestones/), and a whole milestone, because agreeing with a paper
+is a scientific question rather than a hashing one.
+
+## Where to go next
+
+- [How was this produced?](/concepts/provenance/) — why any of this
+  exists, and what D22 cost.
+- [Provenance architecture](/project/architecture/provenance/) — the store, the
+  paragraph and the bundle from the inside.
+- [Semantic hashing and auditing](/guide/semantic-hashing/) — the other question
+  about a result: does it repeat?

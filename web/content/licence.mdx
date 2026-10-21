@@ -1,0 +1,36 @@
+---
+title: "Licence"
+description: "Ligase is dual-licensed under either of"
+---
+# Licence
+
+Ligase is dual-licensed under either of
+
+- [Apache License, Version 2.0](https://github.com/Neoforge-Labs/ligase/blob/main/LICENSE-APACHE)
+- [MIT License](https://github.com/Neoforge-Labs/ligase/blob/main/LICENSE-MIT)
+
+at your option. You may use the work under either licence; you need not
+comply with both.
+
+## Contributions
+
+Unless you state otherwise, any contribution you intentionally submit for
+inclusion is licensed the same way, with no additional terms.
+
+## The vendored resistance algorithm
+
+`crates/ligase-core/rulesets/` holds Stanford's HIVdb algorithm definitions,
+unmodified and pinned by SHA-256. They come from
+[`hivdb/hivfacts`](https://github.com/hivdb/hivfacts), which carries the
+**Unlicense** — a dedication to the public domain — so redistributing them
+here is unencumbered.
+
+Neither `hivdb/sierra` (GPL-3.0) nor `hivdb/asi_interpreter` (Apache-2.0)
+contributed any code to Ligase. The licence, the provenance of each file and
+the citation Stanford asks for are recorded in
+[`rulesets/README.md`](https://github.com/Neoforge-Labs/ligase/blob/main/crates/ligase-core/rulesets/README.md).
+
+## Intended use
+
+Ligase is research software. Its drug-resistance calls are **not for clinical
+use** — see [the README](https://github.com/Neoforge-Labs/ligase#intended-use).

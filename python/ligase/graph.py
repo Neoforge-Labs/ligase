@@ -134,6 +134,10 @@ class Step(Generic[P, R]):
         coordinates: The coordinate convention the step writes, for the one
             output kind that does not imply one.
         citations: References the step asks to be cited by.
+        output: The kind of data the step's return annotation declares, read
+            once when the step is defined.
+        parameters: Every parameter the function takes, in declaration
+            order, each already classified as data or a plain value.
     """
 
     __slots__ = (

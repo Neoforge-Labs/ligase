@@ -1,0 +1,201 @@
+/*
+ * The diagnostic panel.
+ *
+ * Shape borrowed from rustc: a labelled frame, the error type leading, the
+ * values aligned so a mismatch is visible as a mismatch, and the question
+ * the engine asks set apart from the facts it reports.
+ */
+
+.panel {
+  margin-block: 1.8em;
+  border: 1px solid var(--lg-refuse-rule);
+  border-radius: var(--lg-radius-lg);
+  background: var(--lg-paper-raised);
+  overflow: hidden;
+  /* The left rule is the one piece of colour that carries across the whole
+     block, so a reader scanning a page sees "refusal" before reading. */
+  box-shadow: inset 3px 0 0 0 var(--lg-refuse);
+}
+
+/* ---- Top bar ---- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 1rem 0.6rem 1.15rem;
+  background: var(--lg-refuse-soft);
+  border-bottom: 1px solid var(--lg-refuse-rule);
+  font-family: var(--lg-font-mono);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.barLeft,
+.barRight {
+  display: flex;
+  align-items: center;
+  gap: 0.6ch;
+  flex-wrap: wrap;
+}
+
+.type {
+  color: var(--lg-refuse);
+  font-weight: 650;
+  letter-spacing: 0.005em;
+}
+
+.in {
+  color: var(--lg-ink-faint);
+}
+
+.step {
+  font-family: var(--lg-font-mono);
+  color: var(--lg-ink);
+  background: color-mix(in srgb, var(--lg-paper-raised) 70%, transparent);
+  border: 1px solid var(--lg-refuse-rule);
+  border-radius: 3px;
+  padding: 0.05em 0.4em;
+  font-size: 0.95em;
+}
+
+.sample {
+  color: var(--lg-ink-muted);
+}
+
+.sample::before {
+  content: 'sample ';
+  color: var(--lg-ink-faint);
+}
+
+.note {
+  color: var(--lg-ink-muted);
+  font-style: normal;
+}
+
+.copy {
+  font-family: var(--lg-font-mono);
+  font-size: inherit;
+  color: var(--lg-ink-faint);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 0.05em 0.4em;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.copy:hover {
+  color: var(--lg-ink);
+  border-color: var(--lg-rule-strong);
+}
+
+/* ---- Body ---- */
+
+/*
+ * One grid for the whole body, so that every binding's `=` and every value
+ * land in the same column. Per-row grids would each size themselves and the
+ * mismatch -- the thing the reader is here to see -- would not line up.
+ */
+.body {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  gap: 0 0.7ch;
+  align-items: baseline;
+  padding: 0.95rem 1.15rem 1.05rem;
+  font-family: var(--lg-font-mono);
+  font-size: 0.845rem;
+  line-height: 1.68;
+  overflow-x: auto;
+}
+
+/* A binding contributes its parts straight to the body grid. */
+.binding {
+  display: contents;
+}
+
+.name {
+  color: var(--lg-ink-muted);
+  white-space: nowrap;
+}
+
+.eq {
+  color: var(--lg-ink-faint);
+}
+
+.value {
+  color: var(--lg-ink);
+  font-weight: 560;
+}
+
+/* Where a value came from is the most useful thing in a Ligase error and the
+   least urgent: on its own line, aligned under the value it explains, set
+   back far enough to read second. */
+.source {
+  grid-column: 3;
+  color: var(--lg-ink-faint);
+  font-size: 0.94em;
+  font-style: italic;
+  margin-bottom: 0.25em;
+  overflow-wrap: anywhere;
+}
+
+.source::before {
+  content: '— ';
+}
+
+.plain {
+  grid-column: 1 / -1;
+  color: var(--lg-ink);
+  white-space: pre-wrap;
+}
+
+.blank {
+  grid-column: 1 / -1;
+  height: 0.6em;
+}
+
+/* The engine's question. It is the line that tells you what to do, so it is
+   the only line in the body allowed any colour. */
+.question {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.8ch;
+  align-items: baseline;
+  margin-top: 0.55em;
+  color: var(--lg-ink);
+  font-weight: 560;
+}
+
+.arrow {
+  color: var(--lg-refuse);
+  flex: none;
+}
+
+.also {
+  grid-column: 1 / -1;
+  margin-top: 0.55em;
+  padding-top: 0.5em;
+  border-top: 1px dashed var(--lg-rule);
+  color: var(--lg-ink-muted);
+  font-size: 0.94em;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 640px) {
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .eq {
+    display: none;
+  }
+  .name::after {
+    content: ' =';
+    color: var(--lg-ink-faint);
+  }
+  .source {
+    grid-column: 1;
+  }
+}

@@ -1,6 +1,28 @@
 # Installation
 
-## Requirements
+## Using it
+
+```bash
+pip install ligase-bio
+```
+
+Wheels are published for Linux (manylinux, x86-64 and aarch64), macOS
+(Apple silicon and Intel) and Windows, so there is **no Rust toolchain and no
+C compiler** involved in installing the package. You need Python 3.11 or
+newer, and whatever external tools your own pipeline names — for the HIV-1
+reference demo, `minimap2`, `samtools` and `bcftools`.
+
+Check it worked:
+
+```bash
+python -c "import ligase; print(ligase.version())"
+ligase --help
+```
+
+The rest of this page is about building Ligase from source, which you only
+need in order to work on it.
+
+## Requirements for a source build
 
 | | |
 |---|---|
@@ -10,16 +32,13 @@
 | curl | for fetching test data |
 | minimap2, samtools, bcftools | only to run the HIV-1 reference demo |
 
-Rust is needed because installing builds the engine from source. There are no
-pre-built wheels yet.
-
 The C compiler is needed because the cache bundles SQLite and compiles it,
 rather than linking whatever version the machine happens to have. That costs
-you a C toolchain at install time and buys an identical SQLite everywhere,
+you a C toolchain at build time and buys an identical SQLite everywhere,
 which matters for an on-disk format the cache has to keep reading. If you are
 missing one, [see below](#troubleshooting).
 
-## Install
+## Build it from source
 
 ```bash
 git clone git@github.com:Neoforge-Labs/ligase.git

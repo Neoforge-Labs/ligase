@@ -45,8 +45,80 @@ HIV-1 reads → alignment to HXB2 → variant calling → drug-resistance calls.
 
 ## Documentation rule (mandatory)
 Every feature ships with docs in the same change:
-- `docs/concepts/<feature>.md` — what it is and why it exists
-- `docs/guide/<feature>.md` — how to use it, with a runnable example
-- `docs/architecture/<component>.md` — how it works internally, design decisions, trade-offs
-- Update `docs/index.md` and `CHANGELOG.md`.
-A feature is not done until its docs are written. Docs use MkDocs Material.
+- `concepts/<feature>.md` — what it is and why it exists
+- `guide/<feature>.md` — how to use it, with a runnable example
+- `architecture/<component>.md` — how it works internally, design decisions, trade-offs
+- Update `CHANGELOG.md`.
+A feature is not done until its docs are written.
+
+### Where the docs live
+Two sites exist during the migration, and a change touches both:
+- `docs/` — MkDocs Material, Markdown. **This is what is live** at
+  ligase.neoforgelabs.tech, built and deployed by `.github/workflows/docs.yml`.
+- `web/` — Nextra, MDX. The replacement, built and checked by
+  `.github/workflows/web.yml`, which does not deploy. Pages are
+  `web/content/<section>/<page>.mdx`, and the nav is the `_meta.ts` in each
+  directory.
+
+The new site is organised by what a reader is doing, not by how the project
+is built:
+
+| Section | For |
+|---|---|
+| `start/` | installing it and getting something running |
+| `silent-failures/` | the bugs it catches, titled by symptom |
+| `guide/` | one task at a time |
+| `concepts/` | why it works this way |
+| `reference/` | CLI, errors, dimension catalogue, API |
+| `notebooks/` | worked examples, executed on every build |
+| `project/` | **written about Ligase, not for someone using it** |
+
+That last row is the rule worth keeping. Internals, decisions, milestones,
+validation, releasing and the project's own layout all belong under
+`project/`; a page a user needs never does. When adding a page, ask who is
+reading it before choosing where it goes.
+
+**Which of the two is the source depends on the page.** The `guide/` and
+`concepts/` pages, `start/`, `silent-failures/`, `reference/errors.mdx` and
+`project/in-use/` are authored as MDX: they are listed in `MDX_NATIVE` or
+`SKIP` in `port_docs.py` and are *not* re-ported, because they link to
+sections MkDocs does not have — editing their `docs/` originals would break
+`mkdocs build --strict` and be overwritten anyway.
+
+Everything else — `project/architecture/`, `project/decisions.mdx`,
+`project/milestones.mdx`, `reference/dimensions.mdx` and the rest — still
+comes from `docs/` through `port_docs.py` and `gen_meta.py`, so for those the
+Markdown is the way in. If you are unsure which a page is, check whether
+`port_docs.py` writes it.
+
+After the switch, `docs/`, `mkdocs.yml`, the MkDocs entries in the `docs`
+extra and those two scripts all go, and the MDX becomes the source for
+everything.
+
+### What the site generates rather than stores
+Never write these by hand; they are produced on every docs build and
+gitignored:
+- `web/content/api/` — from the package's docstrings, by `generate_api.py`.
+  It fails the build on an export in no group, a group entry that is not
+  exported, or any exported name, method or property with no docstring. A new
+  public name therefore has to be documented and placed in a group.
+- `web/lib/diagnostics.generated.ts` — the engine's real error text, by
+  `capture_diagnostics.py`, which fails if the engine stops producing the
+  error a page claims. Never paste engine output into a page; add a scenario.
+- `web/content/notebooks/` — the marimo notebooks, executed by
+  `render_notebooks.py` and rendered from the run.
+- `web/content/reference/cli.mdx` — from the argparse parser, by
+  `generate_cli.py`, which fails if a command or flag has no help text.
+  `ligase.cli.build_parser()` exists so that it can be read without running
+  anything; keep it that way.
+
+### Writing rules
+- Engine output on a page comes from a real run, never from imagination.
+- `<Diagnostic>` for a diagnostic, `<RunReport>` for a run transcript,
+  `<Note kind="note|warning|tip|caution">` for a callout. They are in the
+  global MDX map; no import needed.
+- `npm run check` in `web/` is the gate: it regenerates, builds, and then
+  fails on a broken link, a dangling anchor, a page nothing links to, or a
+  Markdown link that never resolved.
+- Claims about use or adoption must be true. The project has no outside
+  users; do not imply otherwise, and do not invent quotes, logos or metrics.

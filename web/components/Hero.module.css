@@ -1,0 +1,117 @@
+.hero {
+  padding-block: 1rem 0.5rem;
+  border-bottom: 1px solid var(--lg-rule);
+  margin-bottom: 2.4rem;
+  padding-bottom: 2.2rem;
+}
+
+/* Status, set in mono so it reads as a fact rather than a badge. */
+.eyebrow {
+  font-family: var(--lg-font-mono) !important;
+  font-size: 0.74rem !important;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lg-ink-faint);
+  margin: 0 0 1.1rem !important;
+  display: flex;
+  gap: 1.1ch;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.title {
+  font-family: var(--lg-font-ui);
+  font-size: clamp(2.35rem, 1.5rem + 3.2vw, 3.65rem) !important;
+  font-weight: 680;
+  letter-spacing: -0.038em !important;
+  line-height: 1.04 !important;
+  margin: 0 0 1.1rem !important;
+  max-width: 24ch;
+  border-top: none !important;
+  padding-top: 0 !important;
+  text-wrap: balance;
+}
+
+.lede > p {
+  font-family: var(--lg-font-prose);
+  font-size: 1.3125rem !important;
+  line-height: 1.52 !important;
+  letter-spacing: -0.012em;
+  color: var(--lg-ink-muted);
+  max-width: 60ch;
+  margin-block: 0 0.9em !important;
+}
+
+.lede strong {
+  color: var(--lg-ink);
+  font-weight: 600;
+}
+
+/* ---- Actions ---- */
+
+.actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 1.6rem;
+}
+
+.primary,
+.secondary {
+  font-family: var(--lg-font-ui);
+  font-size: 0.9375rem;
+  font-weight: 560;
+  letter-spacing: -0.008em;
+  padding: 0.56rem 1.05rem;
+  border-radius: var(--lg-radius);
+  text-decoration: none !important;
+  border: 1px solid transparent;
+  transition: background-color 130ms ease, border-color 130ms ease, color 130ms ease;
+}
+
+.primary {
+  background: var(--lg-ink);
+  color: var(--lg-paper) !important;
+}
+
+.primary:hover {
+  background: var(--lg-brand);
+}
+
+.secondary {
+  border-color: var(--lg-rule-strong);
+  color: var(--lg-ink) !important;
+}
+
+.secondary:hover {
+  border-color: var(--lg-ink-faint);
+  background: var(--lg-paper-raised);
+}
+
+/* ---- Bands ---- */
+
+.band {
+  margin-block: 3.4rem;
+}
+
+.bandLabel {
+  font-family: var(--lg-font-mono) !important;
+  font-size: 0.7rem !important;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lg-ink-faint);
+  margin: 0 0 0.5rem !important;
+}
+
+.bandTitle {
+  font-family: var(--lg-font-ui);
+  font-size: 1.75rem !important;
+  font-weight: 650;
+  letter-spacing: -0.028em !important;
+  line-height: 1.16 !important;
+  margin: 0 0 1rem !important;
+  max-width: 34ch;
+  border-top: none !important;
+  padding-top: 0 !important;
+}
