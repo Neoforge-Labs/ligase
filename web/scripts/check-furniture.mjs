@@ -184,6 +184,15 @@ assert(
   'print must drop the section counter colour to ink',
 )
 
+// Syntax tokens: Nextra swaps each span to --shiki-dark under .dark, so a
+// dark-theme reader would print pale tokens on white unless print pins them to
+// the light theme's.
+assert(
+  has(rules(printCss, '.nextra-content pre, .nextra-content .nextra-code span'), /color:\s*var\(--shiki-light[^;]*!important/) &&
+    has(rules(printCss, '.nextra-content pre, .nextra-content .nextra-code span'), /background-color:\s*#fff\s*!important/),
+  'print must pin code blocks and their tokens to --shiki-light on white, or a dark-theme reader prints pale tokens',
+)
+
 // --- Review focus 4: counters restart per page and never leak -----------
 
 const resets = [...css.matchAll(/counter-reset:\s*([^;}]+)/g)].map((m) => ({

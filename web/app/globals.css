@@ -601,4 +601,15 @@ footer {
   .nextra-content h2::before {
     color: #000;
   }
+
+  /* Syntax tokens. Nextra paints each token with --shiki-light, and swaps to
+     --shiki-dark under .dark. A reader on the dark theme who prints would get
+     the dark theme's pale tokens on the white the rules above force, so print
+     always takes the light theme's, which are the ones drawn for white. The
+     token backgrounds go too, or each span would print its own panel colour. */
+  .nextra-content pre,
+  .nextra-content .nextra-code span {
+    background-color: #fff !important;
+    color: var(--shiki-light, #000) !important;
+  }
 }
