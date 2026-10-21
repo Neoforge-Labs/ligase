@@ -63,6 +63,9 @@ export const metadata: Metadata = {
     apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
   },
   authors: [{ name: 'Kelyn Njeri' }],
+  // Relative, so each page resolves it against metadataBase and its own path
+  // and declares itself, with the trailing slash the export serves.
+  alternates: { canonical: './' },
   openGraph: {
     type: 'website',
     siteName: 'Ligase',
@@ -81,6 +84,28 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     images: ['/opengraph-image.png'],
   },
+}
+
+/*
+ * Structured data, and only what can be checked against the repository. The
+ * project is pre-alpha and has no outside users, so there is deliberately no
+ * rating, review, download or interaction count here, and none may be added
+ * until it is true (scripts/check-seo.mjs fails on them).
+ */
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Ligase',
+  description:
+    'A pre-alpha Rust core with a Python surface for computational biology pipelines. Biological data types carry dimensions, and the engine refuses to connect steps whose dimensions disagree.',
+  url: 'https://ligase.neoforgelabs.tech/',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'Linux, macOS, Windows',
+  programmingLanguage: ['Rust', 'Python'],
+  softwareVersion: '0.1.0',
+  sameAs: 'https://github.com/Neoforge-Labs/ligase',
+  license: ['https://spdx.org/licenses/MIT.html', 'https://spdx.org/licenses/Apache-2.0.html'],
+  author: { '@type': 'Person', name: 'Kelyn Njeri' },
 }
 
 const navbar = (
@@ -127,6 +152,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <meta name="theme-color" content="#0a0a0b" media="(prefers-color-scheme: dark)" />
       </Head>
       <body className="lg-grain">
+        <script
+          type="application/ld+json"
+          // `<` is escaped so no string in the block can close the script tag.
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
+        />
         <Layout
           navbar={navbar}
           footer={footer}
