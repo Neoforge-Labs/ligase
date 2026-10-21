@@ -68,27 +68,29 @@ twenty-seven with no false positives; and the no-template control returning
 
 ## What disagrees
 
-Nine of the 243 drug calls differ, all at the 2% threshold. Each is listed with
-its cause in `KNOWN_AT_TWO_PERCENT` in the test, and **the test fails if one of
-them changes shape or a new one appears** — which is what keeps "discrepancies
-explained" from decaying into "discrepancies tolerated".
+Three of the 243 drug calls differ, all at the 2% threshold, and all three are
+the same missed mutation counted once per drug. Each is listed with its cause in
+`KNOWN_AT_TWO_PERCENT` in the test, and **the test fails if one of them changes
+shape or a new one appears** — which is what keeps "discrepancies explained"
+from decaying into "discrepancies tolerated".
 
-**Six are cosmetic.** Ligase reads `K219KEGR` where Stanford reads `K219KE`, and
-`A105AT` where Stanford reads `A105T`. Every score and every level is identical.
-The cause is a real limitation of reading codons from a VCF: a VCF says what is
-at each position, not what travels together, so enumerating two ambiguous bases
-yields amino acids that no single read need carry. Neither extra amino acid
-matches a rule, so nothing clinical follows.
+**It was nine.** Six were cosmetic: Ligase read `K219KEGR` where Stanford reads
+`K219KE`, and `A105AT` where Stanford reads `A105T`, with every score and every
+level identical. The cause was reading codons from a VCF, which says what is at
+each position and not what travels together, so enumerating two ambiguous bases
+yielded amino acids no single read carried. Codons are now read from the reads
+spanning them, and those six went with the change
+([D31](/project/decisions/#d31--a-codon-no-read-spans-keeps-its-per-base-reading)).
 
-**Three are one missed mutation, and it is a real one.** Stanford reports
-`V75VA` for Sample 30 at 2%. This alignment supports that base in 3 of 392 reads
-— 0.77%, below any threshold that would report it. HIVGenoPipe realigns against
-a sample-specific reference, which is that paper's whole method, and places
-reads that an alignment to HXB2 does not.
+**The three that remain are one missed mutation, and it is a real one.** Stanford
+reports `V75VA` for Sample 30 at 2%. The caller credits that base in 4 of the 239
+reads it counted — 1.7%, below the threshold that would report it. HIVGenoPipe
+realigns against a sample-specific reference, which is that paper's whole method,
+and places reads that an alignment to HXB2 does not.
 
 That is a sensitivity limit, not a disagreement about what the reads mean, and
-it is the honest cost of the demo's approach. It is also the only one of the nine
-that would change what anyone did.
+it is the honest cost of the demo's approach. It is also the only disagreement
+left that would change what anyone did.
 
 ## What validating it changed
 
