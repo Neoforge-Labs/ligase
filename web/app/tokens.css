@@ -19,12 +19,15 @@
  * contract the theme toggle depends on, whatever the default is.
  *
  * Orange owns hue 23, so the other signals sit as far from it as they can:
- * refuse is a cool crimson (348), agree a green (150), notice a yellow (48).
+ * refuse is a cool crimson (about 350), agree a green (about 148), notice a
+ * yellow (about 49). Those are the measured hues of the shipped values, not
+ * the design targets they were chosen near; the contrast gate holds the
+ * separation, so the numbers here are the ones that matter.
  * Notice is the tightest pair with brand, which is why scripts/check-contrast
  * holds brand 25 degrees clear of it and of refuse, and why a notice panel
  * always carries the word "noticed" rather than relying on colour alone.
  *
- * Light-mode orange is darker than the brand's. The brand orange is 3.13:1 on
+ * Light-mode orange is darker than the brand's. The brand orange is 3.15:1 on
  * cream, which fails AA as link text, so only light-mode text darkens. Dark
  * mode and the mark use the brand hex exactly.
  *

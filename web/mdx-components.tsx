@@ -6,6 +6,7 @@ import { Stat, Stats } from './components/Stats'
 import { Hazard, HazardGrid } from './components/Hazard'
 import { Lede } from './components/Lede'
 import { Action, Band, Hero } from './components/Hero'
+import { BrandCard } from './components/BrandCard'
 
 const themeComponents = getThemeComponents()
 
@@ -23,6 +24,7 @@ export function useMDXComponents(components?: Record<string, unknown>) {
     Hero,
     Action,
     Band,
+    BrandCard,
     ...components,
   }
 }

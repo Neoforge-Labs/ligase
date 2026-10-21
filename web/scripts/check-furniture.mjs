@@ -407,6 +407,42 @@ assert(
 )
 assert(!/grain[^.]*brand orange/i.test(header), 'the grain is noise, not brand orange')
 
+// --- The card lockup and the page that documents it ---------------------
+
+const cardCss = stripComments(read('components/BrandCard.module.css'))
+const cardTsx = read('components/BrandCard.tsx')
+assert(/aspect-ratio:\s*3\s*\/\s*4/.test(cardCss), 'BrandCard must be a 3/4 portrait')
+assert(
+  has(rules(cardCss, '.hairline'), /width:\s*48px/) &&
+    has(rules(cardCss, '.hairline'), /height:\s*1px/),
+  'the BrandCard hairline must start at 1px by 48px',
+)
+assert(/hairline[^{}]*\{[^{}]*width:\s*96px/.test(cardCss), 'the BrandCard hairline must grow to 96px on hover')
+assert(has(rules(cardCss, '.hairline'), /transition:\s*width\s+500ms/), 'the hairline must grow over 500ms')
+assert(has(rules(cardCss, '.card'), /border-top:\s*2px solid/), 'BrandCard must carry a 2px top rule in its colour')
+assert(has(rules(cardCss, '.card'), /padding:\s*1\.5rem/), 'BrandCard padding must start at 1.5rem')
+assert(/padding:\s*2rem/.test(cardCss), 'BrandCard padding must grow to 2rem')
+assert(has(rules(cardCss, '.tagline'), /font-size:\s*0\.875rem/), 'the BrandCard tagline must be 0.875rem')
+assert(has(rules(cardCss, '.title'), /font-weight:\s*400/), 'the BrandCard title must be weight 400')
+assert(!/url\(|linear-gradient|background-image/.test(cardCss), 'BrandCard has no image and no scrim')
+assert(/className=\{`lg-mono /.test(cardTsx), 'the BrandCard code row must use the global .lg-mono')
+assert(/BrandCard/.test(read('mdx-components.tsx')), 'BrandCard must be registered in mdx-components.tsx')
+
+assert(/identity/.test(read('content/project/architecture/_meta.ts')), 'identity.mdx must be in the architecture _meta.ts, or nothing reaches it')
+assert(mdx.some((f) => /<BrandCard\b/.test(f)), 'the identity page must render the lockup, not only describe it')
+
+// The Band heading is not a numbered section of the journal.
+assert(
+  has(rules(stripComments(read('components/Hero.module.css')), '.band .bandTitle::before'), /content:\s*none/),
+  "a Band's heading must not pick up the global section marker",
+)
+
+// Comments that were corrected must stay corrected.
+const tokensHeader = read('app/tokens.css').match(/^\s*\/\*[\s\S]*?\*\//)?.[0] ?? ''
+assert(!/3\.13:1/.test(tokensHeader) && /3\.15:1/.test(tokensHeader), 'tokens.css must quote 3.15:1 for brand on cream')
+assert(!/\b348\b|\b150\b/.test(tokensHeader), 'tokens.css must not quote the design-target hues')
+assert(!/suffix every enzyme/.test(read('components/Mark.tsx')), 'Mark.tsx must not say every enzyme name ends in -ase')
+
 if (failures.length) {
   console.error(`check-furniture: ${failures.length} failure(s)`)
   for (const f of failures) console.error(`  FAIL: ${f}`)

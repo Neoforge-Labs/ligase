@@ -11,8 +11,8 @@ import styles from './Mark.module.css'
  * is to refuse to let two things be connected unless they belong together.
  *
  * The tie is a slanted polygon, not a flat rectangle. Neoforge italicises one
- * meaningful letter and sets it in orange; the slant is how this mark speaks
- * the same language. Do not flatten it.
+ * meaningful word, Labs, and sets it in orange; the slant is how this mark
+ * speaks the same language. Do not flatten it.
  *
  * The letterforms take currentColor and the tie takes the brand token, so the
  * single-colour variant needs no second drawing. Nothing here depends on a
@@ -21,8 +21,9 @@ import styles from './Mark.module.css'
  * public/icon.svg. At 16px it collapses, which is why public/favicon.svg is a
  * separate drawing with thicker slabs and a flatter tie.
  *
- * The wordmark is Lig plus an italic orange ase. -ase is the suffix every
- * enzyme name carries, so it parallels Neoforge's own italic Labs.
+ * The wordmark is Lig plus an italic orange ase. -ase is the suffix most
+ * enzyme names carry by IUBMB convention (not all: trypsin, pepsin and papain
+ * predate it), so it parallels Neoforge's own italic Labs.
  */
 export function Mark() {
   return (
