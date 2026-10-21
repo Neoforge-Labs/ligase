@@ -79,14 +79,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       */}
       <Head
         color={{
-          hue: { light: 243, dark: 244 },
-          saturation: { light: 59, dark: 100 },
-          lightness: { light: 54, dark: 79 },
+          hue: { light: 23, dark: 23 },
+          saturation: { light: 89, dark: 84 },
+          lightness: { light: 35, dark: 48 },
         }}
-        backgroundColor={{ light: '#fbfaf7', dark: '#0d0e11' }}
+        backgroundColor={{ light: '#f5f5f0', dark: '#0a0a0b' }}
       >
-        <meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)" />
-        <meta name="theme-color" content="#0d0e11" media="(prefers-color-scheme: dark)" />
+        <meta name="theme-color" content="#f5f5f0" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#0a0a0b" media="(prefers-color-scheme: dark)" />
       </Head>
       <body>
         <Layout
@@ -101,6 +101,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           sidebar={{ defaultMenuCollapseLevel: 1, autoCollapse: false, toggleButton: true }}
           toc={{ title: 'On this page', backToTop: 'Back to top' }}
           darkMode
+          // Dark is what a visitor sees on arrival; light stays one toggle away.
+          nextThemes={{ defaultTheme: 'dark' }}
         >
           {children}
         </Layout>

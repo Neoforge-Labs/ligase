@@ -11,42 +11,65 @@
  *   agree   a check that passed, a step skipped by early cutoff
  *   notice  a `noticed` line: not an error, but not nothing either
  *
- * Neutrals are warm rather than blue-grey. Long technical prose read on a
- * screen for an hour is easier on warm paper, and it is the clearest
- * single break from the blue-grey Material default this site replaces.
+ * The ground is near-black and the brand is flame orange, both taken from
+ * Neoforge Labs so the docs read as part of the same house. Dark is the
+ * theme a visitor arrives in (the default is set in layout.tsx); light is
+ * kept, fully retuned, because this is long-form reading and printing.
+ * `:root` stays the light theme and `.dark` the dark one: that is the class
+ * contract the theme toggle depends on, whatever the default is.
+ *
+ * Orange owns hue 23, so the other signals sit as far from it as they can:
+ * refuse is a cool crimson (348), agree a green (150), notice a yellow (48).
+ * Notice is the tightest pair with brand, which is why scripts/check-contrast
+ * holds brand 25 degrees clear of it and of refuse, and why a notice panel
+ * always carries the word "noticed" rather than relying on colour alone.
+ *
+ * Light-mode orange is darker than the brand's. The brand orange is 3.13:1 on
+ * cream, which fails AA as link text, so only light-mode text darkens. Dark
+ * mode and the mark use the brand hex exactly.
+ *
+ * Neutrals are warm: cream ink on near-black, near-black ink on cream. Every
+ * -soft and -rule value is an opaque colour blended from its signal onto the
+ * surface it sits on, so the contrast gate can measure it. Only the dark
+ * theme's two hairline rules are translucent, because they are not text.
+ *
+ * `npm run contrast` reads this file and fails the build if any text colour
+ * drops below 4.5:1 on any surface it can sit on, so the numbers here are not
+ * a claim, they are a gate.
  */
 
 :root {
-  /* ---- Neutrals: warm paper, warm ink ---- */
-  --lg-paper: #fbfaf7;
+  /* ---- Neutrals: cream paper, near-black ink ---- */
+  --lg-paper: #f5f5f0;
   --lg-paper-raised: #ffffff;
-  --lg-paper-sunken: #f4f2ed;
-  --lg-ink: #16181d;
-  --lg-ink-muted: #585d66;
-  --lg-ink-faint: #878c95;
-  --lg-rule: #e5e1d9;
-  --lg-rule-strong: #d2cdc2;
+  --lg-paper-sunken: #ebebe4;
+  --lg-ink: #0a0a0b;
+  --lg-ink-muted: #55555e;
+  --lg-ink-faint: #696973;
+  --lg-rule: #e0ddd3;
+  --lg-rule-strong: #c9c5b8;
 
   /* ---- Signal colours ---- */
-  --lg-brand: #4b43cf;
-  --lg-brand-hover: #3a33b3;
-  --lg-brand-soft: #edecfa;
-  --lg-brand-rule: #c8c4f0;
+  --lg-brand: #a8460a;
+  --lg-brand-hover: #8a3907;
+  --lg-brand-soft: #f1ece5;
+  --lg-brand-rule: #dfc4b0;
 
-  --lg-refuse: #bf3a1d;
-  --lg-refuse-soft: #fcefeb;
-  --lg-refuse-rule: #f0c3b6;
+  --lg-refuse: #b02339;
+  --lg-refuse-soft: #f2ebe7;
+  --lg-refuse-rule: #e2babd;
 
-  --lg-agree: #2b7a51;
-  --lg-agree-soft: #eaf4ee;
-  --lg-agree-rule: #b6ddc6;
+  --lg-agree: #2a774f;
+  --lg-agree-soft: #ebefe8;
+  --lg-agree-rule: #bcd3c3;
 
-  --lg-notice: #99600a;
-  --lg-notice-soft: #fbf3e3;
-  --lg-notice-rule: #e8d3a6;
+  --lg-notice: #7d6808;
+  --lg-notice-soft: #efeee4;
+  --lg-notice-rule: #d3cdaf;
 
   /* ---- Type ---- */
   --lg-font-prose: var(--font-source-serif), ui-serif, Georgia, serif;
+  --lg-font-display: var(--font-playfair), 'Playfair Display', Georgia, serif;
   --lg-font-ui: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --lg-font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
 
@@ -60,35 +83,35 @@
   --lg-radius-lg: 6px;
 
   /* ---- Depth. Hairlines, not drop shadows. ---- */
-  --lg-shadow-raised: 0 1px 2px rgb(22 24 29 / 0.04), 0 0 0 1px var(--lg-rule);
+  --lg-shadow-raised: 0 1px 2px rgb(10 10 11 / 0.05), 0 0 0 1px var(--lg-rule);
 }
 
 .dark {
-  --lg-paper: #0d0e11;
-  --lg-paper-raised: #15171c;
-  --lg-paper-sunken: #101216;
-  --lg-ink: #e7e5e1;
-  --lg-ink-muted: #9ba1aa;
-  --lg-ink-faint: #6b7179;
-  --lg-rule: #24272e;
-  --lg-rule-strong: #343840;
+  --lg-paper: #0a0a0b;
+  --lg-paper-raised: #17171c;
+  --lg-paper-sunken: #121216;
+  --lg-ink: #f5f5f0;
+  --lg-ink-muted: #a1a1aa;
+  --lg-ink-faint: #7f7f89;
+  --lg-rule: #ffffff1a;
+  --lg-rule-strong: #ffffff2e;
 
-  --lg-brand: #9b94ff;
-  --lg-brand-hover: #b3adff;
-  --lg-brand-soft: #1b1a33;
-  --lg-brand-rule: #353268;
+  --lg-brand: #e36414;
+  --lg-brand-hover: #f07d2e;
+  --lg-brand-soft: #2a1408;
+  --lg-brand-rule: #5c2d0e;
 
-  --lg-refuse: #ff8a68;
-  --lg-refuse-soft: #2a160f;
-  --lg-refuse-rule: #5a2d1c;
+  --lg-refuse: #f05a72;
+  --lg-refuse-soft: #2a1519;
+  --lg-refuse-rule: #54242c;
 
   --lg-agree: #5ecf92;
-  --lg-agree-soft: #0f2118;
-  --lg-agree-rule: #1f4531;
+  --lg-agree-soft: #16261e;
+  --lg-agree-rule: #254936;
 
-  --lg-notice: #e3a645;
-  --lg-notice-soft: #241c0d;
-  --lg-notice-rule: #4b3a18;
+  --lg-notice: #d9bf4e;
+  --lg-notice-soft: #272314;
+  --lg-notice-rule: #4c4420;
 
   --lg-shadow-raised: 0 0 0 1px var(--lg-rule);
 }

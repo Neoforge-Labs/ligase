@@ -17,6 +17,9 @@
  *               from `refuse`. Brand-versus-notice is the tightest pair in any
  *               orange-led palette; this is what stops it regressing until the
  *               two read as one colour.
+ *   brand       a few tokens are pinned to the exact Neoforge values, so the
+ *               checker asserts the brand is actually present and not merely
+ *               that the palette is self-consistent (see REQUIRED).
  *
  * `rule` and `rule-strong` are exempt. They are hairlines, not text, and their
  * whole job is to be quiet. They are still parsed, and `contrast()` still
@@ -27,6 +30,7 @@
  *   node scripts/check-contrast.mjs               check app/tokens.css
  *   node scripts/check-contrast.mjs path/to.css   check another file
  *   node scripts/check-contrast.mjs --self-test   verify the maths, then stop
+ *   node scripts/check-contrast.mjs --orphans     check both themes declare the same colour tokens
  *
  * The self-test also runs before every real check: a checker whose arithmetic
  * is wrong would pass or fail the palette for the wrong reasons.
@@ -44,6 +48,16 @@ const SIGNALS = ['brand', 'refuse', 'agree', 'notice']
 const AA_TEXT = 4.5
 const MIN_SEPARATION = 25
 const SEPARATED_FROM_BRAND = ['notice', 'refuse']
+
+/**
+ * Values the brand fixes, asserted exactly (case-insensitive). The light-mode
+ * brand is deliberately not here: it is darker than the Neoforge orange so that
+ * it reaches AA as link text, and the contrast assertions police it instead.
+ */
+const REQUIRED = {
+  dark: { paper: '#0a0a0b', ink: '#f5f5f0', 'ink-muted': '#a1a1aa', brand: '#e36414' },
+  light: { paper: '#f5f5f0', ink: '#0a0a0b' },
+}
 
 // --- parsing ---------------------------------------------------------------
 
@@ -201,6 +215,14 @@ export function check(tokens, mode) {
   for (const name of TEXT_TOKENS) for (const surface of SURFACES) text(name, surface)
   for (const name of SIGNALS) text(name, `${name}-soft`)
 
+  for (const [name, want] of Object.entries(REQUIRED[mode] ?? {})) {
+    const got = need(name)
+    if (got === undefined) continue
+    if (got.toLowerCase() !== want.toLowerCase()) {
+      violations.push({ mode, pair: `--lg-${name}`, kind: 'required', detail: `is ${got}, the brand requires ${want}` })
+    }
+  }
+
   for (const other of SEPARATED_FROM_BRAND) {
     const brand = need('brand')
     const rival = need(other)
@@ -216,6 +238,37 @@ export function check(tokens, mode) {
   }
 
   return violations
+}
+
+// --- orphans ---------------------------------------------------------------
+
+/**
+ * Tokens one theme declares and the other does not. A half-converted theme
+ * shows up as exactly this: a colour added to `:root` and forgotten in `.dark`.
+ *
+ * Every token in `.dark` must exist in `:root`. Every colour token in `:root`
+ * must exist in `.dark`. Tokens in `:root` whose value is not a colour (type
+ * stacks, sizes, spacing) are theme-invariant and legitimately declared once.
+ */
+export function orphans(light, dark) {
+  const isColour = (value) => {
+    try {
+      parseColor(value)
+      return true
+    } catch {
+      return false
+    }
+  }
+  const out = []
+  for (const name of Object.keys(dark)) {
+    if (!(name in light)) out.push({ pair: `--lg-${name}`, detail: 'declared in .dark, missing from :root' })
+  }
+  for (const [name, value] of Object.entries(light)) {
+    if (!(name in dark) && isColour(value)) {
+      out.push({ pair: `--lg-${name}`, detail: 'declared in :root, missing from .dark' })
+    }
+  }
+  return out
 }
 
 // --- self-test -------------------------------------------------------------
@@ -262,6 +315,16 @@ function selfTest() {
   assert(parsed.light.a === '#fff' && !('b' in parsed.light), 'parseTokens light', JSON.stringify(parsed.light))
   assert(parsed.dark.a === '#000' && parsed.dark.c === 'red', 'parseTokens dark', JSON.stringify(parsed.dark))
 
+  const lopsided = orphans({ a: '#fff', b: '#000', size: '1rem' }, { a: '#000', c: '#111' })
+  assert(
+    lopsided.length === 2 &&
+      lopsided.some((o) => o.pair === '--lg-b') &&
+      lopsided.some((o) => o.pair === '--lg-c'),
+    'orphans',
+    `expected b (root only) and c (dark only), not size; got ${JSON.stringify(lopsided)}`,
+  )
+  assert(orphans({ a: '#fff', size: '1rem' }, { a: '#000' }).length === 0, 'orphans ignore non-colour tokens', 'a theme-invariant token was reported')
+
   return failures
 }
 
@@ -292,6 +355,19 @@ function main(args) {
 
   const file = args.find((a) => !a.startsWith('--')) ?? TOKENS_CSS
   const { light, dark } = parseTokens(readFileSync(file, 'utf8'))
+
+  if (args.includes('--orphans')) {
+    const lost = orphans(light, dark)
+    if (lost.length) {
+      console.error(`\n${lost.length} token(s) declared in only one theme in ${file}:\n`)
+      for (const o of lost) console.error(`    ${o.pair.padEnd(28)} ${o.detail}`)
+      console.error('')
+      process.exit(1)
+    }
+    console.log(`orphans ok: light and dark declare the same ${Object.keys(dark).length} colour tokens`)
+    return
+  }
+
   const violations = [...check(light, 'light'), ...check(dark, 'dark')]
 
   if (violations.length) {
@@ -306,7 +382,9 @@ function main(args) {
     process.exit(1)
   }
 
-  const pairs = (TEXT_TOKENS.length * SURFACES.length + SIGNALS.length + SEPARATED_FROM_BRAND.length) * 2
+  const pairs =
+    (TEXT_TOKENS.length * SURFACES.length + SIGNALS.length + SEPARATED_FROM_BRAND.length) * 2 +
+    Object.values(REQUIRED).reduce((n, r) => n + Object.keys(r).length, 0)
   console.log(`contrast ok: ${pairs} checks across light and dark`)
 }
 
