@@ -1,8 +1,15 @@
 ---
 title: "How was this produced?"
-description: "A cache answers one question: has this been computed? It is designed to be thrown away, because everything in it can be computed again."
+description: "Why the record of how a result was made cannot be recomputed, and what Ligase writes down at the moment it still can."
 ---
 # How was this produced?
+
+<Lede>
+**Why keep a separate record, when the pipeline can just be run again?**
+Because it cannot. The aligner version installed that week and the machine
+it ran on do not come back, and a cache hit cannot tell you what produced
+the thing it is handing you.
+</Lede>
 
 A cache answers one question: *has this been computed?* It is designed to be
 thrown away, because everything in it can be computed again.

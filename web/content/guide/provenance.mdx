@@ -1,15 +1,24 @@
 ---
 title: "Writing up a pipeline"
-description: "ligase methods says how your results were produced, and --bundle packages that up so someone else can check it."
+description: "Generate the methods paragraph for a paper, package a reproducibility bundle, and verify one on another machine."
 ---
 # Writing up a pipeline
 
-`ligase methods` says how your results were produced, and
-`--bundle` packages that up so someone else can check it.
+<Lede>
+How to get the methods paragraph for your paper out of the pipeline that
+produced the results — naming every tool at the version it **actually ran
+at** — and how to package that so a reader can check it.
+</Lede>
 
-This guide uses the HIV-1 demo. If you have not fetched its data yet, see
-[installation](/start/installation/); every command below also works on a
-pipeline of your own.
+```bash
+ligase methods                      # the paragraph and the reference list
+ligase methods --bundle paper/      # package it for someone else
+ligase methods --verify paper/      # check a bundle against this machine
+```
+
+**Before you start:** a pipeline that runs. Every command below works on a
+pipeline of your own; the transcripts are from the HIV-1 demo. See
+[the CLI reference](/reference/cli/) for the flags.
 
 ## The methods paragraph
 

@@ -1,18 +1,28 @@
 ---
-title: "Reading what the engine noticed"
-description: "A run can succeed and still tell you something is wrong with what it produced. That is a note: a statement about an output that its hash cannot carry. There is one of them in"
+title: "Fixing a noticed line"
+description: "Your run succeeded but printed `noticed`. What that means, why it is not an error, and how to fix the one case v0.1 reports."
 ---
-# Reading what the engine noticed
+# Fixing a noticed line
 
-A run can succeed and still tell you something is wrong with what it
-produced. That is a **note**: a statement about an output that its hash
-cannot carry. There is one of them in v0.1, and it is the one that cost a
-reproducibility bundle its verification — a sample identifier that is a file
-name rather than a sample.
+<Lede>
+Your run succeeded, and printed a line beginning `noticed`. Nothing failed
+and nothing was refused — but something about an output is wrong, and the
+engine cannot tell whether you meant it.
+</Lede>
 
-This page is about recognising one and fixing it. For why the engine says it
-rather than refusing or repairing it, see
-[When a tool names a sample after a file](/concepts/notes/).
+There is one such note in v0.1, and it is worth fixing: **a sample named
+after a file rather than after a sample.** Left alone it is what costs a
+reproducibility bundle its verification.
+
+The fix, if you want it before the explanation:
+
+```bash
+samtools addreplacerg -r ID:sample01 -r SM:sample01 -o fixed.bam input.bam
+```
+
+This page is about recognising the note and fixing it. For why the engine
+says it rather than refusing or silently repairing it, see
+[when a tool names a sample after a file](/concepts/notes/).
 
 ## What it looks like
 

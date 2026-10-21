@@ -1,10 +1,14 @@
 ---
 title: "Pipelines and the graph"
-description: "A Ligase pipeline is a graph of steps, built from the signatures of decorated Python functions and checked before any of them runs."
+description: "How a graph gets built from functions nobody has called, and why that is what makes checking before computing possible."
 ---
 # Pipelines and the graph
 
-## What it is
+<Lede>
+**How can the engine check a pipeline it has not run?** Because calling a
+step does not run it. A step records the call and hands back a handle, so the
+whole graph exists before any of it computes.
+</Lede>
 
 A Ligase pipeline is a graph of steps, built from the *signatures* of
 decorated Python functions and checked before any of them runs.

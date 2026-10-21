@@ -1,15 +1,26 @@
 ---
-title: "Semantic hashing and ligase audit"
-description: "Semantic hashing needs nothing from you: it is how every step's inputs are hashed. This page is about seeing it work, and about the one command that asks a question it cannot"
+title: "Checking that a step repeats"
+description: "Why an unchanged result can have changed bytes, and how ligase audit tells you whether a step is actually reproducible."
 ---
-# Semantic hashing and `ligase audit`
+# Checking that a step repeats
 
-Semantic hashing needs nothing from you: it is how every step's inputs are
-hashed. This page is about seeing it work, and about the one command that
-asks a question it cannot answer on its own.
+<Lede>
+How to find out whether a step gives the same answer twice — and why a step
+whose **bytes** change every run can still be perfectly reproducible.
+</Lede>
 
-Everything below uses the reference demo. Fetch its data first if you have
-not:
+You do not have to switch semantic hashing on. It is how every step's inputs
+are already hashed, and it is why rerunning an aligner with a different
+thread count does not invalidate everything below it. This page is about
+seeing that happen, and about `ligase audit`, which answers the question
+hashing cannot: *does this step repeat?*
+
+```bash
+ligase audit align            # run `align` twice more and compare
+```
+
+**Before you start:** a pipeline that runs. The transcripts below come from
+the HIV-1 demo; with a source checkout you can reproduce them exactly:
 
 ```bash
 scripts/fetch_test_data.sh --project PRJNA517147

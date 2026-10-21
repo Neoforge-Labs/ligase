@@ -104,13 +104,11 @@ def write_meta(directory: Path, entries: list[tuple[str, str]], why: str) -> Non
 def main() -> int:
     """Generate every section's _meta.ts from the mkdocs nav."""
     sections = parse_nav()
-    # Only the sections whose order is still worth taking from mkdocs.yml.
-    # Reference, Start here and Project are new groupings with _meta files
-    # written by hand, and `Design` no longer exists: the dimension
-    # catalogue became reference material and the rest became project/.
+    # Architecture is the last section still ported wholesale from docs/, so
+    # it is the last whose order is worth taking from mkdocs.yml. Guides and
+    # Concepts are authored as MDX now and keep hand-written _meta files;
+    # Reference, Start here and Project are groupings mkdocs never had.
     label_to_dir = {
-        "Concepts": "concepts",
-        "Guide": "guide",
         "Architecture": "project/architecture",
     }
 

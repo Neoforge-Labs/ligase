@@ -1,22 +1,47 @@
 ---
-title: "Declaring and checking dimensions"
-description: "A runnable walkthrough. Every snippet below works against the project's own test data."
+title: "Declaring dimensions"
+description: "Declare what a file cannot say about itself, inspect what was inferred and where from, and read the errors when two inputs disagree."
 ---
-# Declaring and checking dimensions
+# Declaring dimensions
 
-A runnable walkthrough. Every snippet below works against the project's own
-test data.
+<Lede>
+Some things about a file can be read out of it, and some cannot. This is how
+to declare the rest, **once**, check what the loader worked out, and read the
+error when two inputs disagree.
+</Lede>
 
-## Setup
+The short version: `organism` and `build` are declared, because no FASTA
+records either. Everything else — contigs, naming style, coordinate
+convention, sample set — is read from the file, so you cannot declare it
+wrongly.
+
+```python
+import ligase as lg
+
+ref = lg.reference("refs/GRCh38.fasta", organism="human", build="GRCh38")
+aln = lg.alignment("aln/sample01.bam")
+
+lg.check_step("call", {"ref": ref, "aln": aln})   # silence means they agree
+```
+
+**Before you start:** [install it](/start/installation/), and have a
+reference and an alignment to hand. Any FASTA and any BAM will do; the
+snippets below name the HIV-1 demo's files because that is what the project
+tests against, but nothing on this page is specific to them.
+
+<Note kind="note" title="Using the project's own demo data">
+If you have a source checkout and want the exact files these snippets name:
 
 ```bash
 scripts/fetch_test_data.sh --project PRJNA1218827
 scripts/make_demo_alignment.sh
 ```
 
-The first fetches HXB2 (NCBI `K03455.1`) and four HIV-1 runs into a gitignored
-`data/`. The second aligns one run against HXB2 with minimap2 and writes
-`data/alignments/<run>.bam`. Both are idempotent.
+The first fetches HXB2 (NCBI `K03455.1`) and four HIV-1 runs into a
+gitignored `data/`; the second aligns one against HXB2 with minimap2. Both
+are idempotent. See [building Ligase](/project/building/) for the rest of a
+source setup.
+</Note>
 
 ## Loading data
 

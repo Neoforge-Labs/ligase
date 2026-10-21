@@ -1,10 +1,19 @@
 ---
 title: "Interpreting resistance"
-description: "A resistance step turns variant calls into a drug-by-drug report."
+description: "Turn HIV-1 variant calls into a drug-by-drug resistance report, and choose the mixture threshold deliberately."
 ---
 # Interpreting resistance
 
-A `resistance` step turns variant calls into a drug-by-drug report.
+<Lede>
+How to turn variant calls into a drug-by-drug resistance report — and how to
+choose the one parameter that will change your answer, the **mixture
+threshold**.
+</Lede>
+
+**Before you start:** variant calls against HXB2, in **whole-genome K03455
+coordinates**. A *pol*-relative reference is read as whole-genome and the
+gene windows land on the wrong genes, with no error — see
+[the SAWA evaluation](/project/in-use/sawa/).
 
 ```python
 import ligase as lg

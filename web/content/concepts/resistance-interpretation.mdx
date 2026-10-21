@@ -1,8 +1,15 @@
 ---
 title: "Resistance interpretation"
-description: "Every other part of Ligase is about keeping data straight. This is the one part that says what the data means: it takes variant calls against HXB2, works out which amino acids"
+description: "The one part of Ligase that interprets rather than checks, and why its rules are hashed by content instead of named by version."
 ---
 # Resistance interpretation
+
+<Lede>
+**Why does a framework about not interpreting your data ship an
+interpreter?** Because the reference pipeline has to end somewhere real — and
+because a clinical algorithm that changes under you is exactly the silent
+failure the rest of Ligase exists to catch.
+</Lede>
 
 Every other part of Ligase is about keeping data straight. This is the one
 part that says what the data *means*: it takes variant calls against HXB2,

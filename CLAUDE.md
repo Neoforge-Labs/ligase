@@ -78,10 +78,22 @@ validation, releasing and the project's own layout all belong under
 `project/`; a page a user needs never does. When adding a page, ask who is
 reading it before choosing where it goes.
 
-Until the switch, `web/scripts/port_docs.py` and `gen_meta.py` re-port `docs/`
-into `web/content/`, so writing the Markdown page is still the way in. After
-the switch, `docs/`, `mkdocs.yml`, the MkDocs entries in the `docs` extra and
-those two scripts all go, and the MDX becomes the source.
+**Which of the two is the source depends on the page.** The `guide/` and
+`concepts/` pages, `start/`, `silent-failures/`, `reference/errors.mdx` and
+`project/in-use/` are authored as MDX: they are listed in `MDX_NATIVE` or
+`SKIP` in `port_docs.py` and are *not* re-ported, because they link to
+sections MkDocs does not have — editing their `docs/` originals would break
+`mkdocs build --strict` and be overwritten anyway.
+
+Everything else — `project/architecture/`, `project/decisions.mdx`,
+`project/milestones.mdx`, `reference/dimensions.mdx` and the rest — still
+comes from `docs/` through `port_docs.py` and `gen_meta.py`, so for those the
+Markdown is the way in. If you are unsure which a page is, check whether
+`port_docs.py` writes it.
+
+After the switch, `docs/`, `mkdocs.yml`, the MkDocs entries in the `docs`
+extra and those two scripts all go, and the MDX becomes the source for
+everything.
 
 ### What the site generates rather than stores
 Never write these by hand; they are produced on every docs build and

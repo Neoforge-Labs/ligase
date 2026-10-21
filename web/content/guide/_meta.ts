@@ -1,13 +1,22 @@
 import type { MetaRecord } from 'nextra'
 
-// Order and titles taken from the Guide section of mkdocs.yml.
+/*
+ * One task per page, in the order someone meets them: write a pipeline,
+ * tell it what the files cannot say about themselves, run it, write it up,
+ * then the two things that come up once it is running, then the HIV-1
+ * interpreter.
+ *
+ * Hand-written rather than taken from mkdocs.yml: these pages are now
+ * authored as MDX, and several were retitled to name the task rather than
+ * the mechanism.
+ */
 const meta: MetaRecord = {
-  'declaring-dimensions': 'Declaring dimensions',
   'building-a-pipeline': 'Building a pipeline',
+  'declaring-dimensions': 'Declaring dimensions',
   'running-a-pipeline': 'Running a pipeline',
-  'semantic-hashing': 'Semantic hashing and auditing',
   provenance: 'Writing up a pipeline',
-  notes: 'Reading what the engine noticed',
+  'semantic-hashing': 'Checking that a step repeats',
+  notes: 'Fixing a noticed line',
   'resistance-interpretation': 'Interpreting resistance',
 }
 

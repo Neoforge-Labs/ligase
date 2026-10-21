@@ -1,6 +1,12 @@
 import type { MetaRecord } from 'nextra'
 
-// Order and titles taken from the Concepts section of mkdocs.yml.
+/*
+ * Explanation, in the order the ideas build on each other. Each page opens
+ * with the question it answers.
+ *
+ * Hand-written rather than taken from mkdocs.yml: these pages are now
+ * authored as MDX.
+ */
 const meta: MetaRecord = {
   'types-and-dimensions': 'Types and dimensions',
   pipelines: 'Pipelines and the graph',

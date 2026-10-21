@@ -1,10 +1,14 @@
 ---
 title: "Types and dimensions"
-description: "A Ligase dataset is not just a file path. It is a kind of biological data — reads, a reference, an alignment, variant calls — carrying the dimensions of what is inside it: which"
+description: "Why a file path is not enough to know whether two files belong together, and what a dimension is."
 ---
 # Types and dimensions
 
-## What this is
+<Lede>
+**Why can two valid files still not belong together?** Because a path tells
+you where a file is, not what is in it — and almost every expensive mistake
+in computational biology is two files that each look fine.
+</Lede>
 
 A Ligase dataset is not just a file path. It is a *kind* of biological data —
 reads, a reference, an alignment, variant calls — carrying the **dimensions**

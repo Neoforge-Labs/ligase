@@ -1,8 +1,14 @@
 ---
 title: "When a tool names a sample after a file"
-description: "Ligase drops a great deal from a file before hashing it. The command line minimap2 records, the timestamp bcftools writes beside its own — none of that is a result, so none of it"
+description: "Why the engine reports a wrong sample name instead of refusing it or quietly fixing it."
 ---
 # When a tool names a sample after a file
+
+<Lede>
+**Why does the engine tell me about this instead of fixing it?** Because the
+field is wrong and the data is fine, and a name is the one thing Ligase will
+not invent on your behalf.
+</Lede>
 
 Ligase drops a great deal from a file before hashing it. The command line
 `minimap2` records, the timestamp `bcftools` writes beside its own — none of

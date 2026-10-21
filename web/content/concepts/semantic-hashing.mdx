@@ -1,8 +1,14 @@
 ---
 title: "What a file means, and what bytes it holds"
-description: "A step reruns when something that could change its result has changed. The question \"has it changed?\" is answered by hashing, and hashing has to be asked about the right thing."
+description: "Why two files with different bytes can be the same result, and what gets dropped before an output is hashed."
 ---
 # What a file means, and what bytes it holds
+
+<Lede>
+**Why didn't anything downstream rerun, when the file clearly changed?**
+Because the file changed and the *result* did not. Tools write their own
+command line and the time of day into their output, and neither is a result.
+</Lede>
 
 A step reruns when something that could change its result has changed. The
 question "has it changed?" is answered by hashing, and hashing has to be

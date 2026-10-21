@@ -1,10 +1,14 @@
 ---
 title: "Running, and not running"
-description: "pipe.run() computes whatever is not already known. A step runs when something that could change its result has changed, and not otherwise:"
+description: "What decides whether a step reruns, why a changed input does not always propagate, and what the cache key is made of."
 ---
 # Running, and not running
 
-## What it is
+<Lede>
+**Why did that step rerun — or why didn't it?** A step runs when something
+that could change its result has changed, and not otherwise. What counts as
+"something" is the whole subject.
+</Lede>
 
 `pipe.run()` computes whatever is not already known. A step runs when
 something that could change its result has changed, and not otherwise:

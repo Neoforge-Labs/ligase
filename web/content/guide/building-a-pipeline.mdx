@@ -1,11 +1,24 @@
 ---
 title: "Building a pipeline"
-description: "Everything here runs today. Nothing in it executes a step: the whole point is to be told your pipeline is wrong before you wait for it."
+description: "Write steps, connect them into a graph, fan out over samples, and have the whole thing type-checked before any of it runs."
 ---
 # Building a pipeline
 
-Everything here runs today. Nothing in it executes a step: the whole point
-is to be told your pipeline is wrong before you wait for it.
+<Lede>
+How to write steps, connect them into a graph, fan the graph out over a
+cohort, and have all of it checked **before any of it runs**.
+</Lede>
+
+By the end you will have a pipeline you can hand to `ligase check`, and you
+will know what it tells you when something does not fit.
+
+Nothing on this page executes a step. That is deliberate and it is the whole
+point: a pipeline is built from the *signatures* of your functions, so the
+engine can tell you it is wrong in milliseconds rather than at hour six.
+
+**Before you start:** [install it](/start/installation/). If you have not
+written a Ligase pipeline before, the [quickstart](/start/quickstart/) is
+shorter and runs end to end on two files you create yourself.
 
 ## Write a step
 
