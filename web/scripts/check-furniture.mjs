@@ -19,10 +19,16 @@
  *   - body prose stays in the serif; the display face is for h1 and display
  *     titles only.
  *
+ * It also guards the components that carry the engine's voice (Diagnostic,
+ * RunReport, Note, Stats): that they number themselves as figures in a slot
+ * of their own, that no MDX call site lost the `note` text it passes, that
+ * the default callout is off the brand colour, and that print resets every
+ * token a panel is drawn with.
+ *
  * Usage:
  *   node scripts/check-furniture.mjs
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -246,6 +252,116 @@ assert(header.length > 0, 'globals.css must open with a header comment')
 assert(!/warm paper/i.test(raw), 'a comment still claims warm paper')
 assert(/near-black/i.test(header), 'the header comment must say the ground is near-black')
 assert(/cream/i.test(header), 'the header comment must say cream is kept for reading and printing')
+
+// --- Components: the engine's panels, numbered as figures ----------------
+
+const read = (rel) => readFileSync(join(root, rel), 'utf8')
+const stripComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '')
+
+function walk(dir, out = []) {
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name)
+    if (statSync(full).isDirectory()) walk(full, out)
+    else if (full.endsWith('.mdx')) out.push(full)
+  }
+  return out
+}
+// content/api, content/notebooks and the CLI page are generated and may be
+// absent; the hand-written pages are what carry the call sites.
+const mdx = walk(join(root, 'content')).map((f) => readFileSync(f, 'utf8'))
+
+const diagnosticCss = stripComments(read('components/Diagnostic.module.css'))
+const runReportCss = stripComments(read('components/RunReport.module.css'))
+const noteCss = stripComments(read('components/Note.module.css'))
+const statsCss = stripComments(read('components/Stats.module.css'))
+const diagnosticTsx = read('components/Diagnostic.tsx')
+const runReportTsx = read('components/RunReport.tsx')
+
+// The call sites' note text must survive untouched: the figure number gets a
+// slot of its own and never replaces what the page says produced the output.
+assert(
+  mdx.filter((f) => /note="ligase check — nothing ran"/.test(f)).length === 6,
+  'six pages must still pass note="ligase check — nothing ran" to <Diagnostic>',
+)
+assert(
+  mdx.some((f) => /note="nothing ran"/.test(f)),
+  'content/start/quickstart.mdx must still pass note="nothing ran"',
+)
+
+// FIG. gets its own slot, and RunReport gains a bar it did not have.
+assert(/:global\(\.lg-figure\)/.test(diagnosticCss), 'Diagnostic.module.css must position .lg-figure')
+assert(/:global\(\.lg-figure\)/.test(runReportCss), 'RunReport.module.css must position .lg-figure')
+assert(/counter-increment:\s*lg-figure/.test(css), 'globals.css must increment the lg-figure counter')
+for (const [name, tsx] of [
+  ['Diagnostic', diagnosticTsx],
+  ['RunReport', runReportTsx],
+]) {
+  assert(/figure\s*=\s*true/.test(tsx), `${name} must default figure to true`)
+  assert(/figure\?:\s*boolean/.test(tsx), `${name} must declare figure?: boolean`)
+  assert(/className="lg-figure"/.test(tsx), `${name} must render the global lg-figure class`)
+}
+assert(/\{note\s*\?/.test(diagnosticTsx), 'Diagnostic must still render its note')
+assert(
+  diagnosticTsx.indexOf('lg-figure') < diagnosticTsx.indexOf('styles.barLeft'),
+  'Diagnostic must put the figure label before .barLeft, at the start of the bar',
+)
+assert(/note\?:\s*ReactNode/.test(runReportTsx), 'RunReport must accept note?: ReactNode')
+assert(/styles\.bar\b/.test(runReportTsx), 'RunReport must render a bar')
+assert(
+  has(rules(runReportCss, '.bar'), /border-bottom:\s*1px solid var\(--lg-rule\)/),
+  'the RunReport bar must be ruled off from its body like the Diagnostic bar',
+)
+
+// Panels are plates: a raised sheet inside a hairline frame.
+for (const [name, text] of [
+  ['Diagnostic', diagnosticCss],
+  ['RunReport', runReportCss],
+]) {
+  const panel = rules(text, '.panel')
+  assert(has(panel, /background:\s*var\(--lg-paper-raised\)/), `${name} .panel must sit on --lg-paper-raised`)
+  assert(has(panel, /border:\s*1px solid var\(--lg-rule\)/), `${name} .panel must have a 1px --lg-rule frame`)
+  assert(has(panel, /border-radius:\s*var\(--lg-radius-lg\)/), `${name} .panel must use --lg-radius-lg`)
+}
+
+// Review focus: the default callout is no longer on brand, in any property.
+const noteKindRules = [
+  ...noteCss.matchAll(/([^{}]*\[data-kind=['"]note['"]\][^{}]*)\{([^{}]*)\}/g),
+]
+assert(noteKindRules.length >= 2, "Note.module.css must style [data-kind='note'] and its label")
+for (const [, sel, body] of noteKindRules) {
+  assert(!/--lg-brand/.test(body), `Note rule "${sel.trim()}" must not use the brand colour`)
+}
+const noteRule = noteKindRules.find(([, sel]) => !/\.label/.test(sel))?.[2] ?? ''
+assert(/--lg-rule-strong/.test(noteRule), "Note kind='note' must have a --lg-rule-strong rule")
+assert(/background:\s*var\(--lg-paper-sunken\)/.test(noteRule), "Note kind='note' must sit on --lg-paper-sunken")
+assert(/color:\s*var\(--lg-ink\)/.test(noteRule), "Note kind='note' must set --lg-ink text")
+for (const kind of ['warning', 'tip', 'caution']) {
+  assert(
+    new RegExp(`\\[data-kind=['"]${kind}['"]\\][^{}]*\\{[^{}]*--lg-(refuse|agree|notice)\\b`).test(noteCss),
+    `Note kind='${kind}' must keep its signal colour`,
+  )
+}
+
+// Stats: measured figures in the display face, still tabular so they align.
+const statValue = rules(statsCss, '.value')
+assert(has(statValue, /font-family:\s*var\(--lg-font-display\)/), 'Stats .value must use the display face')
+assert(has(statValue, /font-weight:\s*300/), 'Stats .value must be weight 300')
+assert(has(statValue, /tabular-nums/), 'Stats .value must keep tabular-nums')
+
+// Print: every token a panel is drawn with must be reset, not only the neutrals.
+for (const family of ['refuse', 'agree', 'notice']) {
+  for (const suffix of ['', '-soft', '-rule']) {
+    assert(
+      new RegExp(`--lg-${family}${suffix}:\\s*#`).test(printCss),
+      `print must reset --lg-${family}${suffix}`,
+    )
+  }
+}
+assert(
+  !/hue of its own except the grain/.test(header),
+  'the header comment must not say the grain picks a hue',
+)
+assert(!/grain[^.]*brand orange/i.test(header), 'the grain is noise, not brand orange')
 
 if (failures.length) {
   console.error(`check-furniture: ${failures.length} failure(s)`)

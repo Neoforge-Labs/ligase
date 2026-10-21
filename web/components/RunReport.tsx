@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import styles from './RunReport.module.css'
 
 /*
@@ -8,7 +9,11 @@ import styles from './RunReport.module.css'
  * its own column and its own colour, and the timings sit right-aligned where
  * they can be compared down the column instead of read as prose.
  *
- * As with Diagnostic, the text is the engine's own, verbatim.
+ * As with Diagnostic, the text is the engine's own, verbatim, and the panel
+ * carries the same bar: a `FIG. NN` label on the left and, optionally, a note
+ * on the right saying what produced it. A report with neither renders no bar
+ * at all, so the figure number is opt-out rather than something every
+ * transcript has to be edited to receive.
  */
 
 const STATUSES = ['ran', 'cached', 'skipped', 'noticed', 'failed'] as const
@@ -58,12 +63,30 @@ function subject(text: string) {
   )
 }
 
-export function RunReport({ children }: { children: string }) {
+export type RunReportProps = {
+  /** The engine's output, verbatim. */
+  children: string
+  /** What produced it, shown at the right of the panel's bar. */
+  note?: ReactNode
+  /**
+   * Number the panel as a figure, `FIG. NN`, counted in CSS and shared with
+   * `Diagnostic` so the two never number against each other. Defaults to true.
+   */
+  figure?: boolean
+}
+
+export function RunReport({ children, note, figure = true }: RunReportProps) {
   const raw = typeof children === 'string' ? children.replace(/\n+$/, '') : ''
   const lines = parse(raw)
 
   return (
     <div className={styles.panel} role="group" aria-label="Run report">
+      {figure || note ? (
+        <div className={styles.bar}>
+          {figure ? <span className="lg-figure" aria-hidden="true" /> : null}
+          {note ? <span className={styles.note}>{note}</span> : null}
+        </div>
+      ) : null}
       <div className={styles.body}>
         {lines.map((line, i) => {
           switch (line.kind) {

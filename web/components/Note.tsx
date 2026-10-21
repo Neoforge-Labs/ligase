@@ -2,8 +2,10 @@ import type { ReactNode } from 'react'
 import styles from './Note.module.css'
 
 /*
- * The callout, in the four kinds the old site used — which map onto the four
- * signal colours rather than onto a generic info/warning pair.
+ * The callout, in the four kinds the old site used. Warning, tip and caution
+ * map onto the refuse, agree and notice signal colours; the default `note` is
+ * deliberately neutral, so the most common callout on the site does not
+ * compete with links and `ran` lines for the brand colour.
  *
  * Titled by default: every admonition in the ported docs had a title, and
  * they are good titles, so they are set as the first thing you read.

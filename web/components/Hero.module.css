@@ -5,13 +5,15 @@
   padding-bottom: 2.2rem;
 }
 
-/* Status, set in mono so it reads as a fact rather than a badge. */
+/* Status, set in mono so it reads as a fact rather than a badge. The same
+   10px, 0.28em, brand-orange eyebrow as `.lg-eyebrow` and the section
+   markers; this module cannot take the global class, so it restates it. */
 .eyebrow {
   font-family: var(--lg-font-mono) !important;
-  font-size: 0.74rem !important;
-  letter-spacing: 0.06em;
+  font-size: 10px !important;
+  letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: var(--lg-ink-faint);
+  color: var(--lg-brand);
   margin: 0 0 1.1rem !important;
   display: flex;
   gap: 1.1ch;
@@ -19,12 +21,15 @@
   align-items: center;
 }
 
+/* The display face at its lightest weight, as `.lg-display` and the h1 are.
+   The tracking is the display face's -0.02em: the old -0.038em was drawn for
+   a heavy grotesque and would close Playfair's counters up. */
 .title {
-  font-family: var(--lg-font-ui);
+  font-family: var(--lg-font-display);
   font-size: clamp(2.35rem, 1.5rem + 3.2vw, 3.65rem) !important;
-  font-weight: 680;
-  letter-spacing: -0.038em !important;
-  line-height: 1.04 !important;
+  font-weight: 300;
+  letter-spacing: -0.02em !important;
+  line-height: 1.08 !important;
   margin: 0 0 1.1rem !important;
   max-width: 24ch;
   border-top: none !important;
@@ -96,19 +101,19 @@
 
 .bandLabel {
   font-family: var(--lg-font-mono) !important;
-  font-size: 0.7rem !important;
-  font-weight: 500;
-  letter-spacing: 0.1em;
+  font-size: 11px !important;
+  font-weight: 400;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--lg-ink-faint);
+  color: var(--lg-ink-muted);
   margin: 0 0 0.5rem !important;
 }
 
 .bandTitle {
-  font-family: var(--lg-font-ui);
-  font-size: 1.75rem !important;
-  font-weight: 650;
-  letter-spacing: -0.028em !important;
+  font-family: var(--lg-font-display);
+  font-size: 1.9rem !important;
+  font-weight: 300;
+  letter-spacing: -0.02em !important;
   line-height: 1.16 !important;
   margin: 0 0 1rem !important;
   max-width: 34ch;
