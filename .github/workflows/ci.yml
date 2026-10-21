@@ -152,10 +152,10 @@ jobs:
         env:
           LIGASE_DEMO_REQUIRED: "1"
 
-  # There is no `docs` job here. Both sites are built by workflows of their
-  # own, on the same triggers, by jobs that install what their generators
-  # need: `docs.yml` for the MkDocs site and `web.yml` for the Nextra one.
-  # A copy here was a second, under-provisioned build of the same thing.
+  # There is no `docs` job here. The site is built, link-checked and deployed
+  # by `web.yml`, on the same triggers, by a job that installs what its
+  # generators need. A copy here was a second, under-provisioned build of the
+  # same thing.
 
   shell:
     name: shell (shellcheck)
