@@ -90,6 +90,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `Step.output` and `Step.parameters` are documented. Both are public and
   neither appeared in `Step`'s `Attributes:` section; the new API generator
   refused to build until they did, which is the point of it.
+- **The guide and concept pages open with the reader rather than the
+  project.** Fourteen of them began by reporting project status — "Everything
+  here runs today" — where a reader wants to know what the page lets them do.
+  Each guide now states the task, the outcome and the prerequisites; each
+  concept opens with the question it answers. The bodies are almost untouched.
+  "Declaring and checking dimensions" also began by telling the reader to run
+  a repository script they would not have if they installed from PyPI, so its
+  walkthrough was unrunnable from a wheel; "Semantic hashing and `ligase
+  audit`" and "Reading what the engine noticed" were named after mechanisms
+  and are now "Checking that a step repeats" and "Fixing a noticed line".
+  These fourteen are the first pages whose MDX is the source rather than
+  `docs/`.
 - **The new site is organised by what a reader is doing, not by how the
   project is built.** Milestones, design decisions, internals, the project
   layout, the validation record and the release process all sat in a reader's
