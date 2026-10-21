@@ -87,7 +87,12 @@ if (files.length === 0) {
 const pages = new Map()
 for (const file of files) {
   const html = await readFile(file, 'utf8')
+  // A redirect stub left by write-redirects.mjs. It is not a page: it has no
+  // heading and nothing links to it on purpose, so the page rules below would
+  // all misfire. What it does need is a target that exists.
+  const redirect = /<html[^>]*\bdata-redirect-to="([^"]+)"/.exec(html)?.[1]
   pages.set(routeOf(file), {
+    redirect,
     file,
     html,
     ids: new Set([
@@ -110,6 +115,16 @@ const problems = []
 const linkedTo = new Set(['/'])
 
 for (const [route, page] of pages) {
+  if (page.redirect) {
+    // Checked as a redirect, not crawled as a page.
+    if (!pages.has(page.redirect)) {
+      problems.push(`${route}  redirects to ${page.redirect} -> no page there`)
+    } else {
+      linkedTo.add(page.redirect)
+    }
+    continue
+  }
+
   // --- links -------------------------------------------------------------
   for (const href of page.links) {
     if (!href || href.startsWith('#')) {
@@ -163,8 +178,8 @@ for (const [route, page] of pages) {
 // The mkdocs equivalent was a page missing from the nav. Nextra already fails
 // the build when _meta names a page that does not exist; this is the other
 // direction -- a page that exists and that nothing reaches.
-for (const route of pages.keys()) {
-  if (NOT_LINKED.has(route)) continue
+for (const [route, page] of pages) {
+  if (NOT_LINKED.has(route) || page.redirect) continue
   if (!linkedTo.has(route)) {
     problems.push(`${route}  exists but nothing links to it, and it is in no nav`)
   }
@@ -177,6 +192,10 @@ if (problems.length) {
   process.exit(1)
 }
 
+const stubs = [...pages.values()].filter((p) => p.redirect).length
 const anchors = [...pages.values()].reduce((n, p) => n + p.ids.size, 0)
 const links = [...pages.values()].reduce((n, p) => n + p.links.length, 0)
-console.log(`links ok: ${pages.size} pages, ${links} links, ${anchors} anchors checked`)
+console.log(
+  `links ok: ${pages.size - stubs} pages, ${links} links, ${anchors} anchors, ` +
+    `${stubs} redirects checked`,
+)

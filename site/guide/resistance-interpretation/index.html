@@ -518,7 +518,7 @@
   <span class="md-ellipsis">
     
   
-    What a result rests on
+    When a tool names a sample after a file
   
 
     
@@ -1265,34 +1265,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/notes/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Notes
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../architecture/provenance/" class="md-nav__link">
         
   
@@ -1709,59 +1681,10 @@ the same number.</p>
 is nothing to translate without the sequence those positions sit in.
 Passing it also puts it under <code>check()</code>, so interpreting one sample's
 calls against another organism's reference is refused before anything runs.</p>
-<p><strong>The alignment</strong> is needed for coverage and for phasing. Leave it out and
-two things happen:</p>
-<ul>
-<li>every position the caller did not report is taken to be reference, which
-  turns a sequencing dropout into a susceptible result; and</li>
-<li>a codon with two ambiguous bases is read as every combination of them,
-  including combinations no read carries.</li>
-</ul>
-<p>The reading says so, in a <a href="../notes/">note</a> the run report prints and
-<code>pipe.run()</code> carries on the step:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="go">noticed   `resistance` (sample SRR8525904): no alignment was supplied, so coverage is unknown, no codon can be phased, and every position the caller did not report is taken to be reference</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="go">          Pass the alignment — `coverage=aln` — so uncalled positions are reported as unread rather than as reference.</span>
-</code></pre></div>
-<p>Not in the report file, because the report cannot show it: its <code>unread</code>
-column is empty when nothing is <em>known</em> to be unread, which is exactly
-what a fully covered sample looks like.</p>
-<p>With the alignment the hedges that remain are about the coverage you
-actually have — a gene nobody sequenced deeply enough, a gene only partly
-read, a codon no read spans — and they arrive the same way. <a href="../notes/">Reading what
-the engine noticed</a> is about all of them.</p>
-<p>The second one is why the reference demo passes <code>coverage=aln</code> even though
-the parameter is optional. With the alignment, reads spanning a codon are
-counted as the triplets they actually carry:</p>
-<table>
-<thead>
-<tr>
-<th>At a 2% threshold, RT codon 219 of Sample 3</th>
-<th>Reads</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>AAA</code> — K</td>
-<td>54%</td>
-</tr>
-<tr>
-<td><code>GAA</code> — E</td>
-<td>45%</td>
-</tr>
-<tr>
-<td><code>AGA</code> — R</td>
-<td>0.2%</td>
-</tr>
-<tr>
-<td><code>GGA</code> — G</td>
-<td>0.2%</td>
-</tr>
-</tbody>
-</table>
-<p>Without the alignment all four are reported, because the caller credits G
-at 3204 in 43% of the reads and at 3205 in 2.4%, and the combinations of
-those are all four codons. With it the codon reads <code>K219KE</code>, which is what
-Stanford's own report for that sample says.</p>
+<p><strong>The alignment</strong> is needed for coverage. Leave it out and every position
+the caller did not report is taken to be reference — which turns a
+sequencing dropout into a susceptible result. You can leave it out; the
+report will say in a note that it made that assumption.</p>
 <h2 id="thresholds">Thresholds<a class="headerlink" href="#thresholds" title="Permanent link">&para;</a></h2>
 <p>Two separate numbers, because they answer different questions.</p>
 <table>
@@ -1788,11 +1711,6 @@ Stanford's own report for that sample says.</p>
 <p>Keep <code>min_freq</code> low and set <code>mixture</code> to the threshold you are willing to
 act on. The published results Ligase is validated against use 2%, 5% and
 15%, and the default is 0.15.</p>
-<p><code>mixture</code> is applied twice, to the two kinds of evidence: to an allele's
-share of the reads at its own position, as the caller counted them, and
-then to an amino acid's share of the reads that span its whole codon. The
-first says which alleles are there, the second which combinations of them
-are real.</p>
 <p>The difference is not academic. On Sample 3 of PRJNA1218827:</p>
 <table>
 <thead>
@@ -1816,16 +1734,16 @@ are real.</p>
 difference between "this regimen is fine" and "most of this class is
 already lost".</p>
 <h2 id="choosing-an-algorithm">Choosing an algorithm<a class="headerlink" href="#choosing-an-algorithm" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">lg</span><span class="o">.</span><span class="n">hivdb</span><span class="o">.</span><span class="n">ALGORITHMS</span>      <span class="c1"># ('HIVDB_10.2', 'HIVDB_9.8')</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">lg</span><span class="o">.</span><span class="n">hivdb</span><span class="o">.</span><span class="n">DEFAULT</span>         <span class="c1"># 'HIVDB_9.8'</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">lg</span><span class="o">.</span><span class="n">hivdb</span><span class="o">.</span><span class="n">fingerprint</span><span class="p">()</span>   <span class="c1"># what goes in the cache key</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">lg</span><span class="o">.</span><span class="n">hivdb</span><span class="o">.</span><span class="n">ALGORITHMS</span>      <span class="c1"># ('HIVDB_10.2', 'HIVDB_9.8')</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">lg</span><span class="o">.</span><span class="n">hivdb</span><span class="o">.</span><span class="n">DEFAULT</span>         <span class="c1"># 'HIVDB_9.8'</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">lg</span><span class="o">.</span><span class="n">hivdb</span><span class="o">.</span><span class="n">fingerprint</span><span class="p">()</span>   <span class="c1"># what goes in the cache key</span>
 </code></pre></div>
 <p>The default is the <em>older</em> of the two, deliberately: it is the version the
 published results in <code>tests/test_validation.py</code> were produced with, and a
 default that disagreed with the suite's own reference answers would make
 every validation run an argument about algorithm drift. Name
 <code>algorithm="HIVDB_10.2"</code> for the current science.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">return</span> <span class="n">lg</span><span class="o">.</span><span class="n">hivdb</span><span class="o">.</span><span class="n">interpret</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span> <span class="n">coverage</span><span class="o">=</span><span class="n">aln</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="s2">"HIVDB_10.2"</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">return</span> <span class="n">lg</span><span class="o">.</span><span class="n">hivdb</span><span class="o">.</span><span class="n">interpret</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span> <span class="n">coverage</span><span class="o">=</span><span class="n">aln</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="s2">"HIVDB_10.2"</span><span class="p">)</span>
 </code></pre></div>
 <p>Changing it reruns <code>resistance</code> and nothing above it, and the methods
 paragraph reports which one was used.</p>

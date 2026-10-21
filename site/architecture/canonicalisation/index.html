@@ -18,7 +18,7 @@
         <link rel="prev" href="../cache/">
       
       
-        <link rel="next" href="../notes/">
+        <link rel="next" href="../provenance/">
       
       
         
@@ -518,7 +518,7 @@
   <span class="md-ellipsis">
     
   
-    What a result rests on
+    When a tool names a sample after a file
   
 
     
@@ -1398,34 +1398,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../notes/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Notes
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../provenance/" class="md-nav__link">
         
   
@@ -2214,7 +2186,7 @@ travel without being recomputed:</p>
 </tr>
 <tr>
 <td><code>bundle</code></td>
-<td>A <code>notes.tsv</code> table, a <em>What was noticed</em> section in the README, and, for the notes that can explain a hash that moved, <code>Verification::noticed</code> from the run being checked.</td>
+<td>A <code>notes.tsv</code> table, a <em>What will not travel</em> section in the README, and <code>Verification::noticed</code> from the run being checked.</td>
 </tr>
 </tbody>
 </table>
@@ -2224,12 +2196,11 @@ on the second would be worse than no warning. That is the one cost: the
 cache's <code>SCHEMA_VERSION</code> moved to 2 for the new column, which clears its
 tables. <code>CANON_VERSION</code> did not move, because nothing about what is hashed
 changed.</p>
-<p>Canonicalisation is not the only thing that finds a note. A step's body
-says what its own work rested on, which no reading of the output could
-recover, and those notes travel the same way — stored against the step's
-key rather than the output's hash, since they are not facts about its
-bytes. The <code>Note</code> type itself, both producers and every surface a note
-reaches are in <a href="../notes/">Notes</a>.</p>
+<p>A note's <code>code()</code> is spelled out rather than derived from the enum, because
+it is written into a cache, a provenance database and a bundle a reviewer
+may read next year; <code>Note::parse</code> returns <code>None</code> for a code it does not
+know, so a store written by a later engine is read as far as it can be
+rather than rejected.</p>
 <h2 id="what-it-costs-and-why-it-is-paid-once">What it costs, and why it is paid once<a class="headerlink" href="#what-it-costs-and-why-it-is-paid-once" title="Permanent link">&para;</a></h2>
 <p>Canonicalising a BAM is a full pass over it. Doing that on every run would
 be the one thing that makes this unaffordable, so it is remembered:</p>

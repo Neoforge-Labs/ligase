@@ -520,7 +520,7 @@
   <span class="md-ellipsis">
     
   
-    What a result rests on
+    When a tool names a sample after a file
   
 
     
@@ -612,15 +612,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#four-judgements-all-made-the-same-way" class="md-nav__link">
+  <a href="#three-judgements-all-made-the-same-way" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Four judgements, all made the same way
+        Three judgements, all made the same way
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Four judgements, all made the same way">
+    <nav class="md-nav" aria-label="Three judgements, all made the same way">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -628,17 +628,6 @@
     <span class="md-ellipsis">
       
         A mixture is every amino acid it could be
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#a-codon-is-only-the-combinations-the-reads-carry" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        A codon is only the combinations the reads carry
       
     </span>
   </a>
@@ -1304,34 +1293,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/notes/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Notes
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../architecture/provenance/" class="md-nav__link">
         
   
@@ -1651,15 +1612,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#four-judgements-all-made-the-same-way" class="md-nav__link">
+  <a href="#three-judgements-all-made-the-same-way" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Four judgements, all made the same way
+        Three judgements, all made the same way
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Four judgements, all made the same way">
+    <nav class="md-nav" aria-label="Three judgements, all made the same way">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1667,17 +1628,6 @@
     <span class="md-ellipsis">
       
         A mixture is every amino acid it could be
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#a-codon-is-only-the-combinations-the-reads-carry" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        A codon is only the combinations the reads carry
       
     </span>
   </a>
@@ -1786,7 +1736,7 @@ version number. Upstream publishes corrections under near-identical names
 (<code>HIVDB_10.0</code> and <code>HIVDB_10.0-1</code> both exist), and a key that moved only
 with the name would happily serve a result computed under rules that have
 since changed.</p>
-<h2 id="four-judgements-all-made-the-same-way">Four judgements, all made the same way<a class="headerlink" href="#four-judgements-all-made-the-same-way" title="Permanent link">&para;</a></h2>
+<h2 id="three-judgements-all-made-the-same-way">Three judgements, all made the same way<a class="headerlink" href="#three-judgements-all-made-the-same-way" title="Permanent link">&para;</a></h2>
 <p>An interpretation can be wrong in two directions, and they are not
 equally bad. Reporting resistance that is not there costs a patient a drug
 they could have taken. Reporting <em>susceptibility</em> that is not there costs
@@ -1800,30 +1750,10 @@ satisfied if any of them satisfies it.</p>
 majority base would discard the minority virus — which is the entire
 reason anyone sequences deeply, and which in practice is where resistance
 shows up first.</p>
-<h3 id="a-codon-is-only-the-combinations-the-reads-carry">A codon is only the combinations the reads carry<a class="headerlink" href="#a-codon-is-only-the-combinations-the-reads-carry" title="Permanent link">&para;</a></h3>
-<p>A mixture at two bases of one codon is where the first judgement could go
-wrong on its own. A VCF says what is at each position, not what travels
-together, so enumerating the combinations of two ambiguous bases invents
-codons no read carries.</p>
-<p>On Sample 3 of PRJNA1218827 the caller credits G at the first base of RT
-codon 219 in 43% of the reads there and at the second base in 2.4%. At a
-2% threshold both pass, and the four combinations spell lysine, arginine,
-glutamate and glycine — where the reads spanning the whole codon carry two
-of them: <code>AAA</code> in 54% of themselves and <code>GAA</code> in 45%. The other two are
-under two tenths of a per cent each.</p>
-<p>So the alignment settles it. Reads spanning all three bases are counted as
-the triplets they carry, and the codon holds the amino acids whose share
-of those reads reaches the mixture threshold. Two rules keep this from
-going wrong in the other direction:</p>
-<ul>
-<li><strong>Phasing narrows a reading and never widens one.</strong> What is <em>present</em> at
-  a position stays the caller's judgement, which weighs base quality; the
-  reads only decide which combinations of called alleles are real.</li>
-<li><strong>A codon no read spans keeps its per-base reading</strong>, noted rather than
-  dropped or guessed at — see
-  <a href="../../decisions/#d31-a-codon-no-read-spans-keeps-its-per-base-reading">D31</a>,
-  which also says how far that note is visible today.</li>
-</ul>
+<p>The cost is real and worth naming: a codon is assembled from a VCF, which
+carries no phasing. Where two bases of one codon are each ambiguous, the
+combinations are enumerated, and some of those codons may be carried by no
+actual read. See <a href="../validation/#what-disagrees-and-why">the known discrepancies</a>.</p>
 <h3 id="a-position-that-was-not-read-is-not-a-wild-type-position">A position that was not read is not a wild-type position<a class="headerlink" href="#a-position-that-was-not-read-is-not-a-wild-type-position" title="Permanent link">&para;</a></h3>
 <p><code>bcftools</code> writes only the sites it has something to say about. A position
 missing from a VCF is therefore ambiguous between "agrees with the
@@ -1833,20 +1763,10 @@ meanings.</p>
 covered to the required depth is <strong>unread</strong>, not reference, and a drug
 whose rules mention an unread position reports its score as a floor rather
 than as an answer, naming the positions it could not see.</p>
-<p>Without an alignment nothing can be known about coverage, and the reading
-says so in a <a href="../notes/">note</a> rather than assuming quietly. That assumption
-has a direction — it manufactures susceptible results out of dropouts — and
-the one thing it must never be is silent. The report itself cannot say it,
-since a report with nothing <em>known</em> to be unread looks exactly like one
-that was fully covered, so the step hands the note to the engine and the
-engine says it: in the run report, in provenance, in a bundle and in the
-methods section
-(<a href="../../decisions/#d32-a-step-says-what-its-own-work-rested-on">D32</a>).</p>
-<p>The hedges a reading makes <em>with</em> an alignment travel the same way. A gene
-no codon of which reached the depth asked for, a gene only partly read, and
-codons no read spans all three bases of are each the difference between a
-score and a floor, and each is said rather than left for someone to infer
-from an <code>unread</code> column.</p>
+<p>Without an alignment nothing can be known about coverage, and the report
+says so in a note rather than assuming quietly. That assumption has a
+direction — it manufactures susceptible results out of dropouts — and the
+one thing it must never be is silent.</p>
 <p>The test that pins this is a no-template control. Sixty of its
 thirty-two thousand reads map to HXB2. A pipeline that read "no variant
 called" as "agrees with the reference" would report a tube of water as

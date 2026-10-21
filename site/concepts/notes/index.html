@@ -29,7 +29,7 @@
     
     
       
-        <title>What a result rests on - Ligase</title>
+        <title>When a tool names a sample after a file - Ligase</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#what-a-result-rests-on" class="md-skip">
+        <a href="#when-a-tool-names-a-sample-after-a-file" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              What a result rests on
+              When a tool names a sample after a file
             
           </span>
         </div>
@@ -529,7 +529,7 @@
   <span class="md-ellipsis">
     
   
-    What a result rests on
+    When a tool names a sample after a file
   
 
     
@@ -547,7 +547,7 @@
   <span class="md-ellipsis">
     
   
-    What a result rests on
+    When a tool names a sample after a file
   
 
     
@@ -621,28 +621,6 @@
     <span class="md-ellipsis">
       
         What counts as a file
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-assumption-only-the-step-can-see" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The assumption only the step can see
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-a-note-and-not-a-column" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why a note and not a column
       
     </span>
   </a>
@@ -1298,34 +1276,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/notes/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Notes
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../architecture/provenance/" class="md-nav__link">
         
   
@@ -1689,28 +1639,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-assumption-only-the-step-can-see" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The assumption only the step can see
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-a-note-and-not-a-column" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why a note and not a column
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#where-to-go-next" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1741,31 +1669,14 @@
   
 
 
-<h1 id="what-a-result-rests-on">What a result rests on<a class="headerlink" href="#what-a-result-rests-on" title="Permanent link">&para;</a></h1>
-<p>A run can succeed and still have something worth saying about what it
-produced. That is a <strong>note</strong>: a statement about an output that its hash
-cannot carry, printed beside the result and never instead of it. A note is
-not an error. The step ran, its output is in the store, and the run
-succeeded.</p>
-<p>Two things put one there, and they look for different kinds of trouble.</p>
-<ul>
-<li><strong>Reading the output</strong> finds a field that cannot be dropped and is still
-  wrong — a sample identifier that is a file name rather than a sample.</li>
-<li><strong>The step that wrote it</strong> says what its work rested on, which no reading
-  of the file could recover: a resistance reading made without coverage
-  takes every position the caller did not report to be reference, and the
-  report it writes looks exactly like one that had full coverage.</li>
-</ul>
-<p>Both end up in the same place, because to a reader they are the same
-question: what should I know about this result that the number does not
-say?</p>
-<h2 id="the-field-that-cannot-be-dropped">The field that cannot be dropped<a class="headerlink" href="#the-field-that-cannot-be-dropped" title="Permanent link">&para;</a></h2>
+<h1 id="when-a-tool-names-a-sample-after-a-file">When a tool names a sample after a file<a class="headerlink" href="#when-a-tool-names-a-sample-after-a-file" title="Permanent link">&para;</a></h1>
 <p>Ligase drops a great deal from a file before hashing it. The command line
 <code>minimap2</code> records, the timestamp <code>bcftools</code> writes beside its own — none of
 that is a result, so none of it is part of what a file
 <a href="../semantic-hashing/">means</a>. The rule that makes this safe is simple: drop
 what says <em>when and how</em> a file was made, keep what says <em>what is in it</em>.</p>
 <p>Some fields fall on the wrong side of that line and are still wrong.</p>
+<h2 id="the-field-that-cannot-be-dropped">The field that cannot be dropped<a class="headerlink" href="#the-field-that-cannot-be-dropped" title="Permanent link">&para;</a></h2>
 <p>A VCF names its samples on the <code>#CHROM</code> line, in the columns the genotypes
 line up with:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>#CHROM  POS  ID  REF  ALT  QUAL  FILTER  INFO  FORMAT  SRR8525904
@@ -1847,57 +1758,6 @@ when it:</p>
 </ul>
 <p>So <code>K03455.1</code> has a dot and is not a file. <code>SRR8525904</code>, <code>sample_a</code> and
 <code>patient-04</code> have neither, and nothing is said about them.</p>
-<h2 id="the-assumption-only-the-step-can-see">The assumption only the step can see<a class="headerlink" href="#the-assumption-only-the-step-can-see" title="Permanent link">&para;</a></h2>
-<p>The other kind of note is not in the file at all, and no amount of reading
-one would find it.</p>
-<p><code>bcftools call -mv</code> writes only the sites it called a variant at. A position
-missing from a VCF is therefore ambiguous between two things with opposite
-clinical meanings: the sample agrees with the reference, which is a
-susceptible result, or nothing aligned there, which is no result at all.
-Resolving that towards the first manufactures susceptible calls out of
-dropouts, which is the thing
-<a href="../../decisions/#d29-an-interpretation-never-invents-a-susceptible-result">D29</a>
-exists to refuse.</p>
-<p>So <a href="../resistance-interpretation/">resistance interpretation</a> reads the
-alignment for coverage where it is given. Where it is not, it has to assume
-something, and the assumption it makes has a direction — and here is the
-problem the note solves. <strong>The report cannot say so.</strong> Its <code>unread</code> column
-is empty when nothing is known to be unread, which is exactly what a
-perfectly covered sample's report looks like. Two runs, one with full
-coverage and one with no coverage at all, can come out byte for byte the
-same.</p>
-<p>Nothing downstream can recover the difference, so the step that knows says
-it, and the engine carries it
-(<a href="../../decisions/#d32-a-step-says-what-its-own-work-rested-on">D32</a>):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="gp">$ </span>ligase<span class="w"> </span>run
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="go">ran       `resistance` (sample SRR8525904)   1.2s</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="go">noticed   `resistance` (sample SRR8525904): no alignment was supplied, so coverage is unknown, no codon can be phased, and every position the caller did not report is taken to be reference</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="go">          Pass the alignment — `coverage=aln` — so uncalled positions are reported as unread rather than as reference.</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="go">3 steps: 3 ran.</span>
-</code></pre></div>
-<p>The same channel carries the hedges a reading makes <em>with</em> an alignment,
-which are the ones a real sample usually produces: a gene no codon of which
-reached the depth asked for, a gene only partly read, and codons no read
-spans all three bases of, which are read base by base and can name a
-mutation no single read carries
-(<a href="../../decisions/#d31-a-codon-no-read-spans-keeps-its-per-base-reading">D31</a>).</p>
-<p>Each of those is the difference between a score and a floor, which is a
-clinical distinction. None of them changes a result: a note never does.</p>
-<h2 id="why-a-note-and-not-a-column">Why a note and not a column<a class="headerlink" href="#why-a-note-and-not-a-column" title="Permanent link">&para;</a></h2>
-<p>A column in the report would travel with the file, which is a real
-advantage, and it was not chosen for two reasons.</p>
-<p>The report's columns are part of what a report <em>is</em> — the canonical hash
-keeps the header as a row — so adding one changes every report's hash and
-makes a comparison against Stanford's own reports harder to read, which is
-what <a href="../validation/">validation</a> rests on. And the sentence would be
-repeated on all twenty-seven rows, because the hedge is about the reading
-rather than about any one drug.</p>
-<p>The deciding argument is that a note is not only for the person reading one
-report. It reaches the run report, the provenance record, the bundle and
-the methods section, in the same words each time, which is where a reviewer
-asking "what did this rest on?" will be looking.</p>
 <h2 id="where-to-go-next">Where to go next<a class="headerlink" href="#where-to-go-next" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1908,7 +1768,7 @@ asking "what did this rest on?" will be looking.</p>
 </thead>
 <tbody>
 <tr>
-<td>Read one, and fix it in a pipeline</td>
+<td>Fix it in a pipeline</td>
 <td><a href="../../guide/notes/">Reading what the engine noticed</a></td>
 </tr>
 <tr>
@@ -1916,12 +1776,12 @@ asking "what did this rest on?" will be looking.</p>
 <td><a href="../semantic-hashing/">What a file means</a></td>
 </tr>
 <tr>
-<td>Know how a note is built, stored and said</td>
-<td><a href="../../architecture/notes/">Notes</a></td>
+<td>Know how a note is built and stored</td>
+<td><a href="../../architecture/canonicalisation/#what-a-canonical-form-notices">Canonicalisation</a></td>
 </tr>
 <tr>
-<td>Read the decisions and what was rejected</td>
-<td><a href="../../decisions/#d26-a-field-that-cannot-be-dropped-is-noticed-instead">D26</a>, <a href="../../decisions/#d32-a-step-says-what-its-own-work-rested-on">D32</a></td>
+<td>Read the decision and what was rejected</td>
+<td><a href="../../decisions/#d26-a-field-that-cannot-be-dropped-is-noticed-instead">D26</a></td>
 </tr>
 </tbody>
 </table>

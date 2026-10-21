@@ -520,7 +520,7 @@
   <span class="md-ellipsis">
     
   
-    What a result rests on
+    When a tool names a sample after a file
   
 
     
@@ -674,6 +674,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#six-are-cosmetic-phasing-a-vcf-cannot-carry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Six are cosmetic: phasing a VCF cannot carry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#three-are-one-missed-mutation-and-it-is-a-real-one" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -697,34 +708,6 @@
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="What this exercise changed about the pipeline">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#codons-are-read-from-the-reads-not-from-the-combinations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Codons are read from the reads, not from the combinations
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#a-consensus-caller-could-not-see-the-minority-virus-m6" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        A consensus caller could not see the minority virus (M6)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1321,34 +1304,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/notes/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Notes
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../architecture/provenance/" class="md-nav__link">
         
   
@@ -1702,6 +1657,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#six-are-cosmetic-phasing-a-vcf-cannot-carry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Six are cosmetic: phasing a VCF cannot carry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#three-are-one-missed-mutation-and-it-is-a-real-one" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1725,34 +1691,6 @@
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="What this exercise changed about the pipeline">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#codons-are-read-from-the-reads-not-from-the-combinations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Codons are read from the reads, not from the combinations
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#a-consensus-caller-could-not-see-the-minority-virus-m6" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        A consensus caller could not see the minority virus (M6)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1890,58 +1828,38 @@ mutation string, for all twenty-seven drugs on all three samples.</p>
   no score. Sixty of its thirty-two thousand reads map to HXB2.</li>
 </ul>
 <h2 id="what-disagrees-and-why">What disagrees, and why<a class="headerlink" href="#what-disagrees-and-why" title="Permanent link">&para;</a></h2>
-<p>Three of the 243 drug calls differ, all of them at the 2% threshold, and
-all three are the same missed mutation counted once per drug. They are
-listed with their cause in <code>KNOWN_AT_TWO_PERCENT</code> in
+<p>Nine of the 243 drug calls differ, all of them at the 2% threshold. Each
+is listed with its cause in <code>KNOWN_AT_TWO_PERCENT</code> in
 <code>tests/test_validation.py</code>, and the test fails if one of them changes
 shape or a new one appears — which is what keeps "discrepancies explained"
 from decaying into "discrepancies tolerated".</p>
-<p>It was nine until codons were read from the reads rather than from the
-combinations of their bases. Six were a phasing artefact, and
-<a href="#what-this-exercise-changed-about-the-pipeline">what fixed them</a> is below.</p>
+<h3 id="six-are-cosmetic-phasing-a-vcf-cannot-carry">Six are cosmetic: phasing a VCF cannot carry<a class="headerlink" href="#six-are-cosmetic-phasing-a-vcf-cannot-carry" title="Permanent link">&para;</a></h3>
+<p>Sample 3's five NRTI rows read <code>K219KEGR</code> where Stanford reads <code>K219KE</code>,
+and Sample 4's lenacapavir row reads <code>A105AT</code> where Stanford reads
+<code>A105T</code>. <strong>Every score and every level is identical.</strong></p>
+<p>The cause is the real limitation of reading codons from a VCF. At HXB2
+3204 the reads are 44.65% G; at 3205 they are 2.75% G. At a 2% threshold
+both pass, and enumerating the combinations of the two ambiguous bases
+gives <code>AAA</code>, <code>AGA</code>, <code>GAA</code>, <code>GGA</code> — K, R, E and G. <strong>No single read need
+carry both substitutions.</strong> A VCF says what is at each position, not what
+travels together.</p>
+<p>Neither extra amino acid matches a rule, so nothing clinical follows. The
+fix, if it is wanted, is to count codon haplotypes from reads spanning the
+codon, which the alignment already makes available.</p>
 <h3 id="three-are-one-missed-mutation-and-it-is-a-real-one">Three are one missed mutation, and it is a real one<a class="headerlink" href="#three-are-one-missed-mutation-and-it-is-a-real-one" title="Permanent link">&para;</a></h3>
 <p>Stanford reports <code>V75VA</code> for Sample 30 at 2%, reading potential low-level
 resistance to zidovudine, intermediate to stavudine and low-level to
 didanosine. Ligase reports susceptible to all three.</p>
-<p>The caller credits the V75A base in <strong>4 of the 239 reads it counted at
-HXB2 2773 — 1.7%</strong>, below the threshold that would report it. HIVGenoPipe
-realigns against a sample-specific reference, which is that paper's whole
-method, and places reads that an alignment to HXB2 does not.</p>
+<p>This alignment supports the V75A base in <strong>3 of 392 reads at HXB2 2773 —
+0.77%</strong>, below any threshold that would report it. HIVGenoPipe realigns
+against a sample-specific reference, which is that paper's whole method,
+and places reads that an alignment to HXB2 does not.</p>
 <p>This is a sensitivity limit, not a disagreement about what the reads mean,
-and it is the honest cost of the demo's approach. It is also the only
-disagreement left that would change what anyone did.</p>
-<p>Phasing does not reach it, and must not. The raw read bases at 2773 carry
-the alanine base in 3.2% of themselves, where <code>bcftools mpileup</code> credits
-1.7% once base quality is taken into account. Counting raw bases would
-"find" V75A at a 2% threshold and would agree with the published report by
-accident, on evidence the caller had already judged too poor to report.
-Which alleles are present stays the caller's judgement; phasing only
-decides which combinations of called alleles are real
-(<a href="../../decisions/#d31-a-codon-no-read-spans-keeps-its-per-base-reading">D31</a>).</p>
+and it is the honest cost of the demo's approach. It is also the only one
+of the nine that would change what anyone did.</p>
 <h2 id="what-this-exercise-changed-about-the-pipeline">What this exercise changed about the pipeline<a class="headerlink" href="#what-this-exercise-changed-about-the-pipeline" title="Permanent link">&para;</a></h2>
 <p>Validating is what found the biggest problem, and it was not in the
-interpreter. It also found the second, which was.</p>
-<h3 id="codons-are-read-from-the-reads-not-from-the-combinations">Codons are read from the reads, not from the combinations<a class="headerlink" href="#codons-are-read-from-the-reads-not-from-the-combinations" title="Permanent link">&para;</a></h3>
-<p>Sample 3's five NRTI rows used to read <code>K219KEGR</code> where Stanford reads
-<code>K219KE</code>, and Sample 4's lenacapavir row <code>A105AT</code> where Stanford reads
-<code>A105T</code>: six discrepancies, every score and level identical, only the
-mutation string wrong.</p>
-<p>A codon was assembled from the VCF — the alleles credited at each of the
-three bases, then every combination of them. The caller credits G at HXB2
-3204 in 43% of the reads it counted and at 3205 in 2.4%, so at a 2%
-threshold both pass and the combinations give <code>AAA</code>, <code>AGA</code>, <code>GAA</code>, <code>GGA</code> —
-K, R, E and G. Of the 4,347 reads spanning the whole codon, 54% carry
-<code>AAA</code> and 45% carry <code>GAA</code>; <code>AGA</code> and <code>GGA</code> are under two tenths of a per
-cent each. <strong>Fewer than two reads in a thousand carried both
-substitutions.</strong> A VCF says what is at each position, not what travels
-together.</p>
-<p>So codons are now read from the alignment, which was already an input for
-coverage: reads spanning all three bases are counted as the triplets they
-carry, and the codon holds the amino acids whose share of those reads
-reaches the threshold. Six of the nine discrepancies went with it, and the
-agreement at 15% and 5% is unchanged, because a majority allele is carried
-by the reads that support it.</p>
-<h3 id="a-consensus-caller-could-not-see-the-minority-virus-m6">A consensus caller could not see the minority virus (M6)<a class="headerlink" href="#a-consensus-caller-could-not-see-the-minority-virus-m6" title="Permanent link">&para;</a></h3>
+interpreter.</p>
 <p>The demo's <code>call</code> step used to run <code>bcftools call -mv --ploidy 1</code>. On
 Sample 3, the reads at HXB2 3204 are A 238, G 192 — <strong>a 45% K219E</strong> — and
 <code>bcftools call</code> emitted no record for it at all. The majority allele is

@@ -618,7 +618,7 @@
   <span class="md-ellipsis">
     
   
-    What a result rests on
+    When a tool names a sample after a file
   
 
     
@@ -1261,34 +1261,6 @@
   
   
     <li class="md-nav__item">
-      <a href="architecture/notes/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Notes
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="architecture/provenance/" class="md-nav__link">
         
   
@@ -1704,10 +1676,7 @@ after an overnight run:</p>
 <p>The reference pipeline now interprets as well as computes: its resistance
 calls reproduce published Stanford HIVdb results exactly at the 15% and 5%
 thresholds, with every remaining discrepancy
-<a href="concepts/validation/">explained</a>. Three remain at the 2% threshold,
-where there were nine: six were codons read from a VCF, which carries no
-phasing, and went when codons started being read from the haplotypes the
-reads carry.</p>
+<a href="concepts/validation/">explained</a>.</p>
 <p>You can write a pipeline of annotated steps, have the whole graph
 type-checked without running any of it, be told every mistake at once, and
 then run it — in parallel, cached, one branch per sample:</p>
@@ -1804,9 +1773,9 @@ point: the command is recorded when a step runs, because since M4 it is not
 in the output's hash and a cache hit can no longer prove it. <code>--bundle</code>
 packages all of it so someone else can check the results, and <code>--verify</code> is
 that check.</p>
-<p><strong>M6 (validation)</strong> is done: the resistance calls agree with the published
-ones, and what does not agree says why. See <a href="milestones/">milestones</a> for
-the order and the acceptance test for each step.</p>
+<p>What remains is <strong>M6 (validation)</strong>: whether the resistance calls agree with
+the published ones. See <a href="milestones/">milestones</a> for the order and the
+acceptance test for each step.</p>
 <h2 id="where-to-go">Where to go<a class="headerlink" href="#where-to-go" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1890,15 +1859,11 @@ the order and the acceptance test for each step.</p>
 </tr>
 <tr>
 <td>Understand a <code>noticed</code> line in a run report</td>
-<td><a href="concepts/notes/">What a result rests on</a></td>
+<td><a href="concepts/notes/">When a tool names a sample after a file</a></td>
 </tr>
 <tr>
 <td>Fix an output named after a file rather than a sample</td>
 <td><a href="guide/notes/">Reading what the engine noticed</a></td>
-</tr>
-<tr>
-<td>Know what a resistance report rests on</td>
-<td><a href="guide/notes/#when-a-reading-hedges">Reading what the engine noticed</a></td>
 </tr>
 <tr>
 <td>Write a methods paragraph and a bundle</td>

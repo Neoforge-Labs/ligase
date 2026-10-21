@@ -518,7 +518,7 @@
   <span class="md-ellipsis">
     
   
-    What a result rests on
+    When a tool names a sample after a file
   
 
     
@@ -716,10 +716,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#using-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Requirements
+        Using it
       
     </span>
   </a>
@@ -727,10 +727,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#install" class="md-nav__link">
+  <a href="#requirements-for-a-source-build" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Install
+        Requirements for a source build
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-it-from-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build it from source
       
     </span>
   </a>
@@ -1321,34 +1332,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/notes/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Notes
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../architecture/provenance/" class="md-nav__link">
         
   
@@ -1657,10 +1640,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#using-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Requirements
+        Using it
       
     </span>
   </a>
@@ -1668,10 +1651,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#install" class="md-nav__link">
+  <a href="#requirements-for-a-source-build" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Install
+        Requirements for a source build
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-it-from-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build it from source
       
     </span>
   </a>
@@ -1788,7 +1782,21 @@
 
 
 <h1 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h1>
-<h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">&para;</a></h2>
+<h2 id="using-it">Using it<a class="headerlink" href="#using-it" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>ligase-bio
+</code></pre></div>
+<p>Wheels are published for Linux (manylinux, x86-64 and aarch64), macOS
+(Apple silicon and Intel) and Windows, so there is <strong>no Rust toolchain and no
+C compiler</strong> involved in installing the package. You need Python 3.11 or
+newer, and whatever external tools your own pipeline names — for the HIV-1
+reference demo, <code>minimap2</code>, <code>samtools</code> and <code>bcftools</code>.</p>
+<p>Check it worked:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import ligase; print(ligase.version())"</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>ligase<span class="w"> </span>--help
+</code></pre></div>
+<p>The rest of this page is about building Ligase from source, which you only
+need in order to work on it.</p>
+<h2 id="requirements-for-a-source-build">Requirements for a source build<a class="headerlink" href="#requirements-for-a-source-build" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
@@ -1819,25 +1827,23 @@
 </tr>
 </tbody>
 </table>
-<p>Rust is needed because installing builds the engine from source. There are no
-pre-built wheels yet.</p>
 <p>The C compiler is needed because the cache bundles SQLite and compiles it,
 rather than linking whatever version the machine happens to have. That costs
-you a C toolchain at install time and buys an identical SQLite everywhere,
+you a C toolchain at build time and buys an identical SQLite everywhere,
 which matters for an on-disk format the cache has to keep reading. If you are
 missing one, <a href="#troubleshooting">see below</a>.</p>
-<h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:Neoforge-Labs/ligase.git
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">cd</span><span class="w"> </span>ligase
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">source</span><span class="w"> </span>.venv/bin/activate
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[dev]"</span>
+<h2 id="build-it-from-source">Build it from source<a class="headerlink" href="#build-it-from-source" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:Neoforge-Labs/ligase.git
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">cd</span><span class="w"> </span>ligase
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">source</span><span class="w"> </span>.venv/bin/activate
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[dev]"</span>
 </code></pre></div>
 <p>The first build takes a minute or two while <code>pyo3</code> compiles. Later builds are
 incremental.</p>
 <p>Check it worked:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import ligase; print(ligase.__version__)"</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import ligase; print(ligase.__version__)"</span>
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>0.1.0
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>0.1.0
 </code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">The distribution and the import have different names</p>
@@ -1849,13 +1855,13 @@ short.</p>
 </div>
 <h2 id="run-the-checks">Run the checks<a class="headerlink" href="#run-the-checks" title="Permanent link">&para;</a></h2>
 <p>The same gate CI runs, in the order it runs them:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>cargo<span class="w"> </span>fmt<span class="w"> </span>--all<span class="w"> </span>--check
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>cargo<span class="w"> </span>clippy<span class="w"> </span>--workspace<span class="w"> </span>--all-targets<span class="w"> </span>--<span class="w"> </span>-D<span class="w"> </span>warnings
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>cargo<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--workspace
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>ruff<span class="w"> </span>check<span class="w"> </span>.
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>ruff<span class="w"> </span>format<span class="w"> </span>--check<span class="w"> </span>.
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>mypy
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>pytest
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cargo<span class="w"> </span>fmt<span class="w"> </span>--all<span class="w"> </span>--check
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>cargo<span class="w"> </span>clippy<span class="w"> </span>--workspace<span class="w"> </span>--all-targets<span class="w"> </span>--<span class="w"> </span>-D<span class="w"> </span>warnings
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>cargo<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--workspace
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>ruff<span class="w"> </span>check<span class="w"> </span>.
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>ruff<span class="w"> </span>format<span class="w"> </span>--check<span class="w"> </span>.
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>mypy
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>pytest
 </code></pre></div>
 <p>All seven should pass on a clean checkout. If <code>clippy</code> complains about a
 missing doc comment on something you just added, that is deliberate — the
@@ -1868,7 +1874,7 @@ in <code>tests/test_demo.py</code>, and four in <code>test_types.py</code> and
 <code>test_pipeline.py</code> that want the real HXB2 or a BAM a real aligner
 wrote. They skip where either is missing, so a green <code>pytest</code> on a bare
 checkout says nothing about the pipeline. To insist instead:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nv">LIGASE_DEMO_REQUIRED</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>pytest
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nv">LIGASE_DEMO_REQUIRED</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>pytest
 </code></pre></div>
 <p>Under that variable each of those skips becomes a failure naming what
 was missing. The <code>demo</code> job in CI sets it, which is what stops a green
@@ -1877,7 +1883,7 @@ build from meaning "politely declined".</p>
 <h3 id="rebuilding-after-a-rust-change">Rebuilding after a Rust change<a class="headerlink" href="#rebuilding-after-a-rust-change" title="Permanent link">&para;</a></h3>
 <p>An editable install does <strong>not</strong> recompile on import. After editing anything
 under <code>crates/</code>, rebuild:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>maturin<span class="w"> </span>develop
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>maturin<span class="w"> </span>develop
 </code></pre></div>
 <p>Or <code>pip install -e .</code> again, which is slower but equivalent. Forgetting this
 is the single most common confusion in a mixed Rust/Python project: your
@@ -1885,16 +1891,16 @@ Python changes take effect immediately and your Rust changes do not.</p>
 <h2 id="test-data">Test data<a class="headerlink" href="#test-data" title="Permanent link">&para;</a></h2>
 <p>The reference pipeline runs on real HIV-1 data. It is downloaded rather than
 committed, into a gitignored <code>data/</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>scripts/fetch_test_data.sh
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>scripts/fetch_test_data.sh
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>==&gt; Reference: HXB2 (K03455.1)
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>  downloading from NCBI
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>  verified: 9719 bp, canonical SHA-256 matches
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>==&gt; Reads: PRJNA1218827
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>  SRR32217714_1.fastq.gz verified
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>  ...
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>  4 runs ready in data/reads/PRJNA1218827
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>==&gt; Reference: HXB2 (K03455.1)
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>  downloading from NCBI
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>  verified: 9719 bp, canonical SHA-256 matches
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>==&gt; Reads: PRJNA1218827
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>  SRR32217714_1.fastq.gz verified
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>  ...
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>  4 runs ready in data/reads/PRJNA1218827
 </code></pre></div>
 <p>You get:</p>
 <table>
@@ -1920,10 +1926,10 @@ committed, into a gitignored <code>data/</code>:</p>
 </tbody>
 </table>
 <p>Useful flags:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>scripts/fetch_test_data.sh<span class="w"> </span>--list<span class="w">                     </span><span class="c1"># show the manifest</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>scripts/fetch_test_data.sh<span class="w"> </span>--project<span class="w"> </span>PRJNA1218827<span class="w">     </span><span class="c1"># just the small set</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>scripts/fetch_test_data.sh<span class="w"> </span>--reference-only<span class="w">           </span><span class="c1"># just HXB2</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>scripts/fetch_test_data.sh<span class="w"> </span>--force<span class="w">                    </span><span class="c1"># re-download</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>scripts/fetch_test_data.sh<span class="w"> </span>--list<span class="w">                     </span><span class="c1"># show the manifest</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>scripts/fetch_test_data.sh<span class="w"> </span>--project<span class="w"> </span>PRJNA1218827<span class="w">     </span><span class="c1"># just the small set</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>scripts/fetch_test_data.sh<span class="w"> </span>--reference-only<span class="w">           </span><span class="c1"># just HXB2</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>scripts/fetch_test_data.sh<span class="w"> </span>--force<span class="w">                    </span><span class="c1"># re-download</span>
 </code></pre></div>
 <p>Set <code>LIGASE_DATA_DIR</code> to put the data somewhere else — useful if you keep
 large files on another volume.</p>
@@ -1965,10 +1971,10 @@ Ligase does not need them; the demo and the nine tests that drive it do.</p>
 </tr>
 </tbody>
 </table>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>brew<span class="w"> </span>install<span class="w"> </span>minimap2<span class="w"> </span>samtools<span class="w"> </span>bcftools<span class="w">              </span><span class="c1"># macOS</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>micromamba<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-c<span class="w"> </span>bioconda<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="nv">minimap2</span><span class="o">=</span><span class="m">2</span>.31<span class="w"> </span><span class="nv">samtools</span><span class="o">=</span><span class="m">1</span>.24<span class="w"> </span><span class="nv">bcftools</span><span class="o">=</span><span class="m">1</span>.24<span class="w">        </span><span class="c1"># anywhere</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>brew<span class="w"> </span>install<span class="w"> </span>minimap2<span class="w"> </span>samtools<span class="w"> </span>bcftools<span class="w">              </span><span class="c1"># macOS</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>micromamba<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-c<span class="w"> </span>bioconda<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="nv">minimap2</span><span class="o">=</span><span class="m">2</span>.31<span class="w"> </span><span class="nv">samtools</span><span class="o">=</span><span class="m">1</span>.24<span class="w"> </span><span class="nv">bcftools</span><span class="o">=</span><span class="m">1</span>.24<span class="w">        </span><span class="c1"># anywhere</span>
 </code></pre></div>
 <p>Which versions you have matters more here than it usually would. A step's
 cache key includes its tools' versions, so upgrading minimap2 invalidates
@@ -1978,8 +1984,8 @@ align differently. That is also why CI pins all three from bioconda in
 aligner that moved on its own would present as a Ligase regression, and the
 job is there to catch Ligase regressions.</p>
 <h2 id="build-the-docs">Build the docs<a class="headerlink" href="#build-the-docs" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[docs]"</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>mkdocs<span class="w"> </span>serve
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[docs]"</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>mkdocs<span class="w"> </span>serve
 </code></pre></div>
 <p>Then open <a href="http://127.0.0.1:8000">http://127.0.0.1:8000</a>. CI builds with <code>mkdocs build --strict</code>, so
 a broken internal link fails the build rather than shipping.</p>

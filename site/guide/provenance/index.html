@@ -518,7 +518,7 @@
   <span class="md-ellipsis">
     
   
-    What a result rests on
+    When a tool names a sample after a file
   
 
     
@@ -1298,34 +1298,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/notes/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Notes
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../architecture/provenance/" class="md-nav__link">
         
   
@@ -1843,11 +1815,10 @@ one to a step does not recompute a cohort.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>align  SRR8525904  31f5306...  minimap2 -t '4' -ax sr '/…/HXB2.fasta' '/…/SRR8525904_1.fastq.gz' …
 </code></pre></div>
 <p><code>notes.tsv</code> holds what the engine
-<a href="../notes/">noticed</a> about the outputs — a field that could not be dropped
-and was still wrong, or an assumption a step's work rested on. There is a
-header line even when there is nothing under it, so an empty file never has
-to be read as "an older bundle". A bundle with something in it gains a
-<em>What was noticed</em> section in its <code>README.md</code>.</p>
+<a href="../notes/">noticed</a> about the outputs — almost always nothing, and a header
+line even then, so an empty file never has to be read as "an older bundle".
+A bundle with something in it gains a <em>What will not travel</em> section in its
+<code>README.md</code>.</p>
 <p><strong>The data is not in there.</strong> Sequencing runs are gigabytes and a bundle is
 meant to be readable, so inputs are named rather than carried — every one by
 content hash, every reference by accession and checksum. Fetch them by those
