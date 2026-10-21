@@ -1,7 +1,17 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 
-export const metadata: Metadata = { title: 'Page not found' }
+/*
+ * The layout's canonical is './', resolved against the route being rendered.
+ * For the 404 that route is Next's internal /_not-found, which would leak
+ * into public HTML. The export serves this page at /404/ (and as 404.html), so
+ * that is the address it declares. It stays noindex, so it is never a search
+ * result and never in the sitemap; the canonical only has to be true.
+ */
+export const metadata: Metadata = {
+  title: 'Page not found',
+  alternates: { canonical: '/404/' },
+}
 
 /*
  * The 404 is the one place the mark is allowed to say no.
