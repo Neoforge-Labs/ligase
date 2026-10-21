@@ -1,0 +1,31 @@
+{
+  "name": "ligase-docs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Ligase documentation site.",
+  "scripts": {
+    "generate": "python3 scripts/generate_api.py && python3 scripts/generate_cli.py && python3 scripts/capture_diagnostics.py && python3 scripts/capture_quickstart.py && python3 scripts/render_notebooks.py",
+    "dev": "npm run generate && next dev",
+    "build": "npm run generate && next build && pagefind --site out --output-subdir _pagefind",
+    "links": "node scripts/check-links.mjs",
+    "check": "npm run build && npm run links",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "geist": "1.8.1",
+    "next": "15.5.28",
+    "nextra": "4.6.1",
+    "nextra-theme-docs": "4.6.1",
+    "react": "19.2.9",
+    "react-dom": "19.2.9"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1",
+    "@types/react": "19.2.7",
+    "pagefind": "1.4.0",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "zod": "4.1.12"
+  }
+}

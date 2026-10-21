@@ -1,0 +1,440 @@
+---
+title: "Provenance and auditing"
+description: "Ligase API reference: provenance and auditing."
+---
+
+# Provenance and auditing
+
+What a run recorded about itself: the versions every tool actually ran at, every parameter as it was hashed, and the references by accession and checksum.
+
+## Methods
+
+```python
+class Methods(
+    steps: 'list[StepMethods]' = <factory>,
+    gaps: 'list[MethodsGap]' = <factory>,
+    references: 'list[PinnedReference]' = <factory>,
+    citations: 'list[str]' = <factory>,
+    uncited: 'list[str]' = <factory>,
+    engine: 'str' = '',
+    platform: 'str' = '',
+    summary: 'str' = '',
+    text: 'str' = '',
+    bundle: 'Bundle | None' = None,
+    verification: 'Verification | None' = None,
+) -> None
+```
+
+How a set of results was produced.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `steps` | Each distinct way a step was run, in the order the pipeline runs them. |
+| `gaps` | Steps nothing is known about. |
+| `references` | Every reference any step was given, pinned, with no duplicates. |
+| `citations` | The reference list, as a methods section prints it. |
+| `uncited` | Tools with nothing to cite — named rather than omitted, so a short reference list cannot pass for a complete one. |
+| `engine` | The version of Ligase that produced the results. |
+| `platform` | The platform they were produced on. |
+| `summary` | One line — `12 steps, all accounted for.` |
+| `text` | The paragraph and the reference list, as the command line prints them. |
+| `bundle` | The bundle written, where one was asked for. |
+| `verification` | What checking a bundle found, where one was asked for. |
+
+### Methods.accounted_for
+
+```python
+accounted_for: bool  # property
+```
+
+Whether every step's production is recorded.
+
+False means the paragraph has a hole in it and says so.
+
+### Methods.tools
+
+```python
+tools: list[tuple[str, str]]  # property
+```
+
+Every tool any step used, with the version it ran at.
+
+## StepMethods
+
+```python
+class StepMethods(
+    step: 'str',
+    nodes: 'int',
+    scopes: 'list[str]',
+    scope_kind: 'str | None',
+    tools: 'list[tuple[str,
+    str]]',
+    parameters: 'list[tuple[str,
+    str]]',
+    command: 'str | None',
+) -> None
+```
+
+One way a step was run.
+
+One written step becomes one node per sample, and all of them are one
+entry here. Where two nodes of a step genuinely were run differently
+they are two entries, because then the difference is the thing worth
+reporting.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `step` | The step's name, as written. |
+| `nodes` | How many nodes this covers. |
+| `scopes` | What tells them apart, e.g. the sample identifiers. |
+| `scope_kind` | What kind of thing that is, e.g. `sample`. |
+| `tools` | Each tool and the whole version it printed. |
+| `parameters` | Each plain parameter and its value, as it was hashed. |
+| `command` | The command as written in the pipeline, placeholders and all, or `None` for a step whose body is Python. |
+
+## MethodsGap
+
+```python
+class MethodsGap(step: 'str', scopes: 'list[str]', nodes: 'int') -> None
+```
+
+A step nothing is known about.
+
+Its output is in the cache from a run that recorded no provenance, and
+nothing can reconstruct how it was produced: the command that would have
+said so is not in the hash, by design. `ligase run --force` runs it
+again and records it.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `step` | The step's name. |
+| `scopes` | What tells its nodes apart. |
+| `nodes` | How many of them are unaccounted for. |
+
+## Bundle
+
+```python
+class Bundle(
+    root: 'str',
+    files: 'list[str]',
+    steps: 'int',
+    gaps: 'int',
+) -> None
+```
+
+A reproducibility bundle that was written.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `root` | Where it is. |
+| `files` | Everything in it, relative to the root. |
+| `steps` | How many steps it accounts for. |
+| `gaps` | How many it could not. |
+
+## Verification
+
+```python
+class Verification(
+    results: 'list[ResultCheck]' = <factory>,
+    inputs: 'list[InputCheck]' = <factory>,
+    reproduced: 'bool' = False,
+    verdict: 'str' = 'missing',
+    summary: 'str' = '',
+    text: 'str' = '',
+) -> None
+```
+
+What checking a bundle against this machine found.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `results` | Every result the bundle recorded. |
+| `inputs` | Every input it recorded. |
+| `reproduced` | Whether every recorded result came out the same. |
+| `verdict` | The worst thing found. |
+| `summary` | One line — `12 results: 4 identical, 8 reproduced.` |
+| `text` | The whole report as the command line prints it. |
+
+### Verification.differing
+
+```python
+differing: list[ResultCheck]  # property
+```
+
+The results that did not come out the same.
+
+### Verification.moved
+
+```python
+moved: list[InputCheck]  # property
+```
+
+The inputs that are not the ones the bundle was built from.
+
+Worth reading before any `differs` verdict: a changed input explains
+a changed output, and a bundle cannot fetch its own data.
+
+## PinnedReference
+
+```python
+class PinnedReference(
+    param: 'str',
+    path: 'str',
+    build: 'str | None',
+    accession: 'str | None',
+    contigs: 'int',
+    length: 'int',
+    checksum: 'str | None',
+    fingerprint: 'str',
+) -> None
+```
+
+A reference sequence, pinned as firmly as its file allows.
+
+Nothing here is declared or guessed. The accession is the sequence name
+where the name is one — `K03455.1` carries its own version — and the
+checksum is the MD5 the SAM specification defines for `@SQ M5`, over the
+uppercased sequence with whitespace removed.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `param` | The parameter it filled. |
+| `path` | Where it was when the step ran. |
+| `build` | The label it was declared under, e.g. `HXB2`. Display only. |
+| `accession` | The accession with its version, where the sequence name is one, and `None` where it is not — `chr1` is a name, not an accession, and a methods section must not cite it as one. |
+| `contigs` | How many sequences it holds. |
+| `length` | Their total length in bases. |
+| `checksum` | The MD5 of the sequence, for a single-sequence reference. |
+| `fingerprint` | A short digest of the whole identity, always present. |
+
+## AuditReport
+
+```python
+class AuditReport(
+    steps: 'list[StepAudit]' = <factory>,
+    failures: 'list[StepFailure]' = <factory>,
+    verdict: 'str' = 'deterministic',
+    summary: 'str' = '',
+    text: 'str' = '',
+) -> None
+```
+
+What an audit found.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `steps` | Every node audited, in graph order. |
+| `failures` | Every node that could not be audited because it failed. |
+| `verdict` | The worst verdict any node got — the worst rather than the commonest, since one irreproducible sample in a cohort is an irreproducible step. |
+| `summary` | One line — `4 steps: 1 deterministic, 3 reproducible.` |
+| `text` | The whole report as the command line prints it, worded by the engine so that every surface reads the same. |
+
+### AuditReport.reproducible
+
+```python
+reproducible: bool  # property
+```
+
+Whether every node audited agreed with itself.
+
+### AuditReport.unreproducible
+
+```python
+unreproducible: list[StepAudit]  # property
+```
+
+The nodes whose two runs disagreed about the result.
+
+## StepAudit
+
+```python
+class StepAudit(
+    step: 'str',
+    sample: 'str | None',
+    scope: 'str | None',
+    verdict: 'str',
+    first: 'str',
+    second: 'str',
+    first_canonical: 'str',
+    second_canonical: 'str',
+    first_duration_ms: 'int',
+    second_duration_ms: 'int',
+    node: 'int',
+) -> None
+```
+
+What two runs of one step showed.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `step` | The step's name. |
+| `sample` | The sample it was for, or `None` for a step that spans more than one. |
+| `scope` | How a report names this node where its step's name is shared — `sample SRR8525904` — or `None` where the name is already unambiguous. |
+| `verdict` | `deterministic`, `reproducible`, or `not reproducible`. |
+| `first` | The first run's output hash. |
+| `second` | The second run's output hash. |
+| `first_canonical` | What the first run's output means. |
+| `second_canonical` | What the second run's output means. |
+| `first_duration_ms` | How long the first run took. |
+| `second_duration_ms` | How long the second run took. |
+| `node` | Which node of the graph it was. |
+
+### StepAudit.reproducible
+
+```python
+reproducible: bool  # property
+```
+
+Whether the two runs agreed on the result.
+
+True for a step whose bytes moved and whose meaning did not: that is
+what reproducible means here.
+
+## Report
+
+```python
+class Report(
+    errors: 'list[CheckError]',
+    summary: 'str',
+    text: 'str',
+) -> None
+```
+
+What a check found.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `errors` | One error per *failing step*, in the order the steps run. A problem that hits four samples is four errors, each naming its own sample. |
+| `summary` | One line summarising the lot — `4 errors in 4 steps.` — and the steps it counts are places rather than names, since one written step is many steps under fan-out. |
+| `text` | The whole report as the command line prints it: each distinct problem stated once, with every sample it affects named, and the summary at the end. Worded by the engine so that every surface reports a check the same way. |
+
+## RunReport
+
+```python
+class RunReport(
+    steps: 'list[StepRun]' = <factory>,
+    failures: 'list[StepFailure]' = <factory>,
+    summary: 'str' = '',
+    text: 'str' = '',
+    hashed: 'int' = 0,
+    prefiltered: 'int' = 0,
+    canonicalised: 'int' = 0,
+) -> None
+```
+
+Everything a run did.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `steps` | Every step that produced an output, in graph order. |
+| `failures` | Every step that did not. |
+| `summary` | One line — `12 steps: 8 ran, 4 from cache.` — counting places rather than names, since one written step is many steps under fan-out. |
+| `text` | The whole report as the command line prints it, worded by the engine so that every surface reads the same. |
+| `hashed` | Input files that had to be read and hashed. |
+| `prefiltered` | Input files whose hash was already known from their size and mtime, and so were not read at all. |
+| `canonicalised` | Files that had to be parsed to find out what they mean. Like `hashed`, this is zero on a run that found everything it needed already known. |
+
+### RunReport.cached
+
+```python
+cached: list[StepRun]  # property
+```
+
+The steps that were served from the cache.
+
+### RunReport.outputs
+
+```python
+outputs(self, step: 'str') -> 'list[str]'
+```
+
+Where one step's outputs are, in graph order.
+
+#### Parameters
+
+| Parameter | Description |
+|---|---|
+| `step` | The step's name. Under fan-out there is one output per sample. |
+
+#### Returns
+
+One path per node of that name.
+
+### RunReport.ran
+
+```python
+ran: list[StepRun]  # property
+```
+
+The steps that actually ran, in graph order.
+
+### RunReport.skipped
+
+```python
+skipped: list[StepRun]  # property
+```
+
+The steps an upstream rerun turned out not to change.
+
+## StepRun
+
+```python
+class StepRun(
+    step: 'str',
+    sample: 'str | None',
+    outcome: 'str',
+    output: 'str',
+    key: 'str',
+    hash: 'str',
+    canonical: 'str',
+    duration_ms: 'int',
+    node: 'int',
+    notes: 'tuple[str,
+    ...]' = (),
+) -> None
+```
+
+One step that produced an output.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `step` | The step's name. |
+| `sample` | The sample it was for, or `None` for a step that spans more than one — naming such a step after one of its samples would send you to the wrong data. |
+| `outcome` | `ran`, `cached`, or `skipped`. `skipped` is early cutoff: the step's key was already known although something above it reran, because that rerun produced the same output as before. |
+| `output` | Where the output is, in the content-addressed store. |
+| `key` | The cache key, as hex. |
+| `hash` | The hash of the output's bytes, as hex, which is also its name in the store. |
+| `canonical` | The hash of what the output *means*, as hex: its records sorted and its volatile headers stripped. This is what the steps below were keyed on, so two runs that agree here skip everything downstream however far their bytes diverged. |
+| `duration_ms` | How long it took, when it ran; zero otherwise. |
+| `node` | Which node of the graph it was. |
+| `notes` | What was noticed about this output and its hash cannot say — one sentence each, and usually none. A note is not a failure: the step ran and its result stands. Two things put them here. Canonicalising the output finds the first kind, of which there is one in v0.1: a sample identifier that is a file name rather than a sample, which makes this output's canonical hash depend on where that file was. The step's own body says the second kind — an assumption its work rested on, which the file it wrote need not show. A resistance reading made without coverage is taking every position the caller did not report to be reference, and says so here (D32). |
+
+### StepRun.ran
+
+```python
+ran: bool  # property
+```
+
+Whether this step actually ran, rather than being served.

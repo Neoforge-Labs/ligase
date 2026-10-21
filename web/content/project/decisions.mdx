@@ -1,0 +1,830 @@
+---
+title: "Decision Records"
+description: "The coordinates dimension records what a step sees, not the on-disk convention. SAM and BAM both present 1-based closed alignment records, so re-encoding between them changes"
+---
+# Decision Records
+
+## D1 — Rust core, Python surface
+Scientists live in Python; correctness-critical logic (types, hashing, graph, cache) needs speed and safety. PyO3 + maturin give a single `pip install`.
+
+## D2 — Content hashing, not timestamps
+Timestamps lie (copies, clones, touched files). Cache keys hash code, parameters, input content and tool versions.
+
+## D3 — BLAKE3 with size+mtime prefilter
+BLAKE3 is fast enough for multi-GB BAMs; the prefilter avoids rehashing unchanged files.
+The `rayon` feature that buys that speed means hashing a step's inputs queues work on
+whatever pool the step is running on, which is why the executor's pool has to stay
+usable from inside a step ([D27](#d27--a-worker-that-waits-is-a-worker-rayon-cannot-use)).
+
+## D4 — Semantic hashing
+Outputs are canonicalised before hashing (sorted records, volatile headers stripped) so scientifically identical results share a hash.
+
+## D5 — Dimensions as types (units analogy)
+Errors are caught before compute. Conversions are typed functions in a conversion graph, enabling v2 auto-fixing via path search.
+
+## D6 — SQLite metadata, content-addressed store
+Zero-config, embedded, portable; no server required.
+
+## D7 — HIV-1 reference pipeline
+One real, validated pipeline drives every feature and ties Ligase to SAWA.
+
+## D8 — Out of scope for v0.1
+Auto-fixing, public-data fetching, cluster execution, GUI.
+
+## D9 — Coordinates are semantics, not encoding
+
+The `coordinates` dimension records what a step sees, not the on-disk
+convention. SAM and BAM both present 1-based closed alignment records, so
+re-encoding between them changes nothing. BED (0-based half-open) and GFF
+(1-based closed) differ *semantically*, and that is the difference worth
+catching.
+
+The rejected alternative — BAM 0-based because its binary encoding is — would
+make `samtools view -b` appear to change a dimension. False alarms are not a
+safe failure mode: a checker that cries wolf gets bypassed, and then the real
+hg19/hg38 mixup goes through unchallenged.
+
+## D10 — References relate by containment
+
+Two references compared with each other must be identical. Data checked
+*against* a reference need only be contained in it: every contig the data
+mentions must appear in the reference with a matching length and MD5, while
+extra contigs in the reference are fine.
+
+Strict equality everywhere would reject a VCF whose header lists only the
+contigs it has variants on — correct input, rejected. Contig order still gets
+its own error, because htslib matches by name but GATK requires matching
+sequence dictionary order.
+
+## D11 — `noodles` for format I/O, and the MSRV follows it
+
+Format parsing uses [`noodles`](https://github.com/zaeleus/noodles) rather than
+`rust-htslib`. It is pure Rust, so wheels build without a C htslib on the
+machine — which is the difference between `pip install ligase-bio` working and
+not. The cost is that `noodles` is a pre-1.0 crate that bumps minor versions
+often, and its MSRV sets ours (currently Rust 1.91).
+
+MD5 arrives via `md-5`. That is not a security choice: MD5 is what the SAM
+specification prescribes for the `@SQ M5` contig checksum, so we must compute
+exactly that digest to compare against it. Cache keys use BLAKE3 (D3); the two
+are unrelated.
+
+## D12 — Steps defer; the graph is built from signatures
+
+`@lg.step` reads a function's signature once and replaces the function with a
+`Step`. Calling it records the call and returns a handle; the body never runs
+while a graph is being built. The return annotation is therefore the only
+statement of what a step produces, and an unannotated parameter is refused at
+decoration time — it would be an edge the graph does not contain, which means
+an input nothing is ever compared with.
+
+The handle is `cast` to the data type the step declares, which is a
+deliberate lie to the type checker and buys static checking of the pipeline's
+wiring: a mis-wired `call(align(...), calls)` is an error in the editor, not
+only at `check()`. `lg.handle()` is the typed way back to the real object.
+
+The rejected alternative was a handle that genuinely subclasses the data
+types. It would have needed graph identity stored on each dataset, and a
+dataset that knows which graph it belongs to cannot be used in two.
+
+## D13 — The graph decides requirements and blames the origin
+
+[The dimension catalogue](/reference/dimensions/) allows an unknown dimension unless a
+downstream step requires it. Only a graph can answer that, so `required_pair` — which reads
+requirements off the pair of kinds a step joins — becomes the default, and
+the graph adds what the table cannot know: where the gap started.
+
+An undeclared-dimension error therefore names the *input* that has to declare
+it, the step that requires it, and the route between them, and is reported
+once however many steps the gap travels through. Pointing only at the step
+would send a user to a file they cannot change; one error per step the value
+passes through would make the report unreadable, and a report nobody finishes
+is a report that does not work.
+
+A step handed the wrong *kind* of data is reported instead of that step's
+dimension errors rather than alongside them. Those bindings are not what the
+step declared, so comparing their dimensions would describe a pipeline the
+user never wrote.
+
+## D14 — Contig order is compared only between sequence dictionaries
+
+`OrderDiffers` exists because GATK requires two sequence dictionaries to
+agree on order ([D10](#d10--references-relate-by-containment)). A BED's
+contigs come from its records, which have an order too — whatever order the
+intervals were sorted in. Comparing it would report a contig order mismatch
+for an ordinary BED that happens to list contig 2 before contig 1.
+
+So `ReferenceId` records whether its contig list is a `Dictionary` or merely
+`Observed`, and order is compared only between two dictionaries. The rejected
+alternative, sorting record-derived contigs before storing them, would have
+made the stored list disagree with the file.
+
+The same reasoning keeps `reference` out of what a step requires of an
+interval file: its contigs cannot be declared, so demanding them would be an
+unsatisfiable check.
+
+## D15 — An error identifies its node, not just its step
+
+Per-sample fan-out makes one written step into one step per sample, so a
+report that knows only step names understates every cohort-wide problem. Two
+consequences follow, and both are about what a user does next rather than
+about catching more.
+
+The summary counts the **places** that failed rather than the names they
+share. "4 errors in 1 step" describes a localised problem you fix by looking
+at one sample; "4 errors in 4 steps" describes a cohort-wide one you fix by
+rethinking the pipeline. Reporting the second as the first is not a cosmetic
+understatement.
+
+An error **names its node** in the heading rather than on a line of its own,
+since the name says which step this is and so belongs with the step. It is
+added only where the step's own name is ambiguous — more than one node in the
+pipeline being checked shares it — and then only with something that tells
+*those* nodes apart.
+
+Both halves of that condition matter.
+[The golden example](/project/golden-example/) fixes the shape as `in step `call`:` and the project treats it as fixed, so a suffix on
+a step nobody could confuse is noise on the commonest path. And the sample is
+not always the discriminator: two same-named steps fed different alignments
+of one sample would both read `(sample sample_a)`, which looks exactly like
+an identifier while being none. Discriminators are therefore tried in order —
+the sample, then the first file the step was built from — and the first that
+gives every node in the group a distinct value wins. If none does, nothing is
+added, because no suffix beats a misleading one. A step spanning a whole
+cohort likewise gets no sample: labelling it after one of them would send a
+user to the wrong data.
+
+Identical problems are then stated once, with every affected sample **named**
+rather than counted, because a user who must expand something to find out
+which samples failed has a shorter report rather than a better one. Two rules
+keep that honest: an error with no name is never collapsed, since there would
+be nothing to list it under; and grouping is on the problem's full text, so a
+sample that failed differently keeps its own paragraph.
+
+Collapsing applies to the rendered report, not to the error list.
+`pipe.errors()` stays one error per failing node, because counting affected
+samples — or retrying one of them — wants that granularity.
+
+## D16 — Execution lives in the core; recipes are extracted first
+
+A step's body is Python; a run is dozens of external processes over tens of
+gigabytes. If the scheduler had to call into Python to learn what each step
+does, the GIL would sit in the hot path of every parallel run.
+
+So the body is called once, before the run starts, and returns a *recipe* —
+a command template, or a function to call later. The core then owns the
+whole run (ready queue, worker pool, rendering, hashing, store, metadata)
+with the GIL released, and takes it again only for the `lg.write` steps that
+genuinely are Python.
+
+This is only available because bodies were already deferred
+([D12](#d12--steps-defer-the-graph-is-built-from-signatures)). A body
+that computed something could not be called before its inputs existed; a
+body that describes work can.
+
+The rejected alternative was a Python thread pool driving the core
+step by step. It is simpler, and external processes release the GIL anyway —
+but every task would have to re-enter the interpreter to fetch its recipe,
+and the scheduler's correctness would live in the layer with no tests
+against it. Putting the ready queue in Rust also means `cargo test` can
+assert that a fan-out branch is independent, which is the property the whole
+milestone rests on.
+
+## D17 — A placeholder that names nothing is an error, and `{{` escapes
+
+`lg.sh` fills `{ref}`, `{reads.r1}` and `{out}` from the step's own
+parameters. A mistyped `{refrence}` could either be passed through to the
+shell as literal text or refused. It is refused.
+
+Passing it through would mean a command that fails obscurely much later —
+or, with an `echo`, succeeds. The cost of refusing is that a brace meant
+literally has to be doubled, so an `awk '{{print $1}}'` is written the way
+Snakemake writes it, which is already familiar to the people this is for.
+Anything between braces that is not an identifier is reported as a brace
+needing an escape rather than as a mistyped placeholder, because that is the
+thing the user has to change.
+
+Every substituted value is also quoted into exactly one shell word. A
+reference under `/my refs/` is one path, not two arguments, and a value can
+never end the quoting and continue as code.
+
+## D18 — A failure stops its own branch and nothing else
+
+A step that fails is recorded against its node. Independent branches keep
+running, and steps below the failure are not run and are not reported.
+
+Losing three good samples to one bad FASTQ is the overnight-run problem this
+project exists to remove, so a cohort-wide abort was never an option. The
+other half — reporting the steps below a failure — was rejected for the same
+reason the checker reports one error per missing declaration rather than one
+per step it reaches
+([D13](#d13--the-graph-decides-requirements-and-blames-the-origin)): one
+cause, one failure. A cascade of "its input is missing" lines makes a report
+longer without making it more useful.
+
+Nothing is written to the cache for a failed step, so a half-written output
+can never be served as a result later.
+
+## D19 — A cache from another version is discarded, not migrated
+
+Two version numbers sit in the cache's metadata. A change to the directory
+layout drops the tables; a change to how keys are composed deletes the step
+entries and keeps the file hashes.
+
+That asymmetry is the point. A file's hash is a fact about the file,
+whatever keys are made of. A step entry is a claim that *these ingredients,
+combined this way* produced that output — so an entry from another key
+format is not stale data to be migrated, it is a claim about something else,
+and reading it is the one failure a cache must never have.
+
+Nothing is migrated because nothing needs to be: every byte in the cache is
+derived, recomputing is merely slow, and being wrong is not.
+
+## D20 — A tolerance is a quantisation
+
+`CLAUDE.md` allows a numeric type to declare a tolerance for equality. The
+only way a hash can express one is to **quantise**: put the value in a
+bucket of that width and hash the bucket.
+
+"Within ε" is not transitive. `a` near `b` and `b` near `c` does not make
+`a` near `c`, so it is not an equivalence relation — and a hash can only
+ever express an equivalence relation. The rejected alternative, true
+ε-equality, cannot be hashed at all: it would need every value compared with
+every other, which is the opposite of what a content-addressed cache is for.
+
+The honest consequence, which belongs in the open rather than in a footnote:
+two values closer together than the tolerance can still fall either side of
+a bucket edge and hash differently. A tolerance therefore means "the same
+bucket", not "within ε". It removes the common case — a last digit that
+moved — and does not promise more than that.
+
+Exactness stays the default. `QUAL` in a VCF declares a tolerance of a tenth
+of a Phred unit, because it is the field with the motive: a floating-point
+accumulation whose last digits move with the order the terms were added in.
+A tenth of a Phred unit is two orders of magnitude below the smallest
+threshold anyone filters on, so it cannot merge two qualities a user would
+treat differently. Nothing else declares one, because a tolerance nobody has
+measured would be a guess baked into every cache key, and the project's bias
+runs the other way: a cache that is too cold costs time, one that is too
+warm is wrong.
+
+## D21 — Canonicalisation falls back to the bytes
+
+A file that does not parse as its type hashes as its bytes, tagged as such,
+with the tag inside the digest so the two can never collide.
+
+Canonicalisation means parsing, and parsing fails on real inputs: a
+truncated BAM, a `.vcf.gz` that is not gzipped, a file still being written, a
+`.bam` holding something else entirely. Refusing to hash such a file would
+mean a format problem surfacing as an engine failure, in a layer that has no
+business judging whether a file is valid — that is M6's job, and it has a
+whole milestone because it is not a line of code.
+
+The direction is what makes this safe. Bytes are the **stricter** test, so
+the fallback can cost a rerun and can never serve a wrong answer. Falling
+back the other way — guessing at a canonical form from a partial parse —
+would mean two files that differ in the part that could not be read hashing
+the same.
+
+For the same reason every parser here is strict. A canonicaliser that read
+what it could and ignored the rest would be the dangerous kind of lenient:
+it would reduce a file to the fields it managed to understand, and two files
+differing only outside that set would agree. So a FASTA with no `>` line, a
+BED row with two columns, a VCF record with seven, and a report row that
+does not fit its header are all failures that fall back, rather than
+partial successes.
+
+## D22 — A tool's signature is not part of its result
+
+Every tool in the reference pipeline records how it was run, inside the file
+it produces. `minimap2` writes `@PG CL:minimap2 -t 8 -ax sr ...`;
+`bcftools` writes `##bcftools_callCommand=call -mv ...; Date=Sat Oct 17
+21:14:12 2026`. These are dropped before hashing.
+
+The reason is stronger than tidiness. The command line a tool records
+contains its output path; a step's output path is the staging file, named
+after the step's own key. So before M4 **a step's output bytes contained
+that step's own key**, and any change to the step at all — a parameter, a
+tool version, a comment — moved its bytes, which moved the key of the step
+below, whose bytes moved in turn. Early cutoff, which M3 documented as
+falling out of content addressing, could not get past the first real tool.
+
+The rejected alternative was to make the staging path stable so that the
+`@PG` line would repeat. It fails for two reasons: the timestamps remain,
+and two nodes sharing a staging path could not run at once — which would
+cost the per-sample fan-out the whole project is built around.
+
+Dropping these fields has a cost worth naming: a cache hit can no longer
+prove which command produced an object, because the field that said so is
+not in the hash. That is the right place for the loss. A hash answers "is
+this the same result?"; "how was this produced?" is provenance, it is M5,
+and it wants its own storage and its own lifetime
+([cache](/project/architecture/cache/#what-is-not-here)).
+
+## D23 — Provenance has its own store and its own lifetime
+
+The cache answers "has this been computed?" and is designed to be discarded:
+everything in it can be recomputed, so a cache written under another key
+format is dropped rather than migrated (D19). Provenance answers "how was
+this produced?", and that answer cannot be recomputed. The machine, the
+installed tool versions and the exact command that produced an object last
+year do not come back.
+
+So it lives in `provenance.sqlite` beside `cache.sqlite`, with its own
+`PROV_VERSION` and nothing that ever drops a row. `Cache::open` clears
+*tables*, not the directory, so a separate file survives every key-format
+and canonicalisation bump for free.
+
+The rejected alternative was more columns on the cache's `steps` table,
+which already held the tool versions and the duration because it had them.
+It fails on lifetime: the question that table exists to answer is retired
+whenever the ingredients are recombined, and a methods section is not.
+Discarding a year of provenance because `KEY_VERSION` moved from 2 to 3
+would be an unforced loss of the only data here that cannot be regenerated.
+
+A record is keyed on the step key, which is already the identity of the
+computation. Two things are kept out of it deliberately. The sample label
+belongs to the pipeline a step was reached from rather than to the step, and
+`Graph::scopes` can derive it whenever it is wanted. Citations are not
+stored at all: a citation cannot change a result, so editing one does not
+rerun the step, so a stored one would go stale while looking current.
+
+## D24 — A citation is curated or declared, never guessed
+
+`ligase methods` cites `minimap2`, `samtools` and `bcftools` from a table in
+the engine, anything else from `cite=` on the step, and reports a tool
+covered by neither as **uncited** rather than omitting it.
+
+Two failure modes to avoid, and they pull in opposite directions. A
+reference synthesised from a tool's name would be a fabrication in a
+manuscript — the one kind of error this project exists to prevent, and worse
+than no reference at all. But a tool silently missing from a reference list
+lets an incomplete methods section look complete, which is the same failure
+wearing a quieter coat.
+
+Naming the gap satisfies both. The table stays short for the same reason:
+every entry is a standing promise to keep a reference correct as versions
+move, and a long list of half-checked citations is worth less than a short
+list of checked ones beside an honest admission.
+
+The rejected alternative was no table at all, with every citation declared.
+It is defensible — there is nothing to maintain and nothing to get wrong —
+but it leaves the reference pipeline's own methods paragraph with no
+references until three are typed by hand, and those three are the ones the
+project is built on.
+
+## D25 — A bundle states a claim and can be checked
+
+"A bundle that reproduces the results on a clean machine" cannot be built as
+written. The reference pipeline's inputs are sequencing runs from the SRA; a
+bundle carrying them would be gigabytes, and fetching them is out of scope
+for v0.1 (D8).
+
+So the bundle carries everything *except* the data and names the data firmly
+enough that nothing else can be substituted: every input by content hash,
+every reference by accession and checksum. A clean machine is then, to this
+engine, an empty cache — nothing computed, nothing remembered, every tool
+probed again — and the claim is that a run there produces outputs whose
+canonical hashes are the recorded ones. That is testable, and
+`tests/test_demo.py` tests it on the real pipeline by writing a bundle from
+one cache and verifying it against another.
+
+`verify` matches rows by step and sample rather than by key, because the key
+is the thing that may legitimately have moved, and that is what makes the
+verdicts worth having:
+
+- `identical` — the same key and the same result.
+- `reproduced` — a different key and the same result anyway.
+- `differs` — a different result.
+- `missing` — this pipeline no longer produces that step.
+
+`reproduced` is the one that justifies the mechanism. Keys are
+content-addressed, so a check on a machine with the same data and the same
+tools is `identical` and tells you little; a check where the aligner is a
+different build is `reproduced`, which is a stronger statement than a cache
+can make and is what a reviewer on their own machine actually gets.
+
+Inputs are checked by content too. That is not a bonus feature: without it a
+`differs` is uninterpretable, because a changed input explains a changed
+output, and a bundle that could not distinguish "irreproducible" from
+"different experiment" would be misleading in the one situation it exists
+for.
+
+The format is eight flat TSV tables rather than JSON. No dependency to add,
+greppable, openable in a spreadsheet, and consistent with the engine's one
+structured store being SQLite (D6). Tabs, newlines and backslashes in a
+field are escaped, so a recorded command containing a tab cannot shift a
+column.
+
+## D26 — A field that cannot be dropped is noticed instead
+
+`bcftools` names a VCF's sample column after its input BAM's **path** when
+the BAM carries no `@RG SM`, and a Ligase run hands it a file inside the
+content-addressed store. The calls then carry something like
+`/Users/kelyn/ligase/.ligase/store/62/7db9….bam` where a sample identifier
+belongs, and the consequence is not cosmetic: the canonical form of a VCF
+includes its sample names, so such a file's canonical hash depends on where
+the cache directory lives. A reproducibility bundle written from one cache
+cannot verify against a clean one. M5's bundle verification is what found
+it — `call` came back `differs` on every sample with byte-identical variant
+records, the only difference being the `#CHROM` line's last column.
+
+This is [D22](#d22--a-tools-signature-is-not-part-of-its-result)'s pattern in
+a field that cannot be dropped. A command line says how a file was made; a
+sample identifier is part of what the file is **about**, and a sample set is
+one of the dimensions this engine exists to keep straight. So the hash
+stands and the engine **says what it saw**: a
+[`Note`](/project/architecture/canonicalisation/#what-a-canonical-form-notices),
+carried beside the
+hash into the run report, provenance, the bundle and the methods section.
+A note is not an error, never changes a hash, and the fix is one line in the
+pipeline the user is the only one who can make.
+
+Both louder alternatives were rejected, and for different reasons.
+
+**Refusing it** at canonicalisation time is what
+[D21](#d21--canonicalisation-falls-back-to-the-bytes) forbids: a VCF whose
+sample column holds a path is perfectly valid VCF, and turning a format
+problem into an engine failure is the thing that layer must not do.
+Refusing it at `ligase check` time instead cannot work, because the file
+does not exist yet: the checker runs before any compute, on inputs, and the
+file with the wrong identifier is an **output**. A check-time rule would
+miss the failure that prompted this one and fire only on hand-supplied files
+that are not wrong.
+
+**Normalising it** — reducing a path-shaped identifier to its basename
+before hashing — is the silent repair of a wrong file that this project
+refuses on principle, and it risks collapsing two genuinely different
+samples whose basenames agree. It also would not have worked. The basename
+of a file in the store is the hash of its **bytes**, and an alignment's
+bytes hold the staging path that `samtools sort -o` recorded, so the
+basename moves with the cache root exactly as the whole path does: the
+bundle would still have reported `differs`.
+
+The rule for what counts is deliberately narrow, because a rule that
+guessed would report good identifiers as mistakes. An identifier is a file
+when it holds a path separator or ends in an extension naming a format this
+engine reads. `K03455.1` has a dot and is not a file; `SRR8525904` and
+`sample_a` have neither.
+
+Three consequences worth stating. The notes are **stored** with the
+canonical hash rather than recomputed, because a cache hit does not reopen
+the file and a warning that stopped appearing on the second run would be
+worse than none. `CANON_VERSION` does **not** move: the rule changes nothing
+about what is hashed. The cache's `SCHEMA_VERSION` does, for the new column,
+which clears the cache's tables — the same practical cost, for a reason that
+can be stated honestly.
+
+## D27 — A worker that waits is a worker rayon cannot use
+
+A `ligase methods` run on the HIV-1 demo stopped for forty minutes with no
+child processes alive and under ninety seconds of CPU burned, while a second
+full run of the demo was competing for the same machine. Nine rayon workers:
+two inside BLAKE3's parallel hashing of an input, asleep in a nested
+`rayon::join`, and seven asleep on the executor's own `Condvar` waiting for
+a step to become ready.
+
+That is the whole bug. The scheduler ran `jobs` long-lived worker loops,
+each inside a `scope.spawn` job, and a worker with nothing ready blocked on
+a condition variable of the runner's own. Rayon has no idea such a thread is
+idle — it is inside a job, so it is busy — and a blocked worker cannot steal.
+Meanwhile hashing a step's inputs happens *inside* a step, and BLAKE3 hashes
+a large file across whatever pool it is called from
+([D3](#d3--blake3-with-sizemtime-prefilter)). So a step queues work on the
+executor's own pool, and that work had two possible takers instead of nine.
+Whether the final stall is a strict cycle or a lost wakeup between those two
+is not something the sample can settle, and it does not matter: a pool whose
+spare capacity is invisible to its own scheduler is the defect, and heavy
+oversubscription is only what made it show.
+
+So the rule is that **a worker never blocks on anything that needs the pool
+to make progress**. Concretely: no worker loop and no waiting for work. A
+step is one rayon job, and a job that finishes starts the steps it released
+before it ends — so the run is over exactly when the scope is empty, and a
+worker with nothing of its own to do is idle as far as rayon is concerned.
+The two places that used to block are gone. The ready queue is no longer
+waited on, and a node that wants a key another node is producing is *parked*
+on that key and handed back when the claim is dropped
+([the scheduler](/project/architecture/execution/#nothing-waits-for-work)).
+
+The rule is narrower than "a worker never blocks", which would be
+unachievable: a step *is* a child process, and a worker sits in `wait` for
+its whole duration, as it does for the GIL inside a callback. Neither of
+those needs the pool to finish, so neither can close a cycle. The ready
+queue and a claimed key did.
+
+Two alternatives were weighed and rejected.
+
+**Hash single-threaded inside the executor** — `update_mmap` rather than
+`update_mmap_rayon`. One line, and it removes the nested parallelism
+completely. It was tempting because the prefilter means a warm run rehashes
+nothing and the executor already hashes `jobs`-ways across concurrent steps,
+so the loss is confined to a cold hash of a very large file in a narrow
+graph. It was rejected because it treats the symptom: the pool would still
+be unsafe to reuse from inside a step, and the next thing to want nested
+parallelism would reopen the same hole with no test to catch it.
+
+**A dedicated hashing pool**, so the two pools cannot starve each other. It
+keeps D3's parallel hashing and removes the cycle, but it makes the real
+thread count `jobs` plus that pool's. `--jobs` is a promise about machine
+load — the situation that produced this bug was two runs on one machine —
+and quietly exceeding it is the wrong direction for a tool people leave
+running overnight on shared hardware.
+
+What this costs is the scheduler itself: the worker loop, the condition
+variable and the active count are gone, and M3's termination argument is now
+the scope's rather than a count of busy workers. That is a real change to
+closed code, which is why it is pinned by two tests that fail in ten seconds
+against the old scheduler rather than hanging
+([the scheduler](/project/architecture/execution/#nothing-waits-for-work)). It also
+pays something back: a parked twin no longer occupies a `--jobs` slot doing
+nothing.
+
+## D28 — The rules are vendored, and enter a key by content
+
+Interpreting a mutation needs a ruleset. Stanford publishes the HIVdb
+algorithm as ASI2 XML in its own repository, `hivdb/hivfacts`, under the
+Unlicense — a dedication to the public domain. Two versions are vendored
+byte-for-byte and pinned by SHA-256: 9.8, which is what the published
+results M6 validates against were produced with, and 10.2, which is
+current.
+
+Calling Stanford's web service was the alternative, and it fails on the
+project's own terms: an answer that depends on the day it was asked for
+cannot be put in a cache key or carried in a bundle. D8 puts public-data
+fetching out of scope for v0.1 in any case.
+
+Each algorithm is committed twice — the XML as published, and a
+`.ruleset` derived from it by `scripts/vendor_hivdb_algorithm.py`. The XML
+is what you audit against upstream; the derived file is what the engine
+reads, which means no XML parser in the core and no new dependency.
+`tests/test_rulesets.py` re-derives every `.ruleset` on every run, because
+a derived file nothing re-derives is one that can quietly stop matching
+its source.
+
+**What the rules enter the key as** took longer to settle. A callback
+step's recipe describes as the constant `"callback"` and `code` is the
+step function's source, not what a library it calls reads, so they had no
+home at all. The obvious fix — an `algorithm="HIVDB_9.8"` parameter —
+pins by *name*, which this project refuses everywhere else:
+[the dimension catalogue](/reference/dimensions/) says reference identity is never by
+filename alone,
+and `load::variants` distrusts `##reference` because it holds a path.
+Upstream ships both `HIVDB_10.0.xml` and `HIVDB_10.0-1.xml`, so a
+correction republished under a near-identical name is not hypothetical,
+and a key that moved only with the name would serve a result computed
+under rules that have since changed.
+
+So `tool=` carries it. That field already means "something whose version
+changes the answer", and its version string is already free-form. A
+built-in list, one entry long, keeps the exception visible instead of
+hiding it in the probe, and `hivdb` resolves to every vendored algorithm
+by version, date and the BLAKE3 of its bytes. Doing it this way picks up
+the key, provenance, the methods sentence and D24's citation table at
+once — and HIVdb needs a citation, which a parameter gave no home.
+
+Every shipped algorithm is named rather than only the one in use, because
+the probe runs before any step body has said which it wants. Editing 10.2
+reruns a pipeline pinned to 9.8. That is over-conservative in the
+direction D20 already commits to: a cache that is too cold costs time, one
+that is too warm is wrong. The string reads "as shipped" because a methods
+paragraph renders it after "ran with", and a step that named 9.8 must not
+appear to have run with 10.2.
+
+## D29 — An interpretation never invents a susceptible result
+
+An interpretation can be wrong in two directions and they are not equally
+bad. Reporting resistance that is not there costs a patient a drug they
+could have taken. Reporting *susceptibility* that is not there costs them
+a drug that will fail. Three judgements could each have gone either way,
+and all three go the same way.
+
+**A mixture is every amino acid it could be.** Where the reads support
+both the reference and an alternate above the threshold, the codon holds
+both, and a rule is satisfied if any of them satisfies it. An ambiguous
+position is two viruses, not an average of one, and taking the majority
+would discard the minority virus — which is what deep sequencing is for.
+
+**A position that was not read is not a wild-type position.** `bcftools`
+writes only the sites it has something to say about, so a position missing
+from a VCF is ambiguous between "agrees with the reference" and "nothing
+aligned here". Coverage is read from the alignment; a codon not covered to
+depth is *unread*, and a drug whose rules mention one reports its score as
+a floor and names what it could not see. An item already refuted by a
+position that *was* read is settled, so its unread positions are not
+reported — otherwise every drug would list most of its positions and the
+warning would mean nothing.
+
+**A gene nobody sequenced is not assessed.** HIVDB 9.8 scores lenacapavir
+against capsid, which is in gag. A pol pipeline has nothing to say about
+it, so the report says so. This is D24's reasoning about citations applied
+to a drug class: a named gap is honest, a gap filled with a cheerful
+default is not.
+
+The test that pins all three is a no-template control. Sixty of its
+thirty-two thousand reads map to HXB2, and a pipeline that read "no
+variant called" as "agrees with the reference" would report a tube of
+water as fully susceptible to twenty-seven drugs.
+
+A fourth judgement joined them with D31, and it goes the same way.
+**A codon is only the combinations the reads carry.** A VCF says what is
+at each position rather than what travels together, so enumerating two
+ambiguous bases in one codon yields up to four amino acids and some are
+carried by no read at all. The alignment settles it, and what happens
+where it cannot is [D31](#d31--a-codon-no-read-spans-keeps-its-per-base-reading).
+
+## D30 — A consensus caller cannot answer a resistance question
+
+The demo's `call` step ran `bcftools call -mv --ploidy 1` through M5, and
+its docstring defended the choice: `bcftools call` is a consensus caller,
+a threshold below a half rarely removes anything, and a low-frequency
+caller is a change of tool rather than of threshold. All of that was true.
+
+M6 measured the cost. On SRR32217726 the reads at HXB2 3204 are A 238,
+G 192 — a 45% K219E, a zidovudine resistance mutation — and `bcftools
+call -mv` emitted no record for it, because the majority allele is the
+reference and there was no variant to call. The report came back
+susceptible to all twenty-seven drugs.
+
+Given that input it was *right*: it matches Stanford's own
+majority-consensus report for the same sample exactly, which is useful
+evidence that the interpreter is sound. But Stanford's 5% report for that
+sample also finds L100I and reads high-level resistance to four NNRTIs.
+A pipeline whose answer flips from "fully susceptible" to "resistant to
+most of the NNRTI class" on a threshold it never exposed is not doing what
+it says it does.
+
+So the caller is gone. The pileup's own allele depths are the evidence,
+`min_freq` is applied to them directly, and the parameter now means what
+its name says. What counts as *present* for interpretation is a separate
+parameter, `mixture`, because the two are different questions: one is
+about what the reads show, the other about what you are willing to act on.
+
+The rejected alternative was to keep the caller and document the limit.
+It is cheaper and it is what the old docstring did — but a limitation
+documented in a docstring is not visible in a report, and this one changes
+the clinical answer.
+
+## D31 — A codon no read spans keeps its per-base reading
+
+A codon was assembled from the VCF: the alleles the caller credited at
+each of the three bases, then every combination of them, translated. A VCF
+says what is at each position and not what travels together, so the
+combinations include codons no read carries.
+
+That is not hypothetical. On SRR32217726 the caller credits G at the
+first base of RT codon 219 in 43% of the reads it counted there, and at
+the second base in 2.4%. At a 2% threshold both pass, and the four
+combinations read K, R, E and G — where of the 4,347 reads spanning the
+whole codon, 54% carry `AAA` and 45% carry `GAA`, and `AGA` and `GGA` are
+under two tenths of a per cent each. Two of those amino acids are
+arithmetic rather than virus. Six of M6's nine published discrepancies
+were this, and although none of them changed a score, it is the kind of
+wrong the project exists to avoid.
+
+So codons are read from the alignment, which was already an input for
+coverage. Reads spanning all three bases of a codon are counted as the
+triplets they carry, and the codon holds the amino acids whose share of
+those reads reaches `mixture`.
+
+Three things about that had to be decided, and each could have gone the
+other way.
+
+**Phasing narrows a reading and never widens one.** Which alleles are
+*present* at a position stays the caller's judgement, because `bcftools
+mpileup` weighs base quality and a raw read base does not. Sample 30 is
+the case that proves it: at HXB2 2773 the raw bases carry the V75A base in
+3.2% of the reads there, where the caller credits it in 1.7% of the reads
+it counted. Taking the raw count would "find" a mutation at 2% — and
+would agree with the published report, by accident, on evidence the
+caller had already judged too poor to report. So phasing only chooses
+among the combinations of alleles the caller credited; it never adds
+one.
+
+**The threshold applies to the amino acid, not to the spelling of it.**
+Two synonymous triplets each below `mixture` can hold an amino acid well
+above it, and the report is about amino acids. Thresholding each triplet
+on its own would lose one that is there, which is the one direction
+[D29](#d29--an-interpretation-never-invents-a-susceptible-result) forbids.
+
+**A codon no read spans keeps its per-base reading.** Paired-end reads can
+cover a codon between them without either mate spanning it, and a codon
+with an indel across it is not read whole by anything. Three answers were
+available:
+
+- *Report it unread.* Honest about the phase, but wrong about the rest:
+  the per-base evidence does establish which alleles are there, and only
+  their phase is unknown. An unread codon makes every drug whose rules
+  name that position report a floor, so discarding what is known would
+  spread a hedge across a report over one missing read.
+- *Guess a phase*, for instance by pairing majority with majority. This
+  invents exactly what the change exists to stop, and it can drop a
+  resistant amino acid — D29's forbidden direction.
+- *Keep the per-base reading*, which is what Ligase does, with a note
+  saying how many codons of which gene fell back and why. The reading is
+  then wider than the truth rather than narrower: it can over-report
+  resistance, never under-report it, which is the direction D29 commits
+  to everywhere else.
+
+That note is a `Reading::notes` entry, which is where the "no alignment
+was supplied" note already goes. Both reach the person reading the result:
+the step hands them back to the engine, which says them in the run report,
+in provenance, in a bundle and in the methods section
+([D32](#d32--a-step-says-what-its-own-work-rested-on)).
+
+The same fallback covers a codon the reads span but say nothing useful
+about — fewer than `depth` spanning reads, or no credited combination
+among them. All of those mean one thing, "the reads cannot settle this
+codon", and they get one answer.
+
+In practice the fallback does not fire. On each of the validation's three
+covered samples, all 1,178 covered codons are spanned whole by at least a
+hundred reads, because the window is three bases and the reads are a
+hundred and fifty. It is a guarantee rather than a path, which is the
+right shape for a hedge: it exists so that a shallow or short-read
+dataset degrades towards over-reporting rather than towards silence.
+
+The cost is reading sequences where coverage alone needed only spans. On
+the deepest run of the validation — 95,000 reads — the `resistance` step
+goes from 0.6s to 1.1s, and the three-threshold validation run from 14s
+to 21s. Doubling the cheapest step in the pipeline to stop it inventing
+amino acids is not a close call.
+
+## D32 — A step says what its own work rested on
+
+Three of the assumptions an HIV resistance reading makes have a clinical
+direction, and all three were silent. A reading made without an alignment
+takes every position the caller did not report to be reference, which
+manufactures susceptible results out of dropouts
+([D29](#d29--an-interpretation-never-invents-a-susceptible-result)). A gene
+whose codons did not all reach the depth asked for has drugs whose scores
+are floors rather than answers. A codon no read spans is read base by base
+and can name a mutation no single read carries
+([D31](#d31--a-codon-no-read-spans-keeps-its-per-base-reading)). Each was
+recorded on `Reading::notes`, returned through `interpret_resistance`, and
+dropped by the Python wrapper that called it. Nothing rendered any of them.
+
+The engine already had the channel. A
+[`Note`](/project/architecture/notes/) is carried beside a step into the run
+report, provenance, the bundle and the methods section, in the same words
+each time
+([D26](#d26--a-field-that-cannot-be-dropped-is-noticed-instead)). What it
+lacked was a way in from a step's body, because **canonicalising a
+resistance report cannot find any of this**: a run with full coverage and a
+run with none can write the same bytes. The finding is not a fact about the
+output, which is exactly why the output cannot be read for it.
+
+So `Host::call` returns what the body noticed, and `lg.write` lets a body
+hand back pairs of a note's code and its value. The wording stays in Rust
+with the rest of each note's advice and consequence, so a body names the
+kind of finding and the engine says the sentence.
+
+Three alternatives were considered.
+
+**A column on the report**, which is where the brief for this change
+started. It travels with the file, which is a real advantage over a line in
+a terminal, and it loses on three counts. The report's columns are part of
+what a report is — the canonicaliser keeps the header as a row — so adding
+one changes every report's canonical hash and makes the diff against
+Stanford's own reports that
+[M6](#d28--the-rules-are-vendored-and-enter-a-key-by-content) rests on
+harder to read. The sentence would repeat on all twenty-seven rows, because
+the hedge is about the reading and not about any one drug. And it would
+reach only the person holding that one file, when the question "what did
+this result rest on?" is asked by a reviewer reading a bundle.
+
+**Returning them from `lg.hivdb.interpret`**, which cannot work: the
+function is called before anything runs and returns a recipe, so there is
+nothing to return notes about yet.
+
+**Carrying them without storing them**, which fails on the second run.
+D26 settled this for the other kind of note and the reasoning is unchanged:
+a cache hit does not rerun the body, so a hedge that appeared the first
+time and vanished the second would be worse than none. They are stored
+against the **step's key** rather than the output's hash, because they are
+not facts about those bytes — and the key already carries what they depend
+on, since the alignment is an input. The cache's `SCHEMA_VERSION` moves to
+3 for the column, which clears its tables; D19 discards rather than
+migrates, so that is the whole cost.
+
+Two smaller things fall out of it.
+
+A code no `Note` names **fails the step** rather than being dropped. The
+codes come from this engine's own notes, so an unknown one is a mistake in
+a body — and a note quietly swallowed here is precisely the silence this
+change exists to end. For the same reason a body that returns something
+other than notes is told what to return: `lg.write(lambda out:
+out.write_text(…))` hands back a character count, and that is the mistake
+a user actually makes.
+
+`Note::explains_a_difference` separates the two kinds for bundle
+verification. A sample identifier that is a file explains a `differs` with
+no science behind it, because such a hash depends on where the cache was. A
+coverage hedge explains nothing of the kind — it is the same on every
+machine — and offering it as an excuse for a hash that moved would send a
+reader after the wrong thing. It still appears everywhere else a note does.
+
+What this does not do is make a shell step able to hedge. A command cannot
+be asked what it assumed, so a step that shells out has to say it in the
+file it writes. That is a limit of the mechanism and not a decision
+against it.

@@ -1,0 +1,83 @@
+---
+title: "My sample labels look swapped"
+description: "Two files with the same cohort in a different column order. Every genotype is attributed to the wrong person, and nothing in the output says so."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# My sample labels look swapped
+
+<Lede>
+A result is the wrong way round. The case sample carries the control's genotypes,
+or a known carrier comes back negative while someone unrelated comes back
+positive. Everything upstream ran cleanly. Somewhere in a join, **the cohort
+changed order and the labels did not follow it**.
+</Lede>
+
+## What actually happened
+
+Two files contain the same samples in a different order, and something combined
+them positionally.
+
+A VCF's genotype columns are ordered, and that order is declared once in the
+`#CHROM` header line. A matrix written out of one tool and read into another
+carries its columns in whatever order it had. A `sort`, a `join`, a glob
+expanding in a different locale, a dictionary that used to preserve insertion
+order and now does not — any of these reorders a cohort.
+
+When column 1 of one file is paired with column 1 of another and those are not
+the same person, every value is attributed to the wrong individual. The result is
+not noise. It is a confident, specific, wrong answer about a named person.
+
+## Why nothing crashed
+
+Both files have the right number of columns. Both have valid sample identifiers.
+Every value is of the right type and in the right range.
+
+Positional joins are the default in a great deal of scientific code — `paste`,
+`cbind`, `np.hstack`, a `zip` over two sorted lists — and none of them check
+that the things being paired refer to the same subject. They cannot: by the time
+the data is a matrix, the identifiers have usually been dropped.
+
+And the output is still a valid cohort. Reversing two labels in a case–control
+study produces a result that is internally consistent and has the sign flipped.
+
+## What Ligase says
+
+Two VCFs with the same two samples in opposite column order:
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.shuffledSamples}</Diagnostic>
+
+The engine reports the sets **in order**, as lists rather than as sets, because
+order is the thing that differs. It then says so explicitly — *the same samples
+appear in both, in a different order* — which distinguishes this from the other
+thing it could have been, a genuinely different cohort.
+
+The closing question points upstream rather than at the current step, because
+that is where a reordering happens. The step that failed the check is almost
+never the step that caused the problem.
+
+## How it is caught
+
+`sample_set` is an **ordered** dimension, read from the VCF header's sample
+columns, the BAM's `@RG SM` tags, or FASTQ filenames:
+
+```python
+>>> lg.variants("cohort_a.vcf", organism="human").dimension("sample_set").value
+'[sample_a, sample_b]'
+```
+
+Sample sets must match by identity *and* order wherever steps join samples. A
+set comparison would pass this case, which is exactly why it is not a set.
+
+<Note kind="tip" title="A sample identifier is never corrected">
+Ligase does not reorder a sample set to make a join work, and it does not drop
+an identifier it cannot make sense of. An identifier read from a file is what
+the file is about.
+
+There is one related case worth knowing: an identifier that is a *file name*
+rather than a sample — which is what `bcftools` writes when an alignment carries
+no `@RG SM` tag. That is reported as a `noticed` line rather than an error, since
+the data is usable and the name is merely wrong. See
+[when a tool names a sample after a file](/concepts/notes/).
+</Note>

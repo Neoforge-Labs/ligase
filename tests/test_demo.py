@@ -1,7 +1,7 @@
 """M3 and M4 acceptance: the criteria, on the real HIV-1 pipeline.
 
-`docs/milestones.md` signs these milestones off on the demo rather than on a
-contrivance. For M3:
+`web/content/project/milestones.mdx` signs these milestones off on the demo
+rather than on a contrivance. For M3:
 
 - the demo runs end to end on 3-4 runs from PRJNA517147,
 - a second run completes entirely from cache,
@@ -307,7 +307,7 @@ def test_auditing_the_report_finds_it_deterministic(
 def test_the_methods_paragraph_names_what_the_milestone_asks_for(
     demo: ModuleType, shared: Path
 ) -> None:
-    """The four things `docs/milestones.md` signs M5 off on.
+    """The four things `web/content/project/milestones.mdx` signs M5 off on.
 
     Tool versions, parameters, reference accession and citations — on the
     real pipeline, with the real tools, so the versions are the ones that

@@ -1,0 +1,377 @@
+---
+title: "Canonicalisation"
+description: "crates/ligase-core/src/canon/ — one module per format, plus the digest they all build. No pyo3: deciding whether two files mean the same thing is correctness-critical logic, and"
+---
+# Canonicalisation
+
+`crates/ligase-core/src/canon/` — one module per format, plus the digest
+they all build. No `pyo3`: deciding whether two files mean the same thing is
+correctness-critical logic, and it is tested in Rust.
+
+The job: `(DataKind, path) → ContentHash`, over a byte stream that depends on
+what the file says and not on how it was written.
+
+## Why this exists at all
+
+M3 keyed a step on its inputs' bytes, and documented early cutoff as
+following from it: a step that reruns and writes the same bytes leaves every
+key below it alone. That is true, and on real tools it almost never
+happened.
+
+`minimap2` writes its whole command line into `@PG CL`. The command line
+includes the output path. The output path is `.ligase/tmp/<key>.bam`. So a
+step's output bytes **contain that step's own key**, and any change to the
+step — a parameter, a tool version, a comment — moved its bytes, which moved
+the key of the step below, whose bytes then moved in turn. The cascade ran to
+the bottom of the pipeline.
+
+`bcftools` has the same shape with a timestamp added:
+`##bcftools_callCommand=call -mv ... -o /tmp/out.vcf.gz; Date=Sat Oct 17
+21:14:12 2026`.
+
+M4 is therefore less "widen a strict test" than "make the cutoff M3
+described actually hold". The thread-count acceptance criterion in
+[the milestones](/project/milestones/) is one instance of it.
+
+## Where it attaches
+
+Exactly where [the cache](/project/architecture/cache/#what-an-inputs-hash-is-a-hash-of) said it would.
+
+```rust
+pub const INPUT_POLICY: &str = "canonical";   // was "raw"
+pub const KEY_VERSION: u32 = 2;               // was 1
+```
+
+`Ingredients` did not change shape. `Runner::key` now asks
+`Cache::semantic_hash(kind, path)` where it asked `Cache::content_hash`, and
+the kind comes from the graph — the input node's dataset — rather than from
+the step.
+
+The **store** still names objects after their bytes. That is deliberate: an
+object's name is a claim about its contents that anyone can check with
+`b3sum`. The canonical hash is a derived fact held beside it, not a
+replacement for it.
+
+## The digest
+
+`canon::Digest` is the only thing that writes bytes into the hash, and it
+offers two ways to do it.
+
+- `field(label, value)` — written immediately, in order. For anything whose
+  position means something.
+- `record(parts)` — hashed to 32 bytes now, collected, and **sorted** at the
+  end. For anything whose position does not.
+
+Everything is length-prefixed, so a field `x` = `yz` cannot produce the same
+stream as `xy` = `z`. The domain, the rules' version, the `DataKind` and
+whether this is a canonical form or a fallback all go in first, so no two
+of those can collide.
+
+Records are sorted as **digests, not as text**: 32 bytes a record rather
+than a few hundred, which matters on a BAM with a hundred million of them. A
+sorted list of digests is still a commitment to the whole multiset —
+duplicates and absences included, which a commutative combination such as
+an XOR would lose.
+
+## Which formats sort
+
+| Kind | In order | Sorted | Dropped |
+|---|---|---|---|
+| `Reads` | — | records | the description after a name; the `+` line's repeat |
+| `Reference` | contigs | — | descriptions, line wrapping, case |
+| `Alignment` | `@SQ` | records | `@HD`, `@PG`, `@CO`; `@RG` is sorted by ID |
+| `Variants` | `##contig`, samples | records | see below |
+| `Intervals` | — | records | `track`, `browser`, `#` |
+| `ResistanceReport` | the header row | the rows below it | trailing blanks |
+
+The split is not a new judgement. It is
+[D14](/project/decisions/#d14--contig-order-is-compared-only-between-sequence-dictionaries),
+which already decided that a sequence dictionary's order is semantic (GATK
+insists on it) while a BED's record order is incidental. A reference *is* a
+sequence dictionary, so it keeps its order; `@SQ` is one, so it keeps its
+order; records are not, so they sort.
+
+## Per-format notes
+
+### Alignment
+
+Parsed by `noodles`, BAM and SAM through one code path over the
+`sam::alignment::Record` trait. That is what makes a BAM hash the same as
+the SAM it came from, which
+[D9](/project/decisions/#d9--coordinates-are-semantics-not-encoding) requires:
+re-encoding is not a biological change, so `samtools view -b` must not cost
+a cache.
+
+Each record contributes name, flags, reference id, position, mapping
+quality, CIGAR, mate reference and position, template length, sequence,
+qualities, and its tags.
+
+Tags are **kept, all of them, sorted by tag**. They are results — `NM`,
+`AS`, `ms` are what the aligner concluded — and keeping an unknown tag is
+the conservative direction. What is normalised away is incidental: the order
+they were written in, and an integer's storage width, so a SAM's `NM:i:3`
+and a BAM's single byte are the same `3`.
+
+`@RG` keeps `ID` and `SM` and nothing else. The rest of a read group is
+metadata, and one of its standard tags is `DT` — a date.
+
+### Variants
+
+`noodles` reads and validates the header. The records are then
+canonicalised as **text**: tab-split, validated (eight columns or more, a
+numeric `POS`), with `QUAL` quantised and the `INFO` and `FILTER` keys
+sorted.
+
+The alternative was to rebuild each record from the typed accessors, and it
+was rejected. Doing so means choosing a rendering for every `INFO` value
+type, and a rendering that differs from the tool's own is a fresh chance to
+call two identical results different. What is being compared here is two
+outputs of *the same tool*, and for that the tool's own text is the most
+faithful record of what it concluded. What is normalised is only what is
+genuinely incidental — `DP=10;AF=0.5` and `AF=0.5;DP=10` are one set of
+annotations written two ways.
+
+`ALT` is deliberately left in its order: a genotype's `1` means the first
+alternate allele, so sorting them would renumber every call in the file.
+`FORMAT` and the sample columns are left alone for the same reason — they
+line up with each other positionally.
+
+Header keys dropped: `fileDate`, `fileDay`, `source`, `reference`,
+`bcftoolsVersion`, and any key ending `Command`, `CommandLine`, `Version` or
+`Date` — which covers `bcftools_callCommand`, `bcftools_viewVersion`,
+`GATKCommandLine` and whatever the next tool calls its own.
+
+`##reference` is worth stating separately: it holds a path, and
+[the dimension catalogue](/reference/dimensions/) is explicit that reference identity never
+rests on a filename. `load::variants` already refuses to read identity from it. The
+`##contig` lines carry it, and they are kept.
+
+`INFO` and `FORMAT` definitions keep their ID, `Number` and `Type` and drop
+their `Description`: which fields a record can carry, and how they are
+shaped, is part of what the file is; the prose describing them is not, and a
+tool release that rewords a description has not changed a call. `Number` is
+spelled out by hand (`A`, `R`, `G`, `.`, `LA`…) rather than taken from a
+derived `Debug`, so that a rename inside `noodles` cannot quietly change
+what every key in every cache is made of.
+
+### Reference
+
+Scanned by hand, as `load::fasta` is, so that a three-gigabase reference is
+reduced without being held in memory: each contig's sequence is folded into
+a hash of its own as it is read. The line breaks arrive as nothing but the
+points between updates, which is why wrapping cannot reach the result.
+
+Uppercased, because that is the form the SAM specification defines its `M5`
+contig checksum over, and `ReferenceId::fingerprint` already agrees. Soft
+masking goes with the case, deliberately: a lowercased repeat region is an
+annotation applied to a sequence, not a different sequence.
+
+### Reads, intervals, report
+
+FASTQ through `noodles`, which has already split the description off the
+name. BED by hand, as `load::intervals` is, because `noodles`' BED reader is
+typed by column count and a BED in the wild has whichever columns its author
+felt like writing. The resistance report is ours: the header row kept as a
+row, the rows below it sorted, and a row whose column count disagrees with
+the header is a parse failure rather than something to hash.
+
+## Tolerance
+
+```rust
+pub struct Tolerance(f64);
+impl Tolerance { pub fn bucket(self, value: f64) -> Option<i64>; }
+pub fn tolerance(kind: DataKind, field: &str) -> Option<Tolerance>;
+```
+
+One table, one entry: `(Variants, "QUAL")` at 0.1. Everything else is
+exact.
+
+A tolerance can only be expressed by quantising, and
+[D20](/project/decisions/#d20--a-tolerance-is-a-quantisation) says why: "within
+ε" is not transitive, so it is not an equality, and a hash can only express
+an equality.
+
+0.1 Phred is chosen to absorb last-digit floating-point wobble —
+`215.376` against `215.375` — while sitting two orders of magnitude below
+the smallest threshold anyone filters on, so it cannot merge two qualities a
+user would treat differently. It is one constant in one table.
+
+A value too large to bucket keeps its own text rather than being folded in
+with every other large value, and a `QUAL` of `.` is kept as written:
+there is nothing to quantise and nothing is gained by pretending otherwise.
+
+## The fallback
+
+A file that will not parse hashes as its bytes, tagged `Form::Raw`
+([D21](/project/decisions/#d21--canonicalisation-falls-back-to-the-bytes)). The
+tag is inside the digest, so a fallback can never collide with a canonical
+form, nor with the plain `ContentHash` of the same bytes.
+
+The direction matters: bytes are the stricter test, so a fallback can cost a
+rerun and can never serve a wrong answer. It is also what keeps the engine
+working on a `.bam` holding something that is not a BAM — including the
+text-file fixtures the execution tests are built on.
+
+Every parser is strict for the same reason. A canonicaliser that read what
+it could and ignored the rest would be the dangerous kind of lenient: two
+files that differ only in the part it skipped would agree, which is the one
+failure a cache must never have. So a FASTA with no `>` line, a BED row with
+two columns, a VCF record with seven, and a report row that does not fit its
+header are all parse failures.
+
+## What a canonical form notices
+
+The fallback handles a file that will not parse. The other half of the same
+problem is a file that parses perfectly and is still wrong in a field the
+rules cannot drop, and that is what a `Note` is for
+([D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).
+
+There is one note in v0.1: a sample identifier that is a file. A VCF's
+sample names and a BAM's read-group samples are *what the file is about* —
+a sample set is a dimension — so neither can go the way `@PG` went, and a
+tool handed an alignment with no `@RG SM` writes the input file's path
+there. The hash of such an output moves with the cache root.
+
+`Note::about_sample` decides, and deliberately narrowly: a path separator,
+or a trailing extension naming a format this engine reads. `K03455.1` has a
+dot and is not a file. The `Shape` it finds — absolute, relative or a bare
+name — only chooses the wording, because an absolute path is the one that
+cannot travel and saying so is more use than "a file".
+
+```rust
+for sample in header.sample_names() {
+    digest.text("sample", sample);
+    if let Some(note) = Note::about_sample(sample) {
+        digest.note(note);
+    }
+}
+```
+
+Three properties hold, and each is a test:
+
+- **A note never changes a hash.** `Digest::note` pushes onto a `Vec` that
+  `finish` does not read. Two VCFs differing only in a path-shaped sample
+  still have different hashes, because they are claims about different
+  sample sets.
+- **A note is dropped on the fallback path.** `canon::hash` takes the notes
+  out of the digest on success and discards them on failure. A remark about
+  a file that did not parse would be a remark about the half of it that was
+  read.
+- **Repeats collapse.** `Digest::note` ignores a note it already holds, so
+  an alignment whose four read groups name the same file has one thing wrong
+  with it rather than four.
+
+### Where a note goes
+
+`Canonical` carries `notes` beside `hash` and `form`, and from there they
+travel without being recomputed:
+
+| Layer | What it does with them |
+|---|---|
+| `Cache::semantic` | Stores them in the `canonical` table beside the hash, and hands them back on a cache hit. `semantic_hash` keeps its old signature for callers that only want the hash. |
+| `exec::StepResult` | A `notes` field on every finished step, printed by `exec::render` as a `noticed` line with the advice stated once per kind (D15). |
+| `prov::Record` | `output_notes`, in a `produced_notes` child table. This is why `PROV_VERSION` is 2. |
+| `prov::Methods` | A `Noticed` per node — not per group, since a group is nodes *run the same way* and four samples run identically can be named after four different files. `Methods::notices()` gathers them by step and kind. |
+| `bundle` | A `notes.tsv` table, a *What was noticed* section in the README, and, for the notes that can explain a hash that moved, `Verification::noticed` from the run being checked. |
+
+They are **stored** rather than recomputed because a cache hit does not
+reopen the file, and a warning that appeared on the first run and vanished
+on the second would be worse than no warning. That is the one cost: the
+cache's `SCHEMA_VERSION` moved to 2 for the new column, which clears its
+tables. `CANON_VERSION` did not move, because nothing about what is hashed
+changed.
+
+Canonicalisation is not the only thing that finds a note. A step's body
+says what its own work rested on, which no reading of the output could
+recover, and those notes travel the same way — stored against the step's
+key rather than the output's hash, since they are not facts about its
+bytes. The `Note` type itself, both producers and every surface a note
+reaches are in [Notes](/project/architecture/notes/).
+
+## What it costs, and why it is paid once
+
+Canonicalising a BAM is a full pass over it. Doing that on every run would
+be the one thing that makes this unaffordable, so it is remembered:
+
+```sql
+CREATE TABLE canonical (
+    raw       TEXT NOT NULL,   -- the hash of the file's bytes
+    kind      TEXT NOT NULL,
+    canonical TEXT NOT NULL,
+    form      TEXT NOT NULL,
+    PRIMARY KEY (raw, kind)
+)
+```
+
+Keyed on the **hash of the bytes**, not on the path, because that is what it
+is a fact about. A file moved, copied, or produced again identically by
+another step is not parsed twice. Behind it sits the
+[prefilter](/project/architecture/cache/#the-prefilter), so the steady state of a second run is
+`stat` → remembered byte hash → remembered canonical hash, and
+`report.hashed` and `report.canonicalised` are both zero.
+
+`CANON_VERSION` sits in the cache's `meta` beside the other two versions. A
+change to it clears this table **and** the step entries, which is
+[D19](/project/decisions/#d19--a-cache-from-another-version-is-discarded-not-migrated)
+extended by one line: a canonical hash is a fact about a file *given the
+rules that produced it*, so one computed under other rules is a fact about
+something else. Nothing is migrated because nothing needs to be.
+
+## Audit mode
+
+`crates/ligase-core/src/audit.rs`, which is the user-facing half of the same
+idea: comparing bytes and meaning separately is what lets an audit tell a
+tool that signs its work from a tool that cannot repeat itself.
+
+```rust
+pub enum Verdict { Deterministic, Reproducible, NotReproducible }
+```
+
+`audit()` runs the pipeline once, normally and through the cache, so that
+the audited nodes have their inputs; then runs each of them twice more
+through `exec::produce` into scratch files, hashes each output both ways,
+and deletes the scratch. Nothing from the two runs is recorded: an audit
+observes, and recording either would put a result from a step known to
+wobble into the cache.
+
+Two pieces were lifted out of `exec` rather than duplicated —
+`exec::inputs_of`, so an audited step is handed exactly what a run would
+hand it, and `exec::produce`, which is the part of running a step that is
+just running it. The audited nodes are taken in turn: a duration is part of
+what an audit reports, and two runs of an aligner competing for cores would
+produce timings that describe the machine rather than the step.
+
+`AuditReport::verdict()` is the **worst** verdict, not the commonest. One
+irreproducible sample in a cohort is an irreproducible step, and a summary
+that averaged them would bury what the user is auditing for — the same
+reasoning as [D15](/project/decisions/#d15--an-error-identifies-its-node-not-just-its-step)
+counting places rather than names.
+
+## What is not here
+
+**Provenance.** Nothing here records why a result is what it is — and
+dropping the fields that used to say so is what made
+[provenance](/project/architecture/provenance/) necessary rather than merely nice
+([D22](/project/decisions/#d22--a-tools-signature-is-not-part-of-its-result)).
+
+**Notes about inputs.** A note is reported for what a run *produced*. A
+leaf input the user supplied with path-shaped sample names is their file,
+described as they gave it, and `exec::remember` records an `InputRecord`
+without notes. Reporting those would mean deciding what a user is to do
+about a file the pipeline did not write.
+
+**BCF and CRAM.** Both would fall back to their bytes today. Neither is in
+the reference pipeline; adding them is a module beside the others and a
+`CANON_VERSION` bump.
+
+**Sorting under memory pressure.** Record digests are held in memory while a
+file is canonicalised: 32 bytes a record, so a hundred million records is
+3.2 GB. That is fine for the amplicon data this is built on and would need
+an external sort for whole-genome BAMs. The shape that would change is
+`Digest::finish`, and nothing above it.
+
+**Deciding whether two *different* tools agree.** Everything here is built
+to compare two outputs of the same tool. A canonical form that could
+reconcile a GATK VCF with a bcftools one is a much larger claim, and the
+right place for it is the conversion graph
+([D5](/project/decisions/#d5--dimensions-as-types-units-analogy)), not the hash.

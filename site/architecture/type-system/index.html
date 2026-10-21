@@ -1,0 +1,2377 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Type-safe, reproducible computational biology pipelines">
+      
+      
+        <meta name="author" content="Kelyn Paul Njeri">
+      
+      
+        <link rel="canonical" href="https://neoforge-labs.github.io/ligase/architecture/type-system/">
+      
+      
+        <link rel="prev" href="../workspace/">
+      
+      
+        <link rel="next" href="../graph/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Type system - Ligase</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#type-system-architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Ligase" class="md-header__button md-logo" aria-label="Ligase" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 2h2v2c0 1.44.68 2.61 1.88 3.78.86.83 2.01 1.63 3.21 2.42l-1.83 1.19C8.27 10.72 7.31 10 6.5 9.21 5.07 7.82 4 6.1 4 4zm14 0h2v2c0 2.1-1.07 3.82-2.5 5.21-1.41 1.38-3.21 2.52-4.96 3.63-1.75 1.12-3.45 2.21-4.66 3.38C6.68 17.39 6 18.56 6 20v2H4v-2c0-2.1 1.07-3.82 2.5-5.21 1.41-1.38 3.21-2.52 4.96-3.63 1.75-1.12 3.45-2.21 4.66-3.38C17.32 6.61 18 5.44 18 4zm-3.26 10.61c.99.67 1.95 1.39 2.76 2.18C18.93 16.18 20 17.9 20 20v2h-2v-2c0-1.44-.68-2.61-1.88-3.78-.86-.83-2.01-1.63-3.21-2.42zM7 3h10v1l-.06.5H7.06L7 4zm.68 3h8.64c-.24.34-.52.69-.9 1.06l-.51.44H9.07l-.49-.44c-.38-.37-.66-.72-.9-1.06m1.41 10.5h5.84l.49.44c.38.37.66.72.9 1.06H7.68c.24-.34.52-.69.9-1.06zm-2.03 3h9.88l.06.5v1H7v-1z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Ligase
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Type system
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Neoforge-Labs/ligase" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Neoforge-Labs/ligase
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Ligase" class="md-nav__button md-logo" aria-label="Ligase" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 2h2v2c0 1.44.68 2.61 1.88 3.78.86.83 2.01 1.63 3.21 2.42l-1.83 1.19C8.27 10.72 7.31 10 6.5 9.21 5.07 7.82 4 6.1 4 4zm14 0h2v2c0 2.1-1.07 3.82-2.5 5.21-1.41 1.38-3.21 2.52-4.96 3.63-1.75 1.12-3.45 2.21-4.66 3.38C6.68 17.39 6 18.56 6 20v2H4v-2c0-2.1 1.07-3.82 2.5-5.21 1.41-1.38 3.21-2.52 4.96-3.63 1.75-1.12 3.45-2.21 4.66-3.38C17.32 6.61 18 5.44 18 4zm-3.26 10.61c.99.67 1.95 1.39 2.76 2.18C18.93 16.18 20 17.9 20 20v2h-2v-2c0-1.44-.68-2.61-1.88-3.78-.86-.83-2.01-1.63-3.21-2.42zM7 3h10v1l-.06.5H7.06L7 4zm.68 3h8.64c-.24.34-.52.69-.9 1.06l-.51.44H9.07l-.49-.44c-.38-.37-.66-.72-.9-1.06m1.41 10.5h5.84l.49.44c.38.37.66.72.9 1.06H7.68c.24-.34.52-.69.9-1.06zm-2.03 3h9.88l.06.5v1H7v-1z"/></svg>
+
+    </a>
+    Ligase
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Neoforge-Labs/ligase" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Neoforge-Labs/ligase
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/project-layout/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/types-and-dimensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Types and dimensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/pipelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipelines and the graph
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/caching/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running, and not running
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/semantic-hashing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a file means
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/provenance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How was this produced?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/notes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a result rests on
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/resistance-interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resistance interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/notebooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example notebooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/declaring-dimensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Declaring dimensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/building-a-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building a pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/running-a-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running a pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/semantic-hashing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Semantic hashing and auditing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/provenance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing up a pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/notes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reading what the engine noticed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/resistance-interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpreting resistance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workspace/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workspace
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Type system
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Type system
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-code-lives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the code lives
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provenance-lives-in-the-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provenance lives in the value
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference-identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference identity
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reference identity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#name-normalisation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Name normalisation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-relation-and-why-it-is-not-equality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The relation, and why it is not equality
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#classifying-a-failure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Classifying a failure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fingerprints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fingerprints
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checked-against-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checked against required
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-applicability-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The applicability matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rendering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rendering
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loading
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Loading">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fasta-is-hand-rolled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FASTA is hand-rolled
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gzip-is-read-with-a-multi-member-decoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gzip is read with a multi-member decoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reference-is-deliberately-ignored" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ##reference is deliberately ignored
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sq-sp-is-not-a-source-for-organism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        @SQ SP is not a source for organism
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quality-encoding-is-bounded-and-may-abstain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quality encoding is bounded and may abstain
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#trade-offs-and-known-gaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trade-offs and known gaps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graph/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../canonicalisation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Canonicalisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provenance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hivdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resistance interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../golden-example/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Golden example
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dimensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dimensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../milestones/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Milestones
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../licence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Licence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-code-lives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the code lives
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provenance-lives-in-the-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provenance lives in the value
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference-identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference identity
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reference identity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#name-normalisation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Name normalisation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-relation-and-why-it-is-not-equality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The relation, and why it is not equality
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#classifying-a-failure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Classifying a failure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fingerprints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fingerprints
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checked-against-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checked against required
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-applicability-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The applicability matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rendering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rendering
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loading
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Loading">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fasta-is-hand-rolled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FASTA is hand-rolled
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gzip-is-read-with-a-multi-member-decoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gzip is read with a multi-member decoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reference-is-deliberately-ignored" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ##reference is deliberately ignored
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sq-sp-is-not-a-source-for-organism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        @SQ SP is not a source for organism
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quality-encoding-is-bounded-and-may-abstain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quality encoding is bounded and may abstain
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#trade-offs-and-known-gaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trade-offs and known gaps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="type-system-architecture">Type system architecture<a class="headerlink" href="#type-system-architecture" title="Permanent link">&para;</a></h1>
+<p>How dimension checking is built, and why it is built this way. The user-facing
+view is <a href="../../concepts/types-and-dimensions/">Types and dimensions</a>.</p>
+<h2 id="where-the-code-lives">Where the code lives<a class="headerlink" href="#where-the-code-lives" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>crates/ligase-core/src/
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  dim/mod.rs        Source, Dim&lt;T&gt;, Dimension, Dimensions, and the value types
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>  dim/reference.rs  Contig, ReferenceId, and the relation between references
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>  types.rs          DataKind, Dataset, and the applicability matrix
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  check.rs          check_step, the requirements table, error rendering
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  load/fasta.rs     streaming FASTA scan with computed MD5
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>  load/alignment.rs SAM and BAM headers
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  load/variants.rs  VCF headers
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>  load/reads.rs     FASTQ pairing, quality encoding, grouping into samples
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>  load/intervals.rs BED and GFF records
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>crates/ligase-py/src/lib.rs   thin PyO3 translation, no logic
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>python/ligase/__init__.py     loaders, exception hierarchy, docstrings
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>python/ligase/types.py        Dataset and its per-kind subclasses
+</code></pre></div>
+<p>All correctness-critical logic is in <code>ligase-core</code>, which has no PyO3
+dependency and can be tested and fuzzed as an ordinary Rust crate. The
+binding layer translates and nothing more; in particular, <strong>error wording is
+generated in Rust</strong> so the Rust tests own it, and asserting on exact message
+text does not require a Python round trip.</p>
+<h2 id="provenance-lives-in-the-value">Provenance lives in the value<a class="headerlink" href="#provenance-lives-in-the-value" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Dim</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="n">Known</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="nc">T</span><span class="p">,</span><span class="w"> </span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">Source</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="n">Unknown</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">reason</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">}</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Source</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="n">Inferred</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="nc">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">detail</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="n">Declared</span><span class="p">,</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="n">Derived</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">step</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="p">}</span>
+</code></pre></div>
+<p>The alternative — storing bare values and reconstructing provenance when an
+error is built — was rejected. Reconstruction means the error site has to
+re-derive which file a value came from, which is guesswork once values have
+been propagated through a graph. Storing it costs one <code>PathBuf</code> per dimension
+and makes the error site trivial.</p>
+<p><code>Unknown</code> carries a reason rather than being a bare <code>None</code>, because
+"unknown" is a thing the user has to act on and the reason is the instruction:
+<code>"no @RG lines with an SM tag in the header"</code> tells them what to look at,
+where <code>None</code> tells them nothing.</p>
+<h2 id="reference-identity">Reference identity<a class="headerlink" href="#reference-identity" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Contig</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">length</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="kt">u64</span><span class="o">&gt;</span><span class="p">,</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">md5</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="p">}</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ReferenceId</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">label</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">contigs</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Contig</span><span class="o">&gt;</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<p><code>label</code> is display only and never participates in comparison. <code>length</code> is
+optional because <code>##contig=&lt;ID=1&gt;</code> without a length is legal VCF; storing a
+zero there would be a value that compares equal to another lie. <code>md5</code> is
+optional because VCF <code>##contig</code> lines frequently omit it and FASTQ has no
+concept of one.</p>
+<p>Two contigs are the same contig when their normalised names match, their
+lengths agree <em>if both are recorded</em>, and their checksums agree <em>if both are
+recorded</em>. Comparing only what is present is the honest middle between
+refusing to compare at all (which makes VCFs uncheckable) and treating an
+absent digest as agreement (which is the lie this whole system guards
+against).</p>
+<h3 id="name-normalisation">Name normalisation<a class="headerlink" href="#name-normalisation" title="Permanent link">&para;</a></h3>
+<p>A leading <code>chr</code> is stripped, case-insensitively, because naming style is its
+own dimension. A stripped <code>M</code> then becomes <code>MT</code>, reconciling UCSC's <code>chrM</code>
+with Ensembl's <code>MT</code>.</p>
+<p>The alias applies <strong>only</strong> to the prefixed form. A bare <code>M</code> is left alone, so
+it does not silently equate to <code>MT</code>. This is not fussiness: hg19's <code>chrM</code> is
+the older NC_001807 at 16571 bp, while GRCh37's <code>MT</code> is the rCRS at 16569 bp.
+They are different sequences. Normalising the name is safe only because
+length and MD5 are still compared, and the narrow alias keeps the one case
+that is genuinely the same contig from needing a special case.</p>
+<h3 id="the-relation-and-why-it-is-not-equality">The relation, and why it is not equality<a class="headerlink" href="#the-relation-and-why-it-is-not-equality" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Relation</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="n">Identical</span><span class="p">,</span><span class="w">   </span><span class="c1">// two references compared with each other</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="n">DataWithin</span><span class="p">,</span><span class="w">  </span><span class="c1">// data checked against a reference</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="n">Compatible</span><span class="p">,</span><span class="w">  </span><span class="c1">// two datasets, neither of which is the reference</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="p">}</span>
+</code></pre></div>
+<p>Decision <a href="../../decisions/">D10</a>. Strict equality everywhere was the first
+design and it is wrong: a VCF header routinely lists only the contigs it has
+variants on, so <code>##contig=&lt;ID=chr20&gt;</code> against whole-genome hg38 is correct
+input that equality rejects.</p>
+<p>Rejecting correct input is not a safe failure. It teaches users to work
+around <code>check()</code>, and a bypassed checker catches nothing. So data need only
+be <em>contained</em> in the reference, while two references compared with each
+other must still match exactly.</p>
+<p>Orientation follows the <strong>kinds</strong>, not the argument order — data is checked
+against a reference, never the reverse — so the relation is the same however
+the bindings happen to be listed.</p>
+<h3 id="classifying-a-failure">Classifying a failure<a class="headerlink" href="#classifying-a-failure" title="Permanent link">&para;</a></h3>
+<p><code>relate</code> compares twice: once on the names as written, and if that fails,
+once on normalised names.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>raw comparison agrees                     -&gt; Agree
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>raw fails, normalised agrees              -&gt; NamingDiffers
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>otherwise, report the normalised verdict  -&gt; MissingContig | ContigConflict | OrderDiffers
+</code></pre></div>
+<p>A failure that becomes a success under normalisation <em>is</em> a naming
+difference. That two-pass structure is what makes <code>chr1</code> against <code>1</code> a
+distinct error rather than a reference mismatch, and it generalises to
+containment for free.</p>
+<p><code>OrderDiffers</code> is its own verdict rather than being folded into a reference
+mismatch or ignored. htslib matches contigs by name, so <code>bcftools</code> does not
+care — but GATK requires sequence dictionaries in matching order and will
+reject the input. Reporting it as a reference mismatch would misdirect;
+staying silent would hide a real failure.</p>
+<h3 id="fingerprints">Fingerprints<a class="headerlink" href="#fingerprints" title="Permanent link">&para;</a></h3>
+<p><code>ReferenceId::fingerprint()</code> is a 12-hex-character MD5 over the canonical
+contig list, used for display only, when two references' human descriptions
+collide. Two files both labelled <code>hg38</code> must not render identically in an
+error message.</p>
+<p>It is computed over <em>normalised</em> names, so a reference fingerprints the same
+as its <code>chr</code>-prefixed twin — naming is a separate dimension and must not leak
+into identity.</p>
+<h2 id="checked-against-required">Checked against required<a class="headerlink" href="#checked-against-required" title="Permanent link">&para;</a></h2>
+<p>This is the central design decision of the checker.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1">// Checked:  both sides state a value -&gt; they must agree. Every dimension.</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="c1">// Required: additionally, the value must not be unknown. Only these pairs:</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">required_pair</span><span class="p">(</span><span class="n">left</span><span class="p">:</span><span class="w"> </span><span class="nc">DataKind</span><span class="p">,</span><span class="w"> </span><span class="n">right</span><span class="p">:</span><span class="w"> </span><span class="nc">DataKind</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="p">[</span><span class="n">Dimension</span><span class="p">]</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Kinds joined</th>
+<th>Must be known</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Reference ↔ Reference / Alignment / Variants</td>
+<td><code>reference</code></td>
+</tr>
+<tr>
+<td>Alignment ↔ Alignment</td>
+<td><code>reference</code></td>
+</tr>
+<tr>
+<td>Alignment ↔ Variants, Variants ↔ Variants</td>
+<td><code>reference</code>, <code>sample_set</code></td>
+</tr>
+<tr>
+<td>Reads ↔ Reads</td>
+<td><code>sample_set</code>, <code>pairing</code></td>
+</tr>
+<tr>
+<td>Reads ↔ Alignment / Variants</td>
+<td><code>sample_set</code></td>
+</tr>
+<tr>
+<td>Reads ↔ Reference</td>
+<td><em>nothing</em></td>
+</tr>
+<tr>
+<td>Intervals ↔ anything but Reads</td>
+<td><code>coordinates</code></td>
+</tr>
+<tr>
+<td>Reads ↔ Intervals</td>
+<td><em>nothing</em></td>
+</tr>
+<tr>
+<td>anything ↔ ResistanceReport</td>
+<td><em>nothing</em></td>
+</tr>
+</tbody>
+</table>
+<p><code>docs/dimensions.md</code> says unknown dimensions are allowed only if no
+downstream step requires them. Checking one step in isolation has no
+downstream, so <code>check_step</code> takes "required" from the kinds being joined. A
+whole pipeline does have one: <a href="../graph/">the graph</a> uses <code>disagreements()</code>
+and <code>requires()</code> to decide for itself, attributing a gap to the input that
+has to declare it, and this table is its default.</p>
+<p>Three entries deserve their reasoning spelled out:</p>
+<ul>
+<li><strong>Reads ↔ Reference requires nothing.</strong> Introducing the reference is what
+  alignment <em>does</em>. The golden example's <code>lg.samples()</code> takes no organism,
+  and demanding one would break a documented API for no safety gain.</li>
+<li><strong><code>organism</code> is required nowhere.</strong> Reference identity already implies it:
+  if two inputs agree on contig checksums, they agree on the organism.
+  Requiring a declaration would add a hurdle without adding safety. It is
+  still <em>checked</em> when both sides state one.</li>
+<li><strong><code>quality_encoding</code> is required nowhere.</strong> The catalogue gives no way to
+  declare it, so requiring it would be an unsatisfiable check — the user
+  could not comply.</li>
+<li><strong><code>reference</code> is required nowhere for intervals.</strong> The same reasoning. A
+  BED's contigs come from its records, so an empty one knows none and
+  <code>build=</code> is a display label that cannot carry contigs. <code>coordinates</code> is
+  required instead: it is a property of the format, so it is always known
+  and always satisfiable.</li>
+</ul>
+<p>The bias throughout is toward demanding less. Under-demanding loses a check
+that another dimension usually catches anyway; over-demanding produces false
+alarms, and false alarms are how a correctness tool gets switched off.</p>
+<h2 id="the-applicability-matrix">The applicability matrix<a class="headerlink" href="#the-applicability-matrix" title="Permanent link">&para;</a></h2>
+<p><code>DataKind::applies(Dimension) -&gt; bool</code> encodes the <code>n/a</code> cells of the
+catalogue table. A dimension outside a kind's set is never compared and never
+demanded.</p>
+<p>This keeps "does not apply" genuinely distinct from "unknown", which matters
+for the error messages: <code>check_step</code> should never ask a user to declare a
+FASTA's quality encoding.</p>
+<p><code>Alignment</code> reports <code>pairing</code> as applicable but unknown, because the
+information is in the SAM flags and M1 reads headers only. The unknown reason
+says exactly that rather than falling back to a generic one.</p>
+<h2 id="rendering">Rendering<a class="headerlink" href="#rendering" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CheckError</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span><span class="n">kind</span><span class="p">:</span><span class="w"> </span><span class="nc">ErrorKind</span><span class="p">,</span><span class="w">      </span><span class="c1">// Dimension | ContigNaming | ContigOrder | Undeclared</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="n">step</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="n">dimension</span><span class="p">:</span><span class="w"> </span><span class="nc">Dimension</span><span class="p">,</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="n">lines</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w">   </span><span class="c1">// one per binding</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="n">detail</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="n">conclusion</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="p">}</span>
+</code></pre></div>
+<p><code>lines</code> is pre-rendered free-form text rather than structured values, because
+the three error shapes genuinely differ: a dimension mismatch reads
+<code>aln.reference = HXB2 (...)</code>, an order mismatch reads <code>aln.reference lists
+contigs in the order 2, 1 (...)</code>, and an undeclared dimension reads
+<code>aln.organism is unknown (...)</code>.</p>
+<p>Two rendering details that are easy to get wrong:</p>
+<ul>
+<li>Naming and order lines are rendered from <strong>each binding's own</strong> dimensions
+  rather than from the verdict's <code>left</code>/<code>right</code>. The verdict is oriented by
+  kind while the lines are ordered by binding, so reading the styles off the
+  verdict would eventually mislabel which file had which naming style.</li>
+<li>The preposition belongs to the <code>Source</code>, not the template around it:
+  <code>describe()</code> returns <code>"from BAM @SQ header: path"</code> but plain <code>"declared"</code>,
+  because <code>"(from declared)"</code> does not read as English.</li>
+</ul>
+<p>The undeclared message puts the <strong>unknown</strong> side first regardless of binding
+order, because that is the side the user has to change.</p>
+<p><code>check_step</code> returns every error rather than the first. <code>ligase check</code> has
+to report all type errors in one pass, and fixing errors one per overnight
+run is the problem Ligase exists to remove. The Python <code>check_step</code> raises
+the first but attaches all of them to <code>.errors</code>; <code>dimension_errors</code> returns
+the list without raising.</p>
+<p><code>dimension</code> is an <code>Option&lt;Dimension&gt;</code>. A <code>StepType</code> error — a step handed a
+VCF where it declared a FASTA — blames no dimension, and storing one anyway
+would mean choosing a lie for the Python layer to report.</p>
+<h2 id="loading">Loading<a class="headerlink" href="#loading" title="Permanent link">&para;</a></h2>
+<h3 id="fasta-is-hand-rolled">FASTA is hand-rolled<a class="headerlink" href="#fasta-is-hand-rolled" title="Permanent link">&para;</a></h3>
+<p><code>noodles</code> is used for SAM, BAM, VCF and FASTQ, but <strong>not</strong> FASTA. Its FASTA
+reader materialises each record's sequence, and a human reference is three
+gigabases — a loader that held each contig in memory to checksum it would
+need gigabytes of RAM to answer a question about a header.</p>
+<p>The replacement is a ~60-line streaming scan that updates an MD5 and a length
+counter line by line and holds no sequence at all. It also handles the
+canonical form the <code>M5</code> checksum is defined over: uppercased, whitespace
+stripped, so soft-masked repeats do not change a reference's identity.</p>
+<h3 id="gzip-is-read-with-a-multi-member-decoder">Gzip is read with a multi-member decoder<a class="headerlink" href="#gzip-is-read-with-a-multi-member-decoder" title="Permanent link">&para;</a></h3>
+<p><code>flate2::bufread::MultiGzDecoder</code>, never the single-member decoder. BGZF — the
+block-gzip that <code>bgzip</code>, <code>samtools</code> and <code>bcftools</code> produce — is a <em>sequence</em>
+of gzip members, and a single-member decoder stops silently after the first
+block. That failure mode is reading the start of a file and believing it to
+be all of it, which is exactly the class of silent wrongness this project
+targets.</p>
+<h3 id="reference-is-deliberately-ignored"><code>##reference</code> is deliberately ignored<a class="headerlink" href="#reference-is-deliberately-ignored" title="Permanent link">&para;</a></h3>
+<p>A VCF's <code>##reference</code> holds a path or URL. <code>docs/dimensions.md</code> is explicit
+that reference identity never rests on a filename, so identity comes from
+<code>##contig</code> alone and a VCF with no <code>##contig</code> lines reports its reference as
+unknown rather than trusting the path.</p>
+<h3 id="sq-sp-is-not-a-source-for-organism"><code>@SQ SP</code> is not a source for organism<a class="headerlink" href="#sq-sp-is-not-a-source-for-organism" title="Permanent link">&para;</a></h3>
+<p>The SAM specification has a species tag, and reading it would be easy. It is
+deliberately unused: matching a free-text <code>"Homo sapiens"</code> against a declared
+<code>"human"</code> needs an alias table, and a wrong answer there passes <code>check()</code>
+silently. Organism on a BAM is unknown unless declared.</p>
+<p>Organism comparison itself normalises case and surrounding whitespace and
+nothing else. No alias table, documented as such, so users declare one
+spelling and use it.</p>
+<h3 id="quality-encoding-is-bounded-and-may-abstain">Quality encoding is bounded and may abstain<a class="headerlink" href="#quality-encoding-is-bounded-and-may-abstain" title="Permanent link">&para;</a></h3>
+<p>Up to 10 000 records are sampled. Any byte below 59 means Phred+33
+definitively (no 64-offset encoding can produce it) and the scan stops early;
+a maximum above 74 means Phred+64. Anything else returns unknown.</p>
+<p>The bound means a file whose only distinguishing scores appear late reports
+unknown — the safe direction to be wrong in. Guessing would shift every
+quality value by 31, and nothing downstream would notice.</p>
+<h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
+<p>Format fixtures live in <code>crates/ligase-core/tests/fixtures/</code>, generated by a
+committed <code>generate.py</code> so they are reproducible and so the MD5s baked into
+the <code>@SQ M5</code> and <code>##contig md5</code> fields are derived rather than hand-typed.
+Running it on an unchanged tree rewrites the same bytes, so
+<code>git diff --exit-code</code> after running it checks that the fixtures match the
+generator.</p>
+<p>Fixtures are committed as <strong>text</strong> — SAM, VCF, FASTA, FASTQ — so a reviewer
+can read an <code>@SQ M5</code> and check it by hand. BAM, being binary, is written at
+test time from a committed SAM's header. That keeps binaries out of git while
+leaving the text fixture as the source of truth: a BAM test is not merely
+noodles' writer agreeing with noodles' reader about a header neither was
+given.</p>
+<p>Because <code>data/</code> is gitignored, anything touching real data skips when absent
+rather than failing in CI. Two tests do:</p>
+<ul>
+<li>the real HXB2 FASTA, after <code>scripts/fetch_test_data.sh</code></li>
+<li>the real minimap2 alignment, after <code>scripts/make_demo_alignment.sh</code></li>
+</ul>
+<p>That second script rebuilds the BAM header with <code>samtools dict</code> so the <code>@SQ</code>
+lines carry M5 checksums. minimap2 does not write them, and without them a
+reference check falls back to names and lengths — the weak check Ligase exists
+to replace, since hg19 and hg38 share plenty of both. The payoff is that the
+test verifies a checksum <em>we</em> computed from the FASTA against one <em>samtools</em>
+computed independently, on a header a real aligner produced.</p>
+<h2 id="trade-offs-and-known-gaps">Trade-offs and known gaps<a class="headerlink" href="#trade-offs-and-known-gaps" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><code>noodles</code> is pre-1.0.</strong> It bumps minor versions often and its MSRV sets
+  ours (currently Rust 1.91). The alternative, <code>rust-htslib</code>, needs a C
+  htslib at build time, which would break <code>pip install ligase-bio</code> on any
+  machine without one. See <a href="../../decisions/">D11</a>.</li>
+<li><strong>Contig order is compared strictly</strong> even for a contained subset. Tools
+  differ on whether they care; reporting it separately lets a caller decide,
+  but a pipeline that legitimately reorders will see an error it must handle.</li>
+<li><strong>Contig order is only compared between dictionaries.</strong> <code>ReferenceId</code>
+  records whether its contigs came from a sequence dictionary or were merely
+  <em>observed</em> in records, and <code>Observed</code> lists are never compared for order.
+  See <a href="../graph/#intervals-and-the-order-that-is-not-an-order">the graph</a>.</li>
+<li><strong>No conversion graph yet.</strong> <code>check_step</code> reports a mismatch; it does not
+  search for a <code>liftover</code> or a renaming step that would fix it. That is v2,
+  by <a href="../../decisions/">D5</a> and <a href="../../decisions/">D8</a>.</li>
+<li><strong>Organism aliases are not resolved.</strong> <code>human</code> and <code>Homo sapiens</code> are
+  different strings and will be reported as a mismatch if both are declared.
+  Deliberate, per the reasoning above, but it is a rough edge.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 Kelyn Paul Njeri, NeoForge Labs
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "navigation.instant", "navigation.sections", "navigation.top", "navigation.tracking", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

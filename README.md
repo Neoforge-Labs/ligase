@@ -13,7 +13,8 @@ files; Ligase understands them.
 Status: **v0.1.0**. All six v0.1 milestones are done — the type system, the
 graph, the content-addressed cache, semantic hashing and audit mode,
 provenance, and validation against published resistance results. See
-[docs/milestones.md](docs/milestones.md) for what each one had to prove.
+[the milestones](https://ligase.neoforgelabs.tech/project/milestones/)
+for what each one had to prove.
 
 ## Intended use
 
@@ -23,7 +24,8 @@ called, and they are **not for clinical use** — not for diagnosis, not for
 treatment decisions, and not a substitute for a validated clinical assay or a
 clinician's judgement.
 
-The validation in [M6](docs/milestones.md) checks Ligase's calls against
+The validation in
+[M6](https://ligase.neoforgelabs.tech/project/validation/) checks Ligase's calls against
 published results on two public datasets. That is evidence the implementation
 is faithful to the algorithm. It is not evidence that it is fit for patient
 care, and it was never meant to be.
@@ -37,7 +39,7 @@ pip install ligase-bio
 Wheels cover Linux, macOS and Windows for Python 3.11 and newer, so this needs
 no compiler. Building from source instead needs a Rust toolchain *and* a C
 compiler, because SQLite is compiled from bundled source — see
-[the installation guide](docs/guide/installation.md).
+[the installation guide](https://ligase.neoforgelabs.tech/start/installation/).
 
 For development:
 

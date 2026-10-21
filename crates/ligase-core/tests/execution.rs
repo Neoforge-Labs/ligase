@@ -1,10 +1,10 @@
 //! M3: running a checked graph, once.
 //!
-//! The four acceptance tests in `docs/milestones.md` are all one property
-//! seen from four sides: a step runs when something that could change its
-//! result has changed, and not otherwise. They are written here over shell
-//! steps on text files, so the property is tested without waiting for an
-//! aligner; `tests/test_demo.py` then runs the same four over the real
+//! The four acceptance tests in `web/content/project/milestones.mdx` are all
+//! one property seen from four sides: a step runs when something that could
+//! change its result has changed, and not otherwise. They are written here
+//! over shell steps on text files, so the property is tested without waiting
+//! for an aligner; `tests/test_demo.py` then runs the same four over the real
 //! HIV-1 pipeline, which is what the milestone is actually signed off on.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

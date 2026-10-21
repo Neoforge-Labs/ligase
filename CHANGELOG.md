@@ -34,6 +34,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   fails the step, and a body that returns something other than notes is
   told what to return — `lg.write(lambda out: out.write_text(...))` hands
   back a character count.
+- **A quickstart**: a two-step pipeline with a naming mismatch in it, caught
+  before anything runs, then fixed, run, and run again for the cache hit. No
+  aligner, no reference genome and no downloads — the step works in Python
+  through `lg.write` — so it works on a bare machine, and every output on the
+  page came from running exactly those commands.
+- **A command-line reference**, generated from the argparse parser by
+  `web/scripts/generate_cli.py`. `check`, `run`, `audit` and `methods` were
+  named throughout the docs and documented nowhere: their flags existed only
+  in `--help`. A command or option with no help text now fails the build.
+  `ligase.cli.build_parser()` was split out of `main` so the parser can be
+  read without running anything; the interface is unchanged.
+- **An errors reference** organised by what the reader saw rather than by
+  class name, with the hierarchy as a tree — the useful cut being that a
+  `CheckError` cost milliseconds and anything else cost a run — and a closing
+  section on what `check` cannot tell you.
+- **A new documentation site, in Nextra, under `web/`.** It is what serves
+  ligase.neoforgelabs.tech, built, link-checked and deployed by the `Docs`
+  workflow. A pilot for a house style across the NeoForge Labs projects, so it
+  is a custom design rather than a themed install: serif body text at a 72-character measure, a four-colour signal
+  palette that means what the engine means, and components that render the
+  engine's own voice — `<Diagnostic>` sets a diagnostic the way rustc does,
+  with the mismatched values in a shared column so the mismatch lines up, and
+  `<RunReport>` gives `ran`/`cached`/`skipped`/`noticed` a column and a colour
+  each.
+- **Pages for the failures Ligase exists to catch**, titled after the symptom
+  somebody would search for rather than the feature that catches it: a BED
+  file that intersects nothing, variant positions that are wrong, intervals
+  off by one, sample labels that look swapped, and a sequence dictionary GATK
+  rejects. Each states the bug, says why nothing crashed, and then shows the
+  engine's real diagnostic.
+- **`web/scripts/capture_diagnostics.py`**, which captures those diagnostics
+  from a live run on every docs build rather than letting them be pasted in.
+  It fails the build if the engine stops producing the error a page claims it
+  produces, so it is a test of the engine as much as a generator.
+- **`web/scripts/generate_api.py`**, the replacement for mkdocstrings, which
+  has no equivalent in the JavaScript ecosystem. It imports the package and
+  writes MDX, grouped by what a reader is trying to do. It treats the grouping
+  as a contract with `__all__` in both directions, which mkdocstrings could
+  not: a name exported and ungrouped fails the build, and so does a grouped
+  name that is not exported, or any exported name, method or property without
+  a docstring.
+- **`web/scripts/render_notebooks.py`**, which executes the four marimo
+  notebooks and renders each page from the run. The previous site executed
+  them in CI and then linked to GitHub, so a reader saw the source and never
+  the result; now every value on those pages was computed during the build.
+- **`web/scripts/check-links.mjs`**, the replacement for `mkdocs --strict`,
+  run over the exported HTML. It fails on a broken internal link, an anchor
+  that does not exist on its target, and a page nothing links to. It also
+  catches the class `--strict` missed: a reference-style link whose definition
+  is absent is not a broken link to Markdown but literal text, which is how a
+  broken link survived in the design decisions.
+- **Case pages for what has actually been run**: the HIV-1 validation as a
+  worked case, and a note that SAWA is evaluating Ligase for drug-resistance
+  surveillance. Both say plainly that the project has no outside users.
 - **Example notebooks**, four [marimo](https://marimo.io) notebooks from
   dimensions and their provenance, through an error caught before compute and
   a fanned-out graph that has not run, to resistance interpretation and why
@@ -41,13 +95,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Python, so they run as notebooks or scripts, and the docs build executes
   every one of them: an example that no longer works fails the build instead
   of misleading a reader. The first three need no data and no aligner.
-- **An API reference** generated from the package's docstrings with
-  mkdocstrings, grouped by what you are trying to do, and a **licence page**
-  recording the vendored algorithm's provenance.
-- **A docs site that actually publishes.** `mkdocs build --strict` ran in CI
-  but nothing ever deployed, so the configured Pages URL had never served
-  anything. A `Docs` workflow now builds and deploys to GitHub Pages, with
-  `docs/CNAME` for `ligase.neoforgelabs.tech`.
+- **An API reference** generated from the package's docstrings, grouped by
+  what you are trying to do, and a **licence page** recording the vendored
+  algorithm's provenance.
+- **A docs site that actually publishes.** The docs build ran in CI but
+  nothing ever deployed, so the configured Pages URL had never served
+  anything. The `Docs` workflow now builds and deploys to GitHub Pages at
+  `ligase.neoforgelabs.tech`.
 
 ### Changed
 
@@ -74,11 +128,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   The reading costs a pass over the BAM's sequences where coverage alone
   needed only its spans: the `resistance` step goes from 0.6s to 1.1s on
   the deepest run of the validation.
-- The docs now match the other NeoForge Labs sites: author and copyright,
-  `navigation.instant` and `navigation.tracking`, the `search` plugin, and a
-  nav ending in the API reference and the licence. mkdocstrings reads
-  google-style docstrings here, which is the convention ruff enforces for this
-  package, rather than the numpy style the sibling repositories use.
+- The docs carry the same author and copyright as the other NeoForge Labs
+  sites, and the API reference is generated from google-style docstrings,
+  which is the convention ruff enforces for this package, rather than the
+  numpy style the sibling repositories use.
+- `Step.output` and `Step.parameters` are documented. Both are public and
+  neither appeared in `Step`'s `Attributes:` section; the new API generator
+  refused to build until they did, which is the point of it.
+- **The guide and concept pages open with the reader rather than the
+  project.** Fourteen of them began by reporting project status — "Everything
+  here runs today" — where a reader wants to know what the page lets them do.
+  Each guide now states the task, the outcome and the prerequisites; each
+  concept opens with the question it answers. The bodies are almost untouched.
+  "Declaring and checking dimensions" also began by telling the reader to run
+  a repository script they would not have if they installed from PyPI, so its
+  walkthrough was unrunnable from a wheel; "Semantic hashing and `ligase
+  audit`" and "Reading what the engine noticed" were named after mechanisms
+  and are now "Checking that a step repeats" and "Fixing a noticed line".
+- **The new site is organised by what a reader is doing, not by how the
+  project is built.** Milestones, design decisions, internals, the project
+  layout, the validation record and the release process all sat in a reader's
+  path and between them outnumbered the pages a user needs; they move under
+  `project/`, and the sections are now Start here, Silent failures, Guides,
+  Concepts, Reference, Notebooks and Project. The dimension catalogue moves to
+  `reference/` on its merits — it is a lookup table, not a design document —
+  and the API reference joins the CLI and errors pages there.
+- Installation was a contributor setup page that told readers they needed a
+  Rust toolchain, which has not been true since the release workflow began
+  publishing five abi3 wheels. It is now `pip install ligase-bio`; the source
+  build, the nine-check gate, the demo data and the docs build moved to
+  `project/building.mdx`. **The MkDocs site still carries the stale claim.**
+- The documentation rule in `CLAUDE.md` points at `web/content/` and says
+  what the site generates rather than stores, and the `docs` extra in
+  `pyproject.toml` is down to `marimo`. `mypy --strict` now covers
+  `web/scripts`, the code most likely to break on an API change and least
+  likely to be covered by a test.
+
+- **The live site is the Nextra one.** `ligase.neoforgelabs.tech` is built
+  from `web/` and deployed by a single `Docs` workflow, which never publishes
+  from a pull request, queues deploys in the `pages` concurrency group, and
+  puts `.nojekyll` in the artifact — a static Next.js export keeps every asset
+  under `_next/`, which Jekyll would drop. The custom domain is untouched: it
+  is configured on the repository's Pages REST endpoint, where a `CNAME` file
+  in the artifact would have no effect.
+- The ninth check of the gate is `npm run check` in `web/` rather than
+  `mkdocs build --strict`. It regenerates, builds, and then fails on a broken
+  link, a dangling anchor, a page nothing links to, or a Markdown link that
+  never resolved.
+
+### Removed
+
+- **The MkDocs site.** `docs/`, `mkdocs.yml`, the `docs.yml` workflow and the
+  `mkdocs`, `mkdocs-material` and `mkdocstrings` entries in the `docs` extra
+  are gone; `marimo` stays, because the notebooks still need it. The MDX under
+  `web/content/` is the source for every page now, so the design docs are
+  `project/decisions.mdx`, `project/milestones.mdx`,
+  `project/golden-example.mdx` and `reference/dimensions.mdx`, and the
+  citations of them in the Rust and Python sources point there.
+- `web/scripts/port_docs.py` and `web/scripts/gen_meta.py`, the two migration
+  aids that carried pages and nav order over from `docs/`. They ran for the
+  last time before `docs/` was deleted, and there is nothing left to port.
 
 ### Fixed
 

@@ -12,9 +12,10 @@
 //! `*_Version`/`*_Command` key a tool writes go the same way.
 //!
 //! `##reference` goes too, and that one is worth stating: it holds a path,
-//! and `docs/dimensions.md` is explicit that reference identity never rests
-//! on a filename. `crate::load::variants` already refuses to read identity
-//! from it; the `##contig` lines carry it, and they are kept in order (D14).
+//! and `web/content/reference/dimensions.mdx` is explicit that reference
+//! identity never rests on a filename. `crate::load::variants` already
+//! refuses to read identity from it; the `##contig` lines carry it, and they
+//! are kept in order (D14).
 //!
 //! # Why the records are read as text
 //!

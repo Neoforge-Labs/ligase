@@ -24,8 +24,9 @@ named the codon, which was arithmetic on positions rather than meaning;
 `lg.hivdb` now scores the mutations against a vendored Stanford HIVdb
 algorithm and reports a level for each of twenty-seven drugs.
 
-The step therefore takes three inputs where `docs/golden-example.md`
-wrote one. Its docstring says why; neither addition is optional.
+The step therefore takes three inputs where
+`web/content/project/golden-example.mdx` wrote one. Its docstring says why;
+neither addition is optional.
 
 ## On `min_freq`, and why the caller changed in M6
 
@@ -160,8 +161,9 @@ def resistance(
 ) -> ResistanceReport:
     """Interpret the calls as drug resistance.
 
-    Three inputs rather than the one `docs/golden-example.md` wrote, and
-    both additions are forced rather than convenient.
+    Three inputs rather than the one
+    `web/content/project/golden-example.mdx` wrote, and both additions are
+    forced rather than convenient.
 
     The **reference** is needed because a VCF holds only the positions
     that differ, and two of the three bases of a codon are usually not

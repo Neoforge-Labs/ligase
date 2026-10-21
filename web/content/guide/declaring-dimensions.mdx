@@ -1,0 +1,297 @@
+---
+title: "Declaring dimensions"
+description: "Declare what a file cannot say about itself, inspect what was inferred and where from, and read the errors when two inputs disagree."
+---
+# Declaring dimensions
+
+<Lede>
+Some things about a file can be read out of it, and some cannot. This is how
+to declare the rest, **once**, check what the loader worked out, and read the
+error when two inputs disagree.
+</Lede>
+
+The short version: `organism` and `build` are declared, because no FASTA
+records either. Everything else — contigs, naming style, coordinate
+convention, sample set — is read from the file, so you cannot declare it
+wrongly.
+
+```python
+import ligase as lg
+
+ref = lg.reference("refs/GRCh38.fasta", organism="human", build="GRCh38")
+aln = lg.alignment("aln/sample01.bam")
+
+lg.check_step("call", {"ref": ref, "aln": aln})   # silence means they agree
+```
+
+**Before you start:** [install it](/start/installation/), and have a
+reference and an alignment to hand. Any FASTA and any BAM will do; the
+snippets below name the HIV-1 demo's files because that is what the project
+tests against, but nothing on this page is specific to them.
+
+<Note kind="note" title="Using the project's own demo data">
+If you have a source checkout and want the exact files these snippets name:
+
+```bash
+scripts/fetch_test_data.sh --project PRJNA1218827
+scripts/make_demo_alignment.sh
+```
+
+The first fetches HXB2 (NCBI `K03455.1`) and four HIV-1 runs into a
+gitignored `data/`; the second aligns one against HXB2 with minimap2. Both
+are idempotent. See [building Ligase](/project/building/) for the rest of a
+source setup.
+</Note>
+
+## Loading data
+
+```python
+import ligase as lg
+
+hxb2 = lg.reference("data/refs/HXB2.fasta", organism="HIV-1", build="HXB2")
+aln = lg.alignment("data/alignments/SRR32217714.bam")
+```
+
+`organism` and `build` are *declared*: a FASTA records neither. Everything
+else is read out of the files.
+
+There are four loaders:
+
+| Loader | Reads | Returns |
+|---|---|---|
+| `lg.reference(path, ...)` | FASTA (optionally gzipped) | `Reference` |
+| `lg.alignment(path, ...)` | SAM or BAM | `Alignment` |
+| `lg.variants(path, ...)` | VCF (optionally gzipped or BGZF) | `Variants` |
+| `lg.reads(r1, r2, ...)` | FASTQ (optionally gzipped) | `Reads` |
+
+## Inspecting what was inferred
+
+```python
+>>> aln.contigs
+[Contig(name='K03455.1', length=9719, md5='c66838498aab02f786a6ec2f2d62cdc1')]
+>>> aln.samples
+['SRR32217714']
+>>> aln.dimension("reference")
+DimensionValue(name='reference', value='K03455.1 (9719 bp)',
+               source='from BAM @SQ header: data/alignments/SRR32217714.bam')
+```
+
+The `source` is the useful part. It tells you what to go and look at if the
+value is not what you expected.
+
+Everything that has a known value:
+
+```python
+>>> sorted(aln.dimensions)
+['contig_naming', 'coordinates', 'reference', 'sample_set']
+```
+
+Everything that *could* have one for this kind of data:
+
+```python
+>>> aln.applicable
+('organism', 'reference', 'contig_naming', 'coordinates', 'sample_set', 'pairing')
+```
+
+`organism` and `pairing` are in the second list but not the first, so they
+apply but are not known. Ask why:
+
+```python
+>>> aln.unknown_reason("organism")
+'not recorded in SAM/BAM headers; declare it'
+```
+
+A dimension that does not apply at all returns `None` — there is nothing to
+declare:
+
+```python
+>>> hxb2.unknown_reason("quality_encoding") is None
+True
+```
+
+## Checking a step
+
+```python
+>>> lg.check_step("call", {"aln": aln, "ref": hxb2})
+```
+
+Silence means the dimensions agree. Nothing was computed; the check reads
+headers only.
+
+The keys are the names the step knows its inputs by, and they appear in the
+error messages, so name them the way your step function does.
+
+## What the failures look like
+
+### A different reference
+
+```python
+aln = lg.alignment("out/aligned_to_hg38.bam")
+lg.check_step("call", {"aln": aln, "ref": hxb2})
+```
+
+```text
+DimensionError in step `call`:
+  aln.reference = 2 contigs, 40 bp [fingerprint 6b927a061a81] (from SAM @SQ header: other.sam)
+  ref.reference = 2 contigs, 40 bp [fingerprint aa185c059780] (from FASTA contigs: bare.fasta)
+  Contig `1`: same name and length but different sequence (MD5 44e7acaf against a965a71a).
+  These must match. Did you pass the wrong reference?
+```
+
+Note what caught this: the two references have the *same contig names and the
+same lengths*. Only the checksum separates them. Because neither carried a
+label, the message falls back to fingerprints so the two sides are
+distinguishable.
+
+### `chr1` against `1`
+
+```text
+ContigNamingError in step `call`:
+  aln.contig_naming = chr-prefixed (UCSC style) (from SAM @SQ header: prefixed.sam)
+  ref.contig_naming = bare (Ensembl/NCBI style) (from FASTA deflines: bare.fasta)
+  The contigs are otherwise identical. Add a renaming step, or use one naming style throughout.
+```
+
+A distinct error, because it needs a distinct fix. The sequences are
+identical; only the names differ.
+
+### Contigs in a different order
+
+```text
+ContigOrderError in step `call`:
+  aln.reference lists contigs in the order 2, 1 (from SAM @SQ header: reordered.sam)
+  ref.reference lists contigs in the order 1, 2 (from FASTA contigs: bare.fasta)
+  The contigs agree but their order differs. Tools that require a matching sequence
+  dictionary order, such as GATK, will reject this.
+```
+
+### A shuffled sample set
+
+```text
+DimensionError in step `merge`:
+  one.sample_set = [sample_a, sample_b] (from VCF header sample columns: two_samples.vcf)
+  two.sample_set = [sample_b, sample_a] (from VCF header sample columns: swapped.vcf)
+  The same samples appear in both, in a different order.
+  These must match, in order. Did the sample order change upstream?
+```
+
+### Something that must be declared
+
+```text
+UndeclaredDimensionError in step `resistance`:
+  aln.sample_set is unknown (no @RG lines with an SM tag in the header)
+  v.sample_set = [sample_a] (from VCF header sample columns: calls.vcf)
+  `resistance` needs sample_set to agree. Declare it where you load the data.
+```
+
+Take the advice:
+
+```python
+aln = lg.alignment("out/sample.bam", samples=["sample_a"])
+```
+
+## Catching errors
+
+The exceptions form a hierarchy, so you can be as specific as you need:
+
+```python
+try:
+    lg.check_step("call", {"aln": aln, "ref": hxb2})
+except lg.ContigNamingError:
+    ...                      # insert a renaming step
+except lg.DimensionError:
+    raise                    # anything else is a real problem
+```
+
+`ContigNamingError`, `ContigOrderError` and `UndeclaredDimensionError` all
+subclass `DimensionError`, which subclasses `Exception`.
+
+## Getting every error at once
+
+`check_step` raises the first disagreement, but all of them are found before
+anything is raised:
+
+```python
+>>> try:
+...     lg.check_step("call", bindings)
+... except lg.DimensionError as error:
+...     for each in error.errors:
+...         print(each)
+```
+
+Or do not raise at all:
+
+```python
+>>> for error in lg.dimension_errors("call", {"aln": aln, "ref": hxb2}):
+...     print(error)
+```
+
+`dimension_errors` returns a list and never raises. For a whole pipeline
+rather than one step, use
+[`lg.Pipeline(...).errors()`](/guide/building-a-pipeline/#check-it), which also
+knows what each step requires of the ones before it.
+
+## Overriding what was inferred
+
+Every loader takes keyword arguments for the dimensions a user can state:
+
+```python
+# The filename is weak evidence for a sample name; say it outright.
+reads = lg.reads("data/reads/x_1.fastq.gz", "data/reads/x_2.fastq.gz",
+                 sample="patient_07", organism="HIV-1")
+
+# Override the @RG SM tags.
+aln = lg.alignment("out/sample.bam", samples=["patient_07"], organism="HIV-1")
+```
+
+A declared value wins over an inferred one, and the provenance says
+`declared`, so the error messages stay honest about where the value came
+from.
+
+What you **cannot** override is reference identity. `build=` sets a display
+label only:
+
+```python
+# This does not make the file hg38. If its contigs say otherwise, check() says so.
+ref = lg.reference("refs/mystery.fa", build="hg38")
+```
+
+That is deliberate. A label that could override identity would be a way to
+silence the check, and the check is the product.
+
+## Intervals: the format is the dimension
+
+A BED or GFF carries its coordinate convention, and that convention is the
+whole reason the type exists:
+
+```python
+>>> lg.intervals("data/regions.bed").dimension("coordinates").value
+'0-based half-open'
+>>> lg.intervals("data/genes.gff3").dimension("coordinates").value
+'1-based closed'
+```
+
+It is taken from the filename, and never guessed. Pass `format=` when the
+name does not say:
+
+```python
+>>> lg.intervals("data/regions.txt")
+LoadError: cannot parse data/regions.txt: cannot tell whether this is a bed or
+a gff from its name; pass the format explicitly
+>>> regions = lg.intervals("data/regions.txt", format="bed")
+```
+
+Guessing would shift every interval by one base, which nothing downstream
+would notice — the same reason a FASTQ in the Phred+33/+64 overlap reports
+its encoding as unknown.
+
+`organism` and `build` are declared, as for any other type. Contigs are not
+declarable at all: they come from the records, and there is no way to state
+them, which is why no step ever demands that an interval file know its
+reference.
+
+## Next
+
+- [Types and dimensions](/concepts/types-and-dimensions/) — the concepts
+- [Building a pipeline](/guide/building-a-pipeline/) — checking a whole graph
+- [Type system architecture](/project/architecture/type-system/) — the internals

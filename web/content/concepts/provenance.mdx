@@ -1,0 +1,153 @@
+---
+title: "How was this produced?"
+description: "Why the record of how a result was made cannot be recomputed, and what Ligase writes down at the moment it still can."
+---
+# How was this produced?
+
+<Lede>
+**Why keep a separate record, when the pipeline can just be run again?**
+Because it cannot. The aligner version installed that week and the machine
+it ran on do not come back, and a cache hit cannot tell you what produced
+the thing it is handing you.
+</Lede>
+
+A cache answers one question: *has this been computed?* It is designed to be
+thrown away, because everything in it can be computed again.
+
+This is a different question, and the answer to it cannot be recomputed. The
+machine that produced a result a year ago, the version of the aligner that
+was installed that week, the exact command that ran — none of those come
+back. If they were not written down at the time, they are gone.
+
+## The hole semantic hashing left
+
+Ligase hashes an output by [what it means](/concepts/semantic-hashing/) rather than
+by the bytes it holds, and it has to: every real tool writes its own command
+line into the file it produces, that command line contains the output path,
+and the output path is a staging file named after the step's own key. So
+before M4 a step's output bytes contained that step's own key, and any
+change to a step at all — a comment — cascaded to the bottom of the
+pipeline.
+
+Dropping those fields fixed that and cost something real
+([D22](/project/decisions/#d22--a-tools-signature-is-not-part-of-its-result)):
+
+> a cache hit can no longer prove which command produced an object, because
+> the field that said so is not in the hash.
+
+That field was the only thing in the system that said how an object was
+made. So provenance is not an extra feature bolted on beside the cache — it
+is the thing that makes dropping `@PG` affordable.
+
+## What is recorded, and when
+
+A step that **runs** writes down how it ran: the command with its
+placeholders filled in, every tool and the whole of what `--version`
+printed, every parameter as it was hashed, every input by content hash, and
+every reference by accession and checksum. A step served from the **cache**
+writes nothing and needs to — the record from the run that did the work is
+still there.
+
+That is why `ligase methods` on a pipeline that recomputed nothing still
+names every command:
+
+```console
+$ ligase run
+cached    `align` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+cached    `call` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+cached    `resistance` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+
+12 steps: 12 from cache.
+
+$ ligase methods
+`align` ran on 4 samples (SRR8525904, SRR8525908, SRR8525920, SRR8525942)
+with minimap2 2.31-r1302 and samtools 1.24, as `minimap2 -t {threads} -ax sr
+{ref} {reads.r1} {reads.r2} | samtools sort -@ {threads} -o {out}`, with
+threads = 4, against the HXB2 reference (K03455.1, 9719 bp, MD5
+c66838498aab02f786a6ec2f2d62cdc1).
+```
+
+## It outlives the cache
+
+The cache throws away its tables whenever the key format changes, because an
+entry composed under different rules is not stale — it is a claim about
+ingredients that were combined differently, and reading it would be worse
+than recomputing. None of that reasoning touches a record of what a command
+did. That stays true however the engine later decides to compose keys.
+
+So provenance is a separate database with a separate lifetime
+([D23](/project/decisions/#d23--provenance-has-its-own-store-and-its-own-lifetime)):
+`provenance.sqlite` beside `cache.sqlite`. Delete the cache to its
+foundations and the answer to "how was this produced?" survives.
+
+## A reference needs nothing new to be pinned
+
+`CLAUDE.md` asks for remote data to be pinned by accession, version and
+checksum. For a reference FASTA, all three were already being read.
+
+HXB2's defline is:
+
+```text
+>K03455.1 Human immunodeficiency virus type 1 (HXB2), complete genome; ...
+```
+
+The loader already takes the first token as the sequence name — so the
+accession **with its version** is right there — and already computes the MD5
+of the sequence, uppercased with whitespace removed, because that is the
+digest the SAM specification defines for `@SQ M5`. Nothing is declared and
+nothing is invented.
+
+A name is only *called* an accession when it looks like one. `chr1` is a
+sequence name, and a methods section that cited it as an accession would be
+worse than one that admitted it had none — so a reference with no accession
+to give is pinned by its fingerprint instead, which is always there.
+
+## What a gap is
+
+A step whose output sits in the cache from before provenance was kept has no
+record, and nothing can reconstruct one. `ligase methods` says so, by name:
+
+```text
+`align` (4 samples) is in the cache from a run that recorded no provenance,
+so how it was produced is not known here. `ligase run --force` runs it again
+and records it.
+```
+
+That is the same instinct as the dimension checker reporting a dimension as
+unknown rather than guessing it. A paragraph that silently omitted a step
+would be exactly the failure this milestone exists to prevent.
+
+## The bundle, and what it can honestly claim
+
+`ligase methods --bundle DIR` writes everything another machine needs in
+order to check the results — and not the data, which for the reference
+pipeline is gigabytes of sequencing reads
+([D25](/project/decisions/#d25--a-bundle-states-a-claim-and-can-be-checked)).
+The data is *named* instead: every input by content hash, every reference by
+accession and checksum. Nothing else will satisfy the check.
+
+What the bundle claims is testable: a run elsewhere lands on the same
+canonical hashes. `ligase methods --verify DIR` is that check, and the
+interesting one of its four answers is the second:
+
+| Verdict | What it means |
+|---|---|
+| `identical` | The same key and the same result. Nothing feeding the step moved. |
+| `reproduced` | A **different** key and the same result anyway — a tool version or a platform moved and the science did not. |
+| `differs` | A different result. A finding. |
+| `missing` | The bundle expected a step this pipeline no longer produces. |
+
+`reproduced` is what a reviewer on another machine actually gets, and being
+able to report it is the reason a bundle is worth writing.
+
+Inputs are checked by content too, which is not a bonus: without it a
+`differs` would be uninterpretable, because a changed input explains a
+changed output.
+
+## Where to go next
+
+- [Writing up a pipeline](/guide/provenance/) — the commands, with a
+  runnable example.
+- [Provenance architecture](/project/architecture/provenance/) — how the store,
+  the paragraph and the bundle are built.
+- [What a file means](/concepts/semantic-hashing/) — why `@PG` had to go.

@@ -1,0 +1,52 @@
+.row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1px;
+  margin-block: 2em;
+  background: var(--lg-rule);
+  border: 1px solid var(--lg-rule);
+  border-radius: var(--lg-radius-lg);
+  overflow: hidden;
+}
+
+.stat {
+  background: var(--lg-paper-raised);
+  padding: 1.1rem 1.2rem 1.15rem;
+}
+
+.value {
+  font-family: var(--lg-font-ui);
+  font-size: 1.95rem;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: var(--lg-ink);
+}
+
+.stat[data-tone='agree'] .value {
+  color: var(--lg-agree);
+}
+
+.stat[data-tone='notice'] .value {
+  color: var(--lg-notice);
+}
+
+.label {
+  font-family: var(--lg-font-ui);
+  font-size: 0.8125rem;
+  font-weight: 540;
+  letter-spacing: 0.005em;
+  color: var(--lg-ink);
+  margin-top: 0.45rem;
+  line-height: 1.35;
+}
+
+/* Where the number came from. Always present on a real measurement. */
+.note {
+  font-family: var(--lg-font-mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--lg-ink-faint);
+  margin-top: 0.4rem;
+}

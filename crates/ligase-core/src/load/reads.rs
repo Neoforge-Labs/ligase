@@ -214,10 +214,10 @@ fn mate(stem: &str) -> Option<(String, Mate)> {
 
 /// The sample name from the filename, with any mate marker removed.
 ///
-/// `docs/dimensions.md` allows a FASTQ's sample set to come "from
-/// filename/declared". A filename is weak evidence, so the provenance says
-/// plainly that it came from the filename and [`Declared::samples`] overrides
-/// it.
+/// `web/content/reference/dimensions.mdx` allows a FASTQ's sample set to come
+/// "from filename/declared". A filename is weak evidence, so the provenance
+/// says plainly that it came from the filename and [`Declared::samples`]
+/// overrides it.
 fn sample_name(path: &Path) -> String {
     let base = stem(path);
     mate(&base).map_or(base, |(name, _)| name)

@@ -1,12 +1,13 @@
 //! The dimensions a biological type carries, and where each value came from.
 //!
-//! The catalogue is `docs/dimensions.md`: organism, reference, contig naming,
-//! coordinates, sample set, pairing, quality encoding. Every value travels
-//! with its provenance, so an error message can say *where* a value came from
-//! without reconstructing it after the fact. That provenance is the part that
-//! makes the error useful: "these two references disagree" sends a user
-//! hunting, while "one came from a BAM `@SQ` header and the other from the
-//! FASTA you passed" tells them what to change.
+//! The catalogue is `web/content/reference/dimensions.mdx`: organism,
+//! reference, contig naming, coordinates, sample set, pairing, quality
+//! encoding. Every value travels with its provenance, so an error message can
+//! say *where* a value came from without reconstructing it after the fact.
+//! That provenance is the part that makes the error useful: "these two
+//! references disagree" sends a user hunting, while "one came from a BAM
+//! `@SQ` header and the other from the FASTA you passed" tells them what to
+//! change.
 
 mod reference;
 
@@ -305,9 +306,10 @@ impl CoordinateSystem {
 
 /// The samples a dataset covers, in order.
 ///
-/// Order is part of the identity: `docs/dimensions.md` requires sample sets to
-/// match by identity *and* order wherever steps join samples, because a
-/// shuffled sample column produces plausible numbers for the wrong patients.
+/// Order is part of the identity: `web/content/reference/dimensions.mdx`
+/// requires sample sets to match by identity *and* order wherever steps join
+/// samples, because a shuffled sample column produces plausible numbers for
+/// the wrong patients.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SampleSet(Vec<String>);
 

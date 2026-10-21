@@ -1,0 +1,156 @@
+---
+title: "Command line"
+description: "Every ligase command and flag, from the parser itself."
+---
+
+# Command line
+
+<Lede>
+Four commands. `check` type-checks a pipeline without running it, `run`
+computes what is not already known, `audit` asks whether a step repeats,
+and `methods` says how the results were produced.
+</Lede>
+
+Every command takes the pipeline file as its last argument and defaults to
+`pipeline.py` in the current directory. `run`, `audit` and `methods` all
+check the pipeline first, so `check` is never a prerequisite — it is the
+fast way to ask the question on its own.
+
+<Note kind="tip" title="This page is generated from the parser">
+
+So it cannot drift from `ligase --help`. If a flag is missing here, it does
+not exist; if one exists and has no help text, the docs build fails rather
+than printing an empty row.
+
+</Note>
+
+## ligase check
+
+The one to reach for first, and the one that makes the rest of Ligase worth having. It imports your pipeline file, builds the graph from the step signatures, and compares every connection's dimensions. **No step body runs**, nothing is computed, and no tool is invoked — it reads file headers only, so it finishes in milliseconds on a pipeline that would take all night.
+
+```bash
+ligase check [pipeline]
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `pipeline` | The pipeline to check. Default: `pipeline.py`. |
+
+### Examples
+
+```bash
+# check `pipeline.py` in the current directory
+ligase check
+
+# check a pipeline somewhere else
+ligase check analysis/variants.py
+```
+
+## ligase run
+
+Checks the pipeline, then computes whatever is not already known. A step runs when its code, its parameters, its inputs' contents or one of its tools' versions has changed, and not otherwise. Independent steps run at the same time.
+
+```bash
+ligase run [-j N] [--force] [--cache DIR] [pipeline]
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `pipeline` | The pipeline to run. Default: `pipeline.py`. |
+
+### Options
+
+| Option | Description |
+|---|---|
+| `-j, --jobs N` | How many steps may run at once. Default: `one per core`. |
+| `--force` | Run every step, cache or no cache. |
+| `--cache DIR` | Where to keep the cache. Default: `./.ligase`. |
+
+### Examples
+
+```bash
+# run what is not already cached
+ligase run
+
+# run up to eight steps at once
+ligase run -j 8
+
+# recompute everything, cache or no cache
+ligase run --force
+
+# keep the cache off your home directory
+ligase run --cache /scratch/ligase
+```
+
+## ligase audit
+
+Answers the opposite question to the cache: not *can this be skipped* but *does this repeat*. It runs one step twice more and compares what came out, both as bytes and as what those bytes mean. A step whose bytes move while its result does not is reproducible — the ordinary case for a tool that writes its own command line into its output.
+
+```bash
+ligase audit [--sample ID] [-j N] [--cache DIR] step [pipeline]
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `step` | The step to audit, by name. |
+| `pipeline` | The pipeline it is in. Default: `pipeline.py`. |
+
+### Options
+
+| Option | Description |
+|---|---|
+| `--sample ID` | Audit only the node for this sample. Default: `all of them`. |
+| `-j, --jobs N` | How many steps may run at once in the run beforehand. |
+| `--cache DIR` | Where to keep the cache. Default: `./.ligase`. |
+
+### Examples
+
+```bash
+# run `align` twice more and compare
+ligase audit align
+
+# audit one sample's node only
+ligase audit align --sample SRR8525904
+```
+
+## ligase methods
+
+Writes the paragraph you put in a paper: every tool at the version it actually ran at, every parameter as it was hashed, every reference by accession and checksum, and the works to cite. `--bundle` packages it so somebody else can check the results, and `--verify` is that check.
+
+```bash
+ligase methods [--bundle DIR] [--verify DIR] [-j N] [--cache DIR] [pipeline]
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `pipeline` | The pipeline to write up. Default: `pipeline.py`. |
+
+### Options
+
+| Option | Description |
+|---|---|
+| `--bundle DIR` | Write a reproducibility bundle into this directory. |
+| `--verify DIR` | Check the bundle in this directory against this machine. |
+| `-j, --jobs N` | How many steps may run at once in the run beforehand. |
+| `--cache DIR` | Where to keep the cache. Default: `./.ligase`. |
+
+### Examples
+
+```bash
+# print the methods paragraph and the reference list
+ligase methods
+
+# write a reproducibility bundle
+ligase methods --bundle paper/bundle
+
+# check a bundle against this machine
+ligase methods --verify paper/bundle
+```

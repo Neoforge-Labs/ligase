@@ -1,0 +1,94 @@
+/*
+ * Ligase design tokens.
+ *
+ * The site has one organising idea: Ligase's product is a well-written
+ * refusal, so the engine's voice is the visual centre and everything else
+ * defers to it. That gives the palette its shape — four signal colours that
+ * mean exactly what the engine means by them, and nothing decorative.
+ *
+ *   brand   navigation, links, "this ran"
+ *   refuse  a diagnostic; the engine declining to connect two steps
+ *   agree   a check that passed, a step skipped by early cutoff
+ *   notice  a `noticed` line: not an error, but not nothing either
+ *
+ * Neutrals are warm rather than blue-grey. Long technical prose read on a
+ * screen for an hour is easier on warm paper, and it is the clearest
+ * single break from the blue-grey Material default this site replaces.
+ */
+
+:root {
+  /* ---- Neutrals: warm paper, warm ink ---- */
+  --lg-paper: #fbfaf7;
+  --lg-paper-raised: #ffffff;
+  --lg-paper-sunken: #f4f2ed;
+  --lg-ink: #16181d;
+  --lg-ink-muted: #585d66;
+  --lg-ink-faint: #878c95;
+  --lg-rule: #e5e1d9;
+  --lg-rule-strong: #d2cdc2;
+
+  /* ---- Signal colours ---- */
+  --lg-brand: #4b43cf;
+  --lg-brand-hover: #3a33b3;
+  --lg-brand-soft: #edecfa;
+  --lg-brand-rule: #c8c4f0;
+
+  --lg-refuse: #bf3a1d;
+  --lg-refuse-soft: #fcefeb;
+  --lg-refuse-rule: #f0c3b6;
+
+  --lg-agree: #2b7a51;
+  --lg-agree-soft: #eaf4ee;
+  --lg-agree-rule: #b6ddc6;
+
+  --lg-notice: #99600a;
+  --lg-notice-soft: #fbf3e3;
+  --lg-notice-rule: #e8d3a6;
+
+  /* ---- Type ---- */
+  --lg-font-prose: var(--font-source-serif), ui-serif, Georgia, serif;
+  --lg-font-ui: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --lg-font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --lg-prose-size: 1.1875rem; /* 19px: serif needs a little more than sans */
+  --lg-prose-leading: 1.68;
+  --lg-measure: 72ch;
+
+  /* ---- Space ---- */
+  --lg-gutter: 1.5rem;
+  --lg-radius: 4px; /* near-square. Pills read as consumer software. */
+  --lg-radius-lg: 6px;
+
+  /* ---- Depth. Hairlines, not drop shadows. ---- */
+  --lg-shadow-raised: 0 1px 2px rgb(22 24 29 / 0.04), 0 0 0 1px var(--lg-rule);
+}
+
+.dark {
+  --lg-paper: #0d0e11;
+  --lg-paper-raised: #15171c;
+  --lg-paper-sunken: #101216;
+  --lg-ink: #e7e5e1;
+  --lg-ink-muted: #9ba1aa;
+  --lg-ink-faint: #6b7179;
+  --lg-rule: #24272e;
+  --lg-rule-strong: #343840;
+
+  --lg-brand: #9b94ff;
+  --lg-brand-hover: #b3adff;
+  --lg-brand-soft: #1b1a33;
+  --lg-brand-rule: #353268;
+
+  --lg-refuse: #ff8a68;
+  --lg-refuse-soft: #2a160f;
+  --lg-refuse-rule: #5a2d1c;
+
+  --lg-agree: #5ecf92;
+  --lg-agree-soft: #0f2118;
+  --lg-agree-rule: #1f4531;
+
+  --lg-notice: #e3a645;
+  --lg-notice-soft: #241c0d;
+  --lg-notice-rule: #4b3a18;
+
+  --lg-shadow-raised: 0 0 0 1px var(--lg-rule);
+}

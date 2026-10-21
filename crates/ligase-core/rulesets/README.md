@@ -16,8 +16,8 @@ unnoticed.
 ## Why these are vendored rather than fetched
 
 `CLAUDE.md` requires remote data to be pinned by accession, version and
-checksum, and `docs/decisions.md` D8 puts public-data fetching out of scope
-for v0.1. More to the point, an interpretation that reaches the network to
+checksum, and `web/content/project/decisions.mdx` D8 puts public-data
+fetching out of scope for v0.1. More to the point, an interpretation that reaches the network to
 learn what a mutation means is not reproducible: the answer depends on the
 day you ran it, and a cache key cannot see that.
 

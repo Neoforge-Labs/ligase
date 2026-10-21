@@ -1,0 +1,170 @@
+---
+title: "Quickstart"
+description: "Five minutes: a two-step pipeline, a type error caught before anything runs, then a real run and a cache hit. No aligner needed."
+---
+
+import { quickstart } from '../../lib/quickstart.generated'
+
+# Quickstart
+
+<Lede>
+A pipeline with a mistake in it, caught before anything computes — then the
+same pipeline running, and then not running because nothing changed. **No
+aligner, no reference genome, no downloads.** Everything below is files you
+create here, and every output on this page came from running exactly these
+commands.
+</Lede>
+
+```bash
+pip install ligase-bio
+mkdir ligase-quickstart && cd ligase-quickstart
+```
+
+## 1. Two files that do not agree
+
+A tiny reference, and an alignment against it:
+
+```bash
+mkdir refs aln
+cat > refs/genome.fasta <<'EOF'
+>1 contig one
+ACGTACGTACGTACGTACGT
+>2 contig two
+TTTTCCCCGGGGAAAATTTT
+EOF
+```
+
+```bash
+printf '@HD\tVN:1.6\tSO:coordinate
+@SQ\tSN:chr1\tLN:20\tM5:a965a71aa3690f605935c54d320905ab
+@SQ\tSN:chr2\tLN:20\tM5:89c2d6e069f386bafb1a0c811ba821f4
+@RG\tID:rg0\tSM:sample01\tPL:ILLUMINA
+read1\t0\tchr1\t1\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\tRG:Z:rg0
+' > aln/sample01.sam
+```
+
+Look carefully and you can see the problem: the FASTA calls its contigs `1`
+and `2`, the SAM calls them `chr1` and `chr2`. Same sequence, same lengths,
+different names. In a real project those two files come from different places
+months apart, and nobody looks carefully.
+
+## 2. A pipeline
+
+```python filename="pipeline.py"
+"""A two-step pipeline, with a mistake in it."""
+
+from pathlib import Path
+
+import ligase as lg
+
+
+@lg.step
+def call(aln: lg.Alignment, ref: lg.Reference) -> lg.Variants:
+    """Pretend to call variants. Real pipelines shell out; this one does not."""
+
+    def write(out: Path) -> None:
+        out.write_text(
+            "##fileformat=VCFv4.3\n"
+            "##contig=<ID=1,length=20>\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample01\n"
+            "1\t5\t.\tA\tG\t60\tPASS\t.\tGT\t1\n"
+        )
+
+    return lg.write(write)
+
+
+ref = lg.reference("refs/genome.fasta", organism="test")
+aln = lg.alignment("aln/sample01.sam", organism="test")
+
+pipeline = lg.Pipeline(call(aln, ref))
+```
+
+Three things are doing work here.
+
+The **type annotations** are not decoration. `aln: lg.Alignment` and
+`ref: lg.Reference` are what let the engine know what each argument is and
+which dimensions apply to it, and `-> lg.Variants` is how it knows what comes
+out. The graph is built from these signatures.
+
+`lg.write` hands the engine a function to call with the path to write to, so
+this step needs no external tool. A real step would use
+[`lg.sh`](/reference/api/steps/) and name the tool it runs.
+
+`lg.Pipeline(...)` builds the graph. **It does not run anything** — calling
+`call(aln, ref)` records a call rather than performing one.
+
+## 3. Check it
+
+```bash
+ligase check
+```
+
+<Diagnostic note="nothing ran">{quickstart.checkDiagnostic}</Diagnostic>
+
+That took milliseconds, and the step body never ran. Note what the message
+gives you: both values, **the header each one was read from**, the fact that
+the contigs are otherwise identical — so this is a naming problem and not the
+wrong genome — and what to do about it.
+
+Without that check, this pipeline would have succeeded. Tools match contigs by
+name, so the variant caller would have found no overlap between the alignment
+and the reference, written a valid empty VCF, and exited zero.
+
+## 4. Fix it
+
+Rename the contigs in the SAM to match the reference:
+
+```bash
+sed -i.bak 's/SN:chr/SN:/; s/\tchr1\t/\t1\t/' aln/sample01.sam
+ligase check
+```
+
+<RunReport>{quickstart.checkPasses}</RunReport>
+
+## 5. Run it
+
+```bash
+ligase run
+```
+
+<RunReport>{quickstart.firstRun}</RunReport>
+
+Now run it again, without changing anything:
+
+<RunReport>{quickstart.secondRun}</RunReport>
+
+Nothing recomputed. A step's key is built from its code, its parameters, its
+inputs' *contents* and its tools' versions — and none of those moved. Edit the
+step body, or a byte of the input, and it runs again.
+
+## 6. Say how it was produced
+
+```bash
+ligase methods
+```
+
+<RunReport>{quickstart.methods}</RunReport>
+
+On a real pipeline that paragraph names every tool at the version it actually
+ran at, every parameter as it was hashed, and every reference by accession and
+checksum. `--bundle` packages it so somebody else can check the results.
+
+## What to read next
+
+<HazardGrid>
+  <Hazard href="/guide/building-a-pipeline/" symptom="Write a real pipeline" left="lg.step" right="lg.sh">
+    Steps that shell out, per-sample fan-out, and parameters that belong in
+    the cache key.
+  </Hazard>
+  <Hazard href="/concepts/types-and-dimensions/" symptom="Understand why this works" left="organism" right="reference">
+    What a dimension is, which ones exist, and why they are inferred rather
+    than declared wherever possible.
+  </Hazard>
+  <Hazard href="/silent-failures/" symptom="See what else it catches" left="hg19" right="hg38">
+    The failure modes Ligase exists for, each with the error it actually
+    produces.
+  </Hazard>
+  <Hazard href="/reference/cli/" symptom="Look up a command" left="run" right="audit">
+    Every command and flag, generated from the parser.
+  </Hazard>
+</HazardGrid>

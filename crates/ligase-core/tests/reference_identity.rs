@@ -1,9 +1,10 @@
 //! M1: what makes two references the same reference.
 //!
-//! This is the heart of the milestone. `docs/dimensions.md`: identity is
-//! contig names plus lengths plus MD5 where available, *never* the filename.
-//! Decision D10: two references compared with each other must be identical,
-//! but data checked against a reference need only be contained in it.
+//! This is the heart of the milestone.
+//! `web/content/reference/dimensions.mdx`: identity is contig names plus
+//! lengths plus MD5 where available, *never* the filename. Decision D10: two
+//! references compared with each other must be identical, but data checked
+//! against a reference need only be contained in it.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ligase::dim::{Contig, ContigNaming, ReferenceId, Relation, Verdict, relate};

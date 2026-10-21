@@ -11,8 +11,9 @@
 //! specification says that where it is present it must equal the name.
 //!
 //! Sequence and qualities both stay, in their own case: a quality string is
-//! the measurement, and `docs/dimensions.md` makes the Phred offset a
-//! dimension precisely because reading it wrongly is a silent error.
+//! the measurement, and `web/content/reference/dimensions.mdx` makes the
+//! Phred offset a dimension precisely because reading it wrongly is a silent
+//! error.
 
 use std::path::Path;
 

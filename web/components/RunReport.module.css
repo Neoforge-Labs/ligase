@@ -1,0 +1,127 @@
+.panel {
+  margin-block: 1.8em;
+  border: 1px solid var(--lg-rule);
+  border-radius: var(--lg-radius-lg);
+  background: var(--lg-paper-raised);
+  overflow: hidden;
+}
+
+.body {
+  padding: 0.95rem 1.15rem;
+  font-family: var(--lg-font-mono);
+  font-size: 0.845rem;
+  line-height: 1.75;
+  overflow-x: auto;
+}
+
+/* ---- The typed command ---- */
+
+.command {
+  display: flex;
+  gap: 0.9ch;
+  align-items: baseline;
+  padding-bottom: 0.5em;
+  margin-bottom: 0.6em;
+  border-bottom: 1px solid var(--lg-rule);
+  color: var(--lg-ink);
+  font-weight: 560;
+}
+
+.prompt {
+  color: var(--lg-ink-faint);
+  user-select: none;
+  flex: none;
+}
+
+.heading {
+  color: var(--lg-ink-muted);
+  margin-bottom: 0.35em;
+}
+
+/* ---- One step, one row ---- */
+
+.row {
+  display: grid;
+  grid-template-columns: 7.5ch 1fr max-content;
+  gap: 0 1.4ch;
+  align-items: baseline;
+}
+
+.status {
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.row[data-status='ran'] .status {
+  color: var(--lg-brand);
+}
+
+/* A cache hit is the absence of work, so it is set back rather than
+   celebrated. */
+.row[data-status='cached'] .status {
+  color: var(--lg-ink-faint);
+}
+
+/* A skip is early cutoff working — the best outcome the engine has. */
+.row[data-status='skipped'] .status {
+  color: var(--lg-agree);
+}
+
+.row[data-status='noticed'] .status {
+  color: var(--lg-notice);
+}
+
+.row[data-status='failed'] .status {
+  color: var(--lg-refuse);
+}
+
+.subject {
+  color: var(--lg-ink-muted);
+  min-width: 0;
+}
+
+.name {
+  font-family: var(--lg-font-mono);
+  font-size: 1em;
+  color: var(--lg-ink);
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+/* Right-aligned so durations can be compared down the column. */
+.timing {
+  color: var(--lg-ink-faint);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---- The bottom line ---- */
+
+.summary {
+  margin-top: 0.7em;
+  padding-top: 0.6em;
+  border-top: 1px solid var(--lg-rule);
+  color: var(--lg-ink);
+  font-weight: 620;
+}
+
+.plain {
+  color: var(--lg-ink-muted);
+  white-space: pre-wrap;
+}
+
+.blank {
+  height: 0.6em;
+}
+
+@media (max-width: 640px) {
+  .row {
+    grid-template-columns: 7.5ch 1fr;
+  }
+  .timing {
+    grid-column: 2;
+    text-align: left;
+  }
+}

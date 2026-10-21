@@ -1,7 +1,7 @@
 """M6 acceptance: the resistance calls, against published ones.
 
-`docs/milestones.md` signs M6 off when "resistance calls match published
-results ... with discrepancies explained". This is that comparison, run on
+`web/content/project/milestones.mdx` signs M6 off when "resistance calls match
+published results ... with discrepancies explained". This is that comparison, run on
 the real pipeline over real reads.
 
 ## What is compared against what

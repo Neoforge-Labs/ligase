@@ -1,0 +1,122 @@
+name: Docs
+
+# Builds the site in web/ and, on main, deploys it to GitHub Pages as
+# ligase.neoforgelabs.tech. This is the only workflow that touches the live
+# site; `mkdocs` and docs/ are gone.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# `pages: write` and `id-token: write` are what the deploy needs; building
+# alone would not.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-24.04
+    # Superseded builds of the same branch are worth cancelling. The deploy
+    # job below uses the `pages` group instead, which must not cancel.
+    concurrency:
+      group: web-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # The site's generators import ligase to read its docstrings, run its
+      # engine and execute the notebooks, and ligase is a compiled extension
+      # — so this job needs the Rust toolchain and a C compiler for the
+      # bundled SQLite, exactly as the mkdocstrings build did. Installing the
+      # published wheel instead would document the released version rather
+      # than this branch, which is the wrong thing for a docs build.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the package and the docs extra
+        run: pip install -e ".[docs]"
+
+      - name: Install the site's dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Type-check the site
+        working-directory: web
+        run: npm run typecheck
+
+      # `npm run build` regenerates everything that comes out of the package
+      # before building, and each generator fails loudly rather than emitting
+      # something empty:
+      #
+      #   generate_api.py        fails on an export in no group, a group entry
+      #                          that is not exported, or a missing docstring
+      #   generate_cli.py        fails on a command or flag with no help text
+      #   capture_diagnostics.py fails if the engine stops producing the error
+      #                          a page says it produces
+      #   capture_quickstart.py  fails if the quickstart's own commands do not
+      #                          produce what the page claims
+      #   render_notebooks.py    fails if a notebook does not run
+      - name: Build
+        working-directory: web
+        run: npm run build
+
+      # The replacement for `mkdocs build --strict`: a broken internal link, a
+      # dangling anchor, a page nothing links to, or a Markdown link that never
+      # resolved all fail here. This is the ninth check of the gate.
+      - name: Check links
+        working-directory: web
+        run: npm run links
+
+      # A static Next.js export puts every asset under `_next/`, and Jekyll
+      # drops underscore-prefixed paths. Pages does not run Jekyll under
+      # build_type=workflow, but `.nojekyll` costs nothing and removes the
+      # dependency on that staying true: without it every stylesheet and
+      # script on the site 404s.
+      - name: Keep Jekyll away from _next/
+        run: |
+          set -euo pipefail
+          touch web/out/.nojekyll
+          test -f web/out/.nojekyll
+          test -d web/out/_next
+
+      # No CNAME file. Under build_type=workflow a CNAME in the artifact does
+      # NOT configure the custom domain — it would be served as an ordinary
+      # static file while the Pages API reported cname=null. The domain is
+      # already set on the repository's Pages REST endpoint and is left alone.
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: web/out/
+
+  deploy:
+    name: Deploy to GitHub Pages
+    # Never publish from a pull request: it would let a fork overwrite the
+    # live site.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    # One deploy at a time, and a queued one supersedes rather than races.
+    # Cancelling in progress would abandon a half-finished publish.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
