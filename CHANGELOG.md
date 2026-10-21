@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A step says what its own work rested on** (**D32**). A resistance
+  reading makes assumptions with a clinical direction — no coverage at all,
+  codons below the depth asked for, codons no read spans — and all three
+  were recorded on the reading, returned through the binding, and dropped
+  by the Python wrapper. Nothing rendered any of them.
+
+  Canonicalising the report cannot find them, because a run with full
+  coverage and a run with none can write the same bytes, so the body now
+  hands them to the engine: `Host::call` returns what it noticed, and
+  `lg.write` lets a body return pairs of a note's code and its value. From
+  there they take the path D26 built — a `noticed` line in the run report
+  with its advice, `StepRun.notes` in Python, the provenance record, a
+  bundle's `notes.tsv` and the methods section.
+
+  They are stored against the step's cache key, not the output's hash,
+  because they are not facts about those bytes; the key already carries
+  what they depend on. A cache hit therefore still says them, which is
+  D26's reasoning unchanged: a hedge that appeared on the first run and
+  vanished on the second would be worse than none. `SCHEMA_VERSION` moves
+  to 3 for the column, which clears the cache's tables.
+
+  Two refusals rather than silences: a code this engine has no note for
+  fails the step, and a body that returns something other than notes is
+  told what to return — `lg.write(lambda out: out.write_text(...))` hands
+  back a character count.
 - **Example notebooks**, four [marimo](https://marimo.io) notebooks from
   dimensions and their provenance, through an error caught before compute and
   a fanned-out graph that has not run, to resistance interpretation and why

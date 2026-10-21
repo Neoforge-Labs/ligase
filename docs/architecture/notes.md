@@ -1,0 +1,170 @@
+# Notes
+
+A note is a finding about one step's output that never changes a hash and
+never fails a run. It is carried beside the result into the run report,
+provenance, a reproducibility bundle and the methods section, so that every
+surface says the same thing in the same words.
+
+The type lives in `crates/ligase-core/src/note.rs`. It used to live under
+`canon/`, and moved when the second producer arrived: a note is no longer
+something only canonicalisation finds.
+
+## The type
+
+```rust
+pub enum Note {
+    SampleIsAFile { sample: String },
+    ReadingWithoutCoverage,
+    GenePastReference { gene: String, end: u32, contig: String, length: u32 },
+    GeneUnread { gene: String, depth: u32 },
+    CodonsUnread { gene: String, read: u32, codons: u32, depth: u32 },
+    CodonsUnphased { gene: String, unphased: u32, depth: u32 },
+}
+```
+
+Closed, and spelled out, rather than a string. Each variant owns four
+things:
+
+| Method | What it is for |
+|---|---|
+| `code()` | A stable kebab-case name, written into a cache, a provenance database and a bundle a reviewer may read next year. Spelled out per variant rather than derived from the enum, so renaming a variant cannot silently rename a stored code. |
+| `value()` | What the note is about, as one column of a table. |
+| `advice()` | What to do about it, in one line. Printed unwrapped beside a step's name in a terminal, so it is short. |
+| `consequence()` | Why it matters, for a report with room to say so — the methods section and a bundle's README. |
+
+`Display` is the finding itself. Keeping all four beside the finding rather
+than in each report that prints one is what makes the run report, the
+bundle and the methods paragraph agree: there is only one copy of the
+wording.
+
+### How a note with counts is stored
+
+The cache, provenance and a bundle each keep a note as **a code and one
+value**, and `Note::parse(code, value)` has to be able to turn those back
+into the note — because the version that prints the sentence is not the one
+that found it. A note carrying counts therefore spells its fields out:
+
+```text
+codons-unread    gene=RT read=220 codons=560 depth=100
+```
+
+Rather than storing the rendered sentence, which could not be reworded, and
+rather than storing the gene alone, which could not be worded at all. A
+value never contains a tab or a newline, since it is written into TSVs, and
+a value missing a field `parse` needs yields `None` — a half-read note is
+not a note.
+
+`Note::parse` also returns `None` for a code this version does not know, so
+a store written by a later engine is read as far as it can be rather than
+rejected.
+
+## The two producers
+
+### Canonicalisation finds one in the file
+
+`canon::Digest::note` collects notes while a file is being canonicalised,
+and `Canonical` carries them beside the hash. The rule and its three
+properties — a note never changes a hash, is dropped on the byte-fallback
+path, and collapses repeats — are in
+[Canonicalisation](canonicalisation.md#what-a-canonical-form-notices).
+
+These are stored against **the hash of the output's bytes**, in the cache's
+`canonical` table. That is the right key, because the finding is a fact
+about those bytes: the same file produced again by any route has the same
+note.
+
+### A step says the other
+
+The second kind cannot be found by reading an output at all. A resistance
+reading made without an alignment, and one made with full coverage, can
+write the same report; the assumption is visible only to the code that made
+it. So the body says it, through the door `Host::call` opens:
+
+```rust
+pub trait Host: Sync {
+    fn call(
+        &self,
+        id: u64,
+        out: &Path,
+        inputs: &[(String, Vec<PathBuf>)],
+    ) -> Result<Vec<Note>, String>;
+}
+```
+
+A shell step always returns none: a command's assumptions are not something
+the engine can be told about.
+
+In Python a `lg.write` body returns `None`, or pairs of a note's code and
+its value:
+
+```python
+def produce(out: Path) -> list[Noticed]:
+    return _core.interpret_resistance(reference.file, variants.file, str(out), ...)
+
+return lg.write(produce)
+```
+
+`interpret_resistance` returns exactly those pairs, so the resistance step
+is a straight hand-back. The wording stays in Rust, which is the point: a
+body names the kind of note and what it is about, and the engine says the
+rest.
+
+Two mistakes are refused rather than swallowed, because a note quietly
+dropped is the silence this door exists to end:
+
+- a code no `Note` names fails the step, naming the code;
+- a body that returns something other than notes is told what to return.
+  The second is not hypothetical — `lg.write(lambda out: out.write_text(…))`
+  hands back a character count.
+
+These notes are stored against **the step's cache key**, in a `notes`
+column on the `steps` table. Not against the output's hash, because they
+are not facts about those bytes — the whole reason they exist is that the
+bytes do not show them. The key does carry what they depend on: the
+alignment is an input, so a run with coverage and a run without have
+different keys.
+
+## Where a note goes
+
+| Layer | What it does with them |
+|---|---|
+| `cache::Entry` | `notes`, from the `steps` table, handed back on a cache hit. |
+| `Cache::semantic` | The canonicalisation notes, from the `canonical` table. |
+| `exec::StepResult` | One `notes` field holding both, the body's first. `exec::noticed` merges them without repeating any. |
+| `exec::render` | A `noticed` line per note, with the advice stated once per kind (D15). |
+| `prov::Record` | `output_notes`, in a `produced_notes` child table. |
+| `prov::Methods` | A `Noticed` per node, gathered by step and kind by `Methods::notices()`, printed after the paragraph and the references. |
+| `bundle` | A `notes.tsv` table and a *What was noticed* section in the README. |
+| `StepRun.notes` | The Python surface: a tuple of sentences on every finished step. |
+
+Both kinds are **stored rather than recomputed**, and for the same reason.
+A cache hit neither reopens the file nor reruns the body, so a note that
+appeared on the first run and vanished on the second would be worse than no
+note at all.
+
+That is the one cost. The cache's `SCHEMA_VERSION` moved to 3 for the new
+column, which clears its tables — D19 discards a cache from another version
+rather than migrating it, so there is nothing to write and nothing to lose.
+`CANON_VERSION` did not move, because nothing about what is hashed changed.
+
+## What `explains_a_difference` is for
+
+Bundle verification reports notes beside its verdicts, because a sample
+identifier that is a file is the second thing that explains a `differs`
+with no science behind it: such a hash depends on where the cache was.
+
+A coverage hedge explains nothing of the kind. It is the same on every
+machine, and offering it as an excuse for a `differs` would send a reader
+after the wrong thing. So `Note::explains_a_difference` is true only for
+`SampleIsAFile`, and `bundle::verify` collects only those. Everything else
+still reaches the run report, `notes.tsv`, the README and the methods
+section — it is not a quieter note, just not an alibi.
+
+## Where to go next
+
+| If you want to | Read |
+|---|---|
+| Know why the engine notices rather than refuses | [What a result rests on](../concepts/notes.md) |
+| Read one, and fix it in a pipeline | [Reading what the engine noticed](../guide/notes.md) |
+| See the canonicalisation side | [Canonicalisation](canonicalisation.md#what-a-canonical-form-notices) |
+| Read the decisions | [D26](../decisions.md#d26-a-field-that-cannot-be-dropped-is-noticed-instead), [D32](../decisions.md#d32-a-step-says-what-its-own-work-rested-on) |

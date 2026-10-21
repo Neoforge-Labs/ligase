@@ -156,6 +156,15 @@ argues each of them:
   no candidate among the reads at all — keeps its per-base reading, and
   `Reading::notes` says how many codons of which gene did that.
 
+`Reading::notes` is a `Vec<Note>`, and the step hands it back to the engine
+rather than keeping it: `write_report` returns the notes,
+`interpret_resistance` returns them as the code-and-value pairs `lg.write`
+expects, and `lg.hivdb.interpret`'s body returns those. From there the
+engine says them wherever it says what a run did
+([Notes](notes.md)). A reading made without an alignment, a gene nobody
+sequenced deeply enough and a codon no read spans are each a hedge with a
+clinical direction that the report file itself cannot state (D32).
+
 ### What it costs
 
 `codon::scan` makes one pass over the BAM and answers both questions from

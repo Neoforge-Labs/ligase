@@ -1,4 +1,25 @@
-# When a tool names a sample after a file
+# What a result rests on
+
+A run can succeed and still have something worth saying about what it
+produced. That is a **note**: a statement about an output that its hash
+cannot carry, printed beside the result and never instead of it. A note is
+not an error. The step ran, its output is in the store, and the run
+succeeded.
+
+Two things put one there, and they look for different kinds of trouble.
+
+- **Reading the output** finds a field that cannot be dropped and is still
+  wrong — a sample identifier that is a file name rather than a sample.
+- **The step that wrote it** says what its work rested on, which no reading
+  of the file could recover: a resistance reading made without coverage
+  takes every position the caller did not report to be reference, and the
+  report it writes looks exactly like one that had full coverage.
+
+Both end up in the same place, because to a reader they are the same
+question: what should I know about this result that the number does not
+say?
+
+## The field that cannot be dropped
 
 Ligase drops a great deal from a file before hashing it. The command line
 `minimap2` records, the timestamp `bcftools` writes beside its own — none of
@@ -7,8 +28,6 @@ that is a result, so none of it is part of what a file
 what says *when and how* a file was made, keep what says *what is in it*.
 
 Some fields fall on the wrong side of that line and are still wrong.
-
-## The field that cannot be dropped
 
 A VCF names its samples on the `#CHROM` line, in the columns the genotypes
 line up with:
@@ -114,11 +133,75 @@ when it:
 So `K03455.1` has a dot and is not a file. `SRR8525904`, `sample_a` and
 `patient-04` have neither, and nothing is said about them.
 
+## The assumption only the step can see
+
+The other kind of note is not in the file at all, and no amount of reading
+one would find it.
+
+`bcftools call -mv` writes only the sites it called a variant at. A position
+missing from a VCF is therefore ambiguous between two things with opposite
+clinical meanings: the sample agrees with the reference, which is a
+susceptible result, or nothing aligned there, which is no result at all.
+Resolving that towards the first manufactures susceptible calls out of
+dropouts, which is the thing
+[D29](../decisions.md#d29-an-interpretation-never-invents-a-susceptible-result)
+exists to refuse.
+
+So [resistance interpretation](resistance-interpretation.md) reads the
+alignment for coverage where it is given. Where it is not, it has to assume
+something, and the assumption it makes has a direction — and here is the
+problem the note solves. **The report cannot say so.** Its `unread` column
+is empty when nothing is known to be unread, which is exactly what a
+perfectly covered sample's report looks like. Two runs, one with full
+coverage and one with no coverage at all, can come out byte for byte the
+same.
+
+Nothing downstream can recover the difference, so the step that knows says
+it, and the engine carries it
+([D32](../decisions.md#d32-a-step-says-what-its-own-work-rested-on)):
+
+```console
+$ ligase run
+ran       `resistance` (sample SRR8525904)   1.2s
+
+noticed   `resistance` (sample SRR8525904): no alignment was supplied, so coverage is unknown, no codon can be phased, and every position the caller did not report is taken to be reference
+          Pass the alignment — `coverage=aln` — so uncalled positions are reported as unread rather than as reference.
+
+3 steps: 3 ran.
+```
+
+The same channel carries the hedges a reading makes *with* an alignment,
+which are the ones a real sample usually produces: a gene no codon of which
+reached the depth asked for, a gene only partly read, and codons no read
+spans all three bases of, which are read base by base and can name a
+mutation no single read carries
+([D31](../decisions.md#d31-a-codon-no-read-spans-keeps-its-per-base-reading)).
+
+Each of those is the difference between a score and a floor, which is a
+clinical distinction. None of them changes a result: a note never does.
+
+## Why a note and not a column
+
+A column in the report would travel with the file, which is a real
+advantage, and it was not chosen for two reasons.
+
+The report's columns are part of what a report *is* — the canonical hash
+keeps the header as a row — so adding one changes every report's hash and
+makes a comparison against Stanford's own reports harder to read, which is
+what [validation](validation.md) rests on. And the sentence would be
+repeated on all twenty-seven rows, because the hedge is about the reading
+rather than about any one drug.
+
+The deciding argument is that a note is not only for the person reading one
+report. It reaches the run report, the provenance record, the bundle and
+the methods section, in the same words each time, which is where a reviewer
+asking "what did this rest on?" will be looking.
+
 ## Where to go next
 
 | If you want to | Read |
 |---|---|
-| Fix it in a pipeline | [Reading what the engine noticed](../guide/notes.md) |
+| Read one, and fix it in a pipeline | [Reading what the engine noticed](../guide/notes.md) |
 | Know why a sample set is hashed at all | [What a file means](semantic-hashing.md) |
-| Know how a note is built and stored | [Canonicalisation](../architecture/canonicalisation.md#what-a-canonical-form-notices) |
-| Read the decision and what was rejected | [D26](../decisions.md#d26-a-field-that-cannot-be-dropped-is-noticed-instead) |
+| Know how a note is built, stored and said | [Notes](../architecture/notes.md) |
+| Read the decisions and what was rejected | [D26](../decisions.md#d26-a-field-that-cannot-be-dropped-is-noticed-instead), [D32](../decisions.md#d32-a-step-says-what-its-own-work-rested-on) |

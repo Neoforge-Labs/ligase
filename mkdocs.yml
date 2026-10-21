@@ -70,7 +70,7 @@ nav:
       - Running, and not running: concepts/caching.md
       - What a file means: concepts/semantic-hashing.md
       - How was this produced?: concepts/provenance.md
-      - When a tool names a sample after a file: concepts/notes.md
+      - What a result rests on: concepts/notes.md
       - Resistance interpretation: concepts/resistance-interpretation.md
       - Validation: concepts/validation.md
   - Guide:
@@ -91,6 +91,7 @@ nav:
       - Execution: architecture/execution.md
       - Cache: architecture/cache.md
       - Canonicalisation: architecture/canonicalisation.md
+      - Notes: architecture/notes.md
       - Provenance: architecture/provenance.md
       - Resistance interpretation: architecture/hivdb.md
   - Design:

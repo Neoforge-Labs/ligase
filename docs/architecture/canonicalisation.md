@@ -268,7 +268,7 @@ travel without being recomputed:
 | `exec::StepResult` | A `notes` field on every finished step, printed by `exec::render` as a `noticed` line with the advice stated once per kind (D15). |
 | `prov::Record` | `output_notes`, in a `produced_notes` child table. This is why `PROV_VERSION` is 2. |
 | `prov::Methods` | A `Noticed` per node — not per group, since a group is nodes *run the same way* and four samples run identically can be named after four different files. `Methods::notices()` gathers them by step and kind. |
-| `bundle` | A `notes.tsv` table, a *What will not travel* section in the README, and `Verification::noticed` from the run being checked. |
+| `bundle` | A `notes.tsv` table, a *What was noticed* section in the README, and, for the notes that can explain a hash that moved, `Verification::noticed` from the run being checked. |
 
 They are **stored** rather than recomputed because a cache hit does not
 reopen the file, and a warning that appeared on the first run and vanished
@@ -277,11 +277,12 @@ cache's `SCHEMA_VERSION` moved to 2 for the new column, which clears its
 tables. `CANON_VERSION` did not move, because nothing about what is hashed
 changed.
 
-A note's `code()` is spelled out rather than derived from the enum, because
-it is written into a cache, a provenance database and a bundle a reviewer
-may read next year; `Note::parse` returns `None` for a code it does not
-know, so a store written by a later engine is read as far as it can be
-rather than rejected.
+Canonicalisation is not the only thing that finds a note. A step's body
+says what its own work rested on, which no reading of the output could
+recover, and those notes travel the same way — stored against the step's
+key rather than the output's hash, since they are not facts about its
+bytes. The `Note` type itself, both producers and every surface a note
+reaches are in [Notes](notes.md).
 
 ## What it costs, and why it is paid once
 

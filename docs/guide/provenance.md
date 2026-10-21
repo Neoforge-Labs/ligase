@@ -130,10 +130,11 @@ align  SRR8525904  31f5306...  minimap2 -t '4' -ax sr '/…/HXB2.fasta' '/…/SR
 ```
 
 `notes.tsv` holds what the engine
-[noticed](notes.md) about the outputs — almost always nothing, and a header
-line even then, so an empty file never has to be read as "an older bundle".
-A bundle with something in it gains a *What will not travel* section in its
-`README.md`.
+[noticed](notes.md) about the outputs — a field that could not be dropped
+and was still wrong, or an assumption a step's work rested on. There is a
+header line even when there is nothing under it, so an empty file never has
+to be read as "an older bundle". A bundle with something in it gains a
+*What was noticed* section in its `README.md`.
 
 **The data is not in there.** Sequencing runs are gigabytes and a bundle is
 meant to be readable, so inputs are named rather than carried — every one by

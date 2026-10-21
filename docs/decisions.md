@@ -722,11 +722,10 @@ available:
   to everywhere else.
 
 That note is a `Reading::notes` entry, which is where the "no alignment
-was supplied" note already goes, and it is as far as the hedge is visible
-today: `interpret_resistance` returns those notes and the Python wrapper
-drops them, so nothing renders them beside the report. That is a gap in
-the plumbing rather than in this decision, and the next thing to fix
-about it.
+was supplied" note already goes. Both reach the person reading the result:
+the step hands them back to the engine, which says them in the run report,
+in provenance, in a bundle and in the methods section
+([D32](#d32-a-step-says-what-its-own-work-rested-on)).
 
 The same fallback covers a codon the reads span but say nothing useful
 about — fewer than `depth` spanning reads, or no credited combination
@@ -745,3 +744,82 @@ the deepest run of the validation — 95,000 reads — the `resistance` step
 goes from 0.6s to 1.1s, and the three-threshold validation run from 14s
 to 21s. Doubling the cheapest step in the pipeline to stop it inventing
 amino acids is not a close call.
+
+## D32 — A step says what its own work rested on
+
+Three of the assumptions an HIV resistance reading makes have a clinical
+direction, and all three were silent. A reading made without an alignment
+takes every position the caller did not report to be reference, which
+manufactures susceptible results out of dropouts
+([D29](#d29-an-interpretation-never-invents-a-susceptible-result)). A gene
+whose codons did not all reach the depth asked for has drugs whose scores
+are floors rather than answers. A codon no read spans is read base by base
+and can name a mutation no single read carries
+([D31](#d31-a-codon-no-read-spans-keeps-its-per-base-reading)). Each was
+recorded on `Reading::notes`, returned through `interpret_resistance`, and
+dropped by the Python wrapper that called it. Nothing rendered any of them.
+
+The engine already had the channel. A
+[`Note`](architecture/notes.md) is carried beside a step into the run
+report, provenance, the bundle and the methods section, in the same words
+each time
+([D26](#d26-a-field-that-cannot-be-dropped-is-noticed-instead)). What it
+lacked was a way in from a step's body, because **canonicalising a
+resistance report cannot find any of this**: a run with full coverage and a
+run with none can write the same bytes. The finding is not a fact about the
+output, which is exactly why the output cannot be read for it.
+
+So `Host::call` returns what the body noticed, and `lg.write` lets a body
+hand back pairs of a note's code and its value. The wording stays in Rust
+with the rest of each note's advice and consequence, so a body names the
+kind of finding and the engine says the sentence.
+
+Three alternatives were considered.
+
+**A column on the report**, which is where the brief for this change
+started. It travels with the file, which is a real advantage over a line in
+a terminal, and it loses on three counts. The report's columns are part of
+what a report is — the canonicaliser keeps the header as a row — so adding
+one changes every report's canonical hash and makes the diff against
+Stanford's own reports that
+[M6](#d28-the-rules-are-vendored-and-enter-a-key-by-content) rests on
+harder to read. The sentence would repeat on all twenty-seven rows, because
+the hedge is about the reading and not about any one drug. And it would
+reach only the person holding that one file, when the question "what did
+this result rest on?" is asked by a reviewer reading a bundle.
+
+**Returning them from `lg.hivdb.interpret`**, which cannot work: the
+function is called before anything runs and returns a recipe, so there is
+nothing to return notes about yet.
+
+**Carrying them without storing them**, which fails on the second run.
+D26 settled this for the other kind of note and the reasoning is unchanged:
+a cache hit does not rerun the body, so a hedge that appeared the first
+time and vanished the second would be worse than none. They are stored
+against the **step's key** rather than the output's hash, because they are
+not facts about those bytes — and the key already carries what they depend
+on, since the alignment is an input. The cache's `SCHEMA_VERSION` moves to
+3 for the column, which clears its tables; D19 discards rather than
+migrates, so that is the whole cost.
+
+Two smaller things fall out of it.
+
+A code no `Note` names **fails the step** rather than being dropped. The
+codes come from this engine's own notes, so an unknown one is a mistake in
+a body — and a note quietly swallowed here is precisely the silence this
+change exists to end. For the same reason a body that returns something
+other than notes is told what to return: `lg.write(lambda out:
+out.write_text(…))` hands back a character count, and that is the mistake
+a user actually makes.
+
+`Note::explains_a_difference` separates the two kinds for bundle
+verification. A sample identifier that is a file explains a `differs` with
+no science behind it, because such a hash depends on where the cache was. A
+coverage hedge explains nothing of the kind — it is the same on every
+machine — and offering it as an excuse for a hash that moved would send a
+reader after the wrong thing. It still appears everywhere else a note does.
+
+What this does not do is make a shell step able to hedge. A command cannot
+be asked what it assumed, so a step that shells out has to say it in the
+file it writes. That is a limit of the mechanism and not a decision
+against it.

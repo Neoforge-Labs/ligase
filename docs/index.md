@@ -191,8 +191,9 @@ the order and the acceptance test for each step.
 | Know how the cache and its keys work | [Cache](architecture/cache.md) |
 | Know how a canonical form is built | [Canonicalisation](architecture/canonicalisation.md) |
 | Say how a result was produced, for a paper | [How was this produced?](concepts/provenance.md) |
-| Understand a `noticed` line in a run report | [When a tool names a sample after a file](concepts/notes.md) |
+| Understand a `noticed` line in a run report | [What a result rests on](concepts/notes.md) |
 | Fix an output named after a file rather than a sample | [Reading what the engine noticed](guide/notes.md) |
+| Know what a resistance report rests on | [Reading what the engine noticed](guide/notes.md#when-a-reading-hedges) |
 | Write a methods paragraph and a bundle | [Writing up a pipeline](guide/provenance.md) |
 | Know how provenance is stored and checked | [Provenance](architecture/provenance.md) |
 | Turn variant calls into drug-resistance calls | [Resistance interpretation](concepts/resistance-interpretation.md) |

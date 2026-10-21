@@ -46,12 +46,29 @@ Passing it also puts it under `check()`, so interpreting one sample's
 calls against another organism's reference is refused before anything runs.
 
 **The alignment** is needed for coverage and for phasing. Leave it out and
-two things happen, and the reading notes both:
+two things happen:
 
 - every position the caller did not report is taken to be reference, which
   turns a sequencing dropout into a susceptible result; and
 - a codon with two ambiguous bases is read as every combination of them,
   including combinations no read carries.
+
+The reading says so, in a [note](notes.md) the run report prints and
+`pipe.run()` carries on the step:
+
+```console
+noticed   `resistance` (sample SRR8525904): no alignment was supplied, so coverage is unknown, no codon can be phased, and every position the caller did not report is taken to be reference
+          Pass the alignment — `coverage=aln` — so uncalled positions are reported as unread rather than as reference.
+```
+
+Not in the report file, because the report cannot show it: its `unread`
+column is empty when nothing is *known* to be unread, which is exactly
+what a fully covered sample looks like.
+
+With the alignment the hedges that remain are about the coverage you
+actually have — a gene nobody sequenced deeply enough, a gene only partly
+read, a codon no read spans — and they arrive the same way. [Reading what
+the engine noticed](notes.md) is about all of them.
 
 The second one is why the reference demo passes `coverage=aln` even though
 the parameter is optional. With the alignment, reads spanning a codon are

@@ -98,10 +98,21 @@ covered to the required depth is **unread**, not reference, and a drug
 whose rules mention an unread position reports its score as a floor rather
 than as an answer, naming the positions it could not see.
 
-Without an alignment nothing can be known about coverage, and the report
-says so in a note rather than assuming quietly. That assumption has a
-direction — it manufactures susceptible results out of dropouts — and the
-one thing it must never be is silent.
+Without an alignment nothing can be known about coverage, and the reading
+says so in a [note](notes.md) rather than assuming quietly. That assumption
+has a direction — it manufactures susceptible results out of dropouts — and
+the one thing it must never be is silent. The report itself cannot say it,
+since a report with nothing *known* to be unread looks exactly like one
+that was fully covered, so the step hands the note to the engine and the
+engine says it: in the run report, in provenance, in a bundle and in the
+methods section
+([D32](../decisions.md#d32-a-step-says-what-its-own-work-rested-on)).
+
+The hedges a reading makes *with* an alignment travel the same way. A gene
+no codon of which reached the depth asked for, a gene only partly read, and
+codons no read spans all three bases of are each the difference between a
+score and a floor, and each is said rather than left for someone to infer
+from an `unread` column.
 
 The test that pins this is a no-template control. Sixty of its
 thirty-two thousand reads map to HXB2. A pipeline that read "no variant
