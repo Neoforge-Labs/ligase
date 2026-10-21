@@ -102,6 +102,8 @@ assert(has(mono, /font-family:\s*var\(--lg-font-mono\)/), '.lg-mono must be set 
 
 const grain = rules(css, '.lg-grain::before')
 assert(grain.length > 0, '.lg-grain::before is missing')
+assert(has(grain, /z-index:\s*9999/), '.lg-grain::before must sit at z-index: 9999')
+assert(has(grain, /background-repeat:\s*repeat/), '.lg-grain::before must repeat its tile')
 assert(has(grain, /position:\s*fixed/), '.lg-grain::before must be fixed to the viewport')
 assert(has(grain, /pointer-events:\s*none/), '.lg-grain::before must not intercept pointer events')
 assert(has(grain, /opacity:\s*0\.035/), '.lg-grain::before must set opacity: 0.035')
@@ -115,9 +117,10 @@ const aurora = rules(css, '.lg-aurora')
 assert(aurora.length > 0, '.lg-aurora is missing')
 assert(has(aurora, /filter:\s*blur\(60px\)/), '.lg-aurora must set filter: blur(60px)')
 assert(has(aurora, /pointer-events:\s*none/), '.lg-aurora must not intercept pointer events')
+assert(has(aurora, /position:\s*absolute/), '.lg-aurora must be position: absolute')
 for (const a of ['0.08', '0.05', '0.04']) {
   assert(
-    has(aurora, new RegExp(`radial-gradient\\([^;]*rgb\\(227 100 20 / ${a.replace('.', '\\.')}\\)`)),
+    has(aurora, new RegExp(`radial-gradient\\([^;]*rgba\\(227, 100, 20, ${a.replace('.', '\\.')}\\)`)),
     `.lg-aurora must have an orange radial at ${a}`,
   )
 }
@@ -191,8 +194,8 @@ assert(
 )
 const sectionBefore = rules(css, '.nextra-content h2::before')
 assert(
-  has(sectionBefore, /content:\s*'§ '\s*counter\(lg-section,\s*decimal-leading-zero\)\s*' — '/),
-  'the h2 section marker must read "§ NN — " from lg-section',
+  has(sectionBefore, /content:\s*'§ '\s*counter\(lg-section,\s*decimal-leading-zero\)\s*;/),
+  'the h2 section marker must read "§ NN", with no trailing dash, from lg-section',
 )
 assert(has(sectionBefore, /display:\s*block/), 'the section marker must sit above the heading (display: block)')
 assert(has(sectionBefore, /color:\s*var\(--lg-brand\)/), 'the section marker must be brand-coloured')
