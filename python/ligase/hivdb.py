@@ -36,8 +36,17 @@ result at all.
 
 Resolving that silently towards wild-type manufactures susceptible calls
 out of dropouts. So the alignment is read for coverage where it is given,
-and where it is not the report says in a note that it assumed the other
+and where it is not the reading says in a note that it assumed the other
 thing.
+
+## Where a note goes
+
+A reading's notes are hedges with a clinical direction, and the report they
+are about cannot state them: a fully covered run and a run with no coverage
+at all can write the same bytes. So the step hands them back to the engine,
+which says them wherever it says what a run did -- the run report, the
+step's `notes` on `pipe.run()`, provenance, a reproducibility bundle and
+the methods section (D32).
 """
 
 from __future__ import annotations
@@ -50,6 +59,7 @@ from .recipes import write
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from .recipes import Noticed
     from .types import Alignment, Reference, ResistanceReport, Variants
 
 __all__ = ["ALGORITHMS", "DEFAULT", "fingerprint", "interpret"]
@@ -106,7 +116,9 @@ def interpret(
             codons cannot be assembled without it.
         coverage: The alignment the calls came from. Without it no
             position can be known to be unread and no codon can be
-            phased, and the reading notes both assumptions.
+            phased, and the reading notes both assumptions -- which the
+            run report then says and `pipe.run()` carries on the step's
+            `notes`.
         algorithm: Which vendored algorithm to use, from `ALGORITHMS`.
         mixture: The fraction of reads an allele must reach to count as
             present. Where both the reference and an alternate reach it
@@ -137,9 +149,14 @@ def interpret(
             f"{' and '.join(ALGORITHMS)}"
         )
 
-    def produce(out: Path) -> None:
-        """Interpret and write, once the steps above have produced."""
-        _core.interpret_resistance(
+    def produce(out: Path) -> list[Noticed]:
+        """Interpret and write, once the steps above have produced.
+
+        Returns what the reading noticed, which the engine then says: a
+        hedge dropped here is a hedge with a clinical direction that
+        nobody is ever told about.
+        """
+        return _core.interpret_resistance(
             reference.file,
             variants.file,
             str(out),

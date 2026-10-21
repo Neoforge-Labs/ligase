@@ -66,6 +66,7 @@ use noodles::sam::alignment::record::cigar::op::Kind;
 use super::ruleset::Acids;
 use super::score::{Observed, Protein};
 use crate::load::{LoadError, open};
+use crate::note::Note;
 
 /// A coding region of the reference, as a nucleotide range.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,11 +162,12 @@ pub struct Reading {
     pub reference: BTreeMap<(String, u32), char>,
     /// What the reading noticed about itself.
     ///
-    /// A note never changes a result; it says what a result rests on, in
-    /// the spirit of D26. These are the reading's own notes rather than
-    /// `canon::Note`s: that type is stored in the cache, in provenance and
-    /// in a bundle, and what is said here is about one report.
-    pub notes: Vec<String>,
+    /// A note never changes a result; it says what a result rests on
+    /// (D26). The step that made the reading hands these back to the
+    /// engine, which carries them into the run report, provenance, a
+    /// bundle and the methods section — because nothing in the report they
+    /// are about could be read to find them out (D32).
+    pub notes: Vec<Note>,
 }
 
 /// Read a reference and its variant calls into amino acids.
@@ -198,12 +200,7 @@ pub fn read(
     let scanned = match alignment {
         Some(path) => Some(scan(path, depth)?),
         None => {
-            notes.push(
-                "no alignment was supplied, so coverage is unknown, no codon \
-                 can be phased, and every position the caller did not report \
-                 is taken to be reference"
-                    .to_owned(),
-            );
+            notes.push(Note::ReadingWithoutCoverage);
             None
         }
     };
@@ -213,12 +210,12 @@ pub fn read(
 
     for gene in GENES {
         if gene.end as usize > sequence.len() {
-            notes.push(format!(
-                "{} ends at {} of {contig}, which is {} bases long, so it was not read",
-                gene.name,
-                gene.end,
-                sequence.len()
-            ));
+            notes.push(Note::GenePastReference {
+                gene: gene.name.to_owned(),
+                end: gene.end,
+                contig: contig.clone(),
+                length: u32::try_from(sequence.len()).unwrap_or(u32::MAX),
+            });
             continue;
         }
 
@@ -322,29 +319,26 @@ pub fn read(
         }
 
         if protein.read() == 0 {
-            notes.push(format!(
-                "no codon of {} reached {depth}-fold coverage, so no drug \
-                 scored against it could be assessed",
-                gene.name
-            ));
+            notes.push(Note::GeneUnread {
+                gene: gene.name.to_owned(),
+                depth,
+            });
             continue;
         }
         if protein.read() < gene.codons() as usize {
-            notes.push(format!(
-                "{} of {}'s {} codons reached {depth}-fold coverage; the rest \
-                 are reported as unread rather than as reference",
-                protein.read(),
-                gene.name,
-                gene.codons()
-            ));
+            notes.push(Note::CodonsUnread {
+                gene: gene.name.to_owned(),
+                read: u32::try_from(protein.read()).unwrap_or(u32::MAX),
+                codons: gene.codons(),
+                depth,
+            });
         }
         if unphased > 0 {
-            notes.push(format!(
-                "{unphased} of {}'s codons were read base by base because no \
-                 read spans all three of their bases {depth} times over, so a \
-                 combination of bases no read carries may be reported there",
-                gene.name
-            ));
+            notes.push(Note::CodonsUnphased {
+                gene: gene.name.to_owned(),
+                unphased,
+                depth,
+            });
         }
         observed.with(gene.name, protein);
     }

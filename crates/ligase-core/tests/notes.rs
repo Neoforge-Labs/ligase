@@ -18,10 +18,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use ligase::cache::Cache;
-use ligase::canon::Note;
 use ligase::dim::Dimensions;
 use ligase::exec::{self, Host, Options, Outcome, Recipe, RunReport, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
+use ligase::note::Note;
 use ligase::prov::{self, Prov, bundle};
 use ligase::types::{DataKind, Dataset};
 use tempfile::TempDir;
@@ -110,6 +110,10 @@ impl Bench {
     }
 
     fn run(&self, roots: &[NodeId]) -> RunReport {
+        self.run_with(roots, &Refusing)
+    }
+
+    fn run_with(&self, roots: &[NodeId], host: &dyn Host) -> RunReport {
         exec::run(
             &self.graph,
             roots,
@@ -119,8 +123,20 @@ impl Bench {
                 prov: &self.prov,
             },
             &Options::default(),
-            &Refusing,
+            host,
         )
+    }
+
+    /// The same pipeline, with its one step's work done in a body.
+    ///
+    /// The body writes something that is not a VCF, so canonicalisation
+    /// falls back to the bytes and notices nothing (D21) — which leaves
+    /// whatever the report says about this step coming from the body alone.
+    fn by_callback(mut self) -> Self {
+        for task in &mut self.tasks {
+            task.recipe = Recipe::Callback(0);
+        }
+        self
     }
 
     /// The same pipeline against an empty cache, as a clean machine is.
@@ -138,8 +154,23 @@ impl Host for Refusing {
         _id: u64,
         _out: &Path,
         _inputs: &[(String, Vec<PathBuf>)],
-    ) -> Result<(), String> {
+    ) -> Result<Vec<Note>, String> {
         Err("no callbacks in these tests".to_owned())
+    }
+}
+
+/// A body that writes its output and says what its work rested on.
+struct Noticing;
+
+impl Host for Noticing {
+    fn call(
+        &self,
+        _id: u64,
+        out: &Path,
+        _inputs: &[(String, Vec<PathBuf>)],
+    ) -> Result<Vec<Note>, String> {
+        fs::write(out, "whatever a body writes\n").map_err(|error| error.to_string())?;
+        Ok(vec![Note::ReadingWithoutCoverage])
     }
 }
 
@@ -285,7 +316,7 @@ fn a_bundle_records_what_was_noticed_and_warns_in_its_readme() {
     assert!(notes.contains(STORE_PATH), "{notes}");
 
     let readme = fs::read_to_string(into.join("README.md")).unwrap();
-    assert!(readme.contains("What will not travel"), "{readme}");
+    assert!(readme.contains("What was noticed"), "{readme}");
 }
 
 #[test]
@@ -313,7 +344,7 @@ fn a_bundle_with_nothing_wrong_still_has_the_file_and_no_warning() {
     let notes = fs::read_to_string(into.join("notes.tsv")).unwrap();
     assert_eq!(notes.lines().count(), 1, "the header, and nothing under it");
     let readme = fs::read_to_string(into.join("README.md")).unwrap();
-    assert!(!readme.contains("What will not travel"), "{readme}");
+    assert!(!readme.contains("What was noticed"), "{readme}");
 }
 
 #[test]
@@ -397,4 +428,133 @@ fn verifying_an_ordinary_bundle_says_nothing_about_notes() {
     let verification = bundle::verify(&into, &bench.graph, &[node], &fresh).unwrap();
     assert!(verification.noticed.is_empty());
     assert!(!verification.text().contains("sample identifier belongs"));
+}
+
+// -------------------------------------------- what a step says itself --
+
+#[test]
+fn a_run_says_what_a_body_noticed_about_its_own_work() {
+    // The other direction (D32). Nothing in the file says the work was
+    // done without coverage — two reports, one fully covered and one with
+    // none, can come out byte for byte the same — so the only thing that
+    // can say it is the body, and the only thing that can carry it is the
+    // engine.
+    let (bench, node) = Bench::new("SRR8525904");
+    let bench = bench.by_callback();
+    let report = bench.run_with(&[node], &Noticing);
+
+    assert!(report.failures.is_empty(), "{:?}", report.failures);
+    let result = report.result(node).expect("the step ran");
+    assert_eq!(result.notes, vec![Note::ReadingWithoutCoverage]);
+
+    let text = exec::render(&bench.graph, &[node], &report);
+    assert!(text.contains("noticed"), "{text}");
+    assert!(text.contains("coverage is unknown"), "{text}");
+    assert!(text.contains("coverage=aln"), "{text}");
+}
+
+#[test]
+fn a_body_served_from_the_cache_still_says_what_it_noticed() {
+    // The one that justifies storing a body's notes against its key. A
+    // cache hit does not rerun the body, so there is nothing to ask: the
+    // hedge either was remembered or has gone silent, and a hedge that
+    // appears only on the first run is worse than none at all.
+    let (bench, node) = Bench::new("SRR8525904");
+    let bench = bench.by_callback();
+    assert_eq!(
+        bench
+            .run_with(&[node], &Noticing)
+            .result(node)
+            .unwrap()
+            .outcome,
+        Outcome::Ran
+    );
+
+    // A host that would fail if it were asked, so a note that survives
+    // here survived without the body being run again.
+    let again = bench.run_with(&[node], &Refusing);
+    let result = again.result(node).unwrap();
+    assert_eq!(result.outcome, Outcome::Cached);
+    assert_eq!(result.notes, vec![Note::ReadingWithoutCoverage]);
+
+    let text = exec::render(&bench.graph, &[node], &again);
+    assert!(text.contains("coverage is unknown"), "{text}");
+}
+
+#[test]
+fn provenance_and_a_bundle_keep_what_a_body_noticed() {
+    let (bench, node) = Bench::new("SRR8525904");
+    let bench = bench.by_callback();
+    let report = bench.run_with(&[node], &Noticing);
+    let key = report.result(node).unwrap().key;
+
+    let record = bench.prov.lookup(key).unwrap().expect("a record");
+    assert_eq!(record.output_notes, vec![Note::ReadingWithoutCoverage]);
+
+    let methods = prov::methods(&bench.graph, &[node], &bench.tasks, &report, &bench.prov).unwrap();
+    assert_eq!(methods.notices().len(), 1);
+    // Wrapped to a paragraph, so read as one line to look for a sentence.
+    let said = methods
+        .text()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(said.contains("no alignment was supplied"), "{said}");
+    assert!(
+        said.contains("every score in this report a floor"),
+        "{said}"
+    );
+
+    let into = bench.dir.path().join("bundle");
+    bundle::write(
+        &into,
+        &bundle::Request {
+            graph: &bench.graph,
+            roots: &[node],
+            report: &report,
+            prov: &bench.prov,
+            methods: &methods,
+            include: &[],
+        },
+    )
+    .unwrap();
+
+    let notes = fs::read_to_string(into.join("notes.tsv")).unwrap();
+    assert!(notes.contains("reading-without-coverage"), "{notes}");
+    let readme = fs::read_to_string(into.join("README.md")).unwrap();
+    assert!(readme.contains("What was noticed"), "{readme}");
+}
+
+#[test]
+fn a_hedge_is_not_an_excuse_for_a_hash_that_moved() {
+    // A sample identifier that is a file explains a `differs` with no
+    // science behind it. A reading made without coverage does not: it is
+    // the same on every machine. Offering it as an explanation would send
+    // a reader after the wrong thing.
+    let (bench, node) = Bench::new("SRR8525904");
+    let bench = bench.by_callback();
+    let report = bench.run_with(&[node], &Noticing);
+    let methods = prov::methods(&bench.graph, &[node], &bench.tasks, &report, &bench.prov).unwrap();
+
+    let into = bench.dir.path().join("bundle");
+    bundle::write(
+        &into,
+        &bundle::Request {
+            graph: &bench.graph,
+            roots: &[node],
+            report: &report,
+            prov: &bench.prov,
+            methods: &methods,
+            include: &[],
+        },
+    )
+    .unwrap();
+
+    let verification = bundle::verify(&into, &bench.graph, &[node], &report).unwrap();
+    assert!(
+        verification.noticed.is_empty(),
+        "{:?}",
+        verification.noticed
+    );
+    assert!(!verification.text().contains("coverage is unknown"));
 }

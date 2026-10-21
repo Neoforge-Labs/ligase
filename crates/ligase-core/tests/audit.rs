@@ -20,6 +20,7 @@ use ligase::cache::Cache;
 use ligase::dim::{Dim, Dimensions, SampleSet, Source};
 use ligase::exec::{Host, Options, Recipe, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
+use ligase::note::Note;
 use ligase::prov::Prov;
 use ligase::types::{DataKind, Dataset};
 use tempfile::TempDir;
@@ -136,7 +137,12 @@ impl Bench {
 struct Refusing;
 
 impl Host for Refusing {
-    fn call(&self, id: u64, _out: &Path, _inputs: &[(String, Vec<PathBuf>)]) -> Result<(), String> {
+    fn call(
+        &self,
+        id: u64,
+        _out: &Path,
+        _inputs: &[(String, Vec<PathBuf>)],
+    ) -> Result<Vec<Note>, String> {
         Err(format!("no callback {id} in this test"))
     }
 }

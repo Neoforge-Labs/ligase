@@ -23,6 +23,7 @@ use ligase::exec::{self, Host, Options, Recipe, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
 use ligase::hivdb;
 use ligase::load::{self, Declared, IntervalFormat, LoadError as CoreLoadError};
+use ligase::note::Note;
 use ligase::prov::{self, Prov};
 use ligase::types::{DataKind, Dataset};
 
@@ -192,7 +193,12 @@ struct PyHost {
 }
 
 impl Host for PyHost {
-    fn call(&self, id: u64, out: &Path, inputs: &[(String, Vec<PathBuf>)]) -> Result<(), String> {
+    fn call(
+        &self,
+        id: u64,
+        out: &Path,
+        inputs: &[(String, Vec<PathBuf>)],
+    ) -> Result<Vec<Note>, String> {
         let index = usize::try_from(id).map_err(|_| format!("no callback {id}"))?;
         let callback = self
             .callbacks
@@ -213,12 +219,27 @@ impl Host for PyHost {
             .collect();
 
         // The only place a run takes the GIL.
-        Python::attach(|py| {
+        let said: Vec<(String, String)> = Python::attach(|py| {
             callback
                 .call1(py, (out.to_string_lossy().into_owned(), bound))
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-        })
+                .map_err(|error| error.to_string())?
+                .extract(py)
+                .map_err(|error| {
+                    format!("this step's body did not say what it noticed as pairs of a note's code and its value: {error}")
+                })
+        })?;
+
+        // Loud rather than silent. The codes come from this engine's own
+        // notes, so one it does not know is a mistake in a body -- and a
+        // note quietly dropped here is exactly the silence this door
+        // exists to end (D32).
+        said.iter()
+            .map(|(code, value)| {
+                Note::parse(code, value).ok_or_else(|| {
+                    format!("this step's body said it noticed `{code}`, which is not a note this engine has")
+                })
+            })
+            .collect()
     }
 }
 
@@ -339,8 +360,11 @@ impl PyDataset {
 /// usually not among them, so nothing can be translated without the
 /// sequence those positions sit in.
 ///
-/// Returns what the reading noticed about itself -- an empty list in the
-/// ordinary case.
+/// Returns what the reading noticed about itself, as pairs of a note's
+/// code and its value: what `lg.write` expects a body to hand back, so a
+/// step can return this straight to the engine and have it said in the run
+/// report, provenance, a bundle and the methods section (D32). Empty only
+/// for a reading with an alignment, full coverage and every codon phased.
 #[pyfunction]
 #[pyo3(signature = (reference, variants, out, alignment=None, algorithm=None, mixture=None, depth=None))]
 fn interpret_resistance(
@@ -351,7 +375,7 @@ fn interpret_resistance(
     algorithm: Option<String>,
     mixture: Option<f64>,
     depth: Option<u32>,
-) -> PyResult<Vec<String>> {
+) -> PyResult<Vec<(String, String)>> {
     hivdb::write_report(
         &reference,
         &variants,
@@ -361,6 +385,12 @@ fn interpret_resistance(
         depth.unwrap_or(hivdb::codon::DEPTH),
         &out,
     )
+    .map(|notes| {
+        notes
+            .iter()
+            .map(|note| (note.code().to_owned(), note.value()))
+            .collect()
+    })
     .map_err(PyValueError::new_err)
 }
 

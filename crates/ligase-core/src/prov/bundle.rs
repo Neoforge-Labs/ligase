@@ -579,7 +579,16 @@ pub fn verify(
     let mut verification = Verification::default();
 
     for result in &report.results {
-        for note in &result.notes {
+        // Only the notes that can account for a hash that moved. The rest
+        // say what a result rested on, which belongs in the run report and
+        // the methods section and is no reason for two machines to
+        // disagree: offered here, it would send a reader after the wrong
+        // thing.
+        for note in result
+            .notes
+            .iter()
+            .filter(|note| note.explains_a_difference())
+        {
             verification.noticed.push(Noticed {
                 step: result.step.clone(),
                 scope: scopes.get(&result.node).map(|scope| scope.value.clone()),
@@ -703,7 +712,11 @@ fn readme(methods: &Methods) -> String {
     // bundle does not have would be noise in every bundle that is fine.
     let notices = methods.notices();
     if !notices.is_empty() {
-        out.push_str("## What will not travel\n\n");
+        // One heading for both kinds of note: a sample identifier that will
+        // not travel, and an assumption a result rests on. Each says which
+        // it is in its own words, and a reader of a bundle wants the whole
+        // list in one place either way.
+        out.push_str("## What was noticed\n\n");
         out.push_str(&notices.join("\n\n"));
         out.push_str("\n\n");
     }

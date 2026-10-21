@@ -18,6 +18,7 @@ use ligase::exec::{self, Host, Options, Recipe, RunReport, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
 use ligase::hash::ContentHash;
 use ligase::load::{self, Declared};
+use ligase::note::Note;
 use ligase::prov::{self, Prov, bundle};
 use ligase::types::{DataKind, Dataset};
 use tempfile::TempDir;
@@ -194,7 +195,7 @@ impl Host for Refusing {
         _id: u64,
         _out: &Path,
         _inputs: &[(String, Vec<PathBuf>)],
-    ) -> Result<(), String> {
+    ) -> Result<Vec<Note>, String> {
         Err("no callbacks in these tests".to_owned())
     }
 }

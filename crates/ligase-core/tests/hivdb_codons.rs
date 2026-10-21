@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 
 use ligase::hivdb::Reading;
 use ligase::hivdb::codon::{DEPTH, GENES, Gene, MIXTURE, read};
+use ligase::note::Note;
 use noodles::sam::alignment::io::Write as _;
 use noodles::{bam, sam};
 use tempfile::TempDir;
@@ -247,10 +248,7 @@ fn without_an_alignment_the_reading_says_what_it_assumed() {
     // it manufactures susceptible results out of dropouts — and the one
     // thing it must not be is silent.
     assert!(
-        reading
-            .notes
-            .iter()
-            .any(|note| note.contains("coverage is unknown")),
+        reading.notes.contains(&Note::ReadingWithoutCoverage),
         "{:?}",
         reading.notes
     );
@@ -358,7 +356,7 @@ fn a_codon_no_read_spans_keeps_its_per_base_reading_and_says_so() {
         reading
             .notes
             .iter()
-            .any(|note| note.contains("no read spans")),
+            .any(|note| matches!(note, Note::CodonsUnphased { gene, .. } if gene == "RT")),
         "{:?}",
         reading.notes
     );

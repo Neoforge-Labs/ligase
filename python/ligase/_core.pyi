@@ -78,7 +78,7 @@ def interpret_resistance(
     algorithm: str | None = None,
     mixture: float | None = None,
     depth: int | None = None,
-) -> list[str]: ...
+) -> list[tuple[str, str]]: ...
 def resistance_algorithms() -> list[str]: ...
 def default_resistance_algorithm() -> str: ...
 def resistance_fingerprint() -> str: ...
@@ -96,7 +96,8 @@ Task = tuple[
 ]
 
 # One finished step: node, step, outcome, key, output hash, canonical hash,
-# output, milliseconds, and what canonicalising the output noticed.
+# output, milliseconds, and what was noticed about the output -- by its
+# canonicalisation, and by the body that wrote it.
 RunResult = tuple[int, str, str, str, str, str, str, int, list[str]]
 
 # One failed step: node, step, message.
@@ -169,8 +170,9 @@ Verification = tuple[
     str,
 ]
 
-# A `lg.write` body: where to write, and the inputs by parameter name.
-Callback = Callable[[str, list[tuple[str, list[str]]]], None]
+# A `lg.write` body: where to write, and the inputs by parameter name. It
+# hands back what it noticed about its own work, as a note's code and value.
+Callback = Callable[[str, list[tuple[str, list[str]]]], list[tuple[str, str]]]
 
 @final
 class Graph:

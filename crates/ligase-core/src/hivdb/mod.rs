@@ -36,6 +36,7 @@ pub use score::{Assessment, Observed, Protein, interpret};
 use std::path::Path;
 
 use crate::load::LoadError;
+use crate::note::Note;
 
 /// Interpret one sample's calls and write the report.
 ///
@@ -51,11 +52,19 @@ use crate::load::LoadError;
 ///   them.
 /// - `variants` — the calls.
 /// - `alignment` — the BAM they were called from, for coverage. Without
-///   it the report says, in a note, that it is treating every uncalled
-///   position as reference.
+///   it the reading notes that it is treating every uncalled position as
+///   reference, and the caller is expected to hand that note back to the
+///   engine (D32).
 /// - `algorithm` — which vendored algorithm to use, e.g. `HIVDB_9.8`.
 /// - `mixture` — the fraction an allele must reach to count as present.
 /// - `depth` — the depth a position must reach to count as read.
+///
+/// # Returns
+///
+/// What the reading noticed about itself: the hedges with a clinical
+/// direction that the report it is about cannot state. A caller that drops
+/// these has made the assumption silent, which is the one thing it must
+/// not be (D29).
 ///
 /// # Errors
 ///
@@ -69,7 +78,7 @@ pub fn write_report(
     mixture: f64,
     depth: u32,
     out: &Path,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<Note>, String> {
     let ruleset = Ruleset::vendored(algorithm)?;
     let reading = read(reference, variants, alignment, mixture, depth)
         .map_err(|error: LoadError| error.to_string())?;

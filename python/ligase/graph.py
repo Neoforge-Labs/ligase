@@ -47,7 +47,7 @@ from .provenance import (
     StepMethods,
     Verification,
 )
-from .recipes import Shell, Written
+from .recipes import Noticed, Shell, Written
 from .run import RunError, RunReport, StepFailure, StepRun
 from .types import KINDS, Dataset
 
@@ -87,8 +87,9 @@ _Task = tuple[
 ]
 
 #: A `lg.write` body, as the engine calls it: where to write, and the
-#: inputs by parameter name.
-_Callback = Callable[[str, list[tuple[str, list[str]]]], None]
+#: inputs by parameter name. It hands back what it noticed about its own
+#: work, which is almost always nothing.
+_Callback = Callable[[str, list[tuple[str, list[str]]]], list[Noticed]]
 
 #: A bundle as the engine reports it: where it is, what is in it, how many
 #: steps it accounts for, how many it could not.
@@ -1074,12 +1075,25 @@ def _recipe(produced: StepOutput) -> Shell | Written:
 def _bind(recipe: Written, produced: StepOutput) -> _Callback:
     """A `lg.write` body, with its inputs' paths filled in when it runs."""
 
-    def write(out: str, inputs: list[tuple[str, list[str]]]) -> None:
+    def write(out: str, inputs: list[tuple[str, list[str]]]) -> list[Noticed]:
         for parameter, files in inputs:
             given = produced.arguments.get(parameter)
             if isinstance(given, StepOutput) and files:
                 given._produced = files[0]
-        recipe.function(Path(out))
+        noticed = recipe.function(Path(out))
+        if noticed is None:
+            return []
+        # Said here rather than left to whatever iterating it raises: the
+        # natural one-liner, `lg.write(lambda out: out.write_text(...))`,
+        # hands back however many characters were written.
+        try:
+            return [(str(code), str(value)) for code, value in noticed]
+        except (TypeError, ValueError) as error:
+            raise TypeError(
+                f"the body of step `{produced.step.name}` returned "
+                f"{noticed!r}. A body returns `None`, or what it noticed as "
+                "pairs of a note's code and what the note is about"
+            ) from error
 
     return write
 

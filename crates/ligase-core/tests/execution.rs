@@ -18,6 +18,7 @@ use ligase::cache::Cache;
 use ligase::dim::Dimensions;
 use ligase::exec::{self, Host, Options, Outcome, Recipe, RunReport, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
+use ligase::note::Note;
 use ligase::prov::Prov;
 use ligase::types::{DataKind, Dataset};
 use tempfile::TempDir;
@@ -186,7 +187,12 @@ impl Bench {
 struct Refusing;
 
 impl Host for Refusing {
-    fn call(&self, id: u64, _out: &Path, _inputs: &[(String, Vec<PathBuf>)]) -> Result<(), String> {
+    fn call(
+        &self,
+        id: u64,
+        _out: &Path,
+        _inputs: &[(String, Vec<PathBuf>)],
+    ) -> Result<Vec<Note>, String> {
         Err(format!("no callback {id} in this test"))
     }
 }
@@ -698,7 +704,12 @@ struct Writing {
 }
 
 impl Host for Writing {
-    fn call(&self, id: u64, out: &Path, inputs: &[(String, Vec<PathBuf>)]) -> Result<(), String> {
+    fn call(
+        &self,
+        id: u64,
+        out: &Path,
+        inputs: &[(String, Vec<PathBuf>)],
+    ) -> Result<Vec<Note>, String> {
         let seen = inputs
             .iter()
             .map(|(param, paths)| format!("{param}={}", paths.len()))
@@ -707,7 +718,8 @@ impl Host for Writing {
             .lock()
             .map_err(|e| e.to_string())?
             .push((id, seen));
-        fs::write(out, "interpreted\n").map_err(|e| e.to_string())
+        fs::write(out, "interpreted\n").map_err(|e| e.to_string())?;
+        Ok(Vec::new())
     }
 }
 
@@ -909,7 +921,12 @@ const PATIENCE: Duration = Duration::from_secs(10);
 struct Nesting;
 
 impl Host for Nesting {
-    fn call(&self, _id: u64, out: &Path, _inputs: &[(String, Vec<PathBuf>)]) -> Result<(), String> {
+    fn call(
+        &self,
+        _id: u64,
+        out: &Path,
+        _inputs: &[(String, Vec<PathBuf>)],
+    ) -> Result<Vec<Note>, String> {
         let (taken, wait) = mpsc::channel();
         rayon::spawn(move || {
             let _ = taken.send(());
@@ -919,7 +936,8 @@ impl Host for Nesting {
              where rayon cannot see that it is idle"
                 .to_owned()
         })?;
-        fs::write(out, "nested\n").map_err(|error| error.to_string())
+        fs::write(out, "nested\n").map_err(|error| error.to_string())?;
+        Ok(Vec::new())
     }
 }
 

@@ -42,12 +42,18 @@ class StepRun:
             downstream however far their bytes diverged.
         duration_ms: How long it took, when it ran; zero otherwise.
         node: Which node of the graph it was.
-        notes: What canonicalising the output noticed and its hash cannot
-            say — one sentence each, and almost always none. A note is not
-            a failure: the step ran and its result stands. The only note in
-            v0.1 reports a sample identifier that is a file name rather than
-            a sample, which makes this output's canonical hash depend on
-            where that file was.
+        notes: What was noticed about this output and its hash cannot say —
+            one sentence each, and usually none. A note is not a failure:
+            the step ran and its result stands.
+
+            Two things put them here. Canonicalising the output finds the
+            first kind, of which there is one in v0.1: a sample identifier
+            that is a file name rather than a sample, which makes this
+            output's canonical hash depend on where that file was. The
+            step's own body says the second kind — an assumption its work
+            rested on, which the file it wrote need not show. A resistance
+            reading made without coverage is taking every position the
+            caller did not report to be reference, and says so here (D32).
     """
 
     step: str

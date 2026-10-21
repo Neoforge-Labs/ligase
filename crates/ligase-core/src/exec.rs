@@ -76,7 +76,7 @@ use std::time::{Duration, Instant};
 
 use rayon::Scope;
 
-use crate::cache::{Cache, Stored};
+use crate::cache::{Cache, Entry, Stored};
 use crate::canon::Note;
 use crate::graph::{Graph, NodeId, StepSpec};
 use crate::hash::ContentHash;
@@ -286,10 +286,22 @@ impl Default for Options {
 pub trait Host: Sync {
     /// Produce the output at `out`, from inputs given by parameter name.
     ///
+    /// Returns what the body noticed about its own work, which is almost
+    /// always nothing. A body is the only thing that can see an assumption
+    /// its work rested on — a resistance reading made without coverage
+    /// leaves no trace of it in the report it writes — so this is the door
+    /// such a finding comes back through (D32). A note never fails a step:
+    /// the work was done and its result stands.
+    ///
     /// # Errors
     ///
     /// Whatever the callback raised, as a message for the user.
-    fn call(&self, id: u64, out: &Path, inputs: &[(String, Vec<PathBuf>)]) -> Result<(), String>;
+    fn call(
+        &self,
+        id: u64,
+        out: &Path,
+        inputs: &[(String, Vec<PathBuf>)],
+    ) -> Result<Vec<Note>, String>;
 }
 
 /// A host that has no callbacks, for a pipeline of shell steps.
@@ -297,7 +309,12 @@ pub trait Host: Sync {
 pub struct NoCallbacks;
 
 impl Host for NoCallbacks {
-    fn call(&self, id: u64, _out: &Path, _inputs: &[(String, Vec<PathBuf>)]) -> Result<(), String> {
+    fn call(
+        &self,
+        id: u64,
+        _out: &Path,
+        _inputs: &[(String, Vec<PathBuf>)],
+    ) -> Result<Vec<Note>, String> {
         Err(format!(
             "this step's body is a callback ({id}), and nothing here can run one"
         ))
@@ -461,6 +478,11 @@ pub struct Execution {
     /// provenance record keeps: it exists only here, because the field a
     /// tool writes it into is dropped before hashing (D22).
     pub command: Option<String>,
+    /// What the body said it noticed about its own work ([`Note`]).
+    ///
+    /// Always empty for a shell step: a command's assumptions are not
+    /// something the engine can be told about.
+    pub notes: Vec<Note>,
 }
 
 /// Produce one step's output at `out`, from inputs already in place.
@@ -485,7 +507,7 @@ pub fn produce(
     let produced = match recipe {
         Recipe::Shell(template) => {
             let command = fill_template(template, inputs, parameters, out)?;
-            let outcome = shell(&command);
+            let outcome = shell(&command).map(|()| Vec::new());
             ran = Some(command);
             outcome
         }
@@ -493,7 +515,7 @@ pub fn produce(
     };
     let duration = started.elapsed();
 
-    produced?;
+    let notes = produced?;
     if !out.is_file() {
         return Err(format!(
             "the step finished without writing its output to {}",
@@ -503,7 +525,25 @@ pub fn produce(
     Ok(Execution {
         duration,
         command: ran,
+        notes,
     })
+}
+
+/// What a step said about its work, then what reading its output found.
+///
+/// One list, because every surface that prints notes prints them together
+/// and a reader has no use for the distinction. In this order because a
+/// note about how a result was arrived at is the one to read first. Nothing
+/// is said twice: the two kinds cannot collide today, but a note repeated
+/// in a report is a report that looks broken.
+fn noticed(said: Vec<Note>, found: Vec<Note>) -> Vec<Note> {
+    let mut notes = said;
+    for note in found {
+        if !notes.contains(&note) {
+            notes.push(note);
+        }
+    }
+    notes
 }
 
 /// Every tool named by any of these steps, probed once.
@@ -740,12 +780,7 @@ impl Runner<'_> {
         if !self.force
             && let Some(entry) = self.cache.lookup(key).map_err(|error| error.to_string())?
         {
-            return Ok(Attempt::Done(self.cached_result(
-                node,
-                spec,
-                key,
-                &entry.output,
-            )?));
+            return Ok(Attempt::Done(self.cached_result(node, spec, key, &entry)?));
         }
 
         // Two nodes can share a key -- the same step over identical data --
@@ -756,12 +791,7 @@ impl Runner<'_> {
         if !self.force
             && let Some(entry) = self.cache.lookup(key).map_err(|error| error.to_string())?
         {
-            return Ok(Attempt::Done(self.cached_result(
-                node,
-                spec,
-                key,
-                &entry.output,
-            )?));
+            return Ok(Attempt::Done(self.cached_result(node, spec, key, &entry)?));
         }
 
         let staging = self.cache.staging(key, output_suffix(spec.output));
@@ -784,6 +814,7 @@ impl Runner<'_> {
                 &stored,
                 &self.tool_summary(task),
                 milliseconds,
+                &produced.notes,
             )
             .map_err(|error| error.to_string())?;
 
@@ -792,6 +823,12 @@ impl Runner<'_> {
             .semantic(spec.output, &stored.path)
             .map_err(|error| error.to_string())?;
         let canonical = meaning.hash;
+
+        // What the step said about its own work, then what reading its
+        // output found. Both are notes about the same result and every
+        // surface prints them together; the body's come first because they
+        // are about how the result was arrived at.
+        let notes = noticed(produced.notes, meaning.notes);
 
         // Recorded here and nowhere else: this is the only moment the filled
         // command exists, and a step served from the cache will need it.
@@ -803,7 +840,7 @@ impl Runner<'_> {
             command: produced.command,
             bytes: stored.hash,
             canonical,
-            notes: &meaning.notes,
+            notes: &notes,
             duration_ms: milliseconds,
         })?;
 
@@ -814,7 +851,7 @@ impl Runner<'_> {
             key,
             hash: stored.hash,
             canonical,
-            notes: meaning.notes,
+            notes,
             output: stored.path,
             duration: produced.duration,
         }))
@@ -843,8 +880,9 @@ impl Runner<'_> {
         node: NodeId,
         spec: &StepSpec,
         key: StepKey,
-        output: &Stored,
+        entry: &Entry,
     ) -> Result<StepResult, String> {
+        let output = &entry.output;
         let outcome = {
             let upstream_ran = self
                 .state
@@ -870,7 +908,10 @@ impl Runner<'_> {
             key,
             hash: output.hash,
             canonical: meaning.hash,
-            notes: meaning.notes,
+            // Both kinds remembered rather than recomputed: a cache hit
+            // neither reruns the body nor reopens the file, and a note that
+            // stopped appearing on the second run would be worse than none.
+            notes: noticed(entry.notes.clone(), meaning.notes),
             output: output.path.clone(),
             duration: Duration::ZERO,
         })

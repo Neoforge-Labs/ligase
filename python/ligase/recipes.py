@@ -31,12 +31,20 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
     from pathlib import Path
 
     from .types import Dataset
 
-__all__ = ["Recipe", "Shell", "Written", "sh", "write"]
+__all__ = ["Noticed", "Recipe", "Shell", "Written", "sh", "write"]
+
+#: What a body may say it noticed: a note's code and its value.
+#:
+#: The wording belongs to the engine rather than to the body, so a body
+#: names the kind of note and what it is about and the engine says the
+#: rest — in the run report, in provenance, in a bundle and in the methods
+#: section, in the same words every time.
+Noticed = tuple[str, str]
 
 #: What a step declares it produces. A recipe stands in for it.
 R = TypeVar("R", bound="Dataset")
@@ -59,10 +67,11 @@ class Written:
 
     Attributes:
         function: Called with the path to write to, once the engine has
-            decided what that path is.
+            decided what that path is. It may return what it noticed about
+            its own work, as `Noticed` pairs.
     """
 
-    function: Callable[[Path], None]
+    function: Callable[[Path], Iterable[Noticed] | None]
 
 
 #: Either kind of recipe.
@@ -100,7 +109,9 @@ def sh(command: str) -> R:  # type: ignore[type-var]
     return Shell(command)  # type: ignore[return-value]
 
 
-def write(function: Callable[[Path], None]) -> R:  # type: ignore[type-var]
+def write(
+    function: Callable[[Path], Iterable[Noticed] | None],
+) -> R:  # type: ignore[type-var]
     """Produce the output in Python, by writing the file yourself.
 
     `function` is called with the path to write to. It is the one thing in a
@@ -108,8 +119,18 @@ def write(function: Callable[[Path], None]) -> R:  # type: ignore[type-var]
     with each other — which is the right trade for an interpretation step
     and the wrong one for anything that does real work. Prefer `lg.sh`.
 
+    A body may also return what it noticed about its own work, as `Noticed`
+    pairs of a note's code and what it is about. That is the only way such
+    a thing can be said: an assumption the work rested on need leave no
+    trace in the file it wrote — a resistance reading made without coverage
+    writes the same report a fully covered one does — so the body says it
+    and the engine carries it into the run report, provenance, a bundle and
+    the methods section. A note never fails a step; the work was done and
+    its result stands.
+
     Args:
-        function: Called with the path to write to.
+        function: Called with the path to write to. It returns `None`, or
+            what it noticed.
 
     Returns:
         A recipe, typed as the data the step declares.

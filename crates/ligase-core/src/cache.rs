@@ -47,8 +47,9 @@ use crate::types::DataKind;
 /// nothing to lose.
 ///
 /// 2 added the `notes` column, for what canonicalising a file noticed
-/// (D26).
-const SCHEMA_VERSION: u32 = 2;
+/// (D26). 3 added one to `steps`, for what a step noticed about its own
+/// work (D32).
+const SCHEMA_VERSION: u32 = 3;
 
 /// An output held in the store.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,6 +67,13 @@ pub struct Entry {
     pub output: Stored,
     /// How long the step took when it did run, in milliseconds.
     pub duration_ms: u64,
+    /// What the step noticed about its own work ([`Note`]).
+    ///
+    /// Empty for almost every step, and for every shell step: only a body
+    /// can say what its work rested on. Stored rather than recomputed,
+    /// because a cache hit does not rerun the body and a hedge that stopped
+    /// appearing on the second run would be worse than none (D32).
+    pub notes: Vec<Note>,
 }
 
 /// How much work the prefilter saved.
@@ -313,17 +321,17 @@ impl Cache {
     ///
     /// If the metadata cannot be read.
     pub fn lookup(&self, key: StepKey) -> Result<Option<Entry>, CacheError> {
-        let row: Option<(String, String, i64)> = self.with_database(|database| {
+        let row: Option<(String, String, i64, String)> = self.with_database(|database| {
             database
                 .query_row(
-                    "SELECT output_hash, suffix, duration_ms FROM steps WHERE key = ?1",
+                    "SELECT output_hash, suffix, duration_ms, notes FROM steps WHERE key = ?1",
                     params![key.to_hex()],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .optional()
         })??;
 
-        let Some((hex, suffix, duration_ms)) = row else {
+        let Some((hex, suffix, duration_ms, notes)) = row else {
             return Ok(None);
         };
         let Some(hash) = ContentHash::parse(&hex) else {
@@ -340,6 +348,7 @@ impl Cache {
         Ok(Some(Entry {
             output: Stored { hash, path },
             duration_ms: duration_ms.try_into().unwrap_or_default(),
+            notes: decode_notes(&notes),
         }))
     }
 
@@ -355,13 +364,14 @@ impl Cache {
         output: &Stored,
         tools: &str,
         duration_ms: u64,
+        notes: &[Note],
     ) -> Result<(), CacheError> {
         let duration = i64::try_from(duration_ms).unwrap_or(i64::MAX);
         self.with_database(|database| {
             database.execute(
                 "INSERT OR REPLACE INTO steps
-                     (key, step, output_hash, suffix, tools, duration_ms, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                     (key, step, output_hash, suffix, tools, duration_ms, created_at, notes)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     key.to_hex(),
                     step,
@@ -370,6 +380,7 @@ impl Cache {
                     tools,
                     duration,
                     now(),
+                    encode_notes(notes),
                 ],
             )
         })??;
@@ -625,7 +636,8 @@ fn prepare(database: &Connection) -> Result<(), CacheError> {
              suffix      TEXT NOT NULL,
              tools       TEXT NOT NULL,
              duration_ms INTEGER NOT NULL,
-             created_at  TEXT NOT NULL
+             created_at  TEXT NOT NULL,
+             notes       TEXT NOT NULL DEFAULT ''
          )",
         [],
     )?;
