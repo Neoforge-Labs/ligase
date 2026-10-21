@@ -58,10 +58,30 @@ is nothing to translate without the sequence those positions sit in.
 Passing it also puts it under `check()`, so interpreting one sample's
 calls against another organism's reference is refused before anything runs.
 
-**The alignment** is needed for coverage. Leave it out and every position
-the caller did not report is taken to be reference — which turns a
-sequencing dropout into a susceptible result. You can leave it out; the
-report will say in a note that it made that assumption.
+**The alignment** is needed for coverage and for phasing. Leave it out and
+two things happen, and the reading notes both:
+
+- every position the caller did not report is taken to be reference, which
+  turns a sequencing dropout into a susceptible result; and
+- a codon with two ambiguous bases is read as every combination of them,
+  including combinations no read carries.
+
+The second one is why the reference demo passes `coverage=aln` even though
+the parameter is optional. With the alignment, reads spanning a codon are
+counted as the triplets they actually carry:
+
+| At a 2% threshold, RT codon 219 of Sample 3 | Reads |
+|---|---|
+| `AAA` — K | 54% |
+| `GAA` — E | 45% |
+| `AGA` — R | 0.2% |
+| `GGA` — G | 0.2% |
+
+Without the alignment all four are reported, because the caller credits G
+at 3204 in 43% of the reads and at 3205 in 2.4%, and the combinations of
+those are all four codons. With it the codon reads `K219KE`, which is what
+Stanford's own report for that sample says
+([D31](/project/decisions/#d31--a-codon-no-read-spans-keeps-its-per-base-reading)).
 
 ## Thresholds
 
@@ -75,6 +95,12 @@ Two separate numbers, because they answer different questions.
 Keep `min_freq` low and set `mixture` to the threshold you are willing to
 act on. The published results Ligase is validated against use 2%, 5% and
 15%, and the default is 0.15.
+
+`mixture` is applied twice, to the two kinds of evidence: to an allele's
+share of the reads at its own position, as the caller counted them, and
+then to an amino acid's share of the reads that span its whole codon. The
+first says which alleles are there, the second which combinations of them
+are real.
 
 The difference is not academic. On Sample 3 of PRJNA1218827:
 

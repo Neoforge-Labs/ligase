@@ -105,12 +105,15 @@ compared against the Stanford HIVdb results published by the HIVGenoPipe study.
   <Stat value="81 / 81" label="Drug calls agreeing at a 15% threshold" note="tests/test_validation.py" tone="agree" />
   <Stat value="81 / 81" label="Drug calls agreeing at a 5% threshold" note="tests/test_validation.py" tone="agree" />
   <Stat value="3,348" label="Scoring expectations reproduced exactly" note="Sierra 3.5.3, HIVDB 9.8" tone="agree" />
-  <Stat value="9" label="Calls differing at 2%, each with a recorded cause" note="concepts/validation" tone="notice" />
+  <Stat value="3" label="Calls differing at 2%, each with a recorded cause" note="project/validation" tone="notice" />
 </Stats>
 
 The scoring engine is checked against Stanford's own answers rather than against
 expectations derived from the same rules it reads, because that would test the parser
-against itself. [What was compared, and what did not agree](/project/validation/).
+against itself. Three calls differ at the 2% threshold, where there were nine: six
+were codons read from a VCF, which carries no phasing, and went when codons started
+being read from the haplotypes the reads carry.
+[What was compared, and what did not agree](/project/validation/).
 
 </Band>
 
