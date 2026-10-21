@@ -50,16 +50,15 @@ FOUND_ERRORS = 1
 COULD_NOT_CHECK = 2
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Run the command line interface.
+def build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser, with every command and flag on it.
 
-    Args:
-        argv: The arguments, excluding the program name. Taken from
-            `sys.argv` when not given.
+    Separate from `main` so that the parser can be read without running
+    anything: the documentation site generates its command-line reference
+    from this, which is what stops that page drifting from `--help`.
 
     Returns:
-        0 when everything worked, 1 when a pipeline has errors or a step
-        failed, 2 when the pipeline could not be read at all.
+        The parser, with its four subcommands attached.
     """
     parser = argparse.ArgumentParser(
         prog="ligase",
@@ -199,7 +198,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=f"where to keep the cache (default: ./{CACHE_DIR})",
     )
 
-    arguments = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the command line interface.
+
+    Args:
+        argv: The arguments, excluding the program name. Taken from
+            `sys.argv` when not given.
+
+    Returns:
+        0 when everything worked, 1 when a pipeline has errors or a step
+        failed, 2 when the pipeline could not be read at all.
+    """
+    arguments = build_parser().parse_args(argv)
     if arguments.command == "run":
         return _run(
             arguments.pipeline, arguments.jobs, arguments.force, arguments.cache
