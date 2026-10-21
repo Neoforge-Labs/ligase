@@ -61,9 +61,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Pages for the failures Ligase exists to catch**, titled after the symptom
   somebody would search for rather than the feature that catches it: a BED
   file that intersects nothing, variant positions that are wrong, intervals
-  off by one, sample labels that look swapped, and a sequence dictionary GATK
-  rejects. Each states the bug, says why nothing crashed, and then shows the
-  engine's real diagnostic.
+  off by one, sample labels that look swapped, a resistance report that names
+  the wrong gene, and a sequence dictionary GATK rejects. Each states the bug,
+  says why nothing crashed, and then shows the engine's real diagnostic. The
+  resistance one is the only hazard on the list that was found in this engine
+  rather than collected from the literature.
 - **`web/scripts/capture_diagnostics.py`**, which captures those diagnostics
   from a live run on every docs build rather than letting them be pasted in.
   It fails the build if the engine stops producing the error a page claims it
@@ -200,6 +202,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The errors reference showed a `ReferenceFrameError` nobody had run.** It
+  was pasted in and hand-wrapped, and it named a fixture file
+  (`hxb2_pol.fasta`) that does not exist, so a reader could not go and look at
+  the input that produced it. It is captured from a live run now, by
+  `web/scripts/capture_diagnostics.py`, against a committed *pol*-relative
+  fixture — which means the docs build fails if the engine stops producing
+  that error. Capturing it needed the script to be able to check a whole
+  one-step pipeline, because a frame mismatch is a disagreement between an
+  input and what the *step* reads, not between two inputs.
 - **A pol-relative reference is refused rather than read as protease.** The
   HIV-1 gene windows are positions in HXB2 K03455 counted from the first
   base of the genome, and nothing checked that the reference handed to

@@ -1,6 +1,6 @@
 ---
 title: "What goes wrong silently"
-description: "The failure modes Ligase exists to catch: wrong reference build, contig naming, coordinate conventions, sample order, and contig order. Each with the error the engine actually produces."
+description: "The failure modes Ligase exists to catch: wrong reference build, contig naming, coordinate conventions, sample order, coordinate frame, and contig order. Each with the error the engine actually produces."
 ---
 
 # What goes wrong silently
@@ -12,9 +12,11 @@ of the right size, in the right format, with plausible numbers in it. The only
 way to find it is to check before computing, or to catch it in review.
 </Lede>
 
-These are not hypothetical. Each is a documented hazard with a literature of
-its own, and each has an entry in Ligase's dimension catalogue because it was
-worth building a type system to prevent.
+These are not hypothetical. Most are documented hazards with a literature of
+their own, and each has an entry in Ligase's dimension catalogue because it was
+worth building a type system to prevent. One of them —
+[a resistance reference not in the frame the gene windows mean](/silent-failures/reference-frame/)
+— was found in this engine, by somebody evaluating it for real work.
 
 <HazardGrid>
   <Hazard href="/silent-failures/contig-naming/" symptom="My BED file intersects nothing" left="chr1" right="1">
@@ -32,6 +34,11 @@ worth building a type system to prevent.
   <Hazard href="/silent-failures/shuffled-samples/" symptom="My sample labels look swapped" left="[a, b]" right="[b, a]">
     Two files with the same cohort in a different column order. Every genotype
     is attributed to the wrong person.
+  </Hazard>
+  <Hazard href="/silent-failures/reference-frame/" symptom="My resistance report names the wrong gene" left="pol 1.." right="K03455 2085..">
+    A *pol*-relative reference against gene windows stated in whole-genome
+    coordinates. The window named protease lands in integrase, and the report
+    reads the same either way.
   </Hazard>
   <Hazard href="/silent-failures/contig-order/" symptom="GATK rejects my sequence dictionary" left="2, 1" right="1, 2">
     The one in this list that *is* loud — but only in some tools, which is its
@@ -52,10 +59,12 @@ the engine stops producing the error a page claims it produces. What you read
 here is what you would see in your terminal.
 
 <Note kind="note" title="Small files, real engine">
-The fixtures are deliberately tiny — two contigs, forty bases — so that they can
-live in the repository and run in milliseconds. The file paths in the
-diagnostics are those fixtures, and you can go and read them. The engine's
-behaviour on a 3 GB reference is the same; only the fingerprints are longer.
+The fixtures are deliberately small — mostly two contigs of twenty bases — so
+that they can live in the repository and run in milliseconds. The exception is
+the *pol*-relative reference, which has to be 3,012 bases because its length is
+the thing under test. The file paths in the diagnostics are those fixtures, and
+you can go and read them. The engine's behaviour on a 3 GB reference is the
+same; only the fingerprints are longer.
 </Note>
 
 ## The general shape of the fix
