@@ -198,6 +198,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   site rather than ported to it, so the change that corrected the Markdown
   never reached them, and the site said both numbers at once. The home page
   also cited the validation page at the path it had before the docs switch.
+- `demo'''s` on the milestones page, which the MkDocs page it was ported
+  from had too.
 - **Six of the nine validation discrepancies at the 2% threshold.** They
   were all one cause, the phasing a VCF cannot carry: five NRTI rows on
   Sample 3 reading `K219KEGR` for `K219KE`, and Sample 4's lenacapavir row
