@@ -149,8 +149,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         }}
         backgroundColor={{ light: '#f5f5f0', dark: '#0a0a0b' }}
       >
-        <meta name="theme-color" content="#f5f5f0" media="(prefers-color-scheme: light)" />
-        <meta name="theme-color" content="#0a0a0b" media="(prefers-color-scheme: dark)" />
+        {/*
+          One unconditional value, not a pair keyed to prefers-color-scheme.
+          The site opens dark whatever the OS prefers (`defaultTheme: 'dark'`
+          below), so an OS-light visitor would otherwise get cream browser
+          chrome around a near-black page. A light variant is only correct
+          when it tracks the theme that was applied, which needs script; a
+          visitor who has chosen light keeps dark chrome.
+        */}
+        <meta name="theme-color" content="#0a0a0b" />
       </Head>
       <body className="lg-grain">
         <script
