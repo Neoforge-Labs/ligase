@@ -1,0 +1,193 @@
+---
+title: "Errors"
+description: "Every error Ligase raises, what causes it, and what to do about it. Organised by what you saw rather than by class name."
+---
+
+# Errors
+
+<Lede>
+Every failure mode has its own type, so a caller can tell a reference
+mismatch from a naming mismatch **without parsing English**. This page is
+organised by what you saw; the [API reference](/reference/api/errors/) has
+the class details.
+</Lede>
+
+## Start here
+
+| What you saw | What it is | Go to |
+|---|---|---|
+| `ContigNamingError` | `chr1` against `1` | [Naming](#contignamingerror) |
+| `ContigOrderError` | Same contigs, different order | [Order](#contigordererror) |
+| `DimensionError` | Two inputs disagree about something | [Dimensions](#dimensionerror) |
+| `UndeclaredDimensionError` | Something must be declared and was not | [Undeclared](#undeclareddimensionerror) |
+| `StepTypeError` | A step was handed the wrong kind of data | [Types](#steptypeerror) |
+| `StepDefinitionError` | The step itself cannot be used as one | [Definition](#stepdefinitionerror) |
+| `LoadError` | A file would not read | [Loading](#loaderror) |
+| `RunError` | A step failed while running | [Running](#runerror) |
+| A `noticed` line, not an error | A tool named a sample after a file | [Notes](/concepts/notes/) |
+| `check` passed but results look wrong | Not a Ligase error | [When check is not enough](#when-check-is-not-enough) |
+
+## How they relate
+
+Everything found **before anything runs** is a `CheckError`. That is the
+useful distinction: a `CheckError` cost you milliseconds, anything else cost
+you a run.
+
+```text
+Exception
+├── CheckError                     found by `check`; nothing has run
+│   ├── DimensionError             two inputs disagree
+│   │   ├── ContigNamingError      ... about naming style only
+│   │   ├── ContigOrderError       ... about contig order only
+│   │   └── UndeclaredDimensionError
+│   └── StepTypeError              wrong kind of data for the step
+├── LoadError                      a file would not read
+└── RunError                       a step failed while running
+
+TypeError
+└── StepDefinitionError            the decorated function is not usable
+```
+
+Catching `CheckError` catches all five of the first group. Catching
+`DimensionError` catches the naming and order cases too, which is usually
+what you want; catch `ContigNamingError` on its own only when you mean to
+treat naming differently from everything else.
+
+```python
+import ligase as lg
+
+try:
+    pipeline.check()
+except lg.ContigNamingError as e:
+    # Specifically a naming mismatch: a renaming step would fix it.
+    print(e.step, e.dimension)
+except lg.CheckError as e:
+    # Anything else found before compute. `e.errors` has all of them.
+    for problem in e.errors:
+        print(problem)
+```
+
+---
+
+## ContigNamingError
+
+**The same contigs under different names** — `chr1` against `1`. The engine
+has checked that the contigs are otherwise identical, which is why this is
+its own type rather than a reference mismatch.
+
+Fix it by using one naming convention throughout, or by inserting a renaming
+step. Full worked explanation, with the real diagnostic:
+[my BED file intersects nothing](/silent-failures/contig-naming/).
+
+## ContigOrderError
+
+**The same contigs, in a different order.** htslib matches contigs by name
+and does not care; GATK requires matching sequence dictionary order and will
+refuse. Reported because silence would hide a failure in a tool you may add
+tomorrow.
+
+[GATK rejects my sequence dictionary](/silent-failures/contig-order/).
+
+## DimensionError
+
+**Two inputs to a step disagree about a dimension.** The base case, raised
+when the disagreement is not specifically naming or order — a different
+reference build, a different coordinate convention, a different sample set.
+
+The message names both values, where each came from, and asks a leading
+question. The provenance is the actionable part: knowing two references
+disagree sends you hunting, while knowing one came from a BAM `@SQ` header
+and the other from the FASTA you passed tells you what to change.
+
+- [My variant positions are wrong](/silent-failures/wrong-reference-build/) — reference build
+- [My intervals are off by one](/silent-failures/coordinate-systems/) — coordinates
+- [My sample labels look swapped](/silent-failures/shuffled-samples/) — sample set
+
+## UndeclaredDimensionError
+
+**A dimension some step requires is unknown, and must be declared.** Not every
+dimension can be read out of a file: no FASTA records its organism, and a BAM
+header does not say which build it was made against.
+
+Ask what is missing and why:
+
+```python
+>>> aln.unknown_reason("organism")
+'not recorded in SAM/BAM headers; declare it'
+```
+
+Then declare it once, at load:
+
+```python
+aln = lg.alignment("data/alignments/sample01.bam", organism="human")
+```
+
+A dimension that no downstream step requires may stay unknown. See
+[declaring dimensions](/guide/declaring-dimensions/).
+
+## StepTypeError
+
+**A step was handed a kind of data it does not declare.** A `Variants` where
+the signature says `Alignment`. Blames no dimension — `dimension` is `None`
+on this one — because the problem is the type, not a value within it.
+
+Usually an argument in the wrong position, or a step whose return annotation
+does not match what the next step takes.
+
+## StepDefinitionError
+
+**The decorated function cannot be used as a step**, raised at definition
+time rather than at check time. A parameter with no annotation, a missing
+return annotation, or an annotation the graph cannot interpret.
+
+This one subclasses `TypeError`, not `CheckError`, because it is a mistake in
+the code rather than in the data.
+
+## LoadError
+
+**A file could not be read, or did not parse as the format expected.** The
+path is wrong, the file is truncated, or a `.fasta` is not a FASTA.
+
+Raised by the loaders — `lg.reference`, `lg.alignment`, `lg.variants`,
+`lg.reads`, `lg.intervals` — at the point of loading, so it names the file.
+
+## RunError
+
+**A step failed while running.** Carries a `report` with the whole run's
+outcome and a `failures` list of `StepFailure`, each naming its step, its node
+and the sample it stood for.
+
+This is the one class of error that cost you compute. Everything the cache had
+already is still there, so fixing the step and running again does not redo the
+work above it.
+
+```python
+try:
+    pipeline.run()
+except lg.RunError as e:
+    for failure in e.report.failures:
+        print(failure.step, failure.sample, failure.message)
+```
+
+---
+
+## When `check` is not enough
+
+`check` compares dimensions. It cannot tell you that your aligner's settings
+were wrong, that your reads are contaminated, or that a threshold is
+inappropriate for your question. A pipeline that checks clean can still be
+scientifically wrong.
+
+Two things help with the part Ligase can speak to:
+
+- **`ligase audit <step>`** runs a step twice and reports whether it repeats.
+  Non-determinism that the cache would hide shows up here. See
+  [semantic hashing and auditing](/guide/semantic-hashing/).
+- **`ligase methods --verify`** checks a reproducibility bundle against what
+  this machine produces, which catches an environment that has drifted.
+
+And a `noticed` line in a run report is neither an error nor nothing: it is
+the engine telling you something about your data it could not refuse over.
+The common one is a tool naming a sample after a file, which happens when an
+alignment carries no `@RG SM` tag — see
+[reading what the engine noticed](/guide/notes/).
