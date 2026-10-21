@@ -1,22 +1,28 @@
 .wrap {
   display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.5rem;
 }
 
 .glyph {
-  color: var(--lg-ink-faint);
+  color: var(--lg-ink);
   flex: none;
 }
 
-.join {
+.tie {
   fill: var(--lg-brand);
 }
 
 .word {
-  font-family: var(--lg-font-ui);
-  font-size: 1.0625rem;
-  font-weight: 640;
-  letter-spacing: -0.024em;
+  font-family: var(--lg-font-display);
+  font-size: 1.375rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1;
   color: var(--lg-ink);
+}
+
+.ase {
+  font-style: italic;
+  color: var(--lg-brand);
 }

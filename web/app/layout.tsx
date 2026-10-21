@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { Source_Serif_4 } from 'next/font/google'
+import { Playfair_Display, Source_Serif_4 } from 'next/font/google'
 import { GeistMono } from 'geist/font/mono'
 import { GeistSans } from 'geist/font/sans'
 import { Footer, Layout, Navbar } from 'nextra-theme-docs'
@@ -27,6 +27,18 @@ const sourceSerif = Source_Serif_4({
   axes: ['opsz'],
 })
 
+/*
+ * The display face, used only for the wordmark and the largest headings.
+ * Its variable name is what --lg-font-display in tokens.css reads.
+ */
+const playfair = Playfair_Display({
+  subsets: ['latin'],
+  weight: ['300', '400'],
+  style: ['normal', 'italic'],
+  display: 'swap',
+  variable: '--font-playfair',
+})
+
 export const metadata: Metadata = {
   metadataBase: new URL('https://ligase.neoforgelabs.tech'),
   title: {
@@ -36,6 +48,12 @@ export const metadata: Metadata = {
   description:
     'Biological data carries dimensions — organism, reference build, coordinate system, sample set — and Ligase refuses to connect steps whose dimensions disagree. A Rust core with a Python surface.',
   applicationName: 'Ligase',
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+  },
   authors: [{ name: 'Kelyn Njeri' }],
   openGraph: {
     type: 'website',
@@ -70,7 +88,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       lang="en"
       dir="ltr"
       suppressHydrationWarning
-      className={`${GeistSans.variable} ${GeistMono.variable} ${sourceSerif.variable}`}
+      className={`${GeistSans.variable} ${GeistMono.variable} ${sourceSerif.variable} ${playfair.variable}`}
     >
       {/*
         Nextra derives its own accent (links, active nav, focus rings) and page
