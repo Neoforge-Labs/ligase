@@ -5,7 +5,7 @@ description: "How a checked graph becomes parallel work. The cache it consults i
 # Execution
 
 How a checked graph becomes parallel work. The cache it consults is
-[described separately](/architecture/cache/); this is about who runs what, where, and
+[described separately](/project/architecture/cache/); this is about who runs what, where, and
 why Python is not in the loop.
 
 Lives in `crates/ligase-core/src/exec.rs`, with the Python side in
@@ -33,7 +33,7 @@ complete description of the work. The core then owns the whole run with the
 GIL released, and a cohort of shell steps runs at full width.
 
 This is only possible because bodies were already deferred
-([D12](/design/decisions/#d12--steps-defer-the-graph-is-built-from-signatures)):
+([D12](/project/decisions/#d12--steps-defer-the-graph-is-built-from-signatures)):
 a body that *computed* something could not be called before its inputs
 existed. A body that *describes* work can.
 
@@ -55,7 +55,7 @@ guide says out loud.
 ## The scheduler
 
 Index order is dependency order — a node can only name earlier ones
-([the graph](/architecture/graph/)) — so there is no topological sort to do. What is left
+([the graph](/project/architecture/graph/)) — so there is no topological sort to do. What is left
 is a ready queue:
 
 - `remaining[node]` counts unfinished upstream *steps* (input nodes are
@@ -82,13 +82,13 @@ inside a step.
 
 A step hashes its own inputs, and BLAKE3 hashes a large file across whatever
 pool it is called from
-([D3](/design/decisions/#d3--blake3-with-sizemtime-prefilter)) — so a step queues
+([D3](/project/decisions/#d3--blake3-with-sizemtime-prefilter)) — so a step queues
 work on the executor's own pool as a matter of course. Rayon can only give
 that work to a worker it believes is idle. The first version of this
 scheduler held every spare worker blocked on a `Condvar` of its own, inside a
 `scope.spawn` job, which rayon counts as busy: hashing inside a step was left
 with no one able to help it, and under heavy load a run stopped for good
-([D27](/design/decisions/#d27--a-worker-that-waits-is-a-worker-rayon-cannot-use)).
+([D27](/project/decisions/#d27--a-worker-that-waits-is-a-worker-rayon-cannot-use)).
 
 A worker can still block where rayon cannot see it — on a step's own child
 process, or on the GIL inside a callback. The invariant is narrower than "a
@@ -120,7 +120,7 @@ time, and report a hit.
 Parking rather than waiting is the same rule as above. A worker blocked on a
 claimed key is a worker rayon counts as busy, and therefore one that cannot
 help the very step it is waiting for
-([D27](/design/decisions/#d27--a-worker-that-waits-is-a-worker-rayon-cannot-use)).
+([D27](/project/decisions/#d27--a-worker-that-waits-is-a-worker-rayon-cannot-use)).
 Parking also costs no `--jobs` slot: a waiting node used to occupy a worker
 doing nothing.
 
@@ -172,7 +172,7 @@ report is built in the core. Two surfaces print it — `ligase run` and
 `report.text` — and one wording for both is the only way they cannot drift.
 
 Two rules carry over from
-[D15](/design/decisions/#d15--an-error-identifies-its-node-not-just-its-step),
+[D15](/project/decisions/#d15--an-error-identifies-its-node-not-just-its-step),
 for the same reasons:
 
 - A step that ran gets its own line with its own cost, and the costs line up,
@@ -200,7 +200,7 @@ has after an edit: *did my change reach anything?* "Everything cached" and
 different pieces of news.
 
 "Changed nothing" means the output's **canonical** form is unchanged, not
-its bytes ([canonicalisation](/architecture/canonicalisation/)). With bytes, `skipped`
+its bytes ([canonicalisation](/project/architecture/canonicalisation/)). With bytes, `skipped`
 was a verdict almost no real tool could earn: `minimap2` records its command
 line in `@PG`, that command line holds the output path, and the output path
 is the staging file named after the step's own key — so a step's bytes moved
@@ -209,12 +209,12 @@ the one below it is keyed on the second.
 
 ## What a run records besides its answer
 
-A step that runs writes a [provenance](/architecture/provenance/) record naming the
+A step that runs writes a [provenance](/project/architecture/provenance/) record naming the
 command that ran, with its placeholders filled in. It has to happen here:
 `fill_template` is the only thing that renders that command, and since M4 it
 is nowhere else — not in the cache, and not in the output, whose `@PG` line
 is dropped before hashing
-([D22](/design/decisions/#d22--a-tools-signature-is-not-part-of-its-result)).
+([D22](/project/decisions/#d22--a-tools-signature-is-not-part-of-its-result)).
 A step served from the cache writes nothing, because the record from the run
 that did the work is still there.
 
@@ -230,8 +230,8 @@ constructor.
 
 **Running a step twice** to find out whether it is reproducible is
 `audit.rs`, which borrows `exec::produce` and `exec::inputs_of` rather than
-repeating them ([canonicalisation](/architecture/canonicalisation/#audit-mode)).
+repeating them ([canonicalisation](/project/architecture/canonicalisation/#audit-mode)).
 
-**Cluster execution** ([D8](/design/decisions/#d8--out-of-scope-for-v01)). The
+**Cluster execution** ([D8](/project/decisions/#d8--out-of-scope-for-v01)). The
 scheduler assumes one machine and a shared filesystem. The ready-queue shape
 would survive a change of executor, but nothing has been built for one.

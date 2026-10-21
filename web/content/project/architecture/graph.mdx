@@ -113,7 +113,7 @@ instruction three steps later; `"this step did not have one"` would not be.
 **Coordinates are introduced, not inherited.** Nothing upstream of an
 alignment has a coordinate system — FASTQ and FASTA have none — so inheriting
 would leave it unknown forever. Alignments and variant calls are 1-based
-closed by specification ([D9](/design/decisions/)). Intervals are the exception:
+closed by specification ([D9](/project/decisions/)). Intervals are the exception:
 a tool that writes BED from a VCF *changes* the convention, so a step
 producing `Intervals` must declare what it writes, and reports its
 coordinates as unknown until it does. Inheriting 1-based closed there would
@@ -294,7 +294,7 @@ kept going would report a contig named `>chr1`.
 Contigs come from the records, so:
 
 - **no length, no checksum.** A BED records neither. Containment
-  ([D10](/design/decisions/)) already compares only what is present, which is
+  ([D10](/project/decisions/)) already compares only what is present, which is
   what makes these files checkable against a reference at all — by name,
   which catches a `chr`-prefixed BED against a bare reference and an interval
   on a contig the reference does not have. A GFF's `##sequence-region` gives
@@ -394,7 +394,7 @@ check the same way.
   the side you did not expect.
 - **Plain parameters are recorded and otherwise ignored.** `min_freq` is in
   the signature and in `StepOutput.arguments`, and does nothing until it
-  joins the cache key ([cache](/architecture/cache/#the-key)).
+  joins the cache key ([cache](/project/architecture/cache/#the-key)).
 - **Nothing executes.** `pipe.run()`, `pipe.methods()`, `lg.sh()` and
   `ligase run` are later milestones. The parser deliberately does not offer
   subcommands that would not work.
@@ -417,6 +417,6 @@ check the same way.
 ## Related
 
 - [Pipelines and the graph](/concepts/pipelines/) — the user-facing view
-- [Type system architecture](/architecture/type-system/) — dimensions, and the checker
+- [Type system architecture](/project/architecture/type-system/) — dimensions, and the checker
   the graph drives
-- [Decisions](/design/decisions/) — D12, D13 and D14 were taken here
+- [Decisions](/project/decisions/) — D12, D13 and D14 were taken here

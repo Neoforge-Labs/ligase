@@ -11,8 +11,8 @@ import { diagnostics } from '../lib/diagnostics.generated'
   title="The worst bugs in computational biology do not crash."
   actions={
     <>
-      <Action href="/guide/installation/" primary>Install it</Action>
-      <Action href="/concepts/types-and-dimensions/">Why data carries dimensions</Action>
+      <Action href="/start/quickstart/" primary>Quickstart — 5 minutes</Action>
+      <Action href="/start/installation/">Install it</Action>
     </>
   }
 >
@@ -110,7 +110,21 @@ compared against the Stanford HIVdb results published by the HIVGenoPipe study.
 
 The scoring engine is checked against Stanford's own answers rather than against
 expectations derived from the same rules it reads, because that would test the parser
-against itself. [What was compared, and what did not agree](/concepts/validation/).
+against itself. [What was compared, and what did not agree](/project/validation/).
+
+</Band>
+
+<Band label="Where to start" title="Three ways in">
+
+| If you want to | Go to |
+|---|---|
+| Run something in five minutes, with no aligner | [Quickstart](/start/quickstart/) |
+| Install it properly | [Installation](/start/installation/) |
+| Know why a step did not rerun, or what a flag does | [Command line](/reference/cli/) |
+| Understand the idea before the API | [Types and dimensions](/concepts/types-and-dimensions/) |
+| Work out what an error means | [Errors](/reference/errors/) |
+| Write a real pipeline | [Building a pipeline](/guide/building-a-pipeline/) |
+| Read how it works inside | [Architecture](/project/architecture/workspace/) |
 
 </Band>
 
@@ -120,7 +134,7 @@ v0.1.0 is on [crates.io](https://crates.io/crates/ligase) as `ligase` and on
 [PyPI](https://pypi.org/project/ligase-bio/) as `ligase-bio`. All six v0.1 milestones
 are done. It is **pre-alpha**: the API will change, and there are no outside users yet.
 
-[SAWA](/case-studies/sawa/), a sibling project, is evaluating it for HIV drug-resistance
+[SAWA](/project/in-use/sawa/), a sibling project, is evaluating it for HIV drug-resistance
 surveillance. That evaluation has already turned up a silent coordinate hazard in *pol*
 numbering, which is written up rather than buried. Its agreement figures are SAWA's to
 publish, not this project's.

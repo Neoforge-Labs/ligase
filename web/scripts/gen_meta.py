@@ -31,9 +31,17 @@ HANDWRITTEN_TOP = (
     "licence",
 )
 
-# Pages that moved out of their mkdocs section. The notebooks are a section of
-# their own now, rendered from real runs rather than linked to on GitHub.
-MOVED = {"guide/notebooks.md"}
+# Pages that left their mkdocs section on the new site. The notebooks are a
+# section of their own, rendered from real runs; installation was rewritten
+# for someone installing the package; and the rest are written about the
+# project rather than for a user of it, so they live under project/.
+MOVED = {
+    "guide/notebooks.md",
+    "guide/installation.md",
+    "guide/releasing.md",
+    "concepts/project-layout.md",
+    "concepts/validation.md",
+}
 
 
 def parse_nav() -> OrderedDict[str, list[tuple[str, str]]]:
@@ -96,11 +104,14 @@ def write_meta(directory: Path, entries: list[tuple[str, str]], why: str) -> Non
 def main() -> int:
     """Generate every section's _meta.ts from the mkdocs nav."""
     sections = parse_nav()
+    # Only the sections whose order is still worth taking from mkdocs.yml.
+    # Reference, Start here and Project are new groupings with _meta files
+    # written by hand, and `Design` no longer exists: the dimension
+    # catalogue became reference material and the rest became project/.
     label_to_dir = {
         "Concepts": "concepts",
         "Guide": "guide",
-        "Architecture": "architecture",
-        "Design": "design",
+        "Architecture": "project/architecture",
     }
 
     for label, folder in label_to_dir.items():

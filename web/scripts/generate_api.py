@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-OUT = Path(__file__).resolve().parents[1] / "content/api"
+OUT = Path(__file__).resolve().parents[1] / "content/reference/api"
 
 # --------------------------------------------------------------------------
 # The grouping. This is the contract; see the module docstring.
@@ -109,11 +109,11 @@ GROUPS: tuple[Group, ...] = (
         blurb=(
             "Turning variant calls into HIV-1 drug-resistance calls. The scoring "
             "engine reproduces 3,348 published Stanford expectations exactly; see "
-            "[validation](/concepts/validation/).\n\n"
+            "[validation](/project/validation/).\n\n"
             "Positions must be in **whole-genome HXB2 K03455 coordinates**. A "
             "*pol*-relative reference is read as though it were whole-genome and "
             "the gene windows land on the wrong genes, silently -- see "
-            "[the SAWA evaluation](/case-studies/sawa/)."
+            "[the SAWA evaluation](/project/in-use/sawa/)."
         ),
         names=(
             "ResistanceReport",
@@ -684,7 +684,7 @@ def overview(lg: Any, counts: str) -> str:
     """The API section index."""
     total = sum(len(g.names) for g in GROUPS)
     rows = "\n".join(
-        f"| [{g.title}](/api/{g.slug}/) | {len(g.names)} | {plain(g.blurb)} |"
+        f"| [{g.title}](/reference/api/{g.slug}/) | {len(g.names)} | {plain(g.blurb)} |"
         for g in GROUPS
     )
     return f"""---

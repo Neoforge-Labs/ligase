@@ -51,7 +51,7 @@ the same in both versions:
 
 So both the derivation and the reader refuse anything they do not
 recognise, rather than skipping it. That is
-[D21](/design/decisions/#d21--canonicalisation-falls-back-to-the-bytes)'s rule
+[D21](/project/decisions/#d21--canonicalisation-falls-back-to-the-bytes)'s rule
 applied here: a reader that skipped what it did not understand would
 silently drop a drug, and a dropped drug reads as susceptible.
 
@@ -145,7 +145,7 @@ Step 3 is where phasing is lost. A VCF says what is at each position, not
 what travels together, so a codon with two ambiguous bases yields up to
 four amino acids and some may be carried by no read. This is a real
 limitation with a real effect at low thresholds — see
-[validation](/concepts/validation/#what-disagrees-and-why). The fix,
+[validation](/project/validation/#what-disagrees-and-why). The fix,
 if it is ever wanted, is to count codon haplotypes from reads spanning the
 codon, which the alignment already makes available.
 
@@ -173,7 +173,7 @@ Three consequences, all deliberate:
 - **Every shipped algorithm, not only the one in use**, because the probe
   runs before any step body has said which it wants. Editing 10.2 reruns a
   pipeline pinned to 9.8. That is over-conservative in the direction
-  [D20](/design/decisions/#d20--a-tolerance-is-a-quantisation) already commits
+  [D20](/project/decisions/#d20--a-tolerance-is-a-quantisation) already commits
   to: a cache that is too cold costs time, one that is too warm is wrong.
 - **"as shipped"**, because a methods paragraph renders a tool version
   after "ran with", and a step that named 9.8 must not appear to have run
@@ -181,7 +181,7 @@ Three consequences, all deliberate:
   beside it.
 
 Doing it this way also picks up provenance, the methods sentence and
-[D24](/design/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)'s
+[D24](/project/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)'s
 citation table for free — and HIVdb genuinely needs a citation, which a
 plain parameter gave no home.
 

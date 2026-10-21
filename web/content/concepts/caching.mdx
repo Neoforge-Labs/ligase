@@ -59,7 +59,7 @@ parameter, which is why a seed has to be declared rather than drawn: a step that
 reproducible, and no cache can make it so.
 
 **Input content hashes**, never timestamps
-([D2](/design/decisions/#d2--content-hashing-not-timestamps)). Timestamps lie.
+([D2](/project/decisions/#d2--content-hashing-not-timestamps)). Timestamps lie.
 `cp` moves them, `git clone` moves them, `touch` moves them, and a restored
 backup moves them backwards. A pipeline that reran on a fresh checkout — or
 worse, *did not* rerun after a file was quietly replaced — would be a
@@ -136,7 +136,7 @@ Two honest limitations, both worth knowing before trusting a result.
 **A file rewritten in place.** Hashing every input on every run would make a
 40 GB BAM expensive to look at, so a file whose size *and* modification time
 are unchanged is not read again
-([D3](/design/decisions/#d3--blake3-with-sizemtime-prefilter)). Note the shape
+([D3](/project/decisions/#d3--blake3-with-sizemtime-prefilter)). Note the shape
 of that bet: a match skips work, a mismatch only causes a rehash, and the
 hash itself is never taken from a timestamp. The one case it can miss is a
 file edited in place, keeping its exact length, within the same timestamp
@@ -168,7 +168,7 @@ recomputes. Keep it and the next run is instant. It belongs in
 
 - [Running a pipeline](/guide/running-a-pipeline/) — how to do it, with
   a pipeline that works.
-- [Cache architecture](/architecture/cache/) — the store, the schema,
+- [Cache architecture](/project/architecture/cache/) — the store, the schema,
   and how a key is actually composed.
-- [Execution architecture](/architecture/execution/) — how a graph
+- [Execution architecture](/project/architecture/execution/) — how a graph
   becomes parallel work without Python in the hot path.

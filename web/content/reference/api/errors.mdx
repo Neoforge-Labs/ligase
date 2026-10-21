@@ -1,0 +1,233 @@
+---
+title: "Errors"
+description: "Ligase API reference: errors."
+---
+
+# Errors
+
+Every failure mode has its own type, so a caller can tell a reference mismatch from a naming mismatch without reading the message. That is what makes the planned automatic fixes possible.
+
+## CheckError
+
+```python
+class CheckError(
+    message: 'str',
+    step: 'str',
+    dimension: 'str | None',
+    scope: 'tuple[str,
+    str] | None' = None,
+) -> 'None'
+```
+
+A pipeline will not work, found before anything ran.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `step` | The step the problem was found in. |
+| `dimension` | The name of the dimension involved, where one is. `None` for a `StepTypeError`, which blames no dimension. |
+| `scope` | What distinguishes that step from the others of the same name, as a `(kind, value)` pair — `("sample", "SRR32217714")` under per-sample fan-out. `None` for a step that stands for no single sample, such as one that spans a whole cohort. Collecting these is how you ask which samples a problem affects: affected = &#123;e.scope[1] for e in pipe.errors() if e.scope&#125; |
+| `errors` | Every problem found in the same pass, this one included. Checking reports all of them at once rather than one per run, because fixing errors one per overnight run is the problem Ligase exists to remove. |
+
+## DimensionError
+
+```python
+class DimensionError(
+    message: 'str',
+    step: 'str',
+    dimension: 'str | None',
+    scope: 'tuple[str,
+    str] | None' = None,
+) -> 'None'
+```
+
+Two inputs to a step disagree about a dimension.
+
+The message names the step, both conflicting values, where each value
+came from, and asks a leading question. The provenance is the part that
+makes it actionable: knowing two references disagree sends you hunting,
+while knowing one came from a BAM `@SQ` header and the other from the
+FASTA you passed tells you what to change.
+
+## ContigNamingError
+
+```python
+class ContigNamingError(
+    message: 'str',
+    step: 'str',
+    dimension: 'str | None',
+    scope: 'tuple[str,
+    str] | None' = None,
+) -> 'None'
+```
+
+The same contigs under different names, such as `chr1` against `1`.
+
+Distinct from a plain `DimensionError` because the fix is distinct: a
+renaming step, not a different reference. Still a `DimensionError`, so
+code that wants to catch any dimension problem can.
+
+## ContigOrderError
+
+```python
+class ContigOrderError(
+    message: 'str',
+    step: 'str',
+    dimension: 'str | None',
+    scope: 'tuple[str,
+    str] | None' = None,
+) -> 'None'
+```
+
+The same contigs in a different order.
+
+htslib matches contigs by name, so `bcftools` does not mind. GATK
+requires sequence dictionaries in matching order and will reject this.
+
+## UndeclaredDimensionError
+
+```python
+class UndeclaredDimensionError(
+    message: 'str',
+    step: 'str',
+    dimension: 'str | None',
+    scope: 'tuple[str,
+    str] | None' = None,
+) -> 'None'
+```
+
+A dimension some step requires is unknown and must be declared.
+
+Raised only because a step actually joins on it: an unknown dimension
+nothing downstream requires is allowed to stay unknown. The message names
+the data that has to declare it and the route by which it reaches the
+step that needs it, which for a value propagated through the graph are
+two different places.
+
+## StepTypeError
+
+```python
+class StepTypeError(
+    message: 'str',
+    step: 'str',
+    dimension: 'str | None',
+    scope: 'tuple[str,
+    str] | None' = None,
+) -> 'None'
+```
+
+A step was handed a kind of data it does not declare.
+
+Not a `DimensionError`: nothing disagrees about the data, the pipeline is
+simply wired up wrong. Reported instead of that step's dimension errors
+rather than alongside them, because comparing the dimensions of bindings
+the step never declared would describe a pipeline you did not write.
+
+## StepDefinitionError
+
+A decorated function cannot be used as a step.
+
+Raised by `@lg.step` as the module is imported, not at check time: a
+missing annotation is a mistake in the pipeline's source, and the sooner
+it is said the less there is to read. A `TypeError`, because that is what
+a badly typed definition is.
+
+## LoadError
+
+A file could not be read or did not parse as the expected format.
+
+## RunError
+
+```python
+class RunError(report: 'RunReport') -> 'None'
+```
+
+A step failed.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `report` | The whole run, including everything that did succeed — which for a cohort is usually most of it. |
+| `failures` | The steps that failed, as a shortcut. |
+
+## StepFailure
+
+```python
+class StepFailure(
+    step: 'str',
+    sample: 'str | None',
+    message: 'str',
+    node: 'int',
+) -> None
+```
+
+One step that did not produce anything.
+
+A step whose input failed is in neither list: one cause, one failure.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `step` | The step's name. |
+| `sample` | The sample it was for, where it stands for one. |
+| `message` | What went wrong, in the tool's own words where there are any. |
+| `node` | Which node of the graph it was. |
+
+## InputCheck
+
+```python
+class InputCheck(
+    step: 'str',
+    param: 'str',
+    path: 'str',
+    presence: 'str',
+) -> None
+```
+
+One input file, as a bundle recorded it and as it is here.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `step` | The step it fed. |
+| `param` | The parameter it filled. |
+| `path` | Where the bundle said it was. |
+| `presence` | `same`, `changed` or `absent`, by content rather than by name — which is the only way to tell the file a bundle was built from apart from a different file with the same name. |
+
+## ResultCheck
+
+```python
+class ResultCheck(
+    step: 'str',
+    scope: 'str | None',
+    verdict: 'str',
+    expected: 'str',
+    found: 'str | None',
+    same_key: 'bool',
+) -> None
+```
+
+One result, as a bundle recorded it and as this machine produced it.
+
+### Attributes
+
+| Attribute | Description |
+|---|---|
+| `step` | The step's name. |
+| `scope` | What tells this node apart, where anything does. |
+| `verdict` | `identical`, `reproduced`, `differs` or `missing`. |
+| `expected` | The canonical hash the bundle recorded. |
+| `found` | The canonical hash produced here, or `None` where this pipeline produced nothing for it. |
+| `same_key` | Whether the cache key matched too. False with a verdict of `reproduced` means something in the environment moved and the result did not, which is the interesting outcome. |
+
+### ResultCheck.reproduced
+
+```python
+reproduced: bool  # property
+```
+
+Whether the result came out the same, by either route.

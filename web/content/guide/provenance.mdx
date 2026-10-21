@@ -8,7 +8,7 @@ description: "ligase methods says how your results were produced, and --bundle p
 `--bundle` packages that up so someone else can check it.
 
 This guide uses the HIV-1 demo. If you have not fetched its data yet, see
-[installation](/guide/installation/); every command below also works on a
+[installation](/start/installation/); every command below also works on a
 pipeline of your own.
 
 ## The methods paragraph
@@ -44,7 +44,7 @@ Li H (2018) Minimap2: pairwise alignment for nucleotide sequences.
 ```
 
 Four things are in there, and they are the four
-[M5 is signed off on](/design/milestones/): the version every tool actually
+[M5 is signed off on](/project/milestones/): the version every tool actually
 ran at, every parameter as it was hashed, the reference by accession and
 checksum, and the references to cite.
 
@@ -210,18 +210,18 @@ for moved in checked.moved:
 ## What this does not do
 
 **Fetch the data.** Pinning by accession and checksum is as far as v0.1 goes
-([D8](/design/decisions/#d8--out-of-scope-for-v01)); a bundle tells you exactly
+([D8](/project/decisions/#d8--out-of-scope-for-v01)); a bundle tells you exactly
 which files it needs and checks the ones it finds.
 
 **Validate the results against published ones.** That is
-[M6](/design/milestones/), and a whole milestone, because agreeing with a paper
+[M6](/project/milestones/), and a whole milestone, because agreeing with a paper
 is a scientific question rather than a hashing one.
 
 ## Where to go next
 
 - [How was this produced?](/concepts/provenance/) — why any of this
   exists, and what D22 cost.
-- [Provenance architecture](/architecture/provenance/) — the store, the
+- [Provenance architecture](/project/architecture/provenance/) — the store, the
   paragraph and the bundle from the inside.
 - [Semantic hashing and auditing](/guide/semantic-hashing/) — the other question
   about a result: does it repeat?

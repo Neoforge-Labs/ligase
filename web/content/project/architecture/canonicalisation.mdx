@@ -35,7 +35,7 @@ described actually hold". The thread-count acceptance criterion in
 
 ## Where it attaches
 
-Exactly where [the cache](/architecture/cache/#what-an-inputs-hash-is-a-hash-of) said it would.
+Exactly where [the cache](/project/architecture/cache/#what-an-inputs-hash-is-a-hash-of) said it would.
 
 ```rust
 pub const INPUT_POLICY: &str = "canonical";   // was "raw"
@@ -85,7 +85,7 @@ an XOR would lose.
 | `ResistanceReport` | the header row | the rows below it | trailing blanks |
 
 The split is not a new judgement. It is
-[D14](/design/decisions/#d14--contig-order-is-compared-only-between-sequence-dictionaries),
+[D14](/project/decisions/#d14--contig-order-is-compared-only-between-sequence-dictionaries),
 which already decided that a sequence dictionary's order is semantic (GATK
 insists on it) while a BED's record order is incidental. A reference *is* a
 sequence dictionary, so it keeps its order; `@SQ` is one, so it keeps its
@@ -98,7 +98,7 @@ order; records are not, so they sort.
 Parsed by `noodles`, BAM and SAM through one code path over the
 `sam::alignment::Record` trait. That is what makes a BAM hash the same as
 the SAM it came from, which
-[D9](/design/decisions/#d9--coordinates-are-semantics-not-encoding) requires:
+[D9](/project/decisions/#d9--coordinates-are-semantics-not-encoding) requires:
 re-encoding is not a biological change, so `samtools view -b` must not cost
 a cache.
 
@@ -187,7 +187,7 @@ One table, one entry: `(Variants, "QUAL")` at 0.1. Everything else is
 exact.
 
 A tolerance can only be expressed by quantising, and
-[D20](/design/decisions/#d20--a-tolerance-is-a-quantisation) says why: "within
+[D20](/project/decisions/#d20--a-tolerance-is-a-quantisation) says why: "within
 ε" is not transitive, so it is not an equality, and a hash can only express
 an equality.
 
@@ -203,7 +203,7 @@ there is nothing to quantise and nothing is gained by pretending otherwise.
 ## The fallback
 
 A file that will not parse hashes as its bytes, tagged `Form::Raw`
-([D21](/design/decisions/#d21--canonicalisation-falls-back-to-the-bytes)). The
+([D21](/project/decisions/#d21--canonicalisation-falls-back-to-the-bytes)). The
 tag is inside the digest, so a fallback can never collide with a canonical
 form, nor with the plain `ContentHash` of the same bytes.
 
@@ -224,7 +224,7 @@ header are all parse failures.
 The fallback handles a file that will not parse. The other half of the same
 problem is a file that parses perfectly and is still wrong in a field the
 rules cannot drop, and that is what a `Note` is for
-([D26](/design/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).
+([D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).
 
 There is one note in v0.1: a sample identifier that is a file. A VCF's
 sample names and a BAM's read-group samples are *what the file is about* —
@@ -305,13 +305,13 @@ CREATE TABLE canonical (
 Keyed on the **hash of the bytes**, not on the path, because that is what it
 is a fact about. A file moved, copied, or produced again identically by
 another step is not parsed twice. Behind it sits the
-[prefilter](/architecture/cache/#the-prefilter), so the steady state of a second run is
+[prefilter](/project/architecture/cache/#the-prefilter), so the steady state of a second run is
 `stat` → remembered byte hash → remembered canonical hash, and
 `report.hashed` and `report.canonicalised` are both zero.
 
 `CANON_VERSION` sits in the cache's `meta` beside the other two versions. A
 change to it clears this table **and** the step entries, which is
-[D19](/design/decisions/#d19--a-cache-from-another-version-is-discarded-not-migrated)
+[D19](/project/decisions/#d19--a-cache-from-another-version-is-discarded-not-migrated)
 extended by one line: a canonical hash is a fact about a file *given the
 rules that produced it*, so one computed under other rules is a fact about
 something else. Nothing is migrated because nothing needs to be.
@@ -343,15 +343,15 @@ produce timings that describe the machine rather than the step.
 `AuditReport::verdict()` is the **worst** verdict, not the commonest. One
 irreproducible sample in a cohort is an irreproducible step, and a summary
 that averaged them would bury what the user is auditing for — the same
-reasoning as [D15](/design/decisions/#d15--an-error-identifies-its-node-not-just-its-step)
+reasoning as [D15](/project/decisions/#d15--an-error-identifies-its-node-not-just-its-step)
 counting places rather than names.
 
 ## What is not here
 
 **Provenance.** Nothing here records why a result is what it is — and
 dropping the fields that used to say so is what made
-[provenance](/architecture/provenance/) necessary rather than merely nice
-([D22](/design/decisions/#d22--a-tools-signature-is-not-part-of-its-result)).
+[provenance](/project/architecture/provenance/) necessary rather than merely nice
+([D22](/project/decisions/#d22--a-tools-signature-is-not-part-of-its-result)).
 
 **Notes about inputs.** A note is reported for what a run *produced*. A
 leaf input the user supplied with path-shaped sample names is their file,
@@ -373,4 +373,4 @@ an external sort for whole-genome BAMs. The shape that would change is
 to compare two outputs of the same tool. A canonical form that could
 reconcile a GATK VCF with a bcftools one is a much larger claim, and the
 right place for it is the conversion graph
-([D5](/design/decisions/#d5--dimensions-as-types-units-analogy)), not the hash.
+([D5](/project/decisions/#d5--dimensions-as-types-units-analogy)), not the hash.

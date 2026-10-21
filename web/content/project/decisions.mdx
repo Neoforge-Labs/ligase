@@ -319,7 +319,7 @@ prove which command produced an object, because the field that said so is
 not in the hash. That is the right place for the loss. A hash answers "is
 this the same result?"; "how was this produced?" is provenance, it is M5,
 and it wants its own storage and its own lifetime
-([cache](/architecture/cache/#what-is-not-here)).
+([cache](/project/architecture/cache/#what-is-not-here)).
 
 ## D23 — Provenance has its own store and its own lifetime
 
@@ -434,7 +434,7 @@ a field that cannot be dropped. A command line says how a file was made; a
 sample identifier is part of what the file is **about**, and a sample set is
 one of the dimensions this engine exists to keep straight. So the hash
 stands and the engine **says what it saw**: a
-[`Note`](/architecture/canonicalisation/#what-a-canonical-form-notices),
+[`Note`](/project/architecture/canonicalisation/#what-a-canonical-form-notices),
 carried beside the
 hash into the run report, provenance, the bundle and the methods section.
 A note is not an error, never changes a hash, and the fix is one line in the
@@ -505,7 +505,7 @@ worker with nothing of its own to do is idle as far as rayon is concerned.
 The two places that used to block are gone. The ready queue is no longer
 waited on, and a node that wants a key another node is producing is *parked*
 on that key and handed back when the claim is dropped
-([the scheduler](/architecture/execution/#nothing-waits-for-work)).
+([the scheduler](/project/architecture/execution/#nothing-waits-for-work)).
 
 The rule is narrower than "a worker never blocks", which would be
 unachievable: a step *is* a child process, and a worker sits in `wait` for
@@ -536,7 +536,7 @@ variable and the active count are gone, and M3's termination argument is now
 the scope's rather than a count of busy workers. That is a real change to
 closed code, which is why it is pinned by two tests that fail in ten seconds
 against the old scheduler rather than hanging
-([the scheduler](/architecture/execution/#nothing-waits-for-work)). It also
+([the scheduler](/project/architecture/execution/#nothing-waits-for-work)). It also
 pays something back: a parked twin no longer occupies a `--jobs` slot doing
 nothing.
 

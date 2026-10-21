@@ -1,0 +1,181 @@
+---
+title: "Resistance interpretation"
+description: "Ligase API reference: resistance interpretation."
+---
+
+# Resistance interpretation
+
+Turning variant calls into HIV-1 drug-resistance calls. The scoring engine reproduces 3,348 published Stanford expectations exactly; see [validation](/project/validation/).
+
+Positions must be in **whole-genome HXB2 K03455 coordinates**. A *pol*-relative reference is read as though it were whole-genome and the gene windows land on the wrong genes, silently -- see [the SAWA evaluation](/project/in-use/sawa/).
+
+## ResistanceReport
+
+```python
+class ResistanceReport(core: '_core.Dataset') -> 'None'
+```
+
+An interpreted drug-resistance report.
+
+### ResistanceReport.applicable
+
+```python
+applicable: tuple[str, ...]  # property
+```
+
+The dimensions that mean anything for this kind of data.
+
+A dimension outside this set is not a gap to be filled in: asking a
+FASTA for its quality encoding is a category error.
+
+### ResistanceReport.contigs
+
+```python
+contigs: list[Contig] | None  # property
+```
+
+The contigs of the reference this data is on, in file order.
+
+### ResistanceReport.dimension
+
+```python
+dimension(self, name: 'str') -> 'DimensionValue | None'
+```
+
+One dimension's value, or None if it is unknown or inapplicable.
+
+### ResistanceReport.dimensions
+
+```python
+dimensions: Mapping[str, DimensionValue]  # property
+```
+
+Every dimension that has a known value, by name.
+
+### ResistanceReport.file
+
+```python
+file: str  # property
+```
+
+The file this data is, for code that has to open it.
+
+`path` is the honest answer to "where did this come from, if
+anywhere?", so it can be `None` — a step's output carries dimensions
+worked out before anything ran, and has no file of its own until it
+does. This is the answer for the other question, the one a
+`lg.write` body asks:
+
+    return lg.write(lambda out: interpret(v.file, out))
+
+Inside that function the steps above have run, so there is a file,
+and saying so in the type is what keeps a body from having to prove
+it.
+
+#### Raises
+
+| Raises | When |
+|---|---|
+| `ValueError` | If this data has no file behind it at all. |
+
+### ResistanceReport.kind
+
+```python
+kind: str  # property
+```
+
+The name of the kind of data this holds.
+
+### ResistanceReport.path
+
+```python
+path: str | None  # property
+```
+
+The file this was loaded from.
+
+### ResistanceReport.samples
+
+```python
+samples: list[str] | None  # property
+```
+
+The samples this data covers, in order.
+
+### ResistanceReport.unknown_reason
+
+```python
+unknown_reason(self, name: 'str') -> 'str | None'
+```
+
+Why an applicable dimension has no value.
+
+None when the dimension is known, or when it does not apply to this
+kind of data at all.
+
+## hivdb.interpret
+
+```python
+interpret(
+    variants: 'Variants',
+    reference: 'Reference',
+    *,
+    coverage: 'Alignment | None' = None,
+    algorithm: 'str' = 'HIVDB_9.8',
+    mixture: 'float' = 0.15,
+    depth: 'int' = 100,
+) -> 'ResistanceReport'
+```
+
+Score a sample's variants against a vendored resistance algorithm.
+
+### Parameters
+
+| Parameter | Description |
+|---|---|
+| `variants` | The calls to interpret. |
+| `reference` | The reference they were called against. Required: codons cannot be assembled without it. |
+| `coverage` | The alignment the calls came from. Without it no position can be known to be unread, and the report says so. |
+| `algorithm` | Which vendored algorithm to use, from `ALGORITHMS`. |
+| `mixture` | The fraction of reads an allele must reach to count as present. Where both the reference and an alternate reach it the codon holds both amino acids, exactly as an ambiguous base does to Stanford's own interpreter -- taking the majority instead would discard the minority resistance that deep sequencing exists to find. |
+| `depth` | The depth a position must reach to count as read. A codon whose bases do not all reach it is reported as unread rather than as reference. |
+
+### Returns
+
+A recipe, typed as the report the step declares.
+
+### Raises
+
+| Raises | When |
+|---|---|
+| `ValueError` | If `algorithm` is not one the engine ships. The error names the ones it does. |
+
+## hivdb.fingerprint
+
+```python
+fingerprint() -> 'str'
+```
+
+What the vendored algorithms are, by version, date and content.
+
+This is what a step declaring `tool="hivdb"` records as its tool
+version, so it is what puts the rules into the cache key. It names
+every vendored algorithm rather than only the one in use, because the
+engine probes versions before any step body has said which it wants.
+
+### Returns
+
+A line naming each algorithm, its version, its date and the BLAKE3
+of its rules.
+
+## hivdb.ALGORITHMS
+
+```python
+hivdb.ALGORITHMS: tuple = ('HIVDB_10.2', 'HIVDB_9.8')
+```
+
+## hivdb.DEFAULT
+
+```python
+hivdb.DEFAULT: str = 'HIVDB_9.8'
+```

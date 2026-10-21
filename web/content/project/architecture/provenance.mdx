@@ -31,7 +31,7 @@ samtools|samtools 1.24...
 ```
 
 That is the same bet the cache makes
-([D6](/design/decisions/#d6--sqlite-metadata-content-addressed-store)), and it
+([D6](/project/decisions/#d6--sqlite-metadata-content-addressed-store)), and it
 is why the engine needs no JSON library.
 
 ### Why a separate file
@@ -39,11 +39,11 @@ is why the engine needs no JSON library.
 `Cache::open` drops its tables when `KEY_VERSION` or `CANON_VERSION` moves,
 because an entry written under another format is a claim about ingredients
 that were combined differently and must never be read
-([D19](/design/decisions/#d19--a-cache-from-another-version-is-discarded-not-migrated)).
+([D19](/project/decisions/#d19--a-cache-from-another-version-is-discarded-not-migrated)).
 None of that reasoning applies to a record of what a command did. A separate
 file in the same directory survives every such bump for free, and
 `PROV_VERSION` tracks this schema on its own
-([D23](/design/decisions/#d23--provenance-has-its-own-store-and-its-own-lifetime)).
+([D23](/project/decisions/#d23--provenance-has-its-own-store-and-its-own-lifetime)).
 
 ### What is keyed, and what is not
 
@@ -62,7 +62,7 @@ run masquerading as a fact about the computation.
 ingredient — and storing one in a record would go stale the moment it was
 edited, since editing it does not rerun the step. `prov::methods` takes them
 from the pipeline in front of it, which is always current
-([D24](/design/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)).
+([D24](/project/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)).
 
 ## The write, and where it happens
 
@@ -79,7 +79,7 @@ It has to be there. `exec::produce` now returns an `Execution` carrying the
 command it ran, because `fill_template` is the only thing that ever renders
 it and the rendered command exists nowhere else — not in the cache, and
 since M4 not in the output either
-([D22](/design/decisions/#d22--a-tools-signature-is-not-part-of-its-result)).
+([D22](/project/decisions/#d22--a-tools-signature-is-not-part-of-its-result)).
 
 A step served from the cache writes nothing. That is not an omission: the
 record from the run that did the work is still there, and that is the whole
@@ -104,8 +104,8 @@ the step's own worker, and BLAKE3 hashes a large file across whatever thread
 pool it is called from — so writing a record, like building a key, queues
 work on the executor's own pool. That is safe only because no worker in that
 pool is ever blocked waiting for scheduler work
-([D27](/design/decisions/#d27--a-worker-that-waits-is-a-worker-rayon-cannot-use),
-[the scheduler](/architecture/execution/#nothing-waits-for-work)). A `ligase methods`
+([D27](/project/decisions/#d27--a-worker-that-waits-is-a-worker-rayon-cannot-use),
+[the scheduler](/project/architecture/execution/#nothing-waits-for-work)). A `ligase methods`
 run on the demo is what found this out, by hanging.
 
 ## Pinning a reference
@@ -119,7 +119,7 @@ run on the demo is what found this out, by hanging.
 - **checksum** — the per-contig MD5 the loader computes over the uppercased
   sequence with whitespace removed, which is the digest the SAM
   specification prescribes for `@SQ M5`
-  ([D11](/design/decisions/#d11--noodles-for-format-io-and-the-msrv-follows-it)).
+  ([D11](/project/decisions/#d11--noodles-for-format-io-and-the-msrv-follows-it)).
   It is given for a single-sequence reference; a multi-sequence one has no
   single checksum to name.
 - **fingerprint** — always present, so a reference with no accession is
@@ -181,12 +181,12 @@ cannot shift a column, and `unescape` reads them back.
 
 A bundle cannot carry the reference pipeline's inputs: they are gigabytes,
 and fetching them is out of scope
-([D8](/design/decisions/#d8--out-of-scope-for-v01)). So the claim is narrower
+([D8](/project/decisions/#d8--out-of-scope-for-v01)). So the claim is narrower
 and checkable: *a run with these inputs, on a machine with these tools,
 lands on these canonical hashes*. To this engine a clean machine is an empty
 cache — nothing computed, nothing remembered, every tool probed again — and
 that is what the acceptance test uses
-([D25](/design/decisions/#d25--a-bundle-states-a-claim-and-can-be-checked)).
+([D25](/project/decisions/#d25--a-bundle-states-a-claim-and-can-be-checked)).
 
 ### The four verdicts
 
@@ -223,7 +223,7 @@ step, and a tool neither covers is *named as uncited*.
 ## What is not here
 
 **Validation.** Whether the resistance calls agree with the published ones
-is [M6](/design/milestones/). Provenance says how a number was produced; it
+is [M6](/project/milestones/). Provenance says how a number was produced; it
 says nothing about whether it is right.
 
 **Fetching pinned data.** A bundle names its inputs by content hash and its
@@ -246,8 +246,8 @@ verify against another. Bundle verification is what found it.
 
 The engine now **notices** this and says so, in the run report, in the
 record, in `notes.tsv` and in the methods section
-([D26](/design/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead),
-[canonicalisation](/architecture/canonicalisation/#what-a-canonical-form-notices)).
+([D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead),
+[canonicalisation](/project/architecture/canonicalisation/#what-a-canonical-form-notices)).
 What it does not do is fix it, and will not: refusing the file would make a
 format problem into an engine failure in the layer D21 forbids it, and
 rewriting the identifier would be a silent repair that does not even work —

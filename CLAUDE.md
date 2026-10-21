@@ -60,6 +60,24 @@ Two sites exist during the migration, and a change touches both:
   `web/content/<section>/<page>.mdx`, and the nav is the `_meta.ts` in each
   directory.
 
+The new site is organised by what a reader is doing, not by how the project
+is built:
+
+| Section | For |
+|---|---|
+| `start/` | installing it and getting something running |
+| `silent-failures/` | the bugs it catches, titled by symptom |
+| `guide/` | one task at a time |
+| `concepts/` | why it works this way |
+| `reference/` | CLI, errors, dimension catalogue, API |
+| `notebooks/` | worked examples, executed on every build |
+| `project/` | **written about Ligase, not for someone using it** |
+
+That last row is the rule worth keeping. Internals, decisions, milestones,
+validation, releasing and the project's own layout all belong under
+`project/`; a page a user needs never does. When adding a page, ask who is
+reading it before choosing where it goes.
+
 Until the switch, `web/scripts/port_docs.py` and `gen_meta.py` re-port `docs/`
 into `web/content/`, so writing the Markdown page is still the way in. After
 the switch, `docs/`, `mkdocs.yml`, the MkDocs entries in the `docs` extra and
@@ -77,6 +95,10 @@ gitignored:
   error a page claims. Never paste engine output into a page; add a scenario.
 - `web/content/notebooks/` — the marimo notebooks, executed by
   `render_notebooks.py` and rendered from the run.
+- `web/content/reference/cli.mdx` — from the argparse parser, by
+  `generate_cli.py`, which fails if a command or flag has no help text.
+  `ligase.cli.build_parser()` exists so that it can be read without running
+  anything; keep it that way.
 
 ### Writing rules
 - Engine output on a page comes from a real run, never from imagination.

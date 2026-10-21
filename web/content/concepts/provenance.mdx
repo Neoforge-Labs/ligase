@@ -23,7 +23,7 @@ change to a step at all — a comment — cascaded to the bottom of the
 pipeline.
 
 Dropping those fields fixed that and cost something real
-([D22](/design/decisions/#d22--a-tools-signature-is-not-part-of-its-result)):
+([D22](/project/decisions/#d22--a-tools-signature-is-not-part-of-its-result)):
 
 > a cache hit can no longer prove which command produced an object, because
 > the field that said so is not in the hash.
@@ -69,7 +69,7 @@ than recomputing. None of that reasoning touches a record of what a command
 did. That stays true however the engine later decides to compose keys.
 
 So provenance is a separate database with a separate lifetime
-([D23](/design/decisions/#d23--provenance-has-its-own-store-and-its-own-lifetime)):
+([D23](/project/decisions/#d23--provenance-has-its-own-store-and-its-own-lifetime)):
 `provenance.sqlite` beside `cache.sqlite`. Delete the cache to its
 foundations and the answer to "how was this produced?" survives.
 
@@ -115,7 +115,7 @@ would be exactly the failure this milestone exists to prevent.
 `ligase methods --bundle DIR` writes everything another machine needs in
 order to check the results — and not the data, which for the reference
 pipeline is gigabytes of sequencing reads
-([D25](/design/decisions/#d25--a-bundle-states-a-claim-and-can-be-checked)).
+([D25](/project/decisions/#d25--a-bundle-states-a-claim-and-can-be-checked)).
 The data is *named* instead: every input by content hash, every reference by
 accession and checksum. Nothing else will satisfy the check.
 
@@ -141,6 +141,6 @@ changed output.
 
 - [Writing up a pipeline](/guide/provenance/) — the commands, with a
   runnable example.
-- [Provenance architecture](/architecture/provenance/) — how the store,
+- [Provenance architecture](/project/architecture/provenance/) — how the store,
   the paragraph and the bundle are built.
 - [What a file means](/concepts/semantic-hashing/) — why `@PG` had to go.

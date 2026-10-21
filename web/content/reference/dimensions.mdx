@@ -25,7 +25,7 @@ Every biological type carries dimensions. Each dimension is inferred from the fi
   dropped: it is what the file is about. An identifier that is a *file name*
   rather than a sample — which is what `bcftools` writes when an alignment
   carries no `@RG SM` — is reported instead
-  ([D26](/design/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).
+  ([D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).
 - Unknown dimensions are allowed only if no downstream step requires them; otherwise `check()` fails with a request to declare them.
 
 ### Coordinates are semantics, not encoding

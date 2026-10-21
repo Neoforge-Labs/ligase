@@ -1,0 +1,61 @@
+---
+title: "Checking without running"
+description: "Ligase API reference: checking without running."
+---
+
+# Checking without running
+
+Both of these read headers only. Nothing is computed, and no step body is called.
+
+## check_step
+
+```python
+check_step(step: 'str', bindings: 'Mapping[str, Dataset]') -> 'None'
+```
+
+Check a step's inputs, raising on the first disagreement.
+
+Every disagreement is found before anything is raised, so the raised
+error's `errors` attribute holds all of them. Nothing is computed.
+
+### Parameters
+
+| Parameter | Description |
+|---|---|
+| `step` | The step's name, used in the messages. |
+| `bindings` | The step's inputs, by the name the step knows each by. |
+
+### Raises
+
+| Raises | When |
+|---|---|
+| `CheckError` | If any two inputs disagree. The subclass says what kind of disagreement it is: `ContigNamingError`, `ContigOrderError` or `UndeclaredDimensionError`, all of which are `DimensionError`s. |
+
+## dimension_errors
+
+```python
+dimension_errors(
+    step: 'str',
+    bindings: 'Mapping[str,
+    Dataset]',
+) -> 'list[CheckError]'
+```
+
+Return every dimension disagreement among a step's inputs.
+
+One step on its own, for when you are not building a pipeline. A whole
+pipeline is checked with `lg.Pipeline(...).check()`, which also knows
+what each step requires of the ones before it.
+
+### Parameters
+
+| Parameter | Description |
+|---|---|
+| `step` | The step's name, used in the messages. |
+| `bindings` | The step's inputs, by the name the step knows each by. |
+
+### Returns
+
+One error per disagreement, most general first. Empty if the step's
+inputs are consistent. Every error carries the full list in its
+`errors` attribute.

@@ -151,7 +151,7 @@ pipe = lg.Pipeline(samples.map(lambda s: resistance(call(align(s, hxb2), hxb2)))
 in one graph — and one shared reference node, because it is one file. The
 graph is fully expanded before anything runs, which is what lets the
 executor schedule it; running the chains in parallel and caching each sample
-separately is [the executor's](/architecture/execution/).
+separately is [the executor's](/project/architecture/execution/).
 
 Fan-out changes what a report has to say. One written `call` step is now one
 step *per sample*, so an error has to name which one, and a count of failing
@@ -227,16 +227,16 @@ and what `pipe.run()` reports. What a step body returns is covered there
 too, since a body describes work rather than doing it.
 
 `pipe.methods()` and `ligase methods` arrive with provenance in
-[M5](/design/milestones/): the engine records a step's tool versions and
+[M5](/project/milestones/): the engine records a step's tool versions and
 parameters today, but nothing turns them into a methods paragraph or a
 reproducibility bundle yet.
 
 Conversions are still v2. `check()` reports that a BED and a VCF disagree
 about coordinates; it does not go looking for the conversion that would fix
-it ([D5](/design/decisions/)).
+it ([D5](/project/decisions/)).
 
 ## Next
 
 - [Building a pipeline](/guide/building-a-pipeline/) — how to write one
-- [Graph architecture](/architecture/graph/) — how it works inside
+- [Graph architecture](/project/architecture/graph/) — how it works inside
 - [Types and dimensions](/concepts/types-and-dimensions/) — what travels along an edge

@@ -43,7 +43,7 @@ could not survive contact with a real aligner.
 Before an output is hashed it is **canonicalised**: its records are sorted,
 and the fields that record *when and how* it was made rather than *what is
 in it* are dropped
-([D4](/design/decisions/#d4--semantic-hashing)). What is hashed is what is
+([D4](/project/decisions/#d4--semantic-hashing)). What is hashed is what is
 left.
 
 ```console
@@ -84,7 +84,7 @@ compared the same way, and the rules for a format live in one place.
 ## Why some formats sort and others do not
 
 Because that question was already answered, by
-[D14](/design/decisions/#d14--contig-order-is-compared-only-between-sequence-dictionaries),
+[D14](/project/decisions/#d14--contig-order-is-compared-only-between-sequence-dictionaries),
 for the dimension checker: a **sequence dictionary's** contig order is
 semantic, since GATK requires two of them to agree on it, while a BED's
 record order is whatever order the intervals happened to be sorted in.
@@ -108,7 +108,7 @@ time while one that is too warm is wrong.
 
 A tolerance is expressed by **quantising** — putting the value in a bucket of
 that width and hashing the bucket — and that has a consequence worth knowing
-([D20](/design/decisions/#d20--a-tolerance-is-a-quantisation)): two values closer
+([D20](/project/decisions/#d20--a-tolerance-is-a-quantisation)): two values closer
 together than the tolerance can still fall either side of a bucket edge.
 
 ## When the file is not what its name says
@@ -116,7 +116,7 @@ together than the tolerance can still fall either side of a bucket edge.
 Canonicalising means parsing, and parsing can fail: a truncated BAM, a
 `.vcf.gz` that is not gzipped, a file still being written. Such a file falls
 back to the hash of its bytes, tagged as such
-([D21](/design/decisions/#d21--canonicalisation-falls-back-to-the-bytes)). Bytes
+([D21](/project/decisions/#d21--canonicalisation-falls-back-to-the-bytes)). Bytes
 are the stricter test, so the fallback can cost a rerun but can never serve
 a wrong answer.
 

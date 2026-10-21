@@ -36,11 +36,44 @@ SKIP = {
     # The notebooks are a section of their own, rendered from real runs by
     # render_notebooks.py rather than linked to on GitHub.
     "guide/notebooks.md",
+    # Rewritten by hand for someone installing the package rather than
+    # building it. The contributor setup it used to carry lives in
+    # content/project/building.mdx.
+    "guide/installation.md",
 }
 
-# The four root-level design docs move into a section of their own.
-SECTION_FOR_ROOT = "design"
-ROOT_DESIGN = {"golden-example.md", "dimensions.md", "milestones.md", "decisions.md"}
+# Where each page goes on the new site.
+#
+# The old nav was organised around the project: how it is built, why it was
+# built that way, and in what order. That is the right material to have and
+# the wrong thing to put in a reader's path, so the sections now follow what
+# someone is doing -- getting started, a task, an idea, a lookup -- and
+# everything written about the project rather than for a user of it moves
+# under project/.
+MOVES: dict[str, str] = {
+    # Reference: things you look up rather than read.
+    "dimensions.md": "reference/dimensions.mdx",
+    # The project's own account of itself.
+    "golden-example.md": "project/golden-example.mdx",
+    "milestones.md": "project/milestones.mdx",
+    "decisions.md": "project/decisions.mdx",
+    "concepts/project-layout.md": "project/layout.mdx",
+    "concepts/validation.md": "project/validation.mdx",
+    "guide/releasing.md": "project/releasing.mdx",
+}
+
+# Internals, which are a section of their own under project/.
+ARCHITECTURE = "architecture/"
+
+
+def destination(rel: str) -> str:
+    """The content-relative .mdx path a docs page is written to."""
+    if rel in MOVES:
+        return MOVES[rel]
+    if rel.startswith(ARCHITECTURE):
+        return f"project/architecture/{Path(rel).stem}.mdx"
+    return Path(rel).with_suffix(".mdx").as_posix()
+
 
 ADMONITION = re.compile(r'^!!!\s+(\w+)(?:\s+"([^"]*)")?\s*$')
 # Markdown autolinks. MDX reads `<https://...` as the start of a JSX tag, so
@@ -248,14 +281,35 @@ def jsx_title(title: str) -> str:
     return "{<>" + "".join(parts) + "</>}"
 
 
+# Pages that are gone, and where a link to one should go instead.
+REDIRECTS: dict[str, str] = {
+    "guide/installation.md": "/start/installation/",
+    "guide/notebooks.md": "/notebooks/",
+    "api.md": "/reference/api/",
+    "index.md": "/",
+}
+
+
+def installation_route(source: str, anchor: str) -> str:
+    """Where a link to the old installation page should now point.
+
+    That page became two: `/start/installation/` for installing the package,
+    and `/project/building/` for building it from source. Which one a link
+    meant is decided by what it was pointing at -- an anchor is always one of
+    the contributor sections, and so is any link from a page that is itself
+    now under project/.
+    """
+    from_project = source in MOVES and MOVES[source].startswith("project/")
+    if anchor or from_project or source.startswith(ARCHITECTURE):
+        return "/project/building/"
+    return "/start/installation/"
+
+
 def route_for(rel: str) -> str:
     """The site route for a docs-relative path like `concepts/caching.md`."""
-    stem = rel[: -len(".md")] if rel.endswith(".md") else rel
-    if f"{stem}.md" in ROOT_DESIGN:
-        return f"/{SECTION_FOR_ROOT}/{stem}/"
-    if stem == "index":
-        return "/"
-    return f"/{stem}/"
+    if rel in REDIRECTS:
+        return REDIRECTS[rel]
+    return "/" + destination(rel)[: -len(".mdx")] + "/"
 
 
 def translate_anchor(source: str, target: str, anchor: str, port: Port) -> str:
@@ -298,6 +352,13 @@ def rewrite_links(path: str, body: str, port: Port) -> str:
 
         if not target:  # a bare `#anchor` within this page
             return f"[{label}]({translate_anchor(path, path, anchor, port)})"
+        if (
+            target == "guide/installation.md"
+            or target.endswith("/installation.md")
+            or (target == "installation.md" and path.startswith("guide/"))
+        ):
+            fragment = f"#{anchor}" if anchor else ""
+            return f"[{label}]({installation_route(path, anchor)}{fragment})"
         if not target.endswith(".md"):
             # A link to a repository file, not a docs page -- send it to GitHub
             # rather than leaving a dead relative path.
@@ -366,12 +427,7 @@ def port_file(rel: str, port: Port) -> None:
         # <Note> is in the global MDX component map, so no import is required.
         imports = ""
 
-    out_rel = (
-        f"{SECTION_FOR_ROOT}/{Path(rel).stem}.mdx"
-        if rel in ROOT_DESIGN
-        else f"{Path(rel).with_suffix('.mdx').as_posix()}"
-    )
-    out = CONTENT / out_rel
+    out = CONTENT / destination(rel)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         frontmatter(title, first_paragraph(text)) + imports + body.rstrip() + "\n",

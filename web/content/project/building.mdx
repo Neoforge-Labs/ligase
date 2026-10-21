@@ -1,8 +1,15 @@
 ---
-title: "Installation"
-description: "Rust is needed because installing builds the engine from source. There are no pre-built wheels yet."
+title: "Building Ligase"
+description: "Building from source, running the nine-check gate, fetching the demo data, and rebuilding after a Rust change."
 ---
-# Installation
+
+# Building Ligase
+
+<Lede>
+For working **on** Ligase. To use it, you want
+[installation](/start/installation/) — the published wheels need no Rust
+toolchain and no C compiler.
+</Lede>
 
 ## Requirements
 
@@ -11,19 +18,17 @@ description: "Rust is needed because installing builds the engine from source. T
 | Python | 3.11 or newer |
 | Rust | a stable toolchain ([rustup](https://rustup.rs)) |
 | A C compiler | `cc`, for the bundled SQLite |
+| Node 22 | for the documentation site in `web/` |
 | curl | for fetching test data |
 | minimap2, samtools, bcftools | only to run the HIV-1 reference demo |
 
-Rust is needed because installing builds the engine from source. There are no
-pre-built wheels yet.
+Rust and a C compiler are needed for a source build. The cache bundles SQLite
+and compiles it rather than linking whatever version the machine happens to
+have: that costs a C toolchain at build time and buys an identical SQLite
+everywhere, which matters for an on-disk format the cache has to keep
+reading.
 
-The C compiler is needed because the cache bundles SQLite and compiles it,
-rather than linking whatever version the machine happens to have. That costs
-you a C toolchain at install time and buys an identical SQLite everywhere,
-which matters for an on-disk format the cache has to keep reading. If you are
-missing one, [see below](#troubleshooting).
-
-## Install
+## A source checkout
 
 ```bash
 git clone git@github.com:Neoforge-Labs/ligase.git
@@ -35,25 +40,6 @@ pip install -e ".[dev]"
 The first build takes a minute or two while `pyo3` compiles. Later builds are
 incremental.
 
-Check it worked:
-
-```bash
-python -c "import ligase; print(ligase.__version__)"
-```
-
-```text
-0.1.0
-```
-
-<Note kind="note" title="The distribution and the import have different names">
-
-The PyPI distribution is **`ligase-bio`** but you `import ligase`. So it
-is `pip install ligase-bio` and `import ligase`. The distribution name
-`ligase` is already taken on PyPI by an unrelated project, and the import
-name is the one you actually live with, so that is the one that stayed
-short.
-
-</Note>
 ## Run the checks
 
 The same gate CI runs, in the order it runs them:
@@ -68,7 +54,7 @@ mypy
 pytest
 ```
 
-All seven should pass on a clean checkout. If `clippy` complains about a
+All of them should pass on a clean checkout. If `clippy` complains about a
 missing doc comment on something you just added, that is deliberate — the
 workspace sets `missing_docs` to warn and CI runs clippy with `-D warnings`,
 so public items without documentation fail the build.
@@ -85,11 +71,12 @@ checkout says nothing about the pipeline. To insist instead:
 LIGASE_DEMO_REQUIRED=1 pytest
 ```
 
-Under that variable each of those skips becomes a failure naming what
-was missing. The `demo` job in CI sets it, which is what stops a green
-build from meaning "politely declined".
+Under that variable each of those skips becomes a failure naming what was
+missing. The `demo` job in CI sets it, which is what stops a green build from
+meaning "politely declined".
 
 </Note>
+
 ### Rebuilding after a Rust change
 
 An editable install does **not** recompile on import. After editing anything
@@ -153,7 +140,7 @@ integrity check on data you fetched weeks ago.
 Reads are pinned by ENA's own per-file MD5. The reference is pinned by the
 SHA-256 of its **canonical sequence** — sequence only, uppercased, line breaks
 removed — rather than of the raw file. This is
-[decision D4](/design/decisions/) applied to an input: NCBI can reflow a FASTA
+[decision D4](/project/decisions/) applied to an input: NCBI can reflow a FASTA
 or reword a defline without the biology changing, and a cosmetic change
 upstream must not break your build. A real change to the sequence still fails,
 loudly.
@@ -188,13 +175,28 @@ job is there to catch Ligase regressions.
 
 ## Build the docs
 
+Two sites exist during the migration.
+
+The live one, MkDocs, from `docs/`:
+
 ```bash
 pip install -e ".[docs]"
 mkdocs serve
 ```
 
-Then open [http://127.0.0.1:8000](http://127.0.0.1:8000). CI builds with `mkdocs build --strict`, so
-a broken internal link fails the build rather than shipping.
+The replacement, Nextra, from `web/`:
+
+```bash
+cd web
+npm ci
+npm run dev
+```
+
+`npm run check` is the gate for the new site: it regenerates the API
+reference, the captured diagnostics and the rendered notebooks, builds, and
+then fails on a broken link, a dangling anchor, a page nothing links to, or a
+Markdown link that never resolved. All three generators import `ligase`, so
+the virtualenv has to be active.
 
 ## Troubleshooting
 
@@ -209,6 +211,6 @@ Run `maturin develop`. See [above](#rebuilding-after-a-rust-change).
 No C toolchain. On Debian or Ubuntu, `apt install build-essential`; on macOS,
 `xcode-select --install`.
 
-**`mkdocs build --strict` fails on a link you just added.**
-Internal links are relative to the file they live in, and must include the
-`.md` extension — `../decisions.md`, not `/decisions`.
+**The Nextra build fails on `_meta`.**
+A page is named in a `_meta.ts` and does not exist, or the reverse. Nextra
+validates both directions, which is deliberate.

@@ -133,7 +133,7 @@ pipeline would be premature.
 
 **`ruff` does not see `docs/`.** Recent ruff formats Python inside fenced
 Markdown blocks, which means it wants to reformat
-[the golden example](/design/golden-example/) — adding blank lines between
+[the golden example](/project/golden-example/) — adding blank lines between
 decorated functions and de-aligning its comments. That document is the
 specification the engine is built to satisfy, and its shape is deliberate, so
 `extend-exclude = ["docs"]` keeps the formatter out of it. The trade is that
@@ -155,13 +155,13 @@ engine has is reporting its own version.
 Dependencies were kept to the minimum that a scaffold needs: `pyo3` and
 nothing else. `blake3`, `rusqlite` and `rayon` arrive with the
 milestones that need them, and the BAM and VCF
-header parsing that [M1](/design/milestones/) requires will need a format
+header parsing that [M1](/project/milestones/) requires will need a format
 library — `noodles` being the obvious candidate. Adding them now would mean
 guessing at an interface before the thing that uses it exists.
 
 ## Related
 
-- [Project layout](/concepts/project-layout/) — the three layers and why
-- [Installation](/guide/installation/) — the developer loop
-- [Decisions](/design/decisions/) — D1 on the Rust/Python split, D4 on
+- [Project layout](/project/layout/) — the three layers and why
+- [Installation](/project/building/) — the developer loop
+- [Decisions](/project/decisions/) — D1 on the Rust/Python split, D4 on
   canonicalisation

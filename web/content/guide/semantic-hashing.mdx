@@ -192,7 +192,7 @@ sort a BAM for comparability, or normalise line wrapping — a format's
 volatile fields are
 [already known](/concepts/semantic-hashing/#so-a-file-is-hashed-by-what-it-means),
 and `samtools view -b` of a SAM hashes the same as the SAM
-([D9](/design/decisions/#d9--coordinates-are-semantics-not-encoding)).
+([D9](/project/decisions/#d9--coordinates-are-semantics-not-encoding)).
 
 ## Seeing what it cost
 
@@ -224,4 +224,4 @@ A change to the canonicalisation rules retires every canonical hash made
 under the old ones, and the step entries built from them. You will see a run
 that recomputes everything after upgrading Ligase. Nothing is lost: all of
 it is derived, and recomputing is merely slow
-([D19](/design/decisions/#d19--a-cache-from-another-version-is-discarded-not-migrated)).
+([D19](/project/decisions/#d19--a-cache-from-another-version-is-discarded-not-migrated)).

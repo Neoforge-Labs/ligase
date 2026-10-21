@@ -106,7 +106,7 @@ pub enum Relation {
 }
 ```
 
-Decision [D10](/design/decisions/). Strict equality everywhere was the first
+Decision [D10](/project/decisions/). Strict equality everywhere was the first
 design and it is wrong: a VCF header routinely lists only the contigs it has
 variants on, so `##contig=<ID=chr20>` against whole-genome hg38 is correct
 input that equality rejects.
@@ -178,7 +178,7 @@ pub const fn required_pair(left: DataKind, right: DataKind) -> &'static [Dimensi
 `docs/dimensions.md` says unknown dimensions are allowed only if no
 downstream step requires them. Checking one step in isolation has no
 downstream, so `check_step` takes "required" from the kinds being joined. A
-whole pipeline does have one: [the graph](/architecture/graph/) uses `disagreements()`
+whole pipeline does have one: [the graph](/project/architecture/graph/) uses `disagreements()`
 and `requires()` to decide for itself, attributing a gap to the input that
 has to declare it, and this table is its default.
 
@@ -345,17 +345,17 @@ computed independently, on a header a real aligner produced.
 - **`noodles` is pre-1.0.** It bumps minor versions often and its MSRV sets
   ours (currently Rust 1.91). The alternative, `rust-htslib`, needs a C
   htslib at build time, which would break `pip install ligase-bio` on any
-  machine without one. See [D11](/design/decisions/).
+  machine without one. See [D11](/project/decisions/).
 - **Contig order is compared strictly** even for a contained subset. Tools
   differ on whether they care; reporting it separately lets a caller decide,
   but a pipeline that legitimately reorders will see an error it must handle.
 - **Contig order is only compared between dictionaries.** `ReferenceId`
   records whether its contigs came from a sequence dictionary or were merely
   *observed* in records, and `Observed` lists are never compared for order.
-  See [the graph](/architecture/graph/#intervals-and-the-order-that-is-not-an-order).
+  See [the graph](/project/architecture/graph/#intervals-and-the-order-that-is-not-an-order).
 - **No conversion graph yet.** `check_step` reports a mismatch; it does not
   search for a `liftover` or a renaming step that would fix it. That is v2,
-  by [D5](/design/decisions/) and [D8](/design/decisions/).
+  by [D5](/project/decisions/) and [D8](/project/decisions/).
 - **Organism aliases are not resolved.** `human` and `Homo sapiens` are
   different strings and will be reported as a mismatch if both are declared.
   Deliberate, per the reasoning above, but it is a rough edge.

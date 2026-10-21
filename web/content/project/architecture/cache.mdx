@@ -62,7 +62,7 @@ CREATE TABLE steps (key TEXT PRIMARY KEY,
                     created_at TEXT NOT NULL);
 ```
 
-SQLite because [D6](/design/decisions/#d6--sqlite-metadata-content-addressed-store)
+SQLite because [D6](/project/decisions/#d6--sqlite-metadata-content-addressed-store)
 says so: zero-config, embedded, portable, and — the part that matters for a
 reproducibility tool — openable with `sqlite3` when a result needs
 explaining. A faster key-value store that can only be read by the program
@@ -70,7 +70,7 @@ that wrote it would be a worse trade here.
 
 `rusqlite` is used with the `bundled` feature, which compiles SQLite from
 source. That costs a C compiler at build time, which is a real concession
-given that [D11](/design/decisions/#d11--noodles-for-format-io-and-the-msrv-follows-it)
+given that [D11](/project/decisions/#d11--noodles-for-format-io-and-the-msrv-follows-it)
 chose pure-Rust format parsing precisely to avoid one. It buys one identical
 SQLite everywhere, which an on-disk format that outlives a single run needs
 more than it needs a shorter build.
@@ -119,7 +119,7 @@ hash is used for this run and not recorded.
 
 **The miss case is a file edited in place**, keeping its exact length,
 within one timestamp granularity. This is the residual risk of
-[D3](/design/decisions/#d3--blake3-with-sizemtime-prefilter), it is documented
+[D3](/project/decisions/#d3--blake3-with-sizemtime-prefilter), it is documented
 rather than hidden, and `--force` is the answer. The alternative — hashing
 every input on every run — makes looking at a 40 GB BAM cost minutes, which
 turns content addressing from a feature into something users route around.
@@ -172,9 +172,9 @@ REPL, an `exec`), the compiled code object stands in.
 Inputs enter as content hashes tagged with the policy that produced them.
 Since M4 that is `INPUT_POLICY = "canonical"`: the hash of what a file
 *means* rather than of its bytes
-([D4](/design/decisions/#d4--semantic-hashing)) — sorted records, volatile
+([D4](/project/decisions/#d4--semantic-hashing)) — sorted records, volatile
 headers such as `@PG` lines and timestamps stripped, as
-[canonicalisation](/architecture/canonicalisation/) defines per type.
+[canonicalisation](/project/architecture/canonicalisation/) defines per type.
 
 It arrived exactly as this page said it would, which is worth recording
 because it was the point of putting the tag in before needing it: the policy
@@ -205,5 +205,5 @@ the methods paragraph. That lives in `provenance.sqlite`, beside this
 database and deliberately not in it: "has this been computed?" and "what
 would I write in a paper?" want different lifetimes, and this one's tables
 are dropped whenever a key format moves
-([D23](/design/decisions/#d23--provenance-has-its-own-store-and-its-own-lifetime)).
-See [provenance](/architecture/provenance/).
+([D23](/project/decisions/#d23--provenance-has-its-own-store-and-its-own-lifetime)).
+See [provenance](/project/architecture/provenance/).

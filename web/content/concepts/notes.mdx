@@ -75,7 +75,7 @@ agree.
 
 </Note>
 What the engine does instead is **notice**, and tell you
-([D26](/design/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)):
+([D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)):
 
 ```console
 $ ligase run
@@ -98,7 +98,7 @@ in the pipeline, and it is a line only you can write.
 Refusing the file would be the obvious loud answer, and it is the wrong
 layer for it. A VCF whose sample column holds a path is perfectly valid VCF;
 canonicalisation has no business failing a run over a file that parses
-([D21](/design/decisions/#d21--canonicalisation-falls-back-to-the-bytes)).
+([D21](/project/decisions/#d21--canonicalisation-falls-back-to-the-bytes)).
 
 Refusing it at `ligase check` time is loud *and* ineffective, which is worse.
 The checker runs before any compute, so the only files it can see are
@@ -126,5 +126,5 @@ So `K03455.1` has a dot and is not a file. `SRR8525904`, `sample_a` and
 |---|---|
 | Fix it in a pipeline | [Reading what the engine noticed](/guide/notes/) |
 | Know why a sample set is hashed at all | [What a file means](/concepts/semantic-hashing/) |
-| Know how a note is built and stored | [Canonicalisation](/architecture/canonicalisation/#what-a-canonical-form-notices) |
-| Read the decision and what was rejected | [D26](/design/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead) |
+| Know how a note is built and stored | [Canonicalisation](/project/architecture/canonicalisation/#what-a-canonical-form-notices) |
+| Read the decision and what was rejected | [D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead) |

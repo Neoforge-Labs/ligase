@@ -29,7 +29,7 @@ is not a serious proposal, and a type system that silently coerces is not a
 type system.
 
 So the engine is Rust and the surface is Python ([decision
-D1](/design/decisions/)). The boundary between them is deliberately narrow.
+D1](/project/decisions/)). The boundary between them is deliberately narrow.
 
 ## The three layers
 
@@ -60,7 +60,7 @@ It is private, by the leading underscore and by intent. It is also
 ### `python/ligase` — the surface
 
 The public API: the `@lg.step` decorator, `lg.Pipeline`, the type names, the
-CLI. This is what [the golden example](/design/golden-example/) imports.
+CLI. This is what [the golden example](/project/golden-example/) imports.
 
 Python is the right language for this layer. Decorators that read function
 signatures, friendly error messages, notebook integration — all of it is
@@ -103,11 +103,11 @@ data/               fetched test data. Gitignored, never committed.
 ```
 
 Test data is downloaded, not committed, and pinned by checksum. See
-[installation](/guide/installation/#test-data).
+[installation](/project/building/#test-data).
 
 ## Related
 
-- [Workspace architecture](/architecture/workspace/) — how the build is
+- [Workspace architecture](/project/architecture/workspace/) — how the build is
   wired, and the trade-offs taken
-- [Installation](/guide/installation/) — getting it running
-- [Decisions](/design/decisions/) — D1 covers the Rust/Python split
+- [Installation](/project/building/) — getting it running
+- [Decisions](/project/decisions/) — D1 covers the Rust/Python split

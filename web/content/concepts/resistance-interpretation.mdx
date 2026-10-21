@@ -66,7 +66,7 @@ shows up first.
 The cost is real and worth naming: a codon is assembled from a VCF, which
 carries no phasing. Where two bases of one codon are each ambiguous, the
 combinations are enumerated, and some of those codons may be carried by no
-actual read. See [the known discrepancies](/concepts/validation/#what-disagrees-and-why).
+actual read. See [the known discrepancies](/project/validation/#what-disagrees-and-why).
 
 ### A position that was not read is not a wild-type position
 
@@ -96,7 +96,7 @@ HIVDB 9.8 scores lenacapavir against capsid, which is in *gag*. A pipeline
 that sequenced only *pol* has nothing whatever to say about it — so the
 report says "Not assessed" rather than "Susceptible".
 
-This is [D24](/design/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)'s
+This is [D24](/project/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)'s
 reasoning about citations applied to a drug class: a gap that is named is
 honest, and a gap that is filled with a cheerful default is not.
 
@@ -108,12 +108,12 @@ every score, every level. Those expectations come from Sierra 3.5.3, a
 different implementation in a different language by the algorithm's own
 authors, so agreeing with them is evidence rather than circularity.
 
-The pipeline end to end is checked in [validation](/concepts/validation/).
+The pipeline end to end is checked in [validation](/project/validation/).
 
 ## Reading more
 
 - [Using it](/guide/resistance-interpretation/) — the guide, with a
   runnable example.
-- [How it works](/architecture/hivdb/) — the rule language, the
+- [How it works](/project/architecture/hivdb/) — the rule language, the
   scoring, and why the ruleset is derived rather than parsed as XML.
-- [What it agrees and disagrees with](/concepts/validation/) — M6's acceptance.
+- [What it agrees and disagrees with](/project/validation/) — M6's acceptance.
