@@ -150,12 +150,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         backgroundColor={{ light: '#f5f5f0', dark: '#0a0a0b' }}
       >
         {/*
-          One unconditional value, not a pair keyed to prefers-color-scheme.
-          The site opens dark whatever the OS prefers (`defaultTheme: 'dark'`
-          below), so an OS-light visitor would otherwise get cream browser
-          chrome around a near-black page. A light variant is only correct
-          when it tracks the theme that was applied, which needs script; a
-          visitor who has chosen light keeps dark chrome.
+          One unconditional value, placed first. The site opens dark whatever
+          the OS prefers (`defaultTheme: 'dark'` below), so a light variant
+          keyed to prefers-color-scheme gives an OS-light visitor cream
+          browser chrome around a near-black page. Nextra's <Head> still emits
+          its own light/dark pair after this; a browser takes the first
+          theme-color whose media matches, which is this one, and
+          check-furniture --built asserts that it stays first. A light variant
+          would only be right if it tracked the applied theme, which needs
+          script, so a visitor who has chosen light keeps dark chrome.
         */}
         <meta name="theme-color" content="#0a0a0b" />
       </Head>

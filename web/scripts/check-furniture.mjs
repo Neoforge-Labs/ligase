@@ -145,6 +145,20 @@ if (process.argv.includes('--built')) {
   }
   if (linkCount === 0) miss.push('no prose link in the built HTML carries a primary-colour utility; the link check is looking at nothing')
 
+  // Browser chrome. The site opens dark whatever the OS prefers, so the first
+  // theme-color a browser can use must be the dark paper, unconditionally.
+  // Nextra's <Head> adds its own light/dark pair after ours; the first match
+  // in tree order wins, so ours has to come first and have no media query.
+  const darkPaper = parseTokens(readFileSync(join(root, 'app/tokens.css'), 'utf8')).dark.paper
+  for (const html of pages) {
+    const first = /<meta\s[^>]*name="theme-color"[^>]*>/.exec(html)?.[0]
+    if (!first) continue
+    if (/media=/.test(first) || !new RegExp(`content="${darkPaper}"`, 'i').test(first)) {
+      miss.push(`first theme-color is ${first}; it must be unconditional and ${darkPaper}, the default theme's paper`)
+      break
+    }
+  }
+
   const withProse = pages.filter((h) => /<article[\s>][\s\S]*<main[\s>]/.test(h)).length
   if (withProse === 0) miss.push('article main (no page has a <main> inside an <article>)')
   if (miss.length) {
