@@ -1,8 +1,8 @@
 """M2 acceptance: the golden example builds a graph and checks in one pass.
 
-`docs/milestones.md` is specific about what M2 means: the golden example
-builds a graph without executing anything, and `ligase check` reports all
-type errors in one pass. The first half is asserted by a sentinel rather than
+`web/content/project/milestones.mdx` is specific about what M2 means: the golden
+example builds a graph without executing anything, and `ligase check` reports
+all type errors in one pass. The first half is asserted by a sentinel rather than
 by inspection -- if a body ran, the test fails, whatever the graph looks like.
 """
 

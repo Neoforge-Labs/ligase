@@ -75,8 +75,9 @@ def test_a_wrong_reference_is_reported_without_running_anything(
     assert main(["check", str(path)]) == 1
 
     out = capsys.readouterr().out
-    # Exactly the shape `docs/golden-example.md` specifies. There is one
-    # `call` step and no fan-out, so nothing is added to its heading: a
+    # Exactly the shape `web/content/project/golden-example.mdx` specifies.
+    # There is one `call` step and no fan-out, so nothing is added to its
+    # heading: a
     # suffix identifying nothing is noise on the commonest path.
     assert "DimensionError in step `call`:\n  aln.reference = " in out
     assert "Did you pass the wrong reference?" in out
