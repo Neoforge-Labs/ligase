@@ -80,6 +80,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Codons are read from the reads, not from the combinations of their
+  bases** (**D31**). A codon used to be assembled from the VCF — the
+  alleles credited at each of its three bases, then every combination of
+  them — and a VCF says what is at each position rather than what travels
+  together, so the combinations included codons no read carried. On one
+  validation sample at a 2% threshold that read `K219KEGR` where the reads
+  carry only `AAA` in 54% of themselves and `GAA` in 45%: arginine and
+  glycine were arithmetic, not virus. Reads spanning all three bases of a
+  codon are now counted as the triplets they carry, and the codon holds
+  the amino acids whose share of those reads reaches `mixture`.
+
+  Three things about it are deliberate. Phasing only ever *removes* a
+  combination, because which alleles are present at a position stays the
+  caller's quality-aware judgement. The threshold applies to the amino
+  acid, summed over the triplets that spell it, so a lysine split between
+  two synonymous codons is not lost. And a codon the reads cannot settle —
+  no read spanning it to `depth`, as paired-end mates can do to a codon
+  that falls between them — keeps its per-base reading, with a note, which
+  is wider than the truth rather than narrower.
+
+  The reading costs a pass over the BAM's sequences where coverage alone
+  needed only its spans: the `resistance` step goes from 0.6s to 1.1s on
+  the deepest run of the validation.
 - The docs carry the same author and copyright as the other NeoForge Labs
   sites, and the API reference is generated from google-style docstrings,
   which is the convention ruff enforces for this package, rather than the
@@ -143,6 +166,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Six of the nine validation discrepancies at the 2% threshold.** They
+  were all one cause, the phasing a VCF cannot carry: five NRTI rows on
+  Sample 3 reading `K219KEGR` for `K219KE`, and Sample 4's lenacapavir row
+  reading `A105AT` for `A105T`. None of them changed a score or a level,
+  and all of them were wrong. Three remain, and they are one mutation the
+  caller credits in 1.7% of the reads it counted — a sensitivity limit
+  rather than a disagreement about what the reads mean. The 81-of-81
+  agreement at the 15% and 5% thresholds is unchanged.
 - D26's link to the canonicalisation notes rendered as the literal text
   ``[`Note`]``. A reference-style label containing a code span does not match
   its definition in Python-Markdown, and `mkdocs --strict` does not catch an
