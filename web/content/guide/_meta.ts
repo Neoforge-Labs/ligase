@@ -6,9 +6,8 @@ import type { MetaRecord } from 'nextra'
  * then the two things that come up once it is running, then the HIV-1
  * interpreter.
  *
- * Hand-written rather than taken from mkdocs.yml: these pages are now
- * authored as MDX, and several were retitled to name the task rather than
- * the mechanism.
+ * Several pages are titled after the task rather than the mechanism that
+ * serves it.
  */
 const meta: MetaRecord = {
   'building-a-pipeline': 'Building a pipeline',

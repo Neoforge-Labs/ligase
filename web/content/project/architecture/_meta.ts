@@ -1,6 +1,11 @@
 import type { MetaRecord } from 'nextra'
 
-// Order and titles taken from the Architecture section of mkdocs.yml.
+/*
+ * The internals, outside in: where things live, what a type is, how the
+ * graph is built from it, how it runs, what is cached, how outputs are
+ * canonicalised before hashing, what is recorded, and the one domain
+ * interpreter.
+ */
 const meta: MetaRecord = {
   workspace: 'Workspace',
   'type-system': 'Type system',

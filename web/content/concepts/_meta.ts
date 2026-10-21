@@ -3,9 +3,6 @@ import type { MetaRecord } from 'nextra'
 /*
  * Explanation, in the order the ideas build on each other. Each page opens
  * with the question it answers.
- *
- * Hand-written rather than taken from mkdocs.yml: these pages are now
- * authored as MDX.
  */
 const meta: MetaRecord = {
   'types-and-dimensions': 'Types and dimensions',

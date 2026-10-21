@@ -52,6 +52,8 @@ ruff check .
 ruff format --check .
 mypy
 pytest
+shellcheck scripts/*.sh
+cd web && npm run check          # the docs site: regenerate, build, links
 ```
 
 All of them should pass on a clean checkout. If `clippy` complains about a
@@ -175,28 +177,22 @@ job is there to catch Ligase regressions.
 
 ## Build the docs
 
-Two sites exist during the migration.
-
-The live one, MkDocs, from `docs/`:
+The site is Nextra, in `web/`, and it is what serves
+[ligase.neoforgelabs.tech](https://ligase.neoforgelabs.tech/):
 
 ```bash
 pip install -e ".[docs]"
-mkdocs serve
-```
-
-The replacement, Nextra, from `web/`:
-
-```bash
 cd web
 npm ci
 npm run dev
 ```
 
-`npm run check` is the gate for the new site: it regenerates the API
-reference, the captured diagnostics and the rendered notebooks, builds, and
-then fails on a broken link, a dangling anchor, a page nothing links to, or a
-Markdown link that never resolved. All three generators import `ligase`, so
-the virtualenv has to be active.
+`npm run check` is the gate: it regenerates the API reference, the CLI
+reference, the captured diagnostics, the quickstart and the rendered
+notebooks, builds, and then fails on a broken link, a dangling anchor, a page
+nothing links to, or a Markdown link that never resolved. Every generator
+imports `ligase`, so the virtualenv has to be active — that is what the
+`docs` extra and the `pip install -e` above are for.
 
 ## Troubleshooting
 
