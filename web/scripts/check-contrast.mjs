@@ -30,7 +30,7 @@
  *   node scripts/check-contrast.mjs               check app/tokens.css
  *   node scripts/check-contrast.mjs path/to.css   check another file
  *   node scripts/check-contrast.mjs --self-test   verify the maths, then stop
- *   node scripts/check-contrast.mjs --orphans     check both themes declare the same colour tokens
+ *   node scripts/check-contrast.mjs --orphans     check both themes declare the same colour (and theme-dependent) tokens
  *
  * The self-test also runs before every real check: a checker whose arithmetic
  * is wrong would pass or fail the palette for the wrong reasons.
@@ -46,6 +46,12 @@ const TEXT_TOKENS = ['ink', 'ink-muted', 'ink-faint', 'brand', 'refuse', 'agree'
 const SURFACES = ['paper', 'paper-raised', 'paper-sunken']
 const SIGNALS = ['brand', 'refuse', 'agree', 'notice']
 const AA_TEXT = 4.5
+/**
+ * Non-colour tokens whose value embeds a theme-specific colour, so both blocks
+ * must declare them. Add a token here when it is a shadow, gradient or border
+ * shorthand built from a colour that differs between themes.
+ */
+const THEME_DEPENDENT = ['shadow-raised']
 const MIN_SEPARATION = 25
 const SEPARATED_FROM_BRAND = ['notice', 'refuse']
 
@@ -248,7 +254,10 @@ export function check(tokens, mode) {
  *
  * Every token in `.dark` must exist in `:root`. Every colour token in `:root`
  * must exist in `.dark`. Tokens in `:root` whose value is not a colour (type
- * stacks, sizes, spacing) are theme-invariant and legitimately declared once.
+ * stacks, sizes, spacing) are theme-invariant and legitimately declared once,
+ * except the ones listed in THEME_DEPENDENT: a shadow embeds an ink tint, so
+ * it is not a colour by this function's test but still differs per theme, and
+ * a half-converted theme drops exactly that.
  */
 export function orphans(light, dark) {
   const isColour = (value) => {
@@ -264,7 +273,7 @@ export function orphans(light, dark) {
     if (!(name in light)) out.push({ pair: `--lg-${name}`, detail: 'declared in .dark, missing from :root' })
   }
   for (const [name, value] of Object.entries(light)) {
-    if (!(name in dark) && isColour(value)) {
+    if (!(name in dark) && (isColour(value) || THEME_DEPENDENT.includes(name))) {
       out.push({ pair: `--lg-${name}`, detail: 'declared in :root, missing from .dark' })
     }
   }
@@ -324,6 +333,12 @@ function selfTest() {
     `expected b (root only) and c (dark only), not size; got ${JSON.stringify(lopsided)}`,
   )
   assert(orphans({ a: '#fff', size: '1rem' }, { a: '#000' }).length === 0, 'orphans ignore non-colour tokens', 'a theme-invariant token was reported')
+  const shadowless = orphans({ a: '#fff', 'shadow-raised': '0 0 0 1px red' }, { a: '#000' })
+  assert(
+    shadowless.length === 1 && shadowless[0].pair === '--lg-shadow-raised',
+    'orphans require theme-dependent non-colour tokens in both themes',
+    `expected shadow-raised to be reported, got ${JSON.stringify(shadowless)}`,
+  )
 
   return failures
 }
@@ -364,7 +379,7 @@ function main(args) {
       console.error('')
       process.exit(1)
     }
-    console.log(`orphans ok: light and dark declare the same ${Object.keys(dark).length} colour tokens`)
+    console.log(`orphans ok: light and dark declare the same ${Object.keys(dark).length} colour and theme-dependent tokens`)
     return
   }
 
