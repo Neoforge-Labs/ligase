@@ -111,9 +111,11 @@ GROUPS: tuple[Group, ...] = (
             "engine reproduces 3,348 published Stanford expectations exactly; see "
             "[validation](/project/validation/).\n\n"
             "Positions must be in **whole-genome HXB2 K03455 coordinates**. A "
-            "*pol*-relative reference is read as though it were whole-genome and "
-            "the gene windows land on the wrong genes, silently -- see "
-            "[the SAWA evaluation](/project/in-use/sawa/)."
+            "reference numbered any other way -- a *pol*-relative one is the "
+            "case that matters -- is refused before any compute, as a "
+            "`ReferenceFrameError`; declare the frame it is numbered along "
+            "with `lg.reference(..., frame=(...))`. This was silent until "
+            "[the SAWA evaluation](/project/in-use/sawa/) found it."
         ),
         names=(
             "ResistanceReport",
@@ -121,6 +123,9 @@ GROUPS: tuple[Group, ...] = (
             "hivdb.fingerprint",
             "hivdb.ALGORITHMS",
             "hivdb.DEFAULT",
+            "hivdb.MIXTURE",
+            "hivdb.DEPTH",
+            "hivdb.GENE_COVERAGE",
         ),
     ),
     Group(
@@ -158,6 +163,7 @@ GROUPS: tuple[Group, ...] = (
             "DimensionError",
             "ContigNamingError",
             "ContigOrderError",
+            "ReferenceFrameError",
             "UndeclaredDimensionError",
             "StepTypeError",
             "StepDefinitionError",

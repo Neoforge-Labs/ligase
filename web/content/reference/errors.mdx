@@ -18,6 +18,7 @@ the class details.
 |---|---|---|
 | `ContigNamingError` | `chr1` against `1` | [Naming](#contignamingerror) |
 | `ContigOrderError` | Same contigs, different order | [Order](#contigordererror) |
+| `ReferenceFrameError` | The reference is not the genome a step's coordinates mean | [Frame](#referenceframeerror) |
 | `DimensionError` | Two inputs disagree about something | [Dimensions](#dimensionerror) |
 | `UndeclaredDimensionError` | Something must be declared and was not | [Undeclared](#undeclareddimensionerror) |
 | `StepTypeError` | A step was handed the wrong kind of data | [Types](#steptypeerror) |
@@ -39,6 +40,7 @@ Exception
 │   ├── DimensionError             two inputs disagree
 │   │   ├── ContigNamingError      ... about naming style only
 │   │   ├── ContigOrderError       ... about contig order only
+│   │   ├── ReferenceFrameError    ... about which genome the numbers mean
 │   │   └── UndeclaredDimensionError
 │   └── StepTypeError              wrong kind of data for the step
 ├── LoadError                      a file would not read
@@ -87,6 +89,48 @@ refuse. Reported because silence would hide a failure in a tool you may add
 tomorrow.
 
 [GATK rejects my sequence dictionary](/silent-failures/contig-order/).
+
+## ReferenceFrameError
+
+**The reference is not the genome a step's own coordinates are counted
+along.** Most dimension errors are two inputs disagreeing; this one is an
+input disagreeing with the engine. `lg.hivdb.interpret` holds the HIV-1 gene
+windows as positions in HXB2 K03455 counted from its first base, and a
+reference numbered any other way puts a different gene under each window.
+
+The case that matters is a *pol*-relative reference — K03455 2085–5096, so
+every position 2084 lower. Protease's window then lands in integrase, and
+before this error existed the report came back with protease-inhibitor
+resistance at a clinical level.
+
+```text
+ReferenceFrameError in step `resistance`:
+  ref.reference = K03455 (3012 bp) (from FASTA contigs: hxb2_pol.fasta)
+  resistance reads positions in K03455 from base 1 (9719 bases) (built into this engine)
+  The reference is 3012 bases long and the gene windows reach base 5093, so
+  they cannot all land on the genes they name; protease is read from wherever
+  base 2253 of this file happens to be.
+  This engine reads whole-genome K03455 and does not shift its windows. If
+  this is a pol-relative reference — K03455 2085..5096 is the usual slice —
+  pad it back into the frame with `"N" * 2084 + pol` and declare
+  `frame=("K03455", 1)`.
+```
+
+The fix is not a different file. It is the same sequence put back where its
+own numbers mean what the windows say:
+
+```python
+ref = lg.reference(
+    "hxb2_padded.fasta",        # "N" * 2084 + hxb2_pol
+    organism="HIV-1",
+    frame=("K03455", 1),
+)
+```
+
+A whole-genome HXB2 reference needs no declaration — 9,719 bases identifies
+it — so you see this only when the reference is something else. Why the frame
+is declared rather than inferred:
+[D33](/project/decisions/#d33--the-frame-a-reference-is-numbered-along-is-declared-not-guessed).
 
 ## DimensionError
 

@@ -96,6 +96,24 @@ def notes(report: lg.RunReport, step: str = "resistance") -> tuple[str, ...]:
     return tuple(note for run in report.steps if run.step == step for note in run.notes)
 
 
+def barely_read(tmp_path: Path) -> tuple[Variants, Reference]:
+    """Whole-genome K03455 with two thirds of integrase unsequenced.
+
+    `N` is what a sequence that did not reach a region actually holds, and
+    it is a different thing from a sequence that agrees with the reference.
+    Ninety-two of integrase's 288 codons is the 32% SAWA saw in the field.
+    """
+    bases = ["A"] * 9719
+    for position in range(4230 + 92 * 3, 5093 + 1):
+        bases[position - 1] = "N"
+    fasta = tmp_path / "whole.fasta"
+    fasta.write_text(">K03455.1 whole\n" + "".join(bases) + "\n")
+    return (
+        calls(tmp_path),
+        lg.reference(str(fasta), organism="HIV-1", build="HXB2"),
+    )
+
+
 def fragment(tmp_path: Path) -> tuple[Variants, Reference]:
     """A hundred bases called HXB2, which no HIV-1 gene fits inside.
 
@@ -164,26 +182,45 @@ def test_a_cached_reading_still_says_what_it_noticed(hxb2: str, tmp_path: Path) 
     assert "coverage is unknown" in again.text
 
 
-def test_a_reading_says_which_genes_it_could_not_read(tmp_path: Path) -> None:
-    """A reference too short for a gene reads none of it.
+def test_a_reading_says_which_gene_it_barely_read(tmp_path: Path) -> None:
+    """A gene mostly unsequenced is left out rather than called susceptible.
 
-    Every drug scored against that gene is then missing from the report
-    rather than reported as susceptible, and an absent drug class means no
-    data rather than a negative result — which is only true if someone is
-    told.
+    A gene read in part refutes nothing and shows nothing, so every drug
+    scored against it lands at zero, which this algorithm's own ranges read
+    as susceptible. The gene is left out of the report instead, and an
+    absent drug class means no data rather than a negative result — which
+    is only true if someone is told.
     """
-    short, reference = fragment(tmp_path)
-    pipe = lg.Pipeline(resistance(short, reference))
+    variants, reference = barely_read(tmp_path)
+    pipe = lg.Pipeline(resistance(variants, reference))
 
     report = pipe.run(cache=tmp_path / "cache")
 
     said = notes(report)
-    for gene in ("PR", "RT", "IN", "CA"):
-        assert any(
-            note.startswith(f"{gene} ends at ") and "was not read" in note
-            for note in said
-        ), said
-    assert "rather than a fragment of one" in report.text
+    assert any(
+        note.startswith("only 92 of IN's 288 codons were read") for note in said
+    ), said
+    assert "gene_coverage=" in report.text
+
+
+def test_a_reference_too_short_for_the_genes_is_refused(tmp_path: Path) -> None:
+    """Which is better than the note this used to be.
+
+    The gene windows are positions in whole-genome K03455, and a reference
+    they do not fit inside is not that genome. Noting it gene by gene left
+    the dangerous case silent: on a pol-relative reference the windows for
+    the genes that *do* fit land on the wrong genes, and protease was read
+    out of integrase without a word.
+    """
+    short, reference = fragment(tmp_path)
+    pipe = lg.Pipeline(resistance(short, reference))
+
+    with pytest.raises(lg.ReferenceFrameError) as raised:
+        pipe.run(cache=tmp_path / "cache")
+
+    message = str(raised.value)
+    assert "100 bases" in message
+    assert "gene windows reach base 5093" in message
 
 
 # ----------------------------------------------- and when there is none --

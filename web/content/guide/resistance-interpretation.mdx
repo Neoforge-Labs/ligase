@@ -58,6 +58,24 @@ is nothing to translate without the sequence those positions sit in.
 Passing it also puts it under `check()`, so interpreting one sample's
 calls against another organism's reference is refused before anything runs.
 
+It has to be **whole-genome HXB2**, and this is the one sharp edge worth
+reading twice. The gene windows are positions in K03455 counted from the
+first base of the genome, so a *pol*-relative reference — K03455 2085–5096,
+which is the natural thing to have when the amplicon is *pol* — puts
+integrase under the window named protease. Whole-genome HXB2 needs nothing
+said about it: 9,719 bases identifies it. Anything else declares the frame
+it is numbered along, and a *pol* reference is padded back into that frame
+first:
+
+```python
+# "N" * 2084 + hxb2_pol, named for the accession it is a slice of.
+ref = lg.reference("hxb2_padded.fasta", organism="HIV-1", frame=("K03455", 1))
+```
+
+Get it wrong and you get a
+[`ReferenceFrameError`](/reference/errors/#referenceframeerror) before any
+compute, rather than a resistance call on the wrong gene.
+
 **The alignment** is needed for coverage and for phasing. Leave it out and
 two things happen:
 
@@ -128,6 +146,37 @@ The difference is not academic. On Sample 3 of PRJNA1218827:
 Same reads, same alignment, same algorithm. A 5% minority virus is the
 difference between "this regimen is fine" and "most of this class is
 already lost".
+
+## How much of a gene is enough
+
+A gene read in part refutes nothing and shows nothing, so every drug scored
+against it lands at zero — which the algorithm's own ranges read as
+*Susceptible*. That is a clean clinical negative from a gene the run never
+covered, and it is the dangerous direction for a resistance report.
+
+So a gene has to be read at all before it is assessed:
+
+| Parameter | Default | Question |
+|---|---|---|
+| `gene_coverage` | `0.8` | what share of a gene's codons must be read for the gene to be assessed |
+
+A gene below it is reported as **Not assessed**, the same as a gene the
+pipeline never supplied — which is what it effectively is — and the reading
+says which gene and by how much it fell short:
+
+```text
+noticed  resistance  only 92 of IN's 288 codons were read, where this reading
+                     required 231, so IN was not assessed rather than scored
+                     against what little was seen
+                     Sequence more of this gene, or lower the share this
+                     reading asks for — `gene_coverage=` — if a floor is of
+                     more use to you than no answer.
+```
+
+Lower it if a floor is more use to you than no answer; a gene above it still
+reports its unread positions per drug, and those scores are still floors.
+[D34](/project/decisions/#d34--a-gene-barely-read-is-not-assessed) argues the
+default and the sharper rule it stands in for.
 
 ## Choosing an algorithm
 

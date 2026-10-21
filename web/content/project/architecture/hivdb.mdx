@@ -113,6 +113,65 @@ would list most of its rule positions and the warning would mean nothing.
 A gene absent from `Observed` altogether was never supplied, and its drugs
 come back `Not assessed` with no score.
 
+## The frame the windows are stated in
+
+`hivdb::frame` holds the one thing `codon::GENES` cannot say for itself:
+that its numbers are positions in HXB2 K03455 counted from the first base
+of the genome. Three constants and a verdict —
+
+```rust
+pub const FRAME: &str = "K03455";
+pub const BASES: u64 = 9719;
+pub const POL: u64 = 2085;
+pub const LAST: u64 = /* the furthest base any window reaches: 5093 */;
+
+pub fn mismatch(reference: &ReferenceId) -> Option<Mismatch>;
+```
+
+`LAST` is folded out of `GENES` in a `const` block rather than written
+down, so a window that moves takes the guard with it.
+
+`Mismatch` has five shapes, and each owns its own sentence and its own
+instruction, for the reason `Note` does: the wording belongs to the kind of
+problem rather than to whichever surface prints it.
+
+| Shape | When |
+|---|---|
+| `TooShort` | shorter than `LAST`, so the windows cannot land on the genes whatever it is numbered along |
+| `Undeclared` | long enough, not 9,719 bases, nothing declared — unknowable from the file |
+| `Sliced` | declared as a slice of K03455 rather than the whole of it |
+| `Elsewhere` | declared as numbered along something else |
+| `Several` | more than one sequence, where a resistance reference is one genome |
+
+### Checked in two places, for two different reasons
+
+**At check time**, in `graph.rs`, keyed on the step's output kind. A step
+annotated `-> ResistanceReport` has said in its signature what it reads, so
+the graph compares its `Reference` bindings against `frame::expected()` and
+reports a `ReferenceFrame` error with the rest of the pass. This is the one
+check that compares an input against the *engine* rather than against
+another input, which is why it does not live in `check_step`'s pairwise
+table: dimension checking needs two inputs that can both speak to a
+dimension, and only a reference can speak to a frame.
+
+**At read time**, in `codon::read`, but only for `TooShort`. A declaration
+is taken at its word because there is nothing in a FASTA to check it
+against, so a *pol*-relative reference declared as a whole genome passes
+the check; the reading can still see that the windows reach 5093 and the
+file does not. It returns `LoadError::Frame`, which `write_report` keeps
+apart from every other failure as `ReportError::Frame`, which the bindings
+raise as `_core.FrameError`, which `lg.hivdb.interpret` turns into the same
+`ReferenceFrameError` a check would have raised. Four layers, one class,
+because what a caller branches on should not depend on which layer caught
+it.
+
+This replaced a `Note::GenePastReference`, which said per gene that a gene
+ran off the end of the reference. It was not enough: on a *pol*-relative
+reference the genes that *do* fit are read out of the wrong genes, and the
+note said nothing about those. A reference the windows cannot be read
+against is now refused rather than annotated, which makes that note
+unreachable, and it is gone.
+
 ## Codons
 
 `codon::GENES` holds the HXB2 landmarks:
@@ -131,6 +190,28 @@ Integrase ran to 5096, which is where *pol* ends and includes its stop
 codon; the protein is 288 amino acids. `hivdb_codons.rs` now checks the
 windows against the rules, because a rule about a position outside the
 window would never fire and would do so quietly.
+
+### A gene has to be read before it is assessed
+
+`gene_coverage` is the share of a gene's codons that must be read for the
+gene to go into `Observed` at all, defaulting to 0.8. `codon::needed`
+turns it into a count, rounded up, so the comparison is in integers and the
+note can say `92 of 288, where 231 were needed` rather than a percentage
+the reader has to do arithmetic on.
+
+A gene below it is left out, which makes its drugs *not assessed* — the
+same state as a gene the pipeline never supplied. The reading emits
+`Note::GeneBarelyRead`.
+
+It is enforced here, in the reading, rather than in `score`, and that
+placement is the whole reason the rule is a blunt share rather than the
+sharper per-drug one. `hivdb_scoring.rs` builds `Observed` directly from
+3,348 published Stanford expectations whose fixtures name only the
+positions that differ from consensus B; a coverage rule in the scoring
+layer would see almost every position as unread and turn the oracle's own
+answers indeterminate. `codon::read` is the layer the oracle does not go
+through. [D34](/project/decisions/#d34--a-gene-barely-read-is-not-assessed)
+has the argument and what it would take to do the sharper thing.
 
 Reading a codon:
 
