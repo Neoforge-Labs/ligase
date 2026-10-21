@@ -142,7 +142,7 @@
    band heading is a heading on a poster, not section N of a paper. This
    removes the global `§ NN` marker from the band's h2 and, because a pseudo-
    element that is not generated cannot increment, keeps the counter from
-   advancing. `.band .bandTitle` outranks `.nextra-content h2::before`. */
+   advancing. `.band .bandTitle` outranks `article main h2::before`. */
 .band .bandTitle::before {
   content: none;
   counter-increment: none;

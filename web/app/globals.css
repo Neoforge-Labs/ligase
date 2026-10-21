@@ -20,7 +20,7 @@
  * The furniture is what makes a page read as a journal rather than a themed
  * Nextra site: `.lg-eyebrow` and `.lg-mono` for labels, a `§ NN` marker on
  * every h2, a `FIG. NN` counter for figures, and the `.lg-grain` and
- * `.lg-aurora` atmosphere layers. Both counters reset on `.nextra-content`,
+ * `.lg-aurora` atmosphere layers. Both counters reset on `article main`,
  * so they restart on every page and cannot drift apart.
  */
 
@@ -55,26 +55,26 @@ body {
    prose rather than like UI copy.
    =================================================================== */
 
-.nextra-content :is(p, li, dd, blockquote, td, th) {
+article main :is(p, li, dd, blockquote, td, th) {
   font-family: var(--lg-font-prose);
   font-size: var(--lg-prose-size);
   line-height: var(--lg-prose-leading);
   letter-spacing: -0.003em;
 }
 
-.nextra-content p {
+article main p {
   margin-block: 1.1em;
   max-width: var(--lg-measure);
   color: var(--lg-ink);
 }
 
-.nextra-content :is(h1, h2, h3, h4, h5, h6) {
+article main :is(h1, h2, h3, h4, h5, h6) {
   font-family: var(--lg-font-ui);
   color: var(--lg-ink);
   text-wrap: balance;
 }
 
-.nextra-content h1 {
+article main h1 {
   font-family: var(--lg-font-display);
   font-size: clamp(2.1rem, 1.6rem + 1.8vw, 2.9rem);
   font-weight: 400;
@@ -86,25 +86,27 @@ body {
 
 /* A hairline above every h2 does the work a heavier font weight would
    otherwise have to do, and keeps long pages scannable. */
-.nextra-content h2 {
+article main h2 {
   font-size: 1.55rem;
   font-weight: 620;
   letter-spacing: -0.022em;
   line-height: 1.22;
   margin-block: 2.9em 0.8em;
   padding-top: 1.5rem;
+  padding-bottom: 0;
   border-top: 1px solid var(--lg-rule);
+  border-bottom: 0;
   max-width: 40ch;
 }
 
-.nextra-content h3 {
+article main h3 {
   font-size: 1.16rem;
   font-weight: 620;
   letter-spacing: -0.013em;
   margin-block: 2.1em 0.6em;
 }
 
-.nextra-content h4 {
+article main h4 {
   font-size: 1rem;
   font-weight: 620;
   letter-spacing: 0.005em;
@@ -114,7 +116,7 @@ body {
 
 /* Anchor links: visible on hover only, and set in mono so they read as a
    fragment identifier rather than a decoration. */
-.nextra-content :is(h2, h3, h4) a[href^='#']::after {
+article main :is(h2, h3, h4) a[href^='#']::after {
   content: '#';
   font-family: var(--lg-font-mono);
   font-size: 0.78em;
@@ -125,13 +127,16 @@ body {
   transition: opacity 120ms ease;
 }
 
-.nextra-content :is(h2, h3, h4):hover a[href^='#']::after {
+article main :is(h2, h3, h4):hover a[href^='#']::after {
   opacity: 1;
 }
 
 /* ---- Links ---- */
 
-.nextra-content a:not([class]) {
+/* Nextra puts utility classes on every link it renders, so `a:not([class])`
+   matches almost nothing. Prose links are the anchors inside running text;
+   the heading permalink and the components' own links are not. */
+article main :is(p, li, dd, td, th, blockquote) a:not(.subheading-anchor) {
   color: var(--lg-brand);
   text-decoration: underline;
   text-decoration-thickness: 1px;
@@ -140,28 +145,28 @@ body {
   transition: text-decoration-color 120ms ease, color 120ms ease;
 }
 
-.nextra-content a:not([class]):hover {
+article main :is(p, li, dd, td, th, blockquote) a:not(.subheading-anchor):hover {
   color: var(--lg-brand-hover);
   text-decoration-color: var(--lg-brand);
 }
 
 /* ---- Lists ---- */
 
-.nextra-content :is(ul, ol) {
+article main :is(ul, ol) {
   margin-block: 1.1em;
   max-width: var(--lg-measure);
   padding-left: 1.4em;
 }
 
-.nextra-content li {
+article main li {
   margin-block: 0.4em;
 }
 
-.nextra-content ul > li::marker {
+article main ul > li::marker {
   color: var(--lg-ink-faint);
 }
 
-.nextra-content ol > li::marker {
+article main ol > li::marker {
   color: var(--lg-ink-faint);
   font-family: var(--lg-font-mono);
   font-size: 0.85em;
@@ -169,7 +174,7 @@ body {
 
 /* ---- Blockquote: a thin rule, no background tint ---- */
 
-.nextra-content blockquote {
+article main blockquote {
   border-left: 2px solid var(--lg-rule-strong);
   padding-left: 1.3em;
   margin-block: 1.6em;
@@ -179,7 +184,7 @@ body {
 
 /* ---- Tables ---- */
 
-.nextra-content table {
+article main table {
   width: 100%;
   margin-block: 1.8em;
   border-collapse: collapse;
@@ -187,11 +192,11 @@ body {
   display: table;
 }
 
-.nextra-content thead {
+article main thead {
   border-bottom: 1px solid var(--lg-rule-strong);
 }
 
-.nextra-content th {
+article main th {
   font-family: var(--lg-font-ui);
   font-size: 0.73rem;
   font-weight: 620;
@@ -203,7 +208,7 @@ body {
   background: none;
 }
 
-.nextra-content td {
+article main td {
   padding: 0.72em 1.1em 0.72em 0;
   border-bottom: 1px solid var(--lg-rule);
   vertical-align: baseline;
@@ -211,17 +216,17 @@ body {
   line-height: 1.55;
 }
 
-.nextra-content :is(th, td):last-child {
+article main :is(th, td):last-child {
   padding-right: 0;
 }
 
-.nextra-content tbody tr:last-child td {
+article main tbody tr:last-child td {
   border-bottom: none;
 }
 
 /* ---- Horizontal rule ---- */
 
-.nextra-content hr {
+article main hr {
   border: none;
   border-top: 1px solid var(--lg-rule);
   margin-block: 3em;
@@ -262,17 +267,17 @@ body {
 }
 
 /* ---- Numbering ----
-   Both counters reset on .nextra-content, so they restart on every page.
-   Only an h2 inside .nextra-content increments lg-section, and the number
+   Both counters reset on article main, so they restart on every page.
+   Only an h2 inside article main increments lg-section, and the number
    is printed by the same pseudo-element that increments it, so the marker
    can never read 00 and a page with no h2 (the generated API, CLI and
    notebook pages are shaped by their generators) shows no marker at all. */
 
-.nextra-content {
+article main {
   counter-reset: lg-section lg-figure;
 }
 
-.nextra-content h2::before {
+article main h2::before {
   counter-increment: lg-section;
   content: '§ ' counter(lg-section, decimal-leading-zero);
   display: block;
@@ -336,7 +341,7 @@ body {
    matched down, not left at its natural size.
    =================================================================== */
 
-.nextra-content :not(pre) > code {
+article main :not(pre) > code {
   font-family: var(--lg-font-mono);
   font-size: 0.855em;
   background: var(--lg-paper-sunken);
@@ -347,7 +352,7 @@ body {
   word-break: break-word;
 }
 
-.nextra-content a:not([class]) > code {
+article main :is(p, li, dd, td, th, blockquote) a:not(.subheading-anchor) > code {
   color: inherit;
   border-color: var(--lg-brand-rule);
   background: var(--lg-brand-soft);
@@ -355,7 +360,7 @@ body {
 
 /* ---- Fenced blocks ---- */
 
-.nextra-content pre {
+article main pre {
   font-family: var(--lg-font-mono);
   font-size: 0.875rem;
   line-height: 1.62;
@@ -365,44 +370,15 @@ body {
   padding: 1.05rem 1.15rem;
   overflow-x: auto;
   tab-size: 2;
+  box-shadow: none;
 }
 
-.nextra-content figure[data-rehype-pretty-code-figure] {
-  margin-block: 1.7em;
-}
-
-/* The language/filename tab reads as a label on the panel, not a chip
-   floating above it. */
-.nextra-content [data-rehype-pretty-code-title] {
-  font-family: var(--lg-font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  text-transform: none;
-  color: var(--lg-ink-muted);
-  background: var(--lg-paper-sunken);
-  border: 1px solid var(--lg-rule);
-  border-bottom: none;
-  border-radius: var(--lg-radius-lg) var(--lg-radius-lg) 0 0;
-  padding: 0.5rem 1.15rem;
-}
-
-.nextra-content [data-rehype-pretty-code-title] + pre {
-  border-radius: 0 0 var(--lg-radius-lg) var(--lg-radius-lg);
-  border-top-color: var(--lg-rule);
-}
-
-/* Line numbers, when a block asks for them, in the faintest ink. */
-.nextra-content code[data-line-numbers] > [data-line]::before {
-  color: var(--lg-ink-faint);
-  margin-right: 1.4ch;
-}
-
-/* A `console` block is a transcript, not source: no syntax colour, and the
-   prompt is dimmed so the typed command reads first. */
-.nextra-content pre:has(code[data-language='console']),
-.nextra-content pre:has(code[data-language='text']) {
-  background: var(--lg-paper-sunken) !important;
-}
+/* Nextra 4 renders a fenced block as `div.nextra-code > pre`, with the
+   language, title and line-number attributes rehype-pretty-code would add
+   removed, so there is nothing to key a title bar, line numbers or a
+   console-block background to. Those rules are gone rather than left to look
+   like they apply; check-furniture.mjs fails on a selector the built HTML
+   cannot match. */
 
 /* ===================================================================
    Sidebar
@@ -412,28 +388,28 @@ body {
    contents for a document, so it should look like one.
    =================================================================== */
 
-.nextra-sidebar-container {
+.nextra-sidebar {
   font-family: var(--lg-font-ui);
 }
 
-.nextra-sidebar-container .nextra-menu-desktop > li > a,
-.nextra-sidebar-container .nextra-menu-desktop > li > button {
+.nextra-sidebar :is(a, button) {
   font-size: 0.875rem;
 }
 
-/* Top-level group headings */
-.nextra-sidebar-container [data-nextra-sidebar-group-title],
-.nextra-sidebar-container .nextra-menu-desktop > li.nextra-menu-separator {
-  font-size: 0.7rem !important;
+/* Top-level group headings. Nextra renders a folder as a button that is a
+   direct child of a top-level <li>; the same button one level down is a
+   nested folder and keeps the ordinary size. */
+.nextra-sidebar .nextra-scrollbar > div > ul > li > button {
+  font-size: 0.7rem;
   font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.085em;
   color: var(--lg-ink-faint) !important;
-  margin-top: 1.9rem !important;
-  margin-bottom: 0.45rem !important;
+  margin-top: 1.9rem;
+  margin-bottom: 0.45rem;
 }
 
-.nextra-sidebar-container a {
+.nextra-sidebar a {
   border-radius: 0 !important;
   border-left: 2px solid transparent;
   padding-left: 0.85rem !important;
@@ -443,13 +419,14 @@ body {
   line-height: 1.45;
 }
 
-.nextra-sidebar-container a:hover {
+.nextra-sidebar a:hover {
   color: var(--lg-ink) !important;
   border-left-color: var(--lg-rule-strong);
 }
 
-.nextra-sidebar-container a[data-active='true'],
-.nextra-sidebar-container .active > a {
+/* The current page. Nextra marks it with utility classes only (no attribute,
+   no aria-current), so this keys to the one that is unique to it. */
+.nextra-sidebar a[class*='x:bg-primary-100'] {
   color: var(--lg-brand) !important;
   font-weight: 560;
   border-left-color: var(--lg-brand);
@@ -475,7 +452,7 @@ body {
 }
 
 .nextra-toc a:hover,
-.nextra-toc a[aria-selected='true'] {
+.nextra-toc a[class*='x:text-primary-600'] {
   color: var(--lg-brand) !important;
 }
 
@@ -485,9 +462,6 @@ body {
 
 .nextra-navbar {
   font-family: var(--lg-font-ui);
-  border-bottom: 1px solid var(--lg-rule);
-  background: color-mix(in srgb, var(--lg-paper) 86%, transparent);
-  backdrop-filter: blur(8px);
 }
 
 .nextra-navbar nav {
@@ -505,7 +479,6 @@ body {
   color: var(--lg-ink-faint);
 }
 
-.nextra-content hr + div a,
 footer {
   font-family: var(--lg-font-ui);
 }
@@ -593,12 +566,12 @@ footer {
      hiding body would print a blank page. */
   .lg-grain::before,
   .lg-aurora,
-  .nextra-sidebar-container,
+  .nextra-sidebar,
   .nextra-toc {
     display: none !important;
   }
 
-  .nextra-content h2::before {
+  article main h2::before {
     color: #000;
   }
 
@@ -607,8 +580,8 @@ footer {
      the dark theme's pale tokens on the white the rules above force, so print
      always takes the light theme's, which are the ones drawn for white. The
      token backgrounds go too, or each span would print its own panel colour. */
-  .nextra-content pre,
-  .nextra-content .nextra-code span {
+  article main pre,
+  article main .nextra-code span {
     background-color: #fff !important;
     color: var(--shiki-light, #000) !important;
   }

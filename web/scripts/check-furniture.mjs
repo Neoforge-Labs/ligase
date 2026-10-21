@@ -14,7 +14,7 @@
  *   - a print stylesheet must force ink on paper, because the site defaults
  *     to near-black and 52,000 words of prose get printed;
  *   - the section counter must restart on every page and must only ever be
- *     incremented by an h2 inside .nextra-content, so a generated page with
+ *     incremented by an h2 inside article main, so a generated page with
  *     no h2 (or one that starts at h3) never shows a stray or zero count;
  *   - body prose stays in the serif; the display face is for h1 and display
  *     titles only.
@@ -25,8 +25,20 @@
  * the default callout is off the brand colour, and that print resets every
  * token a panel is drawn with.
  *
+ * Everything above reads source. The one thing source cannot tell you is
+ * whether the stylesheet attaches to anything, and for the whole life of this
+ * site it did not: it was keyed to `.nextra-content` and
+ * `.nextra-sidebar-container`, which Nextra 4 does not emit, so the serif,
+ * the measure, the heading scale and the section numbers never rendered and
+ * no check noticed. `--built` closes that. It reads the exported HTML and
+ * fails, naming the selector, when globals.css is keyed to a `.nextra-*`
+ * class, a `data-*` attribute or a utility-class fragment that no page
+ * contains, or when no page has an `article main` for the prose rules to
+ * attach to. It needs `out/`, so it runs after the build.
+ *
  * Usage:
- *   node scripts/check-furniture.mjs
+ *   node scripts/check-furniture.mjs             the source checks
+ *   node scripts/check-furniture.mjs --built     the stylesheet against out/
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -49,6 +61,58 @@ try {
 
 // Comments are prose, and prose mentions the very strings we assert on.
 const css = raw.replace(/\/\*[\s\S]*?\*\//g, '')
+
+if (process.argv.includes('--built')) {
+  const out = join(root, 'out')
+  const pages = []
+  const walkHtml = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, e.name)
+      if (e.isDirectory()) {
+        if (e.name !== '_pagefind' && e.name !== '_next') walkHtml(path)
+      } else if (e.name.endsWith('.html')) pages.push(readFileSync(path, 'utf8'))
+    }
+  }
+  try {
+    walkHtml(out)
+  } catch {
+    console.error('FAIL: out/ does not exist; run npm run build first')
+    process.exit(1)
+  }
+  const classes = new Set()
+  const attrs = new Set()
+  let classText = ''
+  for (const html of pages) {
+    for (const m of html.matchAll(/\sclass="([^"]*)"/g)) {
+      classText += ` ${m[1]}`
+      for (const c of m[1].split(/\s+/)) classes.add(c)
+    }
+    for (const m of html.matchAll(/\s(data-[\w-]+)/g)) attrs.add(m[1])
+  }
+  const miss = []
+  // Preludes of every rule, at any depth; at-rules have none worth checking.
+  const preludes = [...css.matchAll(/([^{}]+)\{/g)].map((m) => m[1].trim()).filter((p) => !p.startsWith('@'))
+  for (const prelude of preludes) {
+    for (const c of prelude.matchAll(/\.(nextra-[\w-]+)/g)) {
+      if (!classes.has(c[1])) miss.push(`.${c[1]} (in "${prelude}")`)
+    }
+    for (const a of prelude.matchAll(/\[(data-[\w-]+)/g)) {
+      if (!attrs.has(a[1])) miss.push(`[${a[1]}] (in "${prelude}")`)
+    }
+    for (const f of prelude.matchAll(/\[class\*=['"]([^'"]+)['"]\]/g)) {
+      if (!classText.includes(f[1])) miss.push(`[class*='${f[1]}'] (in "${prelude}")`)
+    }
+  }
+  const withProse = pages.filter((h) => /<article[\s>][\s\S]*<main[\s>]/.test(h)).length
+  if (withProse === 0) miss.push('article main (no page has a <main> inside an <article>)')
+  if (miss.length) {
+    console.error(`check-furniture --built: ${miss.length} selector(s) match nothing in out/`)
+    for (const m of new Set(miss)) console.error(`  FAIL: ${m}`)
+    process.exit(1)
+  }
+  console.log(`check-furniture --built: every .nextra-*, data-* and class-fragment selector matches, and ${withProse} pages have article main`)
+  process.exit(0)
+}
 
 /** The body of the brace block that opens at `openIndex`, or null. */
 function blockAt(text, openIndex) {
@@ -167,7 +231,7 @@ assert(
     has(rules(printCss, 'html, body'), /color:\s*#000\b/),
   'print must force html, body to background: #fff and color: #000',
 )
-for (const sel of ['.lg-grain::before', '.lg-aurora', '.nextra-sidebar-container', '.nextra-toc']) {
+for (const sel of ['.lg-grain::before', '.lg-aurora', '.nextra-sidebar', '.nextra-toc']) {
   assert(
     has(rules(printCss, sel), /display:\s*none/),
     `print must hide ${sel}`,
@@ -180,7 +244,7 @@ assert(
   'print must not hide a bare .lg-grain: it is mounted on body, so that would blank every page',
 )
 assert(
-  has(rules(printCss, '.nextra-content h2::before'), /color:\s*(#000|inherit)\b/),
+  has(rules(printCss, 'article main h2::before'), /color:\s*(#000|inherit)\b/),
   'print must drop the section counter colour to ink',
 )
 
@@ -188,8 +252,8 @@ assert(
 // dark-theme reader would print pale tokens on white unless print pins them to
 // the light theme's.
 assert(
-  has(rules(printCss, '.nextra-content pre, .nextra-content .nextra-code span'), /color:\s*var\(--shiki-light[^;]*!important/) &&
-    has(rules(printCss, '.nextra-content pre, .nextra-content .nextra-code span'), /background-color:\s*#fff\s*!important/),
+  has(rules(printCss, 'article main pre, article main .nextra-code span'), /color:\s*var\(--shiki-light[^;]*!important/) &&
+    has(rules(printCss, 'article main pre, article main .nextra-code span'), /background-color:\s*#fff\s*!important/),
   'print must pin code blocks and their tokens to --shiki-light on white, or a dark-theme reader prints pale tokens',
 )
 
@@ -199,8 +263,8 @@ const resets = [...css.matchAll(/counter-reset:\s*([^;}]+)/g)].map((m) => ({
   names: m[1].trim().split(/\s+/),
 }))
 assert(
-  has(rules(css, '.nextra-content'), /counter-reset:\s*lg-section\s+lg-figure\s*;?/),
-  '.nextra-content must reset lg-section and lg-figure together',
+  has(rules(css, 'article main'), /counter-reset:\s*lg-section\s+lg-figure\s*;?/),
+  'article main must reset lg-section and lg-figure together',
 )
 assert(
   resets.length === 1,
@@ -210,10 +274,10 @@ assert(
 const incSection = [...css.matchAll(/([^{}]+)\{[^{}]*counter-increment:\s*lg-section\b[^{}]*\}/g)]
 assert(incSection.length === 1, `lg-section must be incremented exactly once, found ${incSection.length}`)
 assert(
-  incSection.every((m) => m[1].trim() === '.nextra-content h2::before'),
-  'lg-section must be incremented only by ".nextra-content h2::before"',
+  incSection.every((m) => m[1].trim() === 'article main h2::before'),
+  'lg-section must be incremented only by "article main h2::before"',
 )
-const sectionBefore = rules(css, '.nextra-content h2::before')
+const sectionBefore = rules(css, 'article main h2::before')
 assert(
   has(sectionBefore, /content:\s*'§ '\s*counter\(lg-section,\s*decimal-leading-zero\)\s*;/),
   'the h2 section marker must read "§ NN", with no trailing dash, from lg-section',
@@ -232,7 +296,7 @@ assert(has(figure, /letter-spacing:\s*0\.22em/), '.lg-figure::before must be set
 
 // --- Divergence guard: Playfair is for h1 and display titles only --------
 
-const prose = rules(css, '.nextra-content :is(p, li, dd, blockquote, td, th)')
+const prose = rules(css, 'article main :is(p, li, dd, blockquote, td, th)')
 assert(
   has(prose, /font-family:\s*var\(--lg-font-prose\)/),
   'body prose must stay in var(--lg-font-prose)',
@@ -242,7 +306,7 @@ assert(
   'body prose size must stay var(--lg-prose-size)',
 )
 assert(
-  has(rules(css, '.nextra-content p'), /max-width:\s*var\(--lg-measure\)/),
+  has(rules(css, 'article main p'), /max-width:\s*var\(--lg-measure\)/),
   'body prose measure must stay var(--lg-measure)',
 )
 
@@ -250,10 +314,10 @@ const displayUsers = [...css.matchAll(/([^{}]+)\{[^{}]*font-family:\s*var\(--lg-
   .map((m) => m[1].trim().replace(/\s+/g, ' '))
   .sort()
 assert(
-  JSON.stringify(displayUsers) === JSON.stringify(['.lg-display', '.nextra-content h1']),
+  JSON.stringify(displayUsers) === JSON.stringify(['.lg-display', 'article main h1']),
   `var(--lg-font-display) is for h1 and .lg-display only, found: ${displayUsers.join(' | ') || 'none'}`,
 )
-const h1 = rules(css, '.nextra-content h1')
+const h1 = rules(css, 'article main h1')
 assert(has(h1, /font-weight:\s*400/), 'h1 must be weight 400, the display face\'s lightest')
 assert(has(h1, /letter-spacing:\s*-0\.02em/), 'h1 must set letter-spacing: -0.02em')
 const display = rules(css, '.lg-display')
