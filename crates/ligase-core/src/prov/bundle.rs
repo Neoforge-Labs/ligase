@@ -474,7 +474,7 @@ pub fn write(into: &Path, request: &Request<'_>) -> Result<Summary, BundleError>
                 scope.as_deref().unwrap_or(""),
                 &result.key.to_hex(),
                 note.code(),
-                note.value(),
+                &note.value(),
             ]);
         }
     }

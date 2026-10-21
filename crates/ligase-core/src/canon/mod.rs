@@ -66,7 +66,6 @@
 mod alignment;
 mod fasta;
 mod intervals;
-mod note;
 mod reads;
 mod report;
 mod variants;
@@ -78,7 +77,7 @@ use std::path::Path;
 use crate::hash::ContentHash;
 use crate::types::DataKind;
 
-pub use note::Note;
+pub use crate::note::Note;
 
 /// The version of the canonicalisation rules.
 ///

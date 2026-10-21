@@ -50,6 +50,7 @@ pub mod hash;
 pub mod hivdb;
 pub mod key;
 pub mod load;
+pub mod note;
 pub mod prov;
 pub mod types;
 
