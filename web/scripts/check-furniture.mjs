@@ -239,10 +239,10 @@ assert(
   `var(--lg-font-display) is for h1 and .lg-display only, found: ${displayUsers.join(' | ') || 'none'}`,
 )
 const h1 = rules(css, '.nextra-content h1')
-assert(has(h1, /font-weight:\s*300/), 'h1 must be weight 300')
+assert(has(h1, /font-weight:\s*400/), 'h1 must be weight 400, the display face\'s lightest')
 assert(has(h1, /letter-spacing:\s*-0\.02em/), 'h1 must set letter-spacing: -0.02em')
 const display = rules(css, '.lg-display')
-assert(has(display, /font-weight:\s*300/), '.lg-display must be weight 300')
+assert(has(display, /font-weight:\s*400/), '.lg-display must be weight 400, the display face\'s lightest')
 assert(has(display, /letter-spacing:\s*-0\.02em/), '.lg-display must set letter-spacing: -0.02em')
 
 // --- The header comment must describe the ground the file now uses -------
@@ -342,10 +342,54 @@ for (const kind of ['warning', 'tip', 'caution']) {
   )
 }
 
+// The display face must only be asked for weights layout.tsx loads. Playfair
+// Display starts at 400; a rule asking for 300 builds nothing and falls back
+// silently, and no build can run here to say so.
+const layoutSrc = read('app/layout.tsx')
+const playfairCall = layoutSrc.match(/Playfair_Display\(\{([\s\S]*?)\}\)/)?.[1] ?? ''
+const loadedWeights = [...(playfairCall.match(/weight:\s*\[([^\]]*)\]/)?.[1] ?? '').matchAll(/['"](\d+)['"]/g)].map(
+  (m) => m[1],
+)
+assert(loadedWeights.length > 0, 'layout.tsx must list the Playfair_Display weights it loads')
+assert(
+  loadedWeights.every((w) => Number(w) >= 400),
+  `Playfair Display has no weight below 400; layout.tsx lists ${loadedWeights.join(', ')}`,
+)
+const cssFiles = [
+  ['app/globals.css', css],
+  ...readdirSync(join(root, 'components'))
+    .filter((f) => f.endsWith('.css'))
+    .map((f) => [`components/${f}`, stripComments(read(`components/${f}`))]),
+]
+for (const [file, text] of cssFiles) {
+  for (const m of text.matchAll(/([^{}]+)\{([^{}]*font-family:\s*var\(--lg-font-display\)[^{}]*)\}/g)) {
+    const sel = m[1].trim().replace(/\s+/g, ' ')
+    const weight = m[2].match(/font-weight:\s*(\d+)/)?.[1]
+    assert(weight !== undefined, `${file}: "${sel}" sets the display face without an explicit font-weight`)
+    assert(
+      weight === undefined || loadedWeights.includes(weight),
+      `${file}: "${sel}" asks the display face for weight ${weight}, but layout.tsx loads only ${loadedWeights.join(', ')}`,
+    )
+  }
+}
+
+// The figure label's divider only exists to separate it from what follows.
+for (const [name, text] of [
+  ['Diagnostic', diagnosticCss],
+  ['RunReport', runReportCss],
+]) {
+  const figRule = text.match(/:global\(\.lg-figure\)\s*\{([^}]*)\}/)?.[1] ?? ''
+  assert(!/border-right/.test(figRule), `${name}: the figure label must not carry an unconditional border-right`)
+  assert(
+    /:global\(\.lg-figure\):not\(:last-child\)/.test(text),
+    `${name}: the figure label's divider must be suppressed when nothing follows it`,
+  )
+}
+
 // Stats: measured figures in the display face, still tabular so they align.
 const statValue = rules(statsCss, '.value')
 assert(has(statValue, /font-family:\s*var\(--lg-font-display\)/), 'Stats .value must use the display face')
-assert(has(statValue, /font-weight:\s*300/), 'Stats .value must be weight 300')
+assert(has(statValue, /font-weight:\s*400/), 'Stats .value must be weight 400')
 assert(has(statValue, /tabular-nums/), 'Stats .value must keep tabular-nums')
 
 // Print: every token a panel is drawn with must be reset, not only the neutrals.

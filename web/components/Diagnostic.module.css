@@ -45,9 +45,14 @@
    hairline, that stays on its own rather than wrapping with the note. */
 .bar > :global(.lg-figure) {
   flex: none;
+  line-height: 1.5;
+}
+
+/* The divider and its gap exist to separate the label from what follows, so a
+   label with nothing after it has neither. */
+.bar > :global(.lg-figure):not(:last-child) {
   padding-right: 1rem;
   border-right: 1px solid var(--lg-rule);
-  line-height: 1.5;
 }
 
 .barLeft,

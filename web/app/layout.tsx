@@ -30,10 +30,16 @@ const sourceSerif = Source_Serif_4({
 /*
  * The display face, used only for the wordmark and the largest headings.
  * Its variable name is what --lg-font-display in tokens.css reads.
+ *
+ * Playfair Display is a 400-900 family: 400 is its lightest real weight, and
+ * the Google Fonts API refuses wght@300 outright. (The lighter, differently
+ * drawn face with a 300 is the separate "Playfair" family.) Every rule that
+ * sets the display face must therefore ask for a weight listed here, which
+ * scripts/check-furniture.mjs enforces.
  */
 const playfair = Playfair_Display({
   subsets: ['latin'],
-  weight: ['300', '400'],
+  weight: ['400'],
   style: ['normal', 'italic'],
   display: 'swap',
   variable: '--font-playfair',

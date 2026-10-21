@@ -21,13 +21,13 @@
   align-items: center;
 }
 
-/* The display face at its lightest weight, as `.lg-display` and the h1 are.
+/* The display face at its lightest real weight (400), as `.lg-display` and the h1 are.
    The tracking is the display face's -0.02em: the old -0.038em was drawn for
    a heavy grotesque and would close Playfair's counters up. */
 .title {
   font-family: var(--lg-font-display);
   font-size: clamp(2.35rem, 1.5rem + 3.2vw, 3.65rem) !important;
-  font-weight: 300;
+  font-weight: 400;
   letter-spacing: -0.02em !important;
   line-height: 1.08 !important;
   margin: 0 0 1.1rem !important;
@@ -112,7 +112,7 @@
 .bandTitle {
   font-family: var(--lg-font-display);
   font-size: 1.9rem !important;
-  font-weight: 300;
+  font-weight: 400;
   letter-spacing: -0.02em !important;
   line-height: 1.16 !important;
   margin: 0 0 1rem !important;

@@ -16,7 +16,7 @@
 .word {
   font-family: var(--lg-font-display);
   font-size: 1.375rem;
-  font-weight: 300;
+  font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1;
   color: var(--lg-ink);
