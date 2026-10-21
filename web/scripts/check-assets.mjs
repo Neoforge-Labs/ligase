@@ -6,9 +6,11 @@
  * app/not-found.tsx (the 404). This checks the build output, so it needs
  * `out/` to exist: run `npm run build` first.
  *
- * Next writes the two images WITHOUT a file extension (`out/opengraph-image`,
- * not `out/opengraph-image.png`), so each is identified by its PNG signature
- * and the width and height in its IHDR chunk rather than by its name.
+ * The two images are route handlers in folders named `*.png`, so they export as
+ * `out/opengraph-image.png` and `out/apple-icon.png`. (The file conventions
+ * would write them with no extension.) Each is checked by its PNG signature and
+ * the width and height in its IHDR chunk, and every reference to them in the
+ * emitted HTML must resolve to a file that exists.
  *
  * The dependency check compares package.json with the one at the branch
  * merge-base, not with HEAD: a file compared with itself cannot fail. It is
@@ -20,7 +22,7 @@
  *   node scripts/check-assets.mjs
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -72,57 +74,96 @@ function pngSize(path) {
   return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) }
 }
 
-function checkRaster(label, candidates, width, height) {
-  const found = candidates.map((c) => join(root, 'out', c)).find((p) => existsSync(p))
-  if (!found) {
-    failures.push(`${label}: none of ${candidates.map((c) => `out/${c}`).join(', ')} exists (run npm run build)`)
+function checkRaster(file, width, height) {
+  const path = join(root, 'out', file)
+  if (!existsSync(path)) {
+    failures.push(`out/${file} does not exist (run npm run build)`)
     return
   }
-  const size = pngSize(found)
-  assert(size !== null, `${label}: ${found} is not a PNG`)
+  const size = pngSize(path)
+  assert(size !== null, `out/${file} is not a PNG`)
   if (size) {
     assert(
       size.width === width && size.height === height,
-      `${label}: expected ${width}x${height}, got ${size.width}x${size.height}`,
+      `out/${file}: expected ${width}x${height}, got ${size.width}x${size.height}`,
     )
   }
 }
 
-checkRaster('social card', ['opengraph-image', 'opengraph-image.png', 'opengraph-image/index.png'], 1200, 630)
-checkRaster('apple icon', ['apple-icon', 'apple-icon.png', 'apple-icon/index.png'], 180, 180)
+checkRaster('opengraph-image.png', 1200, 630)
+checkRaster('apple-icon.png', 180, 180)
 
-// ---- the pages that reference them -----------------------------------------
+// GitHub Pages types a response by its extension, and scrapers check
+// Content-Type, so an extensionless image is one they may refuse.
+for (const bare of ['opengraph-image', 'apple-icon']) {
+  assert(!existsSync(join(root, 'out', bare)), `out/${bare} exists without an extension`)
+}
 
-const readOut = (p) => (existsSync(join(root, 'out', p)) ? readFileSync(join(root, 'out', p), 'utf8') : null)
+// ---- every reference to them -----------------------------------------------
 
-const home = readOut('index.html')
-assert(home !== null, 'out/index.html is missing')
-if (home) {
-  // Both tags: the previous site set only twitter:card and so had no card image.
-  assert(/property="og:image" content="[^"]*\/opengraph-image/.test(home), 'index.html has no og:image pointing at /opengraph-image')
-  assert(/name="twitter:image" content="[^"]*\/opengraph-image/.test(home), 'index.html has no twitter:image pointing at /opengraph-image')
-  assert(/property="og:image:width" content="1200"/.test(home), 'og:image:width must be 1200')
-  assert(/property="og:image:height" content="630"/.test(home), 'og:image:height must be 630')
+const OUT = join(root, 'out')
+
+function walk(dir) {
+  const files = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name !== '_pagefind') files.push(...walk(path))
+    } else if (/\.(html|txt)$/.test(entry.name)) files.push(path)
+  }
+  return files
+}
+
+if (existsSync(OUT)) {
+  for (const file of walk(OUT)) {
+    // `/opengraph-image` or `/apple-icon` not followed by `.png` is a
+    // reference to the extensionless file that no longer exists.
+    const text = readFileSync(file, 'utf8')
+    const bad = text.match(/\/(?:opengraph-image|apple-icon)(?!\.png)(?=["'?#\s\\)])/g)
+    if (bad) {
+      failures.push(`${file.slice(OUT.length + 1)} has an extensionless image reference (${bad.length}x)`)
+    }
+  }
+}
+
+const readOut = (p) => (existsSync(join(OUT, p)) ? readFileSync(join(OUT, p), 'utf8') : null)
+
+/** The value of a tag's attribute, or null. */
+const attr = (html, tag, key, keyValue, valueName) =>
+  html.match(new RegExp(`<${tag}[^>]*${key}="${keyValue}"[^>]*${valueName}="([^"]*)"`))?.[1] ??
+  html.match(new RegExp(`<${tag}[^>]*${valueName}="([^"]*)"[^>]*${key}="${keyValue}"`))?.[1] ??
+  null
+
+/** A reference must be absolute on the site's own origin and name a file in out/. */
+function resolvesToFile(ref) {
+  if (ref === null) return false
+  const path = ref.replace(/^https:\/\/ligase\.neoforgelabs\.tech/, '').split(/[?#]/)[0]
+  return path.startsWith('/') && existsSync(join(OUT, path))
+}
+
+for (const page of ['index.html', '404.html', 'concepts/pipelines/index.html']) {
+  const html = readOut(page)
+  if (html === null) {
+    failures.push(`out/${page} is missing`)
+    continue
+  }
+  const og = attr(html, 'meta', 'property', 'og:image', 'content')
+  const tw = attr(html, 'meta', 'name', 'twitter:image', 'content')
+  const apple = attr(html, 'link', 'rel', 'apple-touch-icon', 'href')
+  assert(resolvesToFile(og) && /\.png$/.test(og ?? ''), `${page}: og:image (${og}) does not resolve to a .png in out/`)
+  assert(resolvesToFile(tw) && /\.png$/.test(tw ?? ''), `${page}: twitter:image (${tw}) does not resolve to a .png in out/`)
+  assert(resolvesToFile(apple) && /\.png$/.test(apple ?? ''), `${page}: apple-touch-icon (${apple}) does not resolve to a .png in out/`)
+  assert((html.match(/property="og:image"/g) ?? []).length === 1, `${page}: expected exactly one og:image tag`)
+  assert(/property="og:image:width" content="1200"/.test(html), `${page}: og:image:width must be 1200`)
+  assert(/property="og:image:height" content="630"/.test(html), `${page}: og:image:height must be 630`)
 }
 
 const notFound = readOut('404.html')
-assert(notFound !== null, 'out/404.html is missing')
 if (notFound) {
   assert(/Nothing is bound to this address/.test(notFound), '404.html is not the refusal page')
   assert(/var\(--lg-refuse\)/.test(notFound), '404.html must draw the broken tie in var(--lg-refuse)')
 }
 
-// ---- known gap, reported but not failing -----------------------------------
-// Next adds static icon files to <head> only when metadata.icons is unset, and
-// layout.tsx sets it, so app/apple-icon.tsx is built but never linked. Fixing
-// that means an `apple` entry in layout.tsx, which check-mark.mjs currently
-// forbids. Turn this into an assert once that decision is made.
-const warnings = []
-if (home && !/rel="apple-touch-icon"/.test(home)) {
-  warnings.push('index.html has no <link rel="apple-touch-icon">: apple-icon is built but not linked')
-}
-
-for (const w of warnings) console.warn(`WARN: ${w}`)
 if (failures.length) {
   for (const f of failures) console.error(`FAIL: ${f}`)
   process.exit(1)

@@ -3,18 +3,24 @@ import { ImageResponse } from 'next/og'
 /*
  * The social card, rendered once at build time.
  *
- * `output: 'export'` has no server to render it per request, so Next refuses
- * to build a metadata image route unless it is declared static. The result
- * lands in out/ as a plain PNG.
+ * This is a route handler in a folder named opengraph-image.png, not the
+ * opengraph-image.tsx file convention, on purpose. Under `output: 'export'`
+ * the file convention writes `out/opengraph-image` with no extension, which
+ * GitHub Pages types by extension and so would likely serve as
+ * application/octet-stream, and scrapers check Content-Type. A route handler
+ * whose path ends in .png is exported as `out/opengraph-image.png`. The
+ * convention would also hash the URL and link it itself; here layout.tsx
+ * names it explicitly.
+ *
+ * `output: 'export'` has no server to render it per request, so the route
+ * must be declared static.
  *
  * next/og resolves neither CSS variables nor next/font bindings, so every
  * colour is a literal (the same values as tokens.css and public/icon.svg) and
  * the display face is fetched and handed over through the `fonts` option.
  */
 export const dynamic = 'force-static'
-export const alt = 'Ligase: type-safe, reproducible computational biology pipelines'
-export const size = { width: 1200, height: 630 }
-export const contentType = 'image/png'
+const size = { width: 1200, height: 630 }
 
 const PLATE = '#0A0A0B'
 const CREAM = '#F5F5F0'
@@ -67,6 +73,9 @@ async function loadFonts(text: string): Promise<Font[]> {
     // Both cuts or neither: a card with an upright "ase" is a different card.
     return fonts.length === 2 ? fonts : []
   } catch {
+    // Deliberate: a font CDN outage degrades the card to next/og's bundled
+    // sans rather than failing the build. check-assets cannot see the
+    // difference, so a degraded card is a visual regression to look for.
     return []
   }
 }
@@ -89,7 +98,7 @@ function DisplayMark({ px }: { px: number }) {
   )
 }
 
-export default async function Image() {
+export async function GET() {
   const fonts = await loadFonts(`Ligase${DESCRIPTION}`)
   const serif = fonts.length > 0 ? 'Playfair Display' : 'sans-serif'
 

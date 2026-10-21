@@ -104,7 +104,11 @@ const iconsBlock = layout.match(/icons:\s*\{[\s\S]*?\n  \},/)?.[0] ?? ''
 assert(iconsBlock !== '', 'layout.tsx must declare metadata.icons')
 assert(/'\/favicon\.svg'/.test(iconsBlock), 'metadata.icons must reference /favicon.svg')
 assert(!/'\/icon\.svg'/.test(iconsBlock), 'metadata.icons must not declare /icon.svg (display variant)')
-assert(!/apple/.test(iconsBlock), 'metadata.icons must not set apple; app/apple-icon.tsx owns it')
+// Next links a file-convention icon only when metadata.icons is unset, so the Apple icon must be
+// declared here, and it must be the generated small-variant PNG, never the display icon.svg.
+const appleBlock = iconsBlock.match(/apple:\s*\[[\s\S]*?\]/)?.[0] ?? ''
+assert(/'\/apple-icon\.png'/.test(appleBlock), "metadata.icons.apple must reference '/apple-icon.png'")
+assert(!/icon\.svg/.test(appleBlock), 'metadata.icons.apple must not reference an SVG')
 
 if (failures.length) {
   for (const f of failures) console.error(`FAIL: ${f}`)

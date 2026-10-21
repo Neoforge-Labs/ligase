@@ -3,8 +3,10 @@ import { ImageResponse } from 'next/og'
 /*
  * The home-screen icon, rendered once at build time.
  *
- * Next registers this as <link rel="apple-touch-icon"> by itself, which is why
- * metadata.icons in layout.tsx deliberately has no `apple` entry.
+ * A route handler in a folder named apple-icon.png, not the apple-icon.tsx
+ * file convention, so that the export is `out/apple-icon.png` and not an
+ * extensionless file. Next also links the convention only when metadata.icons
+ * is unset, and layout.tsx sets it, so layout.tsx declares this icon itself.
  *
  * It draws the SMALL variant of the mark (geometry of public/favicon.svg):
  * thicker slabs and a thicker tie, because the display variant's 3.5-unit
@@ -12,10 +14,9 @@ import { ImageResponse } from 'next/og'
  * the plate is full bleed. Colours are literals: next/og reads no CSS.
  */
 export const dynamic = 'force-static'
-export const size = { width: 180, height: 180 }
-export const contentType = 'image/png'
+const size = { width: 180, height: 180 }
 
-export default function AppleIcon() {
+export function GET() {
   return new ImageResponse(
     (
       <div
