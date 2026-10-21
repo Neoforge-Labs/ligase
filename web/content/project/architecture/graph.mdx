@@ -145,7 +145,7 @@ against its own outputs and an unreachable branch is nobody's problem.
 
 ### Requirements come from the graph
 
-`docs/dimensions.md`:
+[The dimension catalogue](/reference/dimensions/):
 
 > Unknown dimensions are allowed only if no downstream step requires them.
 
@@ -203,8 +203,8 @@ sample says *which* step, so it belongs with the step.
 **It is added only where the step's own name is ambiguous.** That condition
 is the whole of it, and getting it wrong in either direction is a bug:
 
-- A name belonging to one step needs nothing. `docs/golden-example.md` fixes
-  the shape as `in step `call`:` and the project treats it as fixed, so a
+- A name belonging to one step needs nothing.
+  [The golden example](/project/golden-example/) fixes the shape as `in step `call`:` and the project treats it as fixed, so a
   suffix identifying nothing a user was struggling to identify is noise on
   the commonest path — and the most common pipeline has no fan-out at all.
 - A name belonging to several needs something that tells *those several*

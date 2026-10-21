@@ -66,10 +66,6 @@ addopts = "-ra --strict-markers --strict-config"
 line-length = 88
 target-version = "py311"
 src = ["python", "tests"]
-# Design docs under docs/ are the specification, not shipped source.
-# Recent ruff formats Python inside fenced Markdown blocks, which would
-# rewrite docs/golden-example.md -- whose shape is deliberately fixed.
-extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["A", "ANN", "B", "C4", "D", "E", "F", "I", "N", "PT", "RUF", "SIM", "UP", "W"]

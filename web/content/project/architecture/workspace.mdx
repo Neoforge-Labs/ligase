@@ -131,14 +131,18 @@ which is a real barrier for the target user. Pre-built wheels via
 with the scaffold; publishing wheels for a package that cannot yet check a
 pipeline would be premature.
 
-**`ruff` does not see `docs/`.** Recent ruff formats Python inside fenced
-Markdown blocks, which means it wants to reformat
-[the golden example](/project/golden-example/) — adding blank lines between
-decorated functions and de-aligning its comments. That document is the
-specification the engine is built to satisfy, and its shape is deliberate, so
-`extend-exclude = ["docs"]` keeps the formatter out of it. The trade is that
-example code in the docs is not machine-checked. Once the API exists, the
-right fix is doctests that actually run, not a formatter that rewrites prose.
+**`ruff` does not reformat the docs.** While the design docs were Markdown
+under `docs/`, ruff wanted to reformat
+[the golden example](/project/golden-example/) — it formats Python inside
+fenced Markdown blocks — adding blank lines between decorated functions and
+de-aligning its comments. That document is the specification the engine is
+built to satisfy and its shape is deliberate, so an `extend-exclude` kept the
+formatter out of it. The pages are MDX now, which ruff does not read at all,
+so the exclusion is gone rather than retargeted. The trade is unchanged for
+that page: its example code is not machine-checked. Where it matters the fix
+was execution rather than formatting — the quickstart's commands and the
+notebooks are run on every docs build, and a page whose output no longer
+matches fails it.
 
 **Four CI jobs, eight job-runs.** The Python gate runs on 3.11 and 3.14
 across Linux and macOS. abi3 means the compiled artifact is not

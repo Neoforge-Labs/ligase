@@ -31,7 +31,7 @@ the bottom of the pipeline.
 
 M4 is therefore less "widen a strict test" than "make the cutoff M3
 described actually hold". The thread-count acceptance criterion in
-`docs/milestones.md` is one instance of it.
+[the milestones](/project/milestones/) is one instance of it.
 
 ## Where it attaches
 
@@ -142,8 +142,8 @@ Header keys dropped: `fileDate`, `fileDay`, `source`, `reference`,
 `GATKCommandLine` and whatever the next tool calls its own.
 
 `##reference` is worth stating separately: it holds a path, and
-`docs/dimensions.md` is explicit that reference identity never rests on a
-filename. `load::variants` already refuses to read identity from it. The
+[the dimension catalogue](/reference/dimensions/) is explicit that reference identity never
+rests on a filename. `load::variants` already refuses to read identity from it. The
 `##contig` lines carry it, and they are kept.
 
 `INFO` and `FORMAT` definitions keep their ID, `Number` and `Type` and drop
