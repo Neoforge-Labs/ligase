@@ -9,16 +9,16 @@
 //!   pairs in [`required_pair`], where a disagreement would silently corrupt
 //!   results.
 //!
-//! `docs/dimensions.md` says unknown dimensions are allowed only if no
-//! downstream step requires them. Checking one step in isolation has no
-//! downstream, so [`check_step`] takes "required" from the kinds being
+//! `web/content/reference/dimensions.mdx` says unknown dimensions are allowed
+//! only if no downstream step requires them. Checking one step in isolation
+//! has no downstream, so [`check_step`] takes "required" from the kinds being
 //! joined. A whole pipeline does have one: [`crate::graph`] uses
 //! [`disagreements`] and [`requires`] to decide for itself, and attributes a
 //! gap to the input that has to declare it rather than to the step that
 //! tripped over it. The split is what lets the golden example work:
 //! `lg.samples()` takes no organism, and `align` is the step that
-//! *introduces* the reference, so demanding a declared organism on the
-//! FASTQs would break a documented API for no safety gain.
+//! *introduces* the reference, so demanding a declared organism on the FASTQs
+//! would break a documented API for no safety gain.
 //!
 //! Erring toward demands would be the worse failure. A checker that cries
 //! wolf gets bypassed, and a bypassed checker catches nothing.
@@ -120,7 +120,7 @@ impl fmt::Display for Scope {
 ///
 /// The rendered message names the step, both conflicting values, where each
 /// value came from, and asks a leading question — the shape specified at the
-/// end of `docs/golden-example.md`.
+/// end of `web/content/project/golden-example.mdx`.
 #[derive(Clone, Debug)]
 pub struct CheckError {
     kind: ErrorKind,
@@ -351,8 +351,9 @@ fn is_required(dimension: Dimension, applicable: &[&Binding]) -> bool {
 /// Deliberately narrow. Organism, for instance, is absent from every pair
 /// involving a reference: reference identity already implies it, so demanding
 /// a declaration would add a hurdle without adding safety. Quality encoding
-/// is absent too, because `docs/dimensions.md` gives no way to declare it —
-/// requiring something a user cannot supply would be an unsatisfiable check.
+/// is absent too, because `web/content/reference/dimensions.mdx` gives no way
+/// to declare it — requiring something a user cannot supply would be an
+/// unsatisfiable check.
 #[must_use]
 pub const fn required_pair(left: DataKind, right: DataKind) -> &'static [Dimension] {
     use DataKind as K;
@@ -735,11 +736,12 @@ pub fn step_type_error(
 
 /// A dimension a step requires is unknown, attributed to where the gap began.
 ///
-/// `docs/dimensions.md` allows an unknown dimension unless a downstream step
-/// requires it, so this error exists only because some step does. It names
-/// the step that requires it and the data that has to declare it, which for
-/// a value that travelled through the graph are two different places —
-/// pointing only at the step would send the user to a file they cannot fix.
+/// `web/content/reference/dimensions.mdx` allows an unknown dimension unless
+/// a downstream step requires it, so this error exists only because some step
+/// does. It names the step that requires it and the data that has to declare
+/// it, which for a value that travelled through the graph are two different
+/// places — pointing only at the step would send the user to a file they
+/// cannot fix.
 #[must_use]
 pub fn undeclared_at(
     step: &str,

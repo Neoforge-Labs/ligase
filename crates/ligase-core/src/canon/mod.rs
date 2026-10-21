@@ -28,15 +28,16 @@
 //!
 //! # Which formats sort, and which keep their order
 //!
-//! This is decided by [D14](../../../docs/decisions.md), which already drew
-//! the line for the dimension checker: a *sequence dictionary's* contig
-//! order is semantic, because GATK requires two of them to agree on it,
-//! while a BED's record order is "whatever order the intervals were sorted
-//! in". So a reference's contigs and a SAM's `@SQ` lines keep their order,
-//! and alignment records, variant records, intervals, reads and report rows
-//! are sorted. Sorting is over each record's digest rather than its text:
-//! 32 bytes a record instead of a few hundred, and a sorted list of digests
-//! is still a claim about the whole multiset, duplicates included.
+//! This is decided by
+//! [D14](https://ligase.neoforgelabs.tech/project/decisions/), which already
+//! drew the line for the dimension checker: a *sequence dictionary's* contig
+//! order is semantic, because GATK requires two of them to agree on it, while
+//! a BED's record order is "whatever order the intervals were sorted in". So
+//! a reference's contigs and a SAM's `@SQ` lines keep their order, and
+//! alignment records, variant records, intervals, reads and report rows are
+//! sorted. Sorting is over each record's digest rather than its text: 32
+//! bytes a record instead of a few hundred, and a sorted list of digests is
+//! still a claim about the whole multiset, duplicates included.
 //!
 //! # What a file that will not parse hashes as
 //!

@@ -7,10 +7,10 @@
 //! format instead of lenient about a large one.
 //!
 //! Strict means every line is understood or the file is refused. That is
-//! [D21](../../../docs/decisions.md)'s rule applied to a ruleset: a reader
-//! that skipped what it did not recognise would silently drop a drug, and a
-//! dropped drug reads as "susceptible" — a false negative in the direction
-//! that matters.
+//! [D21](https://ligase.neoforgelabs.tech/project/decisions/)'s rule applied
+//! to a ruleset: a reader that skipped what it did not recognise would
+//! silently drop a drug, and a dropped drug reads as "susceptible" — a false
+//! negative in the direction that matters.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -62,11 +62,12 @@ pub const DEFAULT: &str = "HIVDB_9.8";
 /// moved only with the name would serve a result computed under rules
 /// that have since changed.
 ///
-/// Every vendored algorithm is named, not only the one in use, because
-/// the probe runs before any step body has said which it wants. That is
-/// over-conservative: editing 10.2 reruns a pipeline pinned to 9.8. It is
-/// the direction [D20](../../../docs/decisions.md) already commits to — a
-/// cache that is too cold costs time, one that is too warm is wrong.
+/// Every vendored algorithm is named, not only the one in use, because the
+/// probe runs before any step body has said which it wants. That is
+/// over-conservative: editing 10.2 reruns a pipeline pinned to 9.8. It is the
+/// direction [D20](https://ligase.neoforgelabs.tech/project/decisions/)
+/// already commits to — a cache that is too cold costs time, one that is too
+/// warm is wrong.
 ///
 /// # Errors
 ///

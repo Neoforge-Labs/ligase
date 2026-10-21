@@ -60,10 +60,10 @@ impl DataKind {
 
     /// Whether a dimension means anything for this kind.
     ///
-    /// This encodes the `n/a` cells of the table in `docs/dimensions.md`. A
-    /// dimension that does not apply is never compared and never demanded:
-    /// asking a FASTA for its quality encoding is not a gap to be filled, it
-    /// is a category error.
+    /// This encodes the `n/a` cells of the table in
+    /// `web/content/reference/dimensions.mdx`. A dimension that does not
+    /// apply is never compared and never demanded: asking a FASTA for its
+    /// quality encoding is not a gap to be filled, it is a category error.
     #[must_use]
     pub const fn applies(self, dimension: Dimension) -> bool {
         match (self, dimension) {

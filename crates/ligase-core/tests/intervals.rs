@@ -199,8 +199,8 @@ fn organism_on_intervals_is_declared_not_inferred() {
 
 #[test]
 fn sample_set_does_not_apply_to_intervals() {
-    // `docs/dimensions.md` marks sample_set n/a for BED and GFF: an interval
-    // file describes regions, not samples.
+    // `web/content/reference/dimensions.mdx` marks sample_set n/a for BED and
+    // GFF: an interval file describes regions, not samples.
     assert!(!DataKind::Intervals.applies(Dimension::SampleSet));
     assert!(!DataKind::Intervals.applies(Dimension::Pairing));
     assert!(!DataKind::Intervals.applies(Dimension::QualityEncoding));

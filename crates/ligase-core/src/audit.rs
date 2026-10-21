@@ -1,11 +1,11 @@
 //! Running a step twice, and saying whether it is reproducible.
 //!
-//! `CLAUDE.md` asks for an audit mode, and `docs/golden-example.md` gives
-//! it a command: `ligase audit <step>`. The question it answers is not
-//! "does this pipeline work" but "if I ran this again, would I get the same
-//! answer" — which is the question a reviewer asks, and the one nothing
-//! else here can answer, because a cache is in the business of *not*
-//! running things twice.
+//! `CLAUDE.md` asks for an audit mode, and
+//! `web/content/project/golden-example.mdx` gives it a command: `ligase audit
+//! <step>`. The question it answers is not "does this pipeline work" but "if
+//! I ran this again, would I get the same answer" — which is the question a
+//! reviewer asks, and the one nothing else here can answer, because a cache
+//! is in the business of *not* running things twice.
 //!
 //! # Why there are three verdicts and not two
 //!

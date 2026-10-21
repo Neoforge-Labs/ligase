@@ -31,12 +31,12 @@
 //! none, and a name belonging to several gets one only if it tells them
 //! apart.
 //!
-//! **Patience, then attribution.** `docs/dimensions.md` allows an unknown
-//! dimension *unless a downstream step requires it*. A sample set that
-//! nothing joins on is nobody's problem, and demanding it anyway would be a
-//! false alarm. When a step does require one, the error is reported against
-//! the input that has to declare it rather than the step that tripped over
-//! it, once, however many steps the gap travelled through.
+//! **Patience, then attribution.** `web/content/reference/dimensions.mdx`
+//! allows an unknown dimension *unless a downstream step requires it*. A
+//! sample set that nothing joins on is nobody's problem, and demanding it
+//! anyway would be a false alarm. When a step does require one, the error is
+//! reported against the input that has to declare it rather than the step
+//! that tripped over it, once, however many steps the gap travelled through.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::error::Error;
@@ -303,9 +303,9 @@ impl Graph {
     /// on.
     ///
     /// A name belonging to one step needs nothing. The shape
-    /// `docs/golden-example.md` specifies is `in step `call`:`, and a suffix
-    /// that identifies nothing a user was struggling to identify is noise on
-    /// the commonest path.
+    /// `web/content/project/golden-example.mdx` specifies is `in step
+    /// `call`:`, and a suffix that identifies nothing a user was struggling
+    /// to identify is noise on the commonest path.
     ///
     /// A name belonging to several needs something that tells *those* apart,
     /// which is the sample under per-sample fan-out. Where it is not — two

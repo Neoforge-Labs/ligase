@@ -6,10 +6,10 @@
 //! what went into it, re-sourced as coming from that step. That is what lets
 //! a mistake three steps downstream still name the file that caused it.
 //!
-//! The second is **patience**. `docs/dimensions.md` allows an unknown
-//! dimension unless a downstream step requires it. The graph is what makes
-//! that sentence mean something: a sample set nobody joins on is nobody's
-//! problem, and demanding it anyway would be a false alarm.
+//! The second is **patience**. `web/content/reference/dimensions.mdx` allows
+//! an unknown dimension unless a downstream step requires it. The graph is
+//! what makes that sentence mean something: a sample set nobody joins on is
+//! nobody's problem, and demanding it anyway would be a false alarm.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
@@ -448,8 +448,8 @@ fn a_kind_error_replaces_the_step_s_dimension_errors_rather_than_adding_to_them(
 #[test]
 fn an_unknown_dimension_nothing_requires_is_nobody_s_problem() {
     // The alignment has no @RG lines, so its sample set is unknown. Nothing
-    // in this pipeline joins two sample sets, so there is nothing to
-    // declare and nothing to report. `docs/dimensions.md`: unknown
+    // in this pipeline joins two sample sets, so there is nothing to declare
+    // and nothing to report. `web/content/reference/dimensions.mdx`: unknown
     // dimensions are allowed *if no downstream step requires them*.
     let mut graph = Graph::new();
     let aligned = graph.add_input("aln", alignment("tiny_no_rg.sam"));
@@ -881,8 +881,8 @@ fn errors_that_cannot_name_themselves_are_never_collapsed() {
 
 #[test]
 fn a_unique_step_name_reads_exactly_as_the_specification_says() {
-    // Regression. `docs/golden-example.md` fixes this shape and the project
-    // treats it as fixed:
+    // Regression. `web/content/project/golden-example.mdx` fixes this shape
+    // and the project treats it as fixed:
     //
     //     DimensionError in step `call`:
     //       aln.reference = ...
