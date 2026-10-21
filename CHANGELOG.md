@@ -24,12 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   class name, with the hierarchy as a tree — the useful cut being that a
   `CheckError` cost milliseconds and anything else cost a run — and a closing
   section on what `check` cannot tell you.
-- **A second documentation site, in Nextra, under `web/`.** Built and checked
-  by a new `Docs site (Nextra)` workflow that deliberately does not deploy:
-  ligase.neoforgelabs.tech is still served by MkDocs from `docs/`, and stays
-  that way until the switch is made. A pilot for a house style across the
-  NeoForge Labs projects, so it is a custom design rather than a themed
-  install: serif body text at a 72-character measure, a four-colour signal
+- **A new documentation site, in Nextra, under `web/`.** It is what serves
+  ligase.neoforgelabs.tech, built, link-checked and deployed by the `Docs`
+  workflow. A pilot for a house style across the NeoForge Labs projects, so it
+  is a custom design rather than a themed install: serif body text at a 72-character measure, a four-colour signal
   palette that means what the engine means, and components that render the
   engine's own voice — `<Diagnostic>` sets a diagnostic the way rustc does,
   with the mismatched values in a shared column so the mismatch lines up, and
@@ -61,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   that does not exist on its target, and a page nothing links to. It also
   catches the class `--strict` missed: a reference-style link whose definition
   is absent is not a broken link to Markdown but literal text, which is how a
-  broken link survived in `docs/decisions.md`.
+  broken link survived in the design decisions.
 - **Case pages for what has actually been run**: the HIV-1 validation as a
   worked case, and a note that SAWA is evaluating Ligase for drug-resistance
   surveillance. Both say plainly that the project has no outside users.
@@ -72,21 +70,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Python, so they run as notebooks or scripts, and the docs build executes
   every one of them: an example that no longer works fails the build instead
   of misleading a reader. The first three need no data and no aligner.
-- **An API reference** generated from the package's docstrings with
-  mkdocstrings, grouped by what you are trying to do, and a **licence page**
-  recording the vendored algorithm's provenance.
-- **A docs site that actually publishes.** `mkdocs build --strict` ran in CI
-  but nothing ever deployed, so the configured Pages URL had never served
-  anything. A `Docs` workflow now builds and deploys to GitHub Pages, with
-  `docs/CNAME` for `ligase.neoforgelabs.tech`.
+- **An API reference** generated from the package's docstrings, grouped by
+  what you are trying to do, and a **licence page** recording the vendored
+  algorithm's provenance.
+- **A docs site that actually publishes.** The docs build ran in CI but
+  nothing ever deployed, so the configured Pages URL had never served
+  anything. The `Docs` workflow now builds and deploys to GitHub Pages at
+  `ligase.neoforgelabs.tech`.
 
 ### Changed
 
-- The docs now match the other NeoForge Labs sites: author and copyright,
-  `navigation.instant` and `navigation.tracking`, the `search` plugin, and a
-  nav ending in the API reference and the licence. mkdocstrings reads
-  google-style docstrings here, which is the convention ruff enforces for this
-  package, rather than the numpy style the sibling repositories use.
+- The docs carry the same author and copyright as the other NeoForge Labs
+  sites, and the API reference is generated from google-style docstrings,
+  which is the convention ruff enforces for this package, rather than the
+  numpy style the sibling repositories use.
 - `Step.output` and `Step.parameters` are documented. Both are public and
   neither appeared in `Step`'s `Attributes:` section; the new API generator
   refused to build until they did, which is the point of it.
@@ -100,8 +97,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   walkthrough was unrunnable from a wheel; "Semantic hashing and `ligase
   audit`" and "Reading what the engine noticed" were named after mechanisms
   and are now "Checking that a step repeats" and "Fixing a noticed line".
-  These fourteen are the first pages whose MDX is the source rather than
-  `docs/`.
 - **The new site is organised by what a reader is doing, not by how the
   project is built.** Milestones, design decisions, internals, the project
   layout, the validation record and the release process all sat in a reader's
@@ -115,12 +110,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   publishing five abi3 wheels. It is now `pip install ligase-bio`; the source
   build, the nine-check gate, the demo data and the docs build moved to
   `project/building.mdx`. **The MkDocs site still carries the stale claim.**
-- The documentation rule in `CLAUDE.md` describes both sites and what the
-  Nextra one generates rather than stores, and the `docs` extra in
-  `pyproject.toml` separates the MkDocs dependencies — to be removed at the
-  switch — from `marimo`, which both sites need. `mypy --strict` now covers
+- The documentation rule in `CLAUDE.md` points at `web/content/` and says
+  what the site generates rather than stores, and the `docs` extra in
+  `pyproject.toml` is down to `marimo`. `mypy --strict` now covers
   `web/scripts`, the code most likely to break on an API change and least
   likely to be covered by a test.
+
+- **The live site is the Nextra one.** `ligase.neoforgelabs.tech` is built
+  from `web/` and deployed by a single `Docs` workflow, which never publishes
+  from a pull request, queues deploys in the `pages` concurrency group, and
+  puts `.nojekyll` in the artifact — a static Next.js export keeps every asset
+  under `_next/`, which Jekyll would drop. The custom domain is untouched: it
+  is configured on the repository's Pages REST endpoint, where a `CNAME` file
+  in the artifact would have no effect.
+- The ninth check of the gate is `npm run check` in `web/` rather than
+  `mkdocs build --strict`. It regenerates, builds, and then fails on a broken
+  link, a dangling anchor, a page nothing links to, or a Markdown link that
+  never resolved.
+
+### Removed
+
+- **The MkDocs site.** `docs/`, `mkdocs.yml`, the `docs.yml` workflow and the
+  `mkdocs`, `mkdocs-material` and `mkdocstrings` entries in the `docs` extra
+  are gone; `marimo` stays, because the notebooks still need it. The MDX under
+  `web/content/` is the source for every page now, so the design docs are
+  `project/decisions.mdx`, `project/milestones.mdx`,
+  `project/golden-example.mdx` and `reference/dimensions.mdx`, and the
+  citations of them in the Rust and Python sources point there.
+- `web/scripts/port_docs.py` and `web/scripts/gen_meta.py`, the two migration
+  aids that carried pages and nav order over from `docs/`. They ran for the
+  last time before `docs/` was deleted, and there is nothing left to port.
 
 ### Fixed
 
