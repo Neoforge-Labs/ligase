@@ -135,8 +135,16 @@ article main :is(h2, h3, h4):hover a[href^='#']::after {
 
 /* Nextra puts utility classes on every link it renders, so `a:not([class])`
    matches almost nothing. Prose links are the anchors inside running text;
-   the heading permalink and the components' own links are not. */
-article main :is(p, li, dd, td, th, blockquote) a:not(.subheading-anchor) {
+   the heading permalink and the components' own links are not.
+
+   The second selector keys to the utility Nextra paints a link with
+   (`x:text-primary-600`, whose value comes from Nextra's own lightness ramp
+   rather than our tokens, and which a visual sweep measured at the brand
+   orange, 3.15:1 on cream, in light mode), so no link can keep it. check-furniture --built asserts that
+   every such utility in the built HTML is covered here by a token that
+   passes AA. */
+article main :is(p, li, dd, td, th, blockquote) a:not(.subheading-anchor),
+article main a[class*='x:text-primary-600'] {
   color: var(--lg-brand);
   text-decoration: underline;
   text-decoration-thickness: 1px;
@@ -145,7 +153,8 @@ article main :is(p, li, dd, td, th, blockquote) a:not(.subheading-anchor) {
   transition: text-decoration-color 120ms ease, color 120ms ease;
 }
 
-article main :is(p, li, dd, td, th, blockquote) a:not(.subheading-anchor):hover {
+article main :is(p, li, dd, td, th, blockquote) a:not(.subheading-anchor):hover,
+article main a[class*='x:text-primary-600']:hover {
   color: var(--lg-brand-hover);
   text-decoration-color: var(--lg-brand);
 }
@@ -289,6 +298,18 @@ article main h2::before {
   letter-spacing: 0.28em;
   line-height: 1;
   color: var(--lg-brand);
+}
+
+/* A heading that numbers itself ("## 1. Two files ...", the quickstart's
+   steps) is not given a second number. Nextra's id for it starts with the
+   digit, so the marker is hidden by id. It is hidden, not removed: the
+   pseudo-element is still generated, so the counter still advances and the
+   next unnumbered section is § 07, not § 01; `visibility: hidden` also keeps
+   the marker out of the accessibility tree. */
+article main h2:is([id^='0-'], [id^='1-'], [id^='2-'], [id^='3-'], [id^='4-'], [id^='5-'], [id^='6-'], [id^='7-'], [id^='8-'], [id^='9-'])::before {
+  visibility: hidden;
+  height: 0;
+  margin: 0;
 }
 
 /* Diagnostic and RunReport carry this class on their figure label; the

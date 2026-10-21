@@ -33,8 +33,9 @@
  * no check noticed. `--built` closes that. It reads the exported HTML and
  * fails, naming the selector, when globals.css is keyed to a `.nextra-*`
  * class, a `data-*` attribute or a utility-class fragment that no page
- * contains, or when no page has an `article main` for the prose rules to
- * attach to. It needs `out/`, so it runs after the build.
+ * contains, when no page has an `article main` for the prose rules to
+ * attach to, or when an inline link's colour is not set by a token that clears
+ * 4.5:1 on every prose surface in both themes. It needs `out/`, so it runs after the build.
  *
  * Usage:
  *   node scripts/check-furniture.mjs             the source checks
@@ -43,6 +44,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { contrast, parseTokens } from './check-contrast.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -103,6 +105,46 @@ if (process.argv.includes('--built')) {
       if (!classText.includes(f[1])) miss.push(`[class*='${f[1]}'] (in "${prelude}")`)
     }
   }
+  // Links. Nextra paints every link it renders with a primary-colour utility
+  // (`x:text-primary-600`) whose value comes from its own lightness ramp, not
+  // from our tokens, and in light mode that resolved to the brand orange at
+  // 3.15:1 on cream, which fails AA for text. So a link must be covered by a
+  // rule of ours, keyed to that utility, that sets a token; and that token
+  // must reach 4.5:1 on every surface prose sits on, in both themes. This is a
+  // static model of the cascade, since there is no browser in the gate: it
+  // proves a rule exists for every utility the built HTML puts on a link, and
+  // that the rule's colour passes. (check-contrast.mjs checks token values and
+  // never which token a rendered rule uses; this is the other half.)
+  const linkUtilities = new Set()
+  let linkCount = 0
+  for (const html of pages) {
+    if (!/<article[\s>][\s\S]*<main[\s>]/.test(html)) continue
+    const main = html.slice(html.indexOf('<main'), html.indexOf('</main>'))
+    for (const a of main.matchAll(/<a\s[^>]*class="([^"]*)"[^>]*>/g)) {
+      const utilities = a[1].split(/\s+/).filter((c) => /^x:text-primary-\d+$/.test(c))
+      if (utilities.length) linkCount += 1
+      for (const u of utilities) linkUtilities.add(u)
+    }
+  }
+  const { light: lightTokens, dark: darkTokens } = parseTokens(readFileSync(join(root, 'app/tokens.css'), 'utf8'))
+  for (const u of linkUtilities) {
+    const rule = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(
+      (m) => m[1].includes(`[class*='${u}']`) && !m[1].includes(':hover'),
+    )
+    const token = rule?.[2].match(/(?:^|[;\s])color:\s*var\(--(lg-[\w-]+)\)/)?.[1]
+    if (!token) {
+      miss.push(`links carry ${u} but globals.css has no rule keyed to [class*='${u}'] that sets color to a token`)
+      continue
+    }
+    for (const [mode, tokens] of [['light', lightTokens], ['dark', darkTokens]]) {
+      for (const surface of ['lg-paper', 'lg-paper-raised', 'lg-paper-sunken']) {
+        const ratio = contrast(tokens[token.replace(/^lg-/, '')] ?? tokens[token], tokens[surface.replace(/^lg-/, '')] ?? tokens[surface])
+        if (ratio < 4.5) miss.push(`inline links (${u}) use --${token}, which is ${ratio.toFixed(2)}:1 on --${surface} in ${mode}; AA needs 4.5:1`)
+      }
+    }
+  }
+  if (linkCount === 0) miss.push('no prose link in the built HTML carries a primary-colour utility; the link check is looking at nothing')
+
   const withProse = pages.filter((h) => /<article[\s>][\s\S]*<main[\s>]/.test(h)).length
   if (withProse === 0) miss.push('article main (no page has a <main> inside an <article>)')
   if (miss.length) {
@@ -110,7 +152,7 @@ if (process.argv.includes('--built')) {
     for (const m of new Set(miss)) console.error(`  FAIL: ${m}`)
     process.exit(1)
   }
-  console.log(`check-furniture --built: every .nextra-*, data-* and class-fragment selector matches, and ${withProse} pages have article main`)
+  console.log(`check-furniture --built: every .nextra-*, data-* and class-fragment selector matches, ${withProse} pages have article main, and ${linkCount} prose links are covered by an AA-passing rule`)
   process.exit(0)
 }
 
