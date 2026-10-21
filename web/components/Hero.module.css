@@ -1,8 +1,19 @@
 .hero {
+  /* The aurora is absolutely positioned and blurred 60px: its parent must clip
+     it, or the blur spills past the page and scrolls it sideways. `isolate`
+     gives the hero its own stacking context so the aurora can sit behind the
+     text without sinking behind the page. */
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
   padding-block: 1rem 0.5rem;
   border-bottom: 1px solid var(--lg-rule);
   margin-bottom: 2.4rem;
   padding-bottom: 2.2rem;
+}
+
+.hero > :global(.lg-aurora) {
+  z-index: -1;
 }
 
 /* Status, set in mono so it reads as a fact rather than a badge. The same

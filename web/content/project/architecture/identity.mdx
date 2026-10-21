@@ -138,13 +138,15 @@ numbered.
 - **Eyebrows** are `.lg-eyebrow`: 10px mono, 0.28em tracking, uppercase, in
   the brand colour. A quieter sibling, `.lg-mono`, is 11px, 0.22em, in muted
   ink, and is what a UI label uses.
-- **Grain and aurora** are two atmosphere layers, both opt-in classes. The
+- **Grain and aurora** are two atmosphere layers, two classes. The
   grain, `.lg-grain`, is a fixed 256px tile of fractal noise at 3.5% opacity.
   It is noise, not orange. The aurora, `.lg-aurora`, is three orange radial
   gradients at 8%, 5% and 4% under a 60px blur; its parent must be
   `position: relative` with `overflow: hidden`, or the blur spills out and
-  causes horizontal scroll. At the time of writing no page opts in to either.
-  Both switch off under `prefers-reduced-motion` and in print.
+  causes horizontal scroll. The grain is mounted globally, on `body` in
+  `layout.tsx`; the aurora is mounted on the landing page's hero, whose
+  stylesheet supplies the clipping parent. Both switch off under
+  `prefers-reduced-motion` and in print.
 
 The landing page is not a numbered section of the journal. Its bands render an
 `h2`, and `content/_meta.ts` gives the page `layout: 'full'` with no sidebar or

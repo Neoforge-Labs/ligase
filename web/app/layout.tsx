@@ -111,7 +111,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <meta name="theme-color" content="#f5f5f0" media="(prefers-color-scheme: light)" />
         <meta name="theme-color" content="#0a0a0b" media="(prefers-color-scheme: dark)" />
       </Head>
-      <body>
+      <body className="lg-grain">
         <Layout
           navbar={navbar}
           footer={footer}

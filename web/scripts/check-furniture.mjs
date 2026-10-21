@@ -437,6 +437,23 @@ assert(
   "a Band's heading must not pick up the global section marker",
 )
 
+// Atmosphere that nothing mounts is dead CSS the identity page would still be
+// describing. Both classes must be used by markup, and the aurora's parent must
+// clip it.
+const markup = [
+  read('app/layout.tsx'),
+  ...readdirSync(join(root, 'components'))
+    .filter((f) => f.endsWith('.tsx'))
+    .map((f) => read(`components/${f}`)),
+].join('\n')
+assert(/className="[^"]*\blg-grain\b/.test(read('app/layout.tsx')), 'layout.tsx must mount .lg-grain on body')
+assert(/className="[^"]*\blg-aurora\b/.test(markup), '.lg-aurora must be mounted by a component')
+const heroCss = stripComments(read('components/Hero.module.css'))
+assert(
+  has(rules(heroCss, '.hero'), /position:\s*relative/) && has(rules(heroCss, '.hero'), /overflow:\s*hidden/),
+  "the aurora's parent (.hero) must be position: relative with overflow: hidden",
+)
+
 // Comments that were corrected must stay corrected.
 const tokensHeader = read('app/tokens.css').match(/^\s*\/\*[\s\S]*?\*\//)?.[0] ?? ''
 assert(!/3\.13:1/.test(tokensHeader) && /3\.15:1/.test(tokensHeader), 'tokens.css must quote 3.15:1 for brand on cream')
