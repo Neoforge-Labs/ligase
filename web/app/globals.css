@@ -1,3 +1,27 @@
+/*
+ * Ligase base styles and journal furniture.
+ *
+ * The ground is near-black and the ink is cream, taken from Neoforge Labs so
+ * the docs read as part of the same house. Cream is kept as the light theme
+ * because this is 52,000 words of long-form reading, and because people
+ * print it: the print stylesheet at the foot of this file forces black ink on
+ * white paper whatever theme the reader is in. Every colour here is a token
+ * from tokens.css; nothing in this file picks a hue of its own except the
+ * grain and the aurora, which are the brand orange at a few percent.
+ *
+ * Type has three voices. Playfair is the display face and sets h1 and the
+ * large titles only: its hairlines vanish at body size. Source Serif sets the
+ * prose at a 72ch measure, a deliberate divergence from the brand's use of
+ * Playfair, because prose this long should be set like prose. Geist and Geist
+ * Mono carry the interface, the eyebrows and the numbering.
+ *
+ * The furniture is what makes a page read as a journal rather than a themed
+ * Nextra site: `.lg-eyebrow` and `.lg-mono` for labels, a `§ NN` marker on
+ * every h2, a `FIG. NN` counter for figures, and the `.lg-grain` and
+ * `.lg-aurora` atmosphere layers. Both counters reset on `.nextra-content`,
+ * so they restart on every page and cannot drift apart.
+ */
+
 @import './tokens.css';
 
 /* ===================================================================
@@ -49,9 +73,10 @@ body {
 }
 
 .nextra-content h1 {
+  font-family: var(--lg-font-display);
   font-size: clamp(2.1rem, 1.6rem + 1.8vw, 2.9rem);
-  font-weight: 680;
-  letter-spacing: -0.032em;
+  font-weight: 300;
+  letter-spacing: -0.02em;
   line-height: 1.08;
   margin-block: 0 0.65em;
   max-width: 30ch;
@@ -198,6 +223,105 @@ body {
   border: none;
   border-top: 1px solid var(--lg-rule);
   margin-block: 3em;
+}
+
+/* ===================================================================
+   Journal furniture
+   -------------------------------------------------------------------
+   Type and numbering lifted from Neoforge Labs. Values are measured from
+   its source, not approximated: the tracking and sizes below are exact.
+   scripts/check-furniture.mjs holds them to those values.
+   =================================================================== */
+
+/* A section label: small, wide-tracked, in the brand colour. */
+.lg-eyebrow {
+  font-family: var(--lg-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  color: var(--lg-brand);
+}
+
+/* A UI label: the same voice, quieter. */
+.lg-mono {
+  font-family: var(--lg-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--lg-ink-muted);
+}
+
+/* The display face for hero and band titles. h1 gets it above; this is the
+   same voice for titles that are not an h1. Never for prose. */
+.lg-display {
+  font-family: var(--lg-font-display);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+}
+
+/* ---- Numbering ----
+   Both counters reset on .nextra-content, so they restart on every page.
+   Only an h2 inside .nextra-content increments lg-section, and the number
+   is printed by the same pseudo-element that increments it, so the marker
+   can never read 00 and a page with no h2 (the generated API, CLI and
+   notebook pages are shaped by their generators) shows no marker at all. */
+
+.nextra-content {
+  counter-reset: lg-section lg-figure;
+}
+
+.nextra-content h2::before {
+  counter-increment: lg-section;
+  content: '§ ' counter(lg-section, decimal-leading-zero) ' — ';
+  display: block;
+  margin-bottom: 0.7rem;
+  font-family: var(--lg-font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  line-height: 1;
+  color: var(--lg-brand);
+}
+
+/* Task 5 puts this class on a figure caption; the counter lives here so it
+   sits beside lg-section and resets with it. */
+.lg-figure::before {
+  counter-increment: lg-figure;
+  content: 'FIG. ' counter(lg-figure, decimal-leading-zero);
+  font-family: var(--lg-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--lg-ink-muted);
+}
+
+/* ---- Atmosphere ----
+   Grain is a fixed 256px fractal-noise tile at 3.5% opacity; the aurora is
+   three orange radials under a 60px blur. Both are decoration, both are
+   inert to the pointer, and both switch off for reduced motion and print. */
+
+.lg-grain::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
+}
+
+.lg-aurora {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(40% 50% at 20% 10%, rgb(227 100 20 / 0.08), transparent 70%),
+    radial-gradient(35% 45% at 80% 20%, rgb(227 100 20 / 0.05), transparent 70%),
+    radial-gradient(45% 40% at 50% 90%, rgb(227 100 20 / 0.04), transparent 70%);
+  filter: blur(60px);
 }
 
 /* ===================================================================
@@ -401,5 +525,59 @@ footer {
   *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+  }
+
+  /* A fixed full-viewport noise overlay is motion-adjacent and a known
+     migraine trigger, so it goes rather than slowing down. */
+  .lg-grain::before {
+    display: none;
+  }
+
+  .lg-aurora {
+    display: none;
+  }
+}
+
+/* ===================================================================
+   Print
+   -------------------------------------------------------------------
+   The site defaults to near-black, and this is documentation people print.
+   Force ink on paper, drop the atmosphere and the navigation, and let the
+   tokens fall back to black so nothing prints in a dark-theme colour.
+   =================================================================== */
+
+@media print {
+  :root,
+  :root.dark,
+  .dark {
+    --lg-paper: #fff;
+    --lg-paper-raised: #fff;
+    --lg-paper-sunken: #fff;
+    --lg-ink: #000;
+    --lg-ink-muted: #000;
+    --lg-ink-faint: #000;
+    --lg-brand: #000;
+    --lg-brand-hover: #000;
+    --lg-brand-soft: #fff;
+    --lg-brand-rule: #999;
+    --lg-rule: #999;
+    --lg-rule-strong: #666;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .lg-grain,
+  .lg-aurora,
+  .nextra-sidebar-container,
+  .nextra-toc {
+    display: none !important;
+  }
+
+  .nextra-content h2::before {
+    color: #000;
   }
 }
