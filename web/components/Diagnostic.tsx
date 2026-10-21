@@ -23,17 +23,25 @@ const HEADER =
 /** A trailing `(from ...)` or `(declared ...)` attribution. */
 const SOURCE = /\s*\((from\s[^)]*|declared[^)]*)\)\s*$/
 
-/** `  aln.reference = HXB2 (from BAM @SQ header)` */
-const BINDING = /^\s+([A-Za-z_][\w.]*(?:\.[\w.]+)*)\s=\s(.+)$/
+/**
+ * `  aln.reference = HXB2 (from BAM @SQ header)`
+ *
+ * The indent is optional. The engine always writes one, but an author
+ * embedding a diagnostic in MDX does not always get to keep it -- a template
+ * literal's leading whitespace does not survive -- and a diagnostic that
+ * renders as plain text because of how it was quoted is a silent failure in
+ * a component about silent failures.
+ */
+const BINDING = /^\s*([A-Za-z_][\w.]*(?:\.[\w.]+)*)\s=\s(.+)$/
 
 /**
  * `  ref.reference lists contigs in the order 2, 1 (from FASTA contigs: ...)`
  * — a fact about a binding that is not an equality.
  */
-const ATTRIBUTED = /^\s+([A-Za-z_][\w.]*(?:\.[\w.]+)*)\s+(.+)$/
+const ATTRIBUTED = /^\s*([A-Za-z_][\w.]*(?:\.[\w.]+)*)\s+(.+)$/
 
 /** `  The same problem affects 3 other samples: SRR32217715, ...` */
-const ALSO = /^\s+(?:The same problem affects|Also affects)\b/
+const ALSO = /^\s*(?:The same problem affects|Also affects)\b/
 
 type Line =
   | { kind: 'header'; type: string; step: string; sample?: string }

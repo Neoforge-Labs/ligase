@@ -3,6 +3,8 @@ title: "Quickstart"
 description: "Five minutes: a two-step pipeline, a type error caught before anything runs, then a real run and a cache hit. No aligner needed."
 ---
 
+import { quickstart } from '../../lib/quickstart.generated'
+
 # Quickstart
 
 <Lede>
@@ -97,10 +99,7 @@ this step needs no external tool. A real step would use
 ligase check
 ```
 
-<Diagnostic note="nothing ran">{`ContigNamingError in step \`call\`:
-  aln.contig_naming = chr-prefixed (UCSC style) (from SAM @SQ header: aln/sample01.sam)
-  ref.contig_naming = bare (Ensembl/NCBI style) (from FASTA deflines: refs/genome.fasta)
-  The contigs are otherwise identical. Add a renaming step, or use one naming style throughout.`}</Diagnostic>
+<Diagnostic note="nothing ran">{quickstart.checkDiagnostic}</Diagnostic>
 
 That took milliseconds, and the step body never ran. Note what the message
 gives you: both values, **the header each one was read from**, the fact that
@@ -120,11 +119,7 @@ sed -i.bak 's/SN:chr/SN:/; s/\tchr1\t/\t1\t/' aln/sample01.sam
 ligase check
 ```
 
-```text
-checked 1 step in pipeline.py
-
-no problems found.
-```
+<RunReport>{quickstart.checkPasses}</RunReport>
 
 ## 5. Run it
 
@@ -132,19 +127,11 @@ no problems found.
 ligase run
 ```
 
-<RunReport>{`running 1 step in pipeline.py
-
-ran       \`call\`   0ms
-
-1 step: 1 ran.`}</RunReport>
+<RunReport>{quickstart.firstRun}</RunReport>
 
 Now run it again, without changing anything:
 
-<RunReport>{`running 1 step in pipeline.py
-
-cached    \`call\`
-
-1 step: 1 from cache.`}</RunReport>
+<RunReport>{quickstart.secondRun}</RunReport>
 
 Nothing recomputed. A step's key is built from its code, its parameters, its
 inputs' *contents* and its tools' versions — and none of those moved. Edit the
@@ -156,14 +143,7 @@ step body, or a byte of the input, and it runs again.
 ligase methods
 ```
 
-```text
-writing up 1 step in pipeline.py
-
-Analyses were run with Ligase 0.1.0 on macos-aarch64.
-
-`call` ran on one input, by a function in the pipeline itself, against the
-reference (fingerprint aa185c059780, 2 sequences, 40 bp).
-```
+<RunReport>{quickstart.methods}</RunReport>
 
 On a real pipeline that paragraph names every tool at the version it actually
 ran at, every parameter as it was hashed, and every reference by accession and
