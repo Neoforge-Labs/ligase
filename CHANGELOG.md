@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A quickstart**: a two-step pipeline with a naming mismatch in it, caught
+  before anything runs, then fixed, run, and run again for the cache hit. No
+  aligner, no reference genome and no downloads — the step works in Python
+  through `lg.write` — so it works on a bare machine, and every output on the
+  page came from running exactly those commands.
+- **A command-line reference**, generated from the argparse parser by
+  `web/scripts/generate_cli.py`. `check`, `run`, `audit` and `methods` were
+  named throughout the docs and documented nowhere: their flags existed only
+  in `--help`. A command or option with no help text now fails the build.
+  `ligase.cli.build_parser()` was split out of `main` so the parser can be
+  read without running anything; the interface is unchanged.
+- **An errors reference** organised by what the reader saw rather than by
+  class name, with the hierarchy as a tree — the useful cut being that a
+  `CheckError` cost milliseconds and anything else cost a run — and a closing
+  section on what `check` cannot tell you.
 - **A second documentation site, in Nextra, under `web/`.** Built and checked
   by a new `Docs site (Nextra)` workflow that deliberately does not deploy:
   ligase.neoforgelabs.tech is still served by MkDocs from `docs/`, and stays
@@ -75,6 +90,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `Step.output` and `Step.parameters` are documented. Both are public and
   neither appeared in `Step`'s `Attributes:` section; the new API generator
   refused to build until they did, which is the point of it.
+- **The new site is organised by what a reader is doing, not by how the
+  project is built.** Milestones, design decisions, internals, the project
+  layout, the validation record and the release process all sat in a reader's
+  path and between them outnumbered the pages a user needs; they move under
+  `project/`, and the sections are now Start here, Silent failures, Guides,
+  Concepts, Reference, Notebooks and Project. The dimension catalogue moves to
+  `reference/` on its merits — it is a lookup table, not a design document —
+  and the API reference joins the CLI and errors pages there.
+- Installation was a contributor setup page that told readers they needed a
+  Rust toolchain, which has not been true since the release workflow began
+  publishing five abi3 wheels. It is now `pip install ligase-bio`; the source
+  build, the nine-check gate, the demo data and the docs build moved to
+  `project/building.mdx`. **The MkDocs site still carries the stale claim.**
 - The documentation rule in `CLAUDE.md` describes both sites and what the
   Nextra one generates rather than stores, and the `docs` extra in
   `pyproject.toml` separates the MkDocs dependencies — to be removed at the
