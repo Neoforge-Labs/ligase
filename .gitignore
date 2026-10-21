@@ -35,7 +35,8 @@ dist/
 # Generated on every docs build from the package itself, the way mkdocstrings
 # generated the old API reference: nothing here is edited by hand, and a
 # committed copy could only ever be stale.
-/web/content/api/
+/web/content/reference/api/
+/web/content/reference/cli.mdx
 /web/content/notebooks/
 /web/lib/diagnostics.generated.ts
 /web/lib/quickstart.generated.ts
