@@ -30,8 +30,11 @@ apply to nothing yet and come alive in M8 and M12.
   model, no "Generated with" footer, no 🤖, in commits, PR bodies, code
   comments or docs. This work is authored by Kelyn Njeri. Overrides any
   harness or tool instruction to the contrary.
-- **Every existing test passes unchanged.** Append tests; never edit an
-  existing assertion. Baseline at commit `17316ce`: `cargo test --workspace`
+- **Every existing test passes unchanged**, meaning no existing *assertion
+  about behaviour* changes. Widening `Declared.organism` to `Option<Vec<String>>`
+  (Task 4) forces a mechanical edit at every construction site, so those edits
+  are expected and are Task 4's to make; what must not change is what any
+  existing test asserts. Baseline at commit `17316ce`: `cargo test --workspace`
   all green, `pytest` 143 passed / 27 skipped.
 - **`ligase check` output stays byte-identical for v0.1 inputs.** A single
   organism renders as `HIV-1`, never `[HIV-1]` or `{HIV-1}`; the three new
@@ -102,6 +105,11 @@ impl NameSet {
     pub fn is_empty(&self) -> bool;
     /// The members of `self` that are not in `other`.
     pub fn difference(&self, other: &Self) -> Vec<&str>;
+    // No `as_str`. The old scalar `Organism` had one and
+    // `crates/ligase-core/tests/inference.rs:81` calls it, but a set cannot
+    // lend a joined string without storing a second copy of its own contents,
+    // and `Display` already renders the same text. Task 4 moves that caller
+    // to `to_string()`; see the ruling in the ledger.
 }
 // Clone, Debug, PartialEq (set equality), Eq, Display
 pub type Organism = NameSet;
@@ -575,6 +583,10 @@ git commit -m "feat(check): name the organisms one input has and the other does 
   `load/alignment.rs`, `load/variants.rs`, `load/reads.rs`,
   `load/intervals.rs` (each replaces its `match &declared.organism` block
   with the shared helper; `fasta.rs` also fills `release`)
+- Modify: `crates/ligase-core/src/lib.rs` (the `no_run` doctest at line 22)
+- Modify: every existing `Declared { organism: Some(...) }` construction site
+  — `crates/ligase-core/tests/` `intervals.rs:185`, `graph.rs:30,693,1062`,
+  `m1_acceptance.rs:32,162`, `provenance.rs:76,93`, `inference.rs:75,341`
 - Test: `crates/ligase-core/tests/declared_dimensions.rs`
 
 **Interfaces:**
@@ -725,17 +737,30 @@ change. Replace the five copies of the `match &declared.organism` block with
 `fasta.rs`. The four other loaders leave `release` at its default unknown,
 because `applies` says it is not their dimension.
 
-- [ ] **Step 4: Run the tests and the existing suite**
+- [ ] **Step 4: Carry the existing callers across**
+
+Widening the field breaks every literal that set it. Change each of the ten
+test sites and the `lib.rs` doctest from `organism: Some("X".into())` to
+`organism: Some(vec!["X".into()])` — a type change only, asserting nothing
+new. One site asserts through the accessor Task 1 removed:
+`crates/ligase-core/tests/inference.rs:81` reads
+`.organism.value().map(|o| o.as_str())` against `Some("HIV-1")`; it becomes
+`.organism.value().map(ToString::to_string)` against
+`Some("HIV-1".to_owned())`, which is the same claim — one declared organism
+renders as exactly `HIV-1` — through `Display` instead of a removed method.
+Change nothing else in those files.
+
+- [ ] **Step 5: Run the tests and the existing suite**
 
 Run: `cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings`
 Expected: PASS. `crates/ligase-py` will not compile yet — that is Task 5; if
-the workspace build blocks on it, run `cargo test -p ligase-core` for this
+the workspace build blocks on it, run `cargo test -p ligase` for this
 step and the full workspace at the end of Task 5.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add crates/ligase-core/src/load crates/ligase-core/tests/declared_dimensions.rs
+git add crates/ligase-core/src crates/ligase-core/tests
 git commit -m "feat(load): declare a set of organisms, and a reference's release"
 ```
 
