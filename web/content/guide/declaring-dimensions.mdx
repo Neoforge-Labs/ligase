@@ -64,6 +64,47 @@ There are four loaders:
 | `lg.variants(path, ...)` | VCF (optionally gzipped or BGZF) | `Variants` |
 | `lg.reads(r1, r2, ...)` | FASTQ (optionally gzipped) | `Reads` |
 
+### More than one organism
+
+`organism` takes a list wherever the data is about several organisms — a
+host–pathogen sample, a metagenome, a xenograft — and the reference it is
+checked against says the same thing:
+
+```python
+ref = lg.reference(
+    "data/refs/hxb2_plus_host.fasta", organism=["HIV-1", "Homo sapiens"]
+)
+aln = lg.alignment(
+    "data/alignments/sample01.bam", organism=["HIV-1", "Homo sapiens"]
+)
+```
+
+Order does not matter and a repeated spelling counts once, so
+`["Homo sapiens", "HIV-1"]` and `["HIV-1", "hiv-1", "Homo sapiens"]` are both
+the same set as the one above. A plain string is a set of one, so
+`organism="HIV-1"` means exactly what it always meant.
+
+Declare one side narrowly and the other widely and the check refuses the pair,
+naming the organism the wider side lists and the narrower one does not:
+[my pathogen results include host
+reads](/silent-failures/mixed-organism/) walks through the message. What is
+not accepted is a list that names nothing — `[]`, or only blank names — since
+two datasets that each declared no organism would otherwise *agree*.
+
+### A reference can name its release
+
+```python
+grch38 = lg.reference("refs/GRCh38.fasta", organism="human", release="GRCh38.p14")
+```
+
+Two releases of one build can differ in sequence while sharing a name, so
+`release` is compared by **equality**: `GRCh38.p13` and `GRCh38.p14` do not
+match. Only a reference takes one — `release` applies to no other kind these
+loaders read — and it is never *required*, since a FASTA records no release
+and demanding one would make an ordinary reference unloadable. So it is
+compared wherever both sides state it and passed over when either does not
+([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)).
+
 ## Inspecting what was inferred
 
 ```python

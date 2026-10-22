@@ -11,7 +11,8 @@ view is [Types and dimensions](/concepts/types-and-dimensions/).
 
 ```text
 crates/ligase-core/src/
-  dim/mod.rs        Source, Dim<T>, Dimension, Dimensions, and the value types
+  dim/mod.rs        Source, Dim<T>, Dimension, Dimensions
+  dim/names.rs      NameSet and Label, the two value comparison rules
   dim/reference.rs  Contig, ReferenceId, and the relation between references
   types.rs          DataKind, Dataset, and the applicability matrix
   check.rs          check_step, the requirements table, error rendering
@@ -57,6 +58,48 @@ and makes the error site trivial.
 "unknown" is a thing the user has to act on and the reason is the instruction:
 `"no @RG lines with an SM tag in the header"` tells them what to look at,
 where `None` tells them nothing.
+
+## Four axes, two value types
+
+Four of the ten dimensions — `organism`, `release`, `subject` and
+`source_set` — hold names a user chose rather than a parsed structure, and
+only two comparison rules sit between them, so `dim/names.rs` defines two
+types and four aliases:
+
+```rust
+pub struct NameSet { members: Vec<String> }  // Organism, SourceSet
+pub struct Label(String);                    // Release, Subject
+```
+
+`NameSet` compares as a set: the same members in any order, each trimmed and
+compared without regard to case. `Label` compares exactly, forgiving
+surrounding space and nothing else — `hgnc 2026-09` and `HGNC 2026-09` may
+well be different releases, and a label is a name somebody chose rather than
+free text to be matched loosely.
+
+The alternative was four types, each re-deriving the same equality.
+[D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)
+forbids *one dimension* carrying *two* comparison rules, which is how a
+pipeline ends up passing `check()` under one rule and failing under the other;
+it says nothing against *two dimensions* sharing *one*, and a rule implemented
+twice is a rule that will eventually be implemented differently. What differs
+per dimension is the wording a user reads, and that lives on
+`Dimension::leading_question` rather than on the value: the same set
+comparison asks "did you pass data from the wrong organism?" on one axis and
+"was a source added or removed upstream?" on the other.
+
+`NameSet::of` trims each name, drops blanks and skips a name already present
+ignoring case, so members are pairwise distinct from the moment the set is
+built. That is what makes the equality check sound as written — equal length
+plus "every member of one is in the other" is a bijection rather than merely a
+surjection — and the scan is left quadratic on purpose, since a set holds a
+handful of names and both sorting and hashing would need a case-folded copy of
+every member to be correct.
+
+A set with no members is never stored as an empty set. It would compare equal
+to every other empty set, so two datasets that declared nothing would *agree*
+on organism. The Python loaders refuse it where it is passed; the core, which
+cannot raise, records the dimension as unknown with a reason.
 
 ## Reference identity
 
@@ -298,9 +341,13 @@ deliberately unused: matching a free-text `"Homo sapiens"` against a declared
 `"human"` needs an alias table, and a wrong answer there passes `check()`
 silently. Organism on a BAM is unknown unless declared.
 
-Organism comparison itself normalises case and surrounding whitespace and
-nothing else. No alias table, documented as such, so users declare one
-spelling and use it.
+Organism comparison itself is **set equality**, and the normalisation is per
+member: each name is trimmed and compared without regard to case, and nothing
+else about it is touched. Order is not part of the identity, so
+`["Homo sapiens", "HIV-1"]` and `["HIV-1", "Homo sapiens"]` are the same set,
+and a name given twice is recorded once in the spelling it was first given.
+Still no alias table, documented as such, so users declare one spelling and
+use it.
 
 ### Quality encoding is bounded and may abstain
 
@@ -357,6 +404,20 @@ computed independently, on a header a real aligner produced.
 - **No conversion graph yet.** `check_step` reports a mismatch; it does not
   search for a `liftover` or a renaming step that would fix it. That is v2,
   by [D5](/project/decisions/) and [D8](/project/decisions/).
-- **Organism aliases are not resolved.** `human` and `Homo sapiens` are
-  different strings and will be reported as a mismatch if both are declared.
-  Deliberate, per the reasoning above, but it is a rough edge.
+- **Organism aliases are not resolved.** `["human"]` and `["Homo sapiens"]`
+  are still two different sets and will be reported as a mismatch if both are
+  declared. Deliberate, per the reasoning above, but it is a rough edge, and
+  set-valued organism makes it a little more visible: a combined reference
+  declared `["HIV-1", "human"]` against an alignment declared
+  `["HIV-1", "Homo sapiens"]` reports a difference on both sides at once.
+- **The organism dimension's leading question is still single-valued.**
+  `Dimension::leading_question` asks "Did you pass data from the wrong
+  organism?", which was written when a dataset had one organism, and
+  `crates/ligase-core/tests/check.rs` asserts that an organism mismatch's
+  message contains "wrong organism". M7 changed no existing assertion, so the
+  question stands as it was. The specific information is carried by the detail
+  line instead, which names the organism each side lists and the other does
+  not. Sharpening the question is later work, and it is not only a rewording:
+  three readings fit the same mismatch — the narrow side declared too
+  narrowly, the wide side too widely, or the wrong pair of files — and the
+  engine cannot tell which applies.

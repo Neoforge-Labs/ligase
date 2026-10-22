@@ -8,13 +8,22 @@ Every biological type carries dimensions. Each dimension is inferred from the fi
 
 | Dimension | Meaning | FASTA | FASTQ | BAM/SAM | VCF | BED/GFF |
 |---|---|---|---|---|---|---|
-| organism | e.g. HIV-1, SARS-CoV-2, human | declared | declared | from reference | from header if present | declared |
+| organism | the organisms the data is about, as a **set**: HIV-1, or HIV-1 and Homo sapiens together | declared | declared | from reference | from header if present | declared |
 | reference | build/accession, e.g. HXB2 (K03455), hg38 | sequence names + MD5 of contigs | n/a | @SQ lines (SN, LN, M5) | ##reference, ##contig | declared |
 | contig_naming | `chr1` vs `1` style | from names | n/a | @SQ SN | ##contig IDs | from records |
 | coordinates | 0-based half-open vs 1-based closed | n/a | n/a | 1-based closed (SAM *and* BAM) | 1-based closed | BED 0-based half-open, GFF 1-based closed |
 | sample_set | ordered sample IDs | n/a | from filename/declared | @RG SM | header sample columns | n/a |
 | strand/pairing | single/paired, read layout | n/a | from file pairing | flags | n/a | n/a |
 | quality_encoding | Phred+33 vs +64 | n/a | inferred from range | n/a | n/a | n/a |
+| release | which versioned external resource the data came from, e.g. `GRCh38.p14`, `Ensembl 110`, `ChEMBL 34` | declared | n/a | n/a | n/a | n/a |
+| subject | what the data is about when that is one named thing: a disease, a cell line, a cohort | n/a | n/a | n/a | n/a | n/a |
+| source_set | ordered set of the sources a dataset was assembled from | n/a | n/a | n/a | n/a | n/a |
+
+The last three arrived after the others and sit at the bottom on purpose: a report of
+several disagreements is ordered by this list, so slotting a new axis in
+beside the ones it resembles would have reordered every report that already
+existed. `subject` and `source_set` apply to no kind the engine reads today
+and come alive with the kinds that need them.
 
 ## Rules
 
@@ -27,7 +36,43 @@ Every biological type carries dimensions. Each dimension is inferred from the fi
   rather than a sample — which is what `bcftools` writes when an alignment
   carries no `@RG SM` — is reported instead
   ([D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).
+- An organism is a **set**, compared by set equality: order does not matter, a
+  host–pathogen dataset declares both organisms, and a mismatch names the
+  organism one side lists and the other does not
+  ([D37](/project/decisions/#d37--organism-is-set-valued)).
+- A release is compared by **equality**, never by containment. That is why it
+  is a dimension of its own rather than part of `reference`, which allows a
+  contained subset
+  ([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)).
+- `release`, `subject` and `source_set` are never *demanded*: each is compared
+  wherever both sides state it, and a file that records none is still
+  loadable. A FASTA records no release, so requiring one would make an
+  ordinary reference unusable.
 - Unknown dimensions are allowed only if no downstream step requires them; otherwise `check()` fails with a request to declare them.
+
+### A dataset may be about more than one organism
+
+A host–pathogen sample, a metagenome and a xenograft are each about several
+organisms, and the reference for the first is usually a combined FASTA holding
+both genomes. So `organism` takes a list:
+
+```python
+ref = lg.reference("refs/hxb2_plus_host.fasta", organism=["HIV-1", "Homo sapiens"])
+aln = lg.alignment("aln/sample01.bam", organism=["HIV-1", "Homo sapiens"])
+```
+
+Two sets are equal when they name the same organisms in any order, each
+compared without regard to surrounding space or case, and a spelling repeated
+in one list counts once. A plain string is a set of one, so
+`organism="HIV-1"` means what it has always meant.
+
+Where the sets differ, the error states both and then names the difference —
+`ref also lists Homo sapiens` — rather than leaving two lists to be compared
+by eye. There is no alias table: `human` and `Homo sapiens` are two different
+names and will be reported as a mismatch, because equating them means
+guessing. [My pathogen results include host
+reads](/silent-failures/mixed-organism/) is the failure this exists to catch,
+with the message it produces.
 
 ### Coordinates are semantics, not encoding
 
