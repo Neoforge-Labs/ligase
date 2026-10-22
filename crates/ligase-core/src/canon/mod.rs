@@ -218,7 +218,10 @@ pub const fn describe(kind: DataKind) -> Option<&'static str> {
         }
         DataKind::Intervals => "intervals sorted; `track`, `browser` and comment lines dropped",
         DataKind::ResistanceReport => "the header row kept, the rows below it sorted",
-        DataKind::EntitySet => "the header row kept, the rows below it sorted by identifier",
+        DataKind::EntitySet => {
+            "the header row kept, the rows below it compared as a set, so their order says \
+             nothing"
+        }
     })
 }
 

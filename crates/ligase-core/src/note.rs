@@ -161,6 +161,22 @@ pub enum Note {
         /// The identifier, in the space it came from.
         identifier: String,
     },
+    /// An identifier that arrives where another identifier also arrives.
+    IdentifierCollides {
+        /// The identifier, in the space it came from.
+        identifier: String,
+    },
+    /// How many identifiers did not cross into the target space.
+    ///
+    /// Carried beside the named ones because the named ones are capped: a
+    /// list of twenty thousand converted through a table covering most of
+    /// it leaves thousands behind, and a report that named every one and
+    /// totalled none is not a report. The spec asks for them noticed,
+    /// *counted* and listed.
+    IdentifiersDidNotCross {
+        /// How many, named or not.
+        count: u32,
+    },
     /// Codons read base by base because no read spans them (D31).
     CodonsUnphased {
         /// The gene.
@@ -220,6 +236,8 @@ impl Note {
             Self::IdentifierIsADate { .. } => "identifier-is-a-date",
             Self::IdentifierUnmapped { .. } => "identifier-unmapped",
             Self::IdentifierAmbiguous { .. } => "identifier-ambiguous",
+            Self::IdentifierCollides { .. } => "identifier-collides",
+            Self::IdentifiersDidNotCross { .. } => "identifiers-did-not-cross",
         }
     }
 
@@ -258,7 +276,9 @@ impl Note {
             // newline, which is all `parse` needs of it.
             Self::IdentifierIsADate { identifier }
             | Self::IdentifierUnmapped { identifier }
-            | Self::IdentifierAmbiguous { identifier } => identifier.clone(),
+            | Self::IdentifierAmbiguous { identifier }
+            | Self::IdentifierCollides { identifier } => identifier.clone(),
+            Self::IdentifiersDidNotCross { count } => format!("count={count}"),
         }
     }
 
@@ -310,6 +330,12 @@ impl Note {
             }),
             "identifier-ambiguous" => Some(Self::IdentifierAmbiguous {
                 identifier: value.to_owned(),
+            }),
+            "identifier-collides" => Some(Self::IdentifierCollides {
+                identifier: value.to_owned(),
+            }),
+            "identifiers-did-not-cross" => Some(Self::IdentifiersDidNotCross {
+                count: counted(value, "count")?,
             }),
             "codons-unphased" => Some(Self::CodonsUnphased {
                 gene: named(value, "gene")?.to_owned(),
@@ -364,6 +390,14 @@ impl Note {
             Self::IdentifierAmbiguous { .. } => {
                 "Decide which target you mean and add a one-to-one row for it, or keep the \
                  identifier in the space it is already in."
+            }
+            Self::IdentifierCollides { .. } => {
+                "Decide which of the colliding identifiers this analysis is about and drop the \
+                 others from the input, or convert in the other direction."
+            }
+            Self::IdentifiersDidNotCross { .. } => {
+                "Compare this against the size of your input before reading the result: check \
+                 the mapping table's release if it is more than a small fraction."
             }
         }
     }
@@ -424,6 +458,17 @@ impl Note {
                 "One identifier with several targets is left out rather than resolved: emitting \
                  a row for each would make the set larger than the input without saying so, and \
                  choosing one of them would be a guess about which the analysis meant."
+            }
+            Self::IdentifierCollides { .. } => {
+                "Two identifiers arriving at one target would make the output name a single \
+                 entity twice, with two sets of attributes, which is not a set. Keeping one of \
+                 them would be a guess about which row's attributes to carry, so every \
+                 identifier that collides is left out and named."
+            }
+            Self::IdentifiersDidNotCross { .. } => {
+                "The output is smaller than the input by this many entities. A conversion is a \
+                 lookup, not a rename, so a count that is a large share of the input usually \
+                 means the mapping table is from a different release than the list."
             }
         }
     }
@@ -494,6 +539,16 @@ impl fmt::Display for Note {
                 "the identifier `{identifier}` maps to more than one target, so it is not in \
                  the output"
             ),
+            Self::IdentifierCollides { identifier } => write!(
+                f,
+                "the identifier `{identifier}` maps to a target another identifier also maps \
+                 to, so it is not in the output"
+            ),
+            Self::IdentifiersDidNotCross { count } => write!(
+                f,
+                "{count} identifiers did not cross into the target space, so the output is \
+                 {count} entities smaller than the input"
+            ),
         }
     }
 }
@@ -513,7 +568,7 @@ fn counted(value: &str, name: &str) -> Option<u32> {
 
 /// The month names a spreadsheet writes, lower-cased: the abbreviation it
 /// uses by default, and the full name it uses when the column is wide.
-const MONTHS: [&str; 24] = [
+const MONTHS: [&str; 25] = [
     "jan",
     "feb",
     "mar",
@@ -523,6 +578,7 @@ const MONTHS: [&str; 24] = [
     "jul",
     "aug",
     "sep",
+    "sept",
     "oct",
     "nov",
     "dec",
@@ -548,7 +604,7 @@ const MONTHS: [&str; 24] = [
 /// `9/2/2026`). A month name on its own is not one, because `MAY` is a
 /// gene; nor is a hyphenated symbol such as `NKX2-1`, because neither half
 /// is a month.
-fn looks_like_a_date(identifier: &str) -> bool {
+pub(crate) fn looks_like_a_date(identifier: &str) -> bool {
     if identifier.is_empty() {
         return false;
     }
@@ -698,6 +754,10 @@ mod tests {
             Note::IdentifierAmbiguous {
                 identifier: "NKX2-1".to_owned(),
             },
+            Note::IdentifierCollides {
+                identifier: "TP53P1".to_owned(),
+            },
+            Note::IdentifiersDidNotCross { count: 4000 },
         ]
     }
 

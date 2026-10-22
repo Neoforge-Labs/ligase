@@ -146,7 +146,11 @@ the identifier `SEPT7` is in no row of the mapping table, so it is not in the ou
 the identifier `NKX2-1` maps to more than one target, so it is not in the output
 ```
 
-Two kinds of identifier do not cross, and neither is dropped in silence:
+```
+2 identifiers did not cross into the target space, so the output is 2 entities smaller than the input
+```
+
+Three kinds of identifier do not cross, and none is dropped in silence:
 
 - **No row in the table.** Usually a symbol renamed or retired since the table
   was downloaded. Check the table's release.
@@ -155,11 +159,22 @@ Two kinds of identifier do not cross, and neither is dropped in silence:
   each would make the output larger than the input without saying so, and
   choosing one would be a guess about which you meant. Decide, and add a
   one-to-one row.
+- **A target another of your identifiers also reaches.** Ordinary for a table
+  holding both a deprecated symbol and its replacement, when your list holds
+  both. Emitting both rows would make the output name one gene twice with two
+  sets of attributes, which is not a set; keeping one would be a guess about
+  whose attributes to carry. Both are left out and named.
 
 So **the output is smaller than the input by exactly the identifiers the notes
-name**, and the notes travel into the run report, provenance, a reproducibility
-bundle and the methods paragraph. Nothing about the conversion is invisible
-later. See [fixing a noticed line](/guide/notes/) for what to do with one.
+name**, and the last note says how many that is. The named ones stop at twenty
+— enough to recognise a pattern, and short of putting four thousand rows in
+your provenance — while the count covers the rest. Compare it against the size
+of your input before reading the result: a large share usually means the
+mapping table is from a different release than the list.
+
+The notes travel into the run report, provenance, a reproducibility bundle and
+the methods paragraph. Nothing about the conversion is invisible later. See
+[fixing a noticed line](/guide/notes/) for what to do with one.
 
 ## What a spreadsheet did to your file
 
@@ -174,12 +189,18 @@ the identifier `1-Mar` is a date, not a name; a spreadsheet does this to SEPT7, 
 >>> genes.dimension("identifier_namespace")      # declined to infer
 None
 >>> genes.unknown_reason("identifier_namespace")
-"not declared, and the identifiers do not all match one namespace's pattern -- declare identifier_namespace"
+"not declared, and some identifiers are dates rather than names -- see this dataset's notes, and re-export the file with the identifier column typed as text"
 ```
 
 The file loads — it is valid TSV, and refusing it would be turning a format
 problem into an engine failure. What the loader does instead is say what it
 saw and decline to infer a space for a file it cannot fully read.
+
+The reason names the cause rather than giving the generic advice, and that is
+deliberate. "Declare `identifier_namespace`" is sound for a file whose
+identifiers are merely unrecognised, and it is the worst possible advice for
+this one: declare it and the file is accepted from then on with `SEPT7`
+missing from every join, which is the corruption made permanent.
 
 The fix is to re-export with the identifier column typed as text. There is no
 option to have Ligase repair it: `2-Sep` could have been `SEPT7` or `SEPT2`,

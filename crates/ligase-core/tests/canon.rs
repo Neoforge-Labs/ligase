@@ -894,3 +894,15 @@ fn every_kind_says_what_its_canonical_form_keeps() {
         assert!(canon::describe(kind).is_some(), "{kind:?}");
     }
 }
+
+#[test]
+fn what_a_gene_list_keeps_is_described_as_it_actually_is() {
+    // `describe` is engine output a user reads to understand why two files
+    // agreed, so it must not claim a rule the code does not implement.
+    // Nothing here sorts by identifier: whole rows are hashed as an
+    // order-independent set, and the canonicaliser never learns which
+    // column the identifiers are in.
+    let said = canon::describe(DataKind::EntitySet).unwrap();
+    assert!(!said.contains("by identifier"), "{said}");
+    assert!(said.contains("set"), "{said}");
+}

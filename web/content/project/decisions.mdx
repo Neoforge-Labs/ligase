@@ -1102,29 +1102,37 @@ other Ensembl IDs, map between them, and let the join succeed. Every ad-hoc
 that convenience, implemented once per analysis.
 
 It is refused because mapping between spaces is **a lookup with failures**,
-not a rename. Going from `TP53` to `ENSG00000141510` has three outcomes, not
+not a rename. Going from `TP53` to `ENSG00000141510` has four outcomes, not
 one. Most identifiers find a row. Some find none, because they were renamed or
 retired since the mapping table was downloaded. Some find several, because one
-symbol legitimately covers more than one gene.
+symbol legitimately covers more than one gene. And some arrive where another
+identifier in the same list arrives, because the table holds both a deprecated
+symbol and its replacement.
 
 A dimension that coerced silently would have to decide what to do with the
-second and third on the user's behalf, invisibly, and all three available
-decisions are bad. Drop them, and the output is quietly smaller than the
+last three on the user's behalf, invisibly, and every available decision is
+bad. Drop them, and the output is quietly smaller than the
 input — the thing [D26](#d26--a-field-that-cannot-be-dropped-is-noticed-instead)
 exists to refuse. Carry them over unchanged, and a name from the old space is
 sitting in a set that declares the new one, which makes the output's own
 declaration false. Take the first of several, and the result depends on the
-order of rows in somebody's file.
+order of rows in somebody's file. Let two identifiers collapse onto one, and
+the output names a single entity twice with two sets of attributes, so it is
+not a set and anything counting it double-counts.
 
 ### What the rule buys
 
-The only way across is a `map_identifiers` step, which turns all three
+The only way across is a `map_identifiers` step, which turns all four
 outcomes into things a user can see. Its output **declares** the space it has
-arrived in, so everything downstream is checked against a true statement. Its
-unmapped and ambiguous identifiers are **named**, in the run report, in
-provenance, in a reproducibility bundle and in the methods paragraph, so the
-output being smaller than the input is a recorded fact rather than a
-discrepancy somebody notices six months later. And its mapping table is a
+arrived in, so everything downstream is checked against a true statement. The
+identifiers that did not cross are **named**, and **counted**, in the run
+report, in provenance, in a reproducibility bundle and in the methods
+paragraph, so the output being smaller than the input is a recorded fact
+rather than a discrepancy somebody notices six months later. Counted as well
+as named because a conversion that leaves four thousand identifiers behind
+needs a number before it needs four thousand sentences — so the named ones
+stop at twenty, which is enough to see a pattern, and the total carries the
+rest. And its mapping table is a
 typed input, so the table's contents join the cache key and the table's own
 space is checked against the list being mapped — an Entrez table handed to a
 list of symbols is refused before anything runs.

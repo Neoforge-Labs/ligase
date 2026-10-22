@@ -189,6 +189,34 @@ false, so it reads
 `release_applies_to_a_reference_and_to_a_gene_list` and still pins that
 `source_set` has no kind.
 
+**What the review caught, and the lesson worth keeping.** A fresh review of
+the finished branch found two paths that produced the very failure the
+milestone exists to break, and both were in the half of the work that *looks*
+like detail.
+
+A ten-character TrEMBL accession — `A0A024R161`, and most of UniProt is
+TrEMBL — fell through the accession shape, which had been written for the
+six-character reviewed form only, and was claimed by the gene-symbol shape
+instead. So a protein list and a gene-symbol list both inferred `HGNC symbol`
+and **agreed**, and the join between them succeeded with an empty overlap:
+D38's own failure, caused by the engine rather than by the user. And a
+many-to-one mapping — a table holding both a deprecated symbol and its
+replacement, with a list holding both — collapsed two entities onto one
+identifier with no note at all, which is the exact mirror of the one-to-many
+case the plan had flagged and tested.
+
+The lesson is that a shape too *narrow* only declines to infer, which is
+inconvenient, while a shape too *broad* claims another space's identifiers,
+which is the silent failure itself; and that a rule written for one direction
+of a mapping needs checking in the other. The catalogue now admits what
+people actually have — versioned Ensembl IDs, mixed-case symbols such as
+`C9orf72`, readthrough symbols, the whole RefSeq prefix set — and
+`the_identifiers_a_biologist_actually_has_resolve_to_their_own_space` is a
+standing table asserting that each resolves to its own space or to nothing,
+never to another's. A CR-only TSV, which Excel for Mac 2011 wrote, had also
+been loading as an empty gene list without a word; it is now read as the rows
+it holds.
+
 ## M9 — Inspect
 `ligase inspect`, generated into [the CLI reference](/reference/cli/) by the
 existing `generate_cli.py`.

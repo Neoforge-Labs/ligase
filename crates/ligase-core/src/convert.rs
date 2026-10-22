@@ -50,7 +50,7 @@
 //! named, never dropped in silence (D26). A conversion that could not fail
 //! would be a rename, and a rename across a dimension is what D38 forbids.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::dim::{Dimension, Dimensions, IdentifierNamespace, Source};
@@ -180,6 +180,16 @@ impl Target {
 
 // ------------------------------------------------- map_identifiers --
 
+/// How many identifiers that did not cross are named individually.
+///
+/// A list of twenty thousand converted through a table covering most of it
+/// leaves thousands behind. Naming every one puts a row in provenance for
+/// each and interpolates all of them into a single methods sentence, so the
+/// named ones stop here and [`Note::IdentifiersDidNotCross`] carries the
+/// total. Twenty is enough to recognise a pattern — a whole gene family, a
+/// prefix, a release boundary — which is what naming them was for.
+const NAMED_AT_MOST: usize = 20;
+
 /// Rewrite a gene list's identifiers through a mapping table.
 ///
 /// The table is read as `table_id_column` to `column`: one row per source
@@ -191,14 +201,22 @@ impl Target {
 /// [`Note`], never dropped in silence and never carried over unchanged
 /// (D26). Carrying it would put a name from the old space into a set that
 /// declares the new one, which is the implicit rename D38 exists to forbid.
-/// Two kinds do not cross:
+/// Three kinds do not cross, and the first two are mirror images:
 ///
 /// - one the table has no row for, which is usually a symbol renamed or
 ///   retired since the table was downloaded;
 /// - one the table sends to several targets, which is ordinary for
 ///   symbol-to-gene mappings. Emitting a row for each would make the output
 ///   larger than the input without saying so, and choosing one of them
-///   would be a guess about which the analysis meant.
+///   would be a guess about which the analysis meant;
+/// - one whose target another identifier in the same list also reaches,
+///   which is ordinary for a table holding both a deprecated symbol and its
+///   replacement. Emitting both rows would make the output name one entity
+///   twice with two sets of attributes, which is not a set, and keeping one
+///   would be a guess about whose attributes to carry.
+///
+/// So the output is smaller than the input by exactly the identifiers the
+/// notes name, and [`Note::IdentifiersDidNotCross`] states how many that is.
 ///
 /// # Errors
 ///
@@ -223,6 +241,13 @@ pub fn map_identifiers(
     }
 
     let mapping = read_mapping(table, table_id_column, column)?;
+
+    // Read the list once to find out which targets more than one of its
+    // identifiers reaches. A collision cannot be decided row by row: the
+    // second identifier to arrive is what makes the first one a problem,
+    // and by then the first has already been written.
+    let colliding = collisions(entities, id_column, &mapping)?;
+
     let reader = load::open(entities).map_err(|error| error.to_string())?;
     let mut rows = Table::read(reader).map_err(|error| error.to_string())?;
     let at = rows
@@ -233,23 +258,92 @@ pub fn map_identifiers(
     written.push_str(&rows.header().join("\t"));
     written.push('\n');
 
-    let mut notes: Vec<Note> = Vec::new();
+    let mut found = Noticed::default();
     while let Some(row) = rows.next_row().map_err(|error| error.to_string())? {
         let identifier = row.field(at).unwrap_or_default().to_owned();
         match mapping.get(&identifier).map(Vec::as_slice) {
-            Some([target]) => {
+            Some([target]) if !colliding.contains(target) => {
                 let mut fields: Vec<&str> = row.line.split('\t').collect();
                 fields[at] = target;
                 written.push_str(&fields.join("\t"));
                 written.push('\n');
             }
-            Some(_) => note(&mut notes, Note::IdentifierAmbiguous { identifier }),
-            None => note(&mut notes, Note::IdentifierUnmapped { identifier }),
+            Some([_]) => found.note(Note::IdentifierCollides { identifier }),
+            Some(_) => found.note(Note::IdentifierAmbiguous { identifier }),
+            None => found.note(Note::IdentifierUnmapped { identifier }),
         }
     }
 
     std::fs::write(out, written).map_err(|error| error.to_string())?;
-    Ok(notes)
+    Ok(found.into_notes())
+}
+
+/// Which targets more than one of the list's identifiers reaches.
+fn collisions(
+    entities: &Path,
+    id_column: &str,
+    mapping: &BTreeMap<String, Vec<String>>,
+) -> Result<BTreeSet<String>, String> {
+    let reader = load::open(entities).map_err(|error| error.to_string())?;
+    let mut rows = Table::read(reader).map_err(|error| error.to_string())?;
+    let at = rows
+        .column(id_column)
+        .ok_or_else(|| missing(entities, id_column, rows.header()))?;
+
+    let mut reached: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    while let Some(row) = rows.next_row().map_err(|error| error.to_string())? {
+        let identifier = row.field(at).unwrap_or_default();
+        // Only an unambiguous mapping puts an identifier anywhere; an
+        // ambiguous one is left out on its own account and cannot collide.
+        if let Some([target]) = mapping.get(identifier).map(Vec::as_slice) {
+            reached
+                .entry(target.clone())
+                .or_default()
+                .insert(identifier.to_owned());
+        }
+    }
+
+    Ok(reached
+        .into_iter()
+        .filter(|(_, sources)| sources.len() > 1)
+        .map(|(target, _)| target)
+        .collect())
+}
+
+/// The notes a conversion has gathered, named up to a cap and counted in
+/// full.
+///
+/// Deduplication is by a set rather than by scanning the notes, because the
+/// scan is quadratic in the number of notes and the number of notes is the
+/// size of the user's data.
+#[derive(Default)]
+struct Noticed {
+    named: Vec<Note>,
+    seen: BTreeSet<String>,
+    count: u32,
+}
+
+impl Noticed {
+    fn note(&mut self, note: Note) {
+        if !self.seen.insert(note.value()) {
+            return;
+        }
+        self.count = self.count.saturating_add(1);
+        if self.named.len() < NAMED_AT_MOST {
+            self.named.push(note);
+        }
+    }
+
+    /// The named notes, with the total beside them.
+    ///
+    /// The total is last so a report reads the examples and then the scale.
+    fn into_notes(mut self) -> Vec<Note> {
+        if self.count > 0 {
+            self.named
+                .push(Note::IdentifiersDidNotCross { count: self.count });
+        }
+        self.named
+    }
 }
 
 /// The mapping table as source identifier to every target it names.
@@ -295,11 +389,4 @@ fn missing(path: &Path, wanted: &str, header: &[String]) -> String {
         crate::dim::display_path(path),
         header.join(", ")
     )
-}
-
-/// Record a note once. Two rows with the same problem are one problem.
-fn note(notes: &mut Vec<Note>, found: Note) {
-    if !notes.contains(&found) {
-        notes.push(found);
-    }
 }

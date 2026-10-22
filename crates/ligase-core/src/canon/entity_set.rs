@@ -9,14 +9,27 @@
 //!
 //! # Why this is not `canon::report`
 //!
-//! A resistance report is also a header and sorted rows, and the two
-//! functions look alike. They are kept apart because they are strict about
-//! different things: a report has no particular column it must have, while
-//! an entity set is a set *of* something and a file whose header names no
-//! identifier column is not one. Folding them together would mean the
-//! stricter check applying to reports or the looser one to entity sets, and
-//! the second is the direction that lets a wrong file through
-//! ([`super`]'s note on parsers being deliberately strict).
+//! A resistance report is also a header and a set of rows, and the two
+//! functions do the same work today. They are kept apart because they are
+//! about to diverge and because they answer to different owners: a report's
+//! canonical form is Ligase's own choice about Ligase's own format, while an
+//! entity set's has to stay a claim about what a gene list *means* as the
+//! kind grows a ranked sibling ([`DataKind::RankedList`] is specified to
+//! canonicalise in order, which is the opposite rule over the same bytes).
+//! Sharing one function now would make that divergence an edit to a
+//! function two kinds depend on.
+//!
+//! What they share is the reader, which is the part where disagreeing would
+//! be a bug: `load::table` decides what a row is, once, for this, for the
+//! loader, and for `map_identifiers`.
+//!
+//! # What this does not check
+//!
+//! Which column holds the identifiers. It is not told: a canonical form is
+//! computed from a path and a kind, and the identifier column is a loader
+//! argument. So a gene list whose header has no `id` column still hashes as
+//! a canonical form here — the loader is what refuses it, and it refuses it
+//! before anything is hashed.
 //!
 //! A row the header cannot account for means this is not the table it
 //! claims to be, so it is rejected — which, by the rule in [`super::hash`],

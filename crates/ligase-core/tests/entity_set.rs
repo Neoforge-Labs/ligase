@@ -312,3 +312,48 @@ fn a_file_with_no_such_column_says_which_columns_it_has() {
     assert!(said.contains("symbol"), "{said}");
     assert!(said.contains("log2fc"), "{said}");
 }
+
+#[test]
+fn a_file_with_carriage_return_line_endings_is_read_as_its_rows() {
+    // Excel 2011 and classic Mac tools write CR alone. Read as one line,
+    // a 400-gene list loads as an empty gene list and says nothing -- which
+    // is data loss that every later check would be happy with.
+    let loaded =
+        load::entity_set(&fixture("entities_cr_only.tsv"), None, &declared_human()).unwrap();
+    assert_eq!(
+        loaded
+            .dimensions()
+            .render(Dimension::IdentifierNamespace)
+            .as_deref(),
+        Some("HGNC symbol")
+    );
+}
+
+#[test]
+fn a_file_whose_symbols_are_dates_says_so_where_the_user_is_looking() {
+    // The reason an axis is unknown is what a user acts on. "declare
+    // identifier_namespace" is the one piece of advice that buries this
+    // file's problem: declare it and `SEPT7` is missing from every join
+    // for good. So the reason names the cause and sends them to the notes.
+    let loaded = load::entity_set(
+        &fixture("entities_excel_dates.tsv"),
+        None,
+        &declared_human(),
+    )
+    .unwrap();
+    let reason = loaded
+        .dimensions()
+        .reason(Dimension::IdentifierNamespace)
+        .unwrap();
+    assert!(reason.contains("date"), "{reason}");
+    assert!(reason.contains("notes"), "{reason}");
+
+    // A file that merely mixes two spaces still gets the other reason.
+    let mixed = load::entity_set(&fixture("entities_mixed.tsv"), None, &declared_human()).unwrap();
+    let other = mixed
+        .dimensions()
+        .reason(Dimension::IdentifierNamespace)
+        .unwrap();
+    assert!(!other.contains("date"), "{other}");
+    assert!(other.contains("declare"), "{other}");
+}

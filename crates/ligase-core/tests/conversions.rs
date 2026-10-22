@@ -403,7 +403,14 @@ fn mapping_rewrites_what_it_can_and_names_what_it_cannot() {
         )),
         "{said:?}"
     );
-    assert_eq!(notes.len(), 2, "{said:?}");
+    // Two named, and the total beside them.
+    assert_eq!(notes.len(), 3, "{said:?}");
+    assert!(
+        notes
+            .iter()
+            .any(|note| matches!(note, Note::IdentifiersDidNotCross { count: 2 })),
+        "{said:?}"
+    );
 }
 
 #[test]
@@ -505,4 +512,124 @@ fn the_engine_is_a_tool_whose_version_is_its_own() {
     let version = ligase::exec::tool_version("ligase").unwrap();
     assert!(version.contains("ligase"), "{version}");
     assert!(version.contains(env!("CARGO_PKG_VERSION")), "{version}");
+}
+
+// ----------------------------------- what the review of M8 turned up --
+
+#[test]
+fn two_identifiers_that_arrive_at_one_gene_do_not_quietly_become_one() {
+    // The mirror of the one-to-many case, and the same test applies: the
+    // set's cardinality must not change without a word. `TP53` and `TP53P1`
+    // both map to ENSG00000141510 here, so an output naming that gene twice
+    // with two different fold changes would be a malformed set, and one
+    // naming it once would be a guess about which row to keep.
+    let directory = TempDir::new().unwrap();
+    let out = directory.path().join("mapped.tsv");
+    let notes = convert::map_identifiers(
+        &fixture("entities_collide.tsv"),
+        "id",
+        &fixture("map_many_to_one.tsv"),
+        "id",
+        "ensembl_gene_id",
+        &out,
+    )
+    .unwrap();
+
+    let written = std::fs::read_to_string(&out).unwrap();
+    let said: Vec<String> = notes.iter().map(ToString::to_string).collect();
+
+    // BRCA1 crossed on its own and is there exactly once.
+    assert_eq!(written.matches("ENSG00000012048").count(), 1, "{written}");
+    // The two that collided are in neither the output nor silence.
+    assert_eq!(written.matches("ENSG00000141510").count(), 0, "{written}");
+    for colliding in ["TP53", "TP53P1"] {
+        assert!(
+            notes.iter().any(|note| matches!(
+                note,
+                Note::IdentifierCollides { identifier } if identifier == colliding
+            )),
+            "{colliding} not named in {said:?}"
+        );
+    }
+}
+
+#[test]
+fn a_conversion_counts_what_did_not_cross_as_well_as_naming_it() {
+    // Spec §5.1 asks for unmapped identifiers noticed, *counted* and listed.
+    // The count is what a methods paragraph can state and what a user reads
+    // first; naming four thousand identifiers and no total is not a report.
+    let (_kept, _out, notes) = mapped("entities_hgnc.tsv", "ensembl_gene_id");
+    let counted: Vec<&Note> = notes
+        .iter()
+        .filter(|note| matches!(note, Note::IdentifiersDidNotCross { .. }))
+        .collect();
+    assert_eq!(counted.len(), 1, "{notes:#?}");
+    assert!(
+        matches!(counted[0], Note::IdentifiersDidNotCross { count: 2 }),
+        "{:?}",
+        counted[0]
+    );
+    assert!(counted[0].to_string().contains('2'), "{}", counted[0]);
+}
+
+#[test]
+fn naming_what_did_not_cross_is_bounded() {
+    // A 20,000-row list through a table covering 80% of it produces 4,000
+    // identifiers that did not cross. Naming every one of them puts 4,000
+    // rows in provenance and interpolates all of them into one methods
+    // sentence, so the named ones are capped and the count carries the rest.
+    let directory = TempDir::new().unwrap();
+    let list = directory.path().join("many.tsv");
+    let table = directory.path().join("none.tsv");
+    let mut rows = String::from("id\tlog2fc\n");
+    for n in 0..500 {
+        rows.push_str(&format!("GENE{n}\t1.0\n"));
+    }
+    std::fs::write(&list, rows).unwrap();
+    std::fs::write(&table, "id\tensembl_gene_id\nTP53\tENSG00000141510\n").unwrap();
+
+    let notes = convert::map_identifiers(
+        &list,
+        "id",
+        &table,
+        "id",
+        "ensembl_gene_id",
+        &directory.path().join("mapped.tsv"),
+    )
+    .unwrap();
+
+    let named = notes
+        .iter()
+        .filter(|note| matches!(note, Note::IdentifierUnmapped { .. }))
+        .count();
+    assert!(named > 0 && named <= 20, "named {named}");
+    assert!(
+        notes
+            .iter()
+            .any(|note| matches!(note, Note::IdentifiersDidNotCross { count: 500 })),
+        "{notes:#?}"
+    );
+}
+
+#[test]
+fn a_conversion_cannot_cross_an_axis_for_a_kind_it_does_not_convert() {
+    // `Conversion::converts` exists for this. A step declaring
+    // `conversion="map_identifiers"` but returning something that is not a
+    // gene list would otherwise get a *known* identifier_namespace on a kind
+    // whose `applies()` says it has none -- inconsistent state, even where
+    // nothing reads it today.
+    let mut graph = Graph::new();
+    let input = graph.add_input("genes", entity_set_declaring_everything());
+    let conversion = Conversion::by_name("map_identifiers").unwrap();
+    let node = graph
+        .add_step(StepSpec {
+            conversion: Some(Converted {
+                conversion,
+                target: conversion.target("Ensembl gene").unwrap(),
+            }),
+            ..spec("misdeclared", DataKind::Variants, &[("genes", input)])
+        })
+        .unwrap();
+    let dimensions = graph.dataset(node).unwrap().dimensions();
+    assert!(!dimensions.identifier_namespace.is_known());
 }

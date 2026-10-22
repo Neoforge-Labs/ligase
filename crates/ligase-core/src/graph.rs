@@ -749,7 +749,17 @@ fn propagate(spec: &StepSpec, inputs: &[&Dataset]) -> Dataset {
     // comes after the inheritance rather than instead of it. A
     // `map_identifiers` output that forgot its organism, subject and
     // release would be a new gene list rather than the same one renamed.
-    if let Some(converted) = &spec.conversion {
+    //
+    // Guarded on the kind, because a conversion is registered for the kinds
+    // it converts and a step is free to declare one and return something
+    // else. Setting the axis anyway would leave a *known* value on a kind
+    // whose `applies` says it has none -- which nothing reads today, since
+    // both `check::joined_on` and the Python surface ask `applies` first,
+    // and which is inconsistent state waiting for the first caller that
+    // does not.
+    if let Some(converted) = &spec.conversion
+        && converted.conversion.converts(output)
+    {
         converted.target.apply(
             &mut dimensions,
             Source::Derived {

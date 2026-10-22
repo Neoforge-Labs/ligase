@@ -33,7 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   told**. Seven are recognised — `Ensembl gene`, `UniProt accession`,
   `RefSeq`, `HGNC ID`, `ChEMBL target`, `Entrez gene` and `HGNC symbol` —
   tried most specific first, because a symbol has no distinguishing marker and
-  would otherwise claim a UniProt accession. Inference succeeds only when
+  would otherwise claim a UniProt accession, which would make a protein list
+  and a gene list *agree*. Each shape admits what people actually have:
+  ten-character TrEMBL accessions as well as six-character reviewed ones,
+  versioned Ensembl IDs such as `ENSG00000141510.18`, mixed-case symbols such
+  as `C9orf72`, readthrough symbols such as `TNFSF12-TNFSF13`, and the whole
+  RefSeq prefix set rather than six of it. Inference succeeds only when
   every identifier in the file resolves to the same space, and declines in
   three cases rather than guessing: a file that mixes two spaces, a file with
   a header and no rows, and a file holding one identifier nothing claims. It
@@ -66,12 +71,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   being mapped, so an Entrez table handed a list of symbols is refused before
   anything runs.
 
-  Every identifier that does not cross is **named** — one the table has no row
-  for, and one it maps to several targets, which is left out rather than
-  resolved because emitting a row for each would make the output larger than
-  the input without saying so. The output is therefore smaller than the input
-  by exactly the identifiers the notes name, and those notes travel into the
-  run report, provenance, a bundle and the methods paragraph.
+  Every identifier that does not cross is **named, and counted**. Three kinds
+  do not: one the table has no row for; one it maps to several targets, which
+  is left out rather than resolved because emitting a row for each would make
+  the output larger than the input without saying so; and one whose target
+  another of your identifiers also reaches, which would otherwise make the
+  output name a single gene twice with two sets of attributes — not a set, and
+  a thing anything downstream double-counts. The named ones stop at twenty,
+  which is enough to recognise a pattern, and a count note carries the total,
+  because a conversion leaving four thousand identifiers behind needs a number
+  before it needs four thousand sentences. The output is therefore smaller
+  than the input by exactly the identifiers the notes name, and those notes
+  travel into the run report, provenance, a bundle and the methods paragraph.
 
   The registry is the deliberate half. A conversion declares the one axis it
   crosses, the kinds it crosses it for, and what the user must supply, and
@@ -91,7 +102,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   HGNC rename the affected gene families. Such a file loads, because it is
   valid TSV, and the loader says what it saw rather than refusing it or
   repairing it — `2-Sep` could have been `SEPT7` or `SEPT2`. It also declines
-  to infer a space for a file it cannot fully read. The other corruption, a
+  to infer a space for a file it cannot fully read, and the reason it gives
+  names the dates rather than advising a declaration, since declaring the
+  space is what would make the corruption permanent. A file written with
+  carriage returns alone, as Excel for Mac 2011 wrote them, is read as the
+  rows it holds rather than as a single line — which would have loaded a
+  four-hundred-gene list as an empty one without a word. The other corruption, a
   symbol turned into a date serial such as `42615`, is deliberately not
   detected: it is indistinguishable from an Entrez gene ID.
 

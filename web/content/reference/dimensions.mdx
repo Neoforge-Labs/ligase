@@ -110,10 +110,16 @@ genes.dimension("identifier_namespace").source  # "from the identifiers' own pat
 Seven spaces are recognised — `Ensembl gene`, `UniProt accession`, `RefSeq`,
 `HGNC ID`, `ChEMBL target`, `Entrez gene` and `HGNC symbol` — and the shapes
 are tried most specific first, because a symbol has no distinguishing marker
-and would otherwise claim a UniProt accession. The space is inferred only when
-**every** identifier in the file resolves to the same one; a file that mixes
-two, a file with no rows, and a file holding one name nothing claims all leave
-the dimension unknown rather than guessed.
+and would otherwise claim a UniProt accession. Each admits what people
+actually have: ten-character TrEMBL accessions as well as six-character
+reviewed ones, versioned Ensembl IDs such as `ENSG00000141510.18`, mixed-case
+symbols such as `C9orf72`, and readthrough symbols such as
+`TNFSF12-TNFSF13`. A shape too narrow merely declines to infer; a shape too
+broad claims another space's identifiers, which is the silent failure itself.
+
+The space is inferred only when **every** identifier in the file resolves to
+the same one; a file that mixes two, a file with no rows, and a file holding
+one name nothing claims all leave the dimension unknown rather than guessed.
 
 A declaration is accepted as given and not checked against the identifiers,
 because a curated list's own spelling is a space too and the engine has never

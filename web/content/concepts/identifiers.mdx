@@ -43,16 +43,20 @@ and the only way across is a `map_identifiers` step. That is
 argument for it is one word: **failures**.
 
 Going from `TP53` to `ENSG00000141510` is not a rename. It is a lookup in a
-table, and a lookup has three outcomes rather than one. Most identifiers find
-a row. Some find none, because they were renamed or retired since the table
-was downloaded. Some find several, because one symbol legitimately covers more
-than one gene.
+table, and a lookup has four outcomes rather than one. Most identifiers find a
+row. Some find none, because they were renamed or retired since the table was
+downloaded. Some find several, because one symbol legitimately covers more
+than one gene. And some arrive where another of your identifiers also arrives,
+because the table holds both a deprecated symbol and its replacement and your
+list holds both.
 
 A dimension system that coerced silently would have to choose what to do with
-the second and third, invisibly, on your behalf. Drop them, and the output is
-quietly smaller than the input. Keep them unchanged, and a name from the old
-space is sitting in a set that claims to be in the new one. Pick the first of
-several, and the choice depends on the order of rows in a file.
+the last three, invisibly, on your behalf, and every available choice is bad.
+Drop them, and the output is quietly smaller than the input. Keep them
+unchanged, and a name from the old space is sitting in a set that claims to be
+in the new one. Pick the first of several, and the choice depends on the order
+of rows in a file. Let two identifiers land on one, and the output names a
+single gene twice with two sets of attributes, which is not a set at all.
 
 Make it a step instead and all three become visible: the output declares the
 space it has arrived in, and everything that did not cross is named. Nothing
@@ -64,10 +68,23 @@ rather than repaired.
 
 Six of the seven spaces the engine recognises carry a marker: a prefix
 (`ENSG`, `CHEMBL`), an underscore (`NM_`), a colon (`HGNC:`), or being digits
-throughout. An HGNC symbol carries none — it is upper-case letters and digits,
-which is also what a UniProt accession is made of. So the shapes are tried
-most specific first and the symbol is the fallback, which is how `P04637`
-reaches `UniProt accession` rather than being read as an unusual gene name.
+throughout. An HGNC symbol carries none — it is letters and digits, which is
+also what a UniProt accession is made of. So the shapes are tried most
+specific first and the symbol is the fallback, which is how `P04637` reaches
+`UniProt accession` rather than being read as an unusual gene name.
+
+That ordering is load-bearing in a way worth stating, because getting it
+wrong does not produce an error. A UniProt accession read as a gene symbol
+makes a protein list and a gene list *agree* about being in one space, and the
+join between them then succeeds with an empty overlap — the failure this page
+is about, caused by the engine rather than by the user. So the shapes have to
+admit what people actually have: ten-character TrEMBL accessions
+(`A0A024R161`) as well as six-character reviewed ones, versioned Ensembl IDs
+(`ENSG00000141510.18`, which is what GENCODE and `featureCounts` emit),
+mixed-case symbols (`C9orf72`), and the long readthrough symbols
+(`TNFSF12-TNFSF13`). A shape that is too narrow declines to infer, which is
+merely inconvenient; a shape that is too broad claims somebody else's
+identifiers, which is the bug.
 
 The loader then infers the space when, and only when, **every identifier in
 the file resolves to the same one**. It declines in three cases, and each is a

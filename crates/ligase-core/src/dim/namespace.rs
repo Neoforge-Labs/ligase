@@ -119,6 +119,14 @@ impl KnownNamespace {
     /// the dates Excel makes of gene symbols.
     #[must_use]
     pub fn resolve(identifier: &str) -> Option<&'static Self> {
+        // A date is in no identifier space, whatever shape it happens to
+        // have. Asked before the shapes rather than left to them, because
+        // the symbol shape is deliberately permissive -- it has to admit
+        // `C9orf72` -- and `Sep-02` fits it exactly. One rule, in the one
+        // place that decides what an identifier is.
+        if crate::note::looks_like_a_date(identifier.trim()) {
+            return None;
+        }
         Self::ALL
             .iter()
             .find(|namespace| namespace.claims(identifier))
@@ -156,13 +164,28 @@ impl KnownNamespace {
 
 // ------------------------------------------------------------- shapes --
 
-/// `ENS`, up to three upper-case letters naming a species, `G`, 11 digits.
+/// `ENS`, up to three upper-case letters naming a species, `G`, 11 digits,
+/// and optionally `.` and a version.
 ///
 /// Only the gene form. `ENST…` is a transcript and `ENSP…` a protein, and
 /// those are different spaces rather than spellings of this one.
+///
+/// The version is accepted because `ENSG00000141510.18` is what GENCODE,
+/// GTEx and `featureCounts` emit, and refusing it would decline to infer a
+/// space for the commonest gene identifier in RNA-seq. It is kept as part of
+/// the identifier rather than stripped: two releases of a gene are two
+/// different sequences, so quietly equating `.18` with `.19` would be the
+/// coercion this dimension exists to refuse. The consequence is that a
+/// versioned list will not find its rows in an unversioned mapping table --
+/// which is reported, identifier by identifier, rather than guessed at.
 fn ensembl_gene(identifier: &str) -> bool {
     let Some(rest) = identifier.strip_prefix("ENS") else {
         return false;
+    };
+    let rest = match rest.split_once('.') {
+        Some((stem, version)) if !version.is_empty() && all_digits(version) => stem,
+        Some(_) => return false,
+        None => rest,
     };
     // Each possible species-code length is tried rather than consuming
     // letters greedily: `G` is itself an upper-case letter, so a greedy
@@ -176,40 +199,84 @@ fn ensembl_gene(identifier: &str) -> bool {
     })
 }
 
-/// A six-character UniProt accession, in either of its two shapes.
+/// A UniProtKB accession: six characters, or ten, with an optional isoform.
+///
+/// UniProt's own pattern is
+/// `[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}`,
+/// and the `{1,2}` is the part that matters most here: it is the
+/// ten-character form, which every TrEMBL `A0A…` entry uses, and TrEMBL is
+/// most of UniProt. Accepting only six characters left a list of them to be
+/// claimed by the symbol shape — upper-case letters and digits, which is
+/// exactly what an accession looks like — so a protein list and a gene list
+/// both came out as `HGNC symbol` and **agreed**. That is the false
+/// agreement this whole dimension exists to break, caused by the engine
+/// rather than by the user, which is why the length is spelled out here.
 fn uniprot_accession(identifier: &str) -> bool {
-    let characters: Vec<char> = identifier.chars().collect();
-    let [first, second, third, fourth, fifth, sixth] = characters[..] else {
+    // An isoform of an entry is in the same space as the entry.
+    let stem = match identifier.split_once('-') {
+        Some((base, isoform)) if !isoform.is_empty() && all_digits(isoform) => base,
+        Some(_) => return false,
+        None => identifier,
+    };
+
+    let characters: Vec<char> = stem.chars().collect();
+    let Some((&first, rest)) = characters.split_first() else {
         return false;
     };
-    if !second.is_ascii_digit() || !sixth.is_ascii_digit() {
+    if !first.is_ascii_uppercase() {
         return false;
     }
-    let middle_any = [third, fourth, fifth]
-        .iter()
-        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
 
-    // `[OPQ][0-9][A-Z0-9]{3}[0-9]`, or `[A-NR-Z][0-9][A-Z][A-Z0-9]{2}[0-9]`.
-    let opq = matches!(first, 'O' | 'P' | 'Q') && middle_any;
-    let other = first.is_ascii_uppercase()
-        && !matches!(first, 'O' | 'P' | 'Q')
-        && third.is_ascii_uppercase()
-        && middle_any;
-    opq || other
+    // `[OPQ][0-9][A-Z0-9]{3}[0-9]`: the six-character reviewed form, whose
+    // middle three characters may each be a letter or a digit.
+    if matches!(first, 'O' | 'P' | 'Q') {
+        return rest.len() == 5
+            && rest[0].is_ascii_digit()
+            && rest[1..4].iter().all(char::is_ascii_alphanumeric)
+            && rest[4].is_ascii_digit();
+    }
+
+    // `[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}`: a digit, then one block
+    // of four or two of them -- six characters in all, or ten. The second
+    // block is what every TrEMBL `A0A...` accession uses.
+    let (Some(&digit), blocks) = (rest.first(), &rest[1.min(rest.len())..]) else {
+        return false;
+    };
+    digit.is_ascii_digit()
+        && matches!(blocks.len(), 4 | 8)
+        && blocks.chunks(4).all(is_accession_block)
 }
 
-/// `NM_`, `NR_`, `NP_`, `XM_`, `XR_` or `XP_`, digits, optionally a version.
-fn refseq(identifier: &str) -> bool {
-    let mut characters = identifier.chars();
-    let (Some(molecule), Some(kind), Some('_')) =
-        (characters.next(), characters.next(), characters.next())
-    else {
+/// One `[A-Z][A-Z0-9]{2}[0-9]` block of an accession.
+fn is_accession_block(block: &[char]) -> bool {
+    let [letter, middle_one, middle_two, last] = *block else {
         return false;
     };
-    if !matches!(molecule, 'N' | 'X') || !matches!(kind, 'M' | 'R' | 'P') {
+    letter.is_ascii_uppercase()
+        && [middle_one, middle_two]
+            .iter()
+            .all(char::is_ascii_alphanumeric)
+        && last.is_ascii_digit()
+}
+
+/// A two-letter RefSeq prefix, `_`, digits, and optionally a version.
+///
+/// Listed rather than taken as "any two letters and an underscore", because
+/// a closed list is a claim the engine can be held to and a wildcard would
+/// quietly claim anything shaped like it. `NC_` (a chromosome) and `NG_` (a
+/// gene region) are what a clinical-genetics list holds, and leaving them
+/// out declined to infer a space for an ordinary file.
+fn refseq(identifier: &str) -> bool {
+    const PREFIXES: [&str; 14] = [
+        "NM", "NR", "NP", "XM", "XR", "XP", "NC", "NG", "NT", "NW", "NZ", "AP", "YP", "WP",
+    ];
+    let Some((prefix, rest)) = identifier.split_once('_') else {
+        return false;
+    };
+    if !PREFIXES.contains(&prefix) {
         return false;
     }
-    let rest: String = characters.collect();
+    let rest = rest.to_owned();
     match rest.split_once('.') {
         Some((number, version)) => {
             all_digits(number) && !number.is_empty() && all_digits(version) && !version.is_empty()
@@ -239,16 +306,27 @@ fn entrez_gene(identifier: &str) -> bool {
 
 /// An upper-case letter, then letters, digits or hyphens.
 ///
-/// The shape with no marker, so it is tried last. The length cap is what
-/// keeps a sentence or a file path out: the longest approved human symbol
-/// is well under it, and a name this shape would otherwise accept at any
-/// length is almost never an identifier.
+/// The shape with no marker, so it is tried last and has to be permissive
+/// in two ways that are easy to get wrong.
+///
+/// **Case.** Approved symbols are not all upper case: `C9orf72` is in most
+/// neurology gene lists and `C1orf43` is a standard housekeeping gene, and
+/// the whole `Cxorfy` family is spelled this way. Requiring upper case
+/// declined to infer a space for an ordinary human gene list. Permitting
+/// lower case is what makes [`KnownNamespace::resolve`] ask about dates
+/// first, since `Sep-02` fits this shape exactly.
+///
+/// **Length.** The cap admits the approved readthrough symbols, which are
+/// the longest there are: `TNFSF12-TNFSF13` is fifteen characters and
+/// `TMEM189-UBE2V1` fourteen. It exists at all to keep a sentence or a file
+/// path out, since a name of this shape at any length is rarely an
+/// identifier.
 fn hgnc_symbol(identifier: &str) -> bool {
-    const LONGEST: usize = 12;
+    const LONGEST: usize = 24;
     let mut characters = identifier.chars();
     characters.next().is_some_and(|c| c.is_ascii_uppercase())
         && identifier.len() <= LONGEST
-        && characters.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-')
+        && characters.all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 fn all_digits(text: &str) -> bool {

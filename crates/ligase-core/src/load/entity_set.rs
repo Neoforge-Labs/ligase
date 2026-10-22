@@ -44,6 +44,21 @@ const DEFAULT_ID_COLUMN: &str = "id";
 const NOT_INFERRED: &str = "not declared, and the identifiers do not all match one \
                             namespace's pattern -- declare identifier_namespace";
 
+/// The same, for a file holding an identifier a spreadsheet turned into a
+/// date.
+///
+/// A separate reason because the advice differs, and the difference matters
+/// more than it looks. "Declare identifier_namespace" is sound advice for a
+/// file whose identifiers are merely unrecognised, and it is the **worst**
+/// advice for this one: declare it and the file is accepted from then on
+/// with `SEPT7` missing from every join, which is the corruption made
+/// permanent. The reason a dimension is unknown is what a user reads and
+/// acts on, so it has to arrive with the cause rather than beside it in a
+/// note nobody thought to look at.
+const DATES_AMONG_THEM: &str = "not declared, and some identifiers are dates rather than \
+                                names -- see this dataset's notes, and re-export the file \
+                                with the identifier column typed as text";
+
 /// Load a gene or protein list from a TSV with a header.
 ///
 /// `id_column` names the column holding the identifiers, defaulting to
@@ -95,7 +110,14 @@ pub fn entity_set(
             declared,
             "a gene list does not record which organism its genes belong to",
         ),
-        identifier_namespace: namespace(path, declared, &identifiers),
+        identifier_namespace: namespace(
+            path,
+            declared,
+            &identifiers,
+            notes
+                .iter()
+                .any(|note| matches!(note, Note::IdentifierIsADate { .. })),
+        ),
         subject: super::subject(declared, "a gene list does not record what it is a list of"),
         release: super::release(
             declared,
@@ -118,7 +140,12 @@ fn read_identifier(row: &Row, at: usize) -> &str {
 }
 
 /// The namespace dimension: declared if stated, else read off the names.
-fn namespace(path: &Path, declared: &Declared, identifiers: &[String]) -> Dim<IdentifierNamespace> {
+fn namespace(
+    path: &Path,
+    declared: &Declared,
+    identifiers: &[String],
+    dated: bool,
+) -> Dim<IdentifierNamespace> {
     if let Some(label) = declared
         .identifier_namespace
         .as_deref()
@@ -129,7 +156,13 @@ fn namespace(path: &Path, declared: &Declared, identifiers: &[String]) -> Dim<Id
     }
 
     KnownNamespace::infer(identifiers.iter().map(String::as_str)).map_or_else(
-        || Dim::unknown(NOT_INFERRED),
+        || {
+            Dim::unknown(if dated {
+                DATES_AMONG_THEM
+            } else {
+                NOT_INFERRED
+            })
+        },
         |found| {
             Dim::known(
                 IdentifierNamespace::new(found.name()),

@@ -144,16 +144,41 @@ input row:
 
 | Table says | Output | Note |
 |---|---|---|
-| exactly one target | the row, with the identifier replaced | — |
+| exactly one target, reached by this identifier alone | the row, with the identifier replaced | — |
 | nothing | nothing | `IdentifierUnmapped` |
 | several targets | nothing | `IdentifierAmbiguous` |
+| one target, which another of the list's identifiers also reaches | nothing | `IdentifierCollides` |
 
-Neither failure is dropped and neither is carried over unchanged. Carrying one
-over would put a name from the old space into a set that declares the new one,
-and the whole point of the output's declaration is that it is true. So the
-output is smaller than the input by exactly the identifiers the notes name,
-and the notes reach the run report, provenance, the bundle and the methods
-paragraph by the ordinary route ([D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).
+The last row was missed when this was first written, and it is the mirror
+image of the third. A table holding both a deprecated symbol and its
+replacement sends two of your identifiers to one gene, and the output would
+then name that gene twice with two sets of attributes — not a set, and a
+cardinality change of exactly the kind the one-to-many rule exists to refuse.
+Keeping one of the two would be a guess about whose attributes to carry. So
+both are left out and both are named.
+
+Collision cannot be decided row by row: the *second* identifier to arrive is
+what makes the first one a problem, and by then the first has been written. So
+`map_identifiers` reads the list twice — once to find the contested targets,
+once to write — which is why `collisions` exists as a separate pass.
+
+No failure is dropped and none is carried over unchanged. Carrying one over
+would put a name from the old space into a set that declares the new one, and
+the whole point of the output's declaration is that it is true. So the output
+is smaller than the input by exactly the identifiers the notes name, and the
+notes reach the run report, provenance, the bundle and the methods paragraph
+by the ordinary route ([D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).
+
+**The named ones are capped and the total is not.** A twenty-thousand-row list
+converted through a table covering most of it leaves thousands behind, and
+naming every one puts a provenance row per identifier and interpolates all of
+them into a single methods sentence. So `NAMED_AT_MOST` is twenty — enough to
+recognise a pattern, which is what naming them was for — and
+`Note::IdentifiersDidNotCross` carries the count, which is the half of spec
+§5.1's "noticed, counted, and listed" that the first implementation left out.
+Deduplication is by a `BTreeSet` of note values rather than by scanning the
+notes, because the scan is quadratic in the number of notes and the number of
+notes is the size of the user's data.
 
 One refusal is an `Err` rather than a note: `column` naming the table's own
 identifier column. That would map every identifier to itself and then declare
