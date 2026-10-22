@@ -7,6 +7,7 @@
 //! unknown.
 
 mod alignment;
+mod entity_set;
 mod fasta;
 mod intervals;
 mod reads;
@@ -21,15 +22,16 @@ use std::path::{Path, PathBuf};
 
 use flate2::bufread::MultiGzDecoder;
 
-use crate::dim::{Dim, Organism, Release, Source};
+use crate::dim::{Dim, Organism, Release, Source, Subject};
 
 pub use alignment::alignment;
+pub use entity_set::entity_set;
 pub use fasta::reference;
 pub use intervals::{IntervalFormat, intervals};
 pub use reads::{reads, samples};
 pub use variants::variants;
 
-pub(crate) use table::Table;
+pub(crate) use table::{Row, Table};
 
 /// Dimensions the user states, for the ones a file cannot record.
 ///
@@ -60,9 +62,24 @@ pub struct Declared {
     pub frame: Option<(String, u64)>,
     /// The release of the reference, e.g. `GRCh38.p14`.
     ///
-    /// Only a reference carries one; the other loaders ignore it. A blank
-    /// release declares nothing and is treated as not declared.
+    /// A reference and a gene list each carry one; the other loaders ignore
+    /// it. A blank release declares nothing and is treated as not declared.
     pub release: Option<String>,
+    /// Which identifier space a set of entities is named in, e.g.
+    /// `HGNC symbol`.
+    ///
+    /// Only the entity-set loader reads it. Left unset, the loader reads
+    /// the space off the identifiers themselves where they agree
+    /// unambiguously; a blank declares nothing and is treated as not
+    /// declared. It is deliberately not checked against the engine's
+    /// catalogue of known spaces, because a curated list's own spelling is
+    /// a space too — see `load::entity_set`.
+    pub identifier_namespace: Option<String>,
+    /// What the data is about when that is one named thing: a disease, a
+    /// cell line, a cohort.
+    ///
+    /// Only the entity-set loader reads it. A blank declares nothing.
+    pub subject: Option<String>,
 }
 
 /// The organism dimension a loader reports from what the user declared.
@@ -89,6 +106,18 @@ pub(crate) fn organism(declared: &Declared, reason: &'static str) -> Dim<Organis
 pub(crate) fn release(declared: &Declared, reason: &'static str) -> Dim<Release> {
     match declared.release.as_deref().map(Release::new) {
         Some(release) if !release.is_empty() => Dim::known(release, Source::Declared),
+        _ => Dim::unknown(reason),
+    }
+}
+
+/// The subject dimension, from what the user declared.
+///
+/// A blank subject is a gap for the same reason a blank release is: a blank
+/// that equals another blank is a false agreement. `reason` is the
+/// caller's, as with [`organism`] and [`release`].
+pub(crate) fn subject(declared: &Declared, reason: &'static str) -> Dim<Subject> {
+    match declared.subject.as_deref().map(Subject::new) {
+        Some(subject) if !subject.is_empty() => Dim::known(subject, Source::Declared),
         _ => Dim::unknown(reason),
     }
 }

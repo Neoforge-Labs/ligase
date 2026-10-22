@@ -122,3 +122,193 @@ fn a_dataset_carries_what_loading_it_noticed() {
     let quiet = Dataset::new(DataKind::Reference, None, Dimensions::default());
     assert!(quiet.notes().is_empty());
 }
+
+// ------------------------------------------------------------- loading --
+
+mod common;
+
+use common::fixture;
+use ligase::dim::Source;
+use ligase::load::{self, Declared};
+
+/// A declaration naming the organism and nothing else.
+fn declared_human() -> Declared {
+    Declared {
+        organism: Some(vec!["Homo sapiens".to_owned()]),
+        ..Declared::default()
+    }
+}
+
+#[test]
+fn a_namespace_is_inferred_from_the_identifiers_themselves() {
+    for (file, expected) in [
+        ("entities_hgnc.tsv", "HGNC symbol"),
+        ("entities_ensembl.tsv", "Ensembl gene"),
+        ("entities_entrez.tsv", "Entrez gene"),
+        ("entities_uniprot.tsv", "UniProt accession"),
+    ] {
+        let loaded = load::entity_set(&fixture(file), None, &declared_human()).unwrap();
+        let dimensions = loaded.dimensions();
+        assert_eq!(
+            dimensions.render(Dimension::IdentifierNamespace).as_deref(),
+            Some(expected),
+            "{file}"
+        );
+        // And it says where it got that from, which is what makes the
+        // inference checkable rather than magic.
+        let source = dimensions
+            .source(Dimension::IdentifierNamespace)
+            .map(Source::describe)
+            .unwrap_or_default();
+        assert!(
+            source.contains("the identifiers' own pattern"),
+            "{file}: {source}"
+        );
+    }
+}
+
+#[test]
+fn a_file_that_mixes_two_namespaces_declines_to_infer() {
+    let loaded = load::entity_set(&fixture("entities_mixed.tsv"), None, &declared_human()).unwrap();
+    assert!(!loaded.dimensions().identifier_namespace.is_known());
+    assert!(
+        loaded
+            .dimensions()
+            .reason(Dimension::IdentifierNamespace)
+            .is_some()
+    );
+}
+
+#[test]
+fn a_header_with_no_rows_declines_to_infer() {
+    // Every pattern fits all zero identifiers, so a vacuous answer here
+    // would declare a space for a file that names nothing.
+    let loaded = load::entity_set(
+        &fixture("entities_header_only.tsv"),
+        None,
+        &declared_human(),
+    )
+    .unwrap();
+    assert!(!loaded.dimensions().identifier_namespace.is_known());
+}
+
+#[test]
+fn the_loader_notices_a_symbol_excel_turned_into_a_date() {
+    let loaded = load::entity_set(
+        &fixture("entities_excel_dates.tsv"),
+        None,
+        &declared_human(),
+    )
+    .unwrap();
+    let said: Vec<String> = loaded.notes().iter().map(ToString::to_string).collect();
+    assert_eq!(loaded.notes().len(), 2, "{said:?}");
+    assert!(said.iter().any(|note| note.contains("2-Sep")), "{said:?}");
+    assert!(said.iter().any(|note| note.contains("1-Mar")), "{said:?}");
+}
+
+#[test]
+fn a_carriage_return_is_not_part_of_an_identifier() {
+    // Excel writes CRLF, and `TP53\r` would match no namespace at all.
+    let loaded = load::entity_set(&fixture("entities_crlf.tsv"), None, &declared_human()).unwrap();
+    assert_eq!(
+        loaded
+            .dimensions()
+            .render(Dimension::IdentifierNamespace)
+            .as_deref(),
+        Some("HGNC symbol")
+    );
+    assert!(loaded.notes().is_empty());
+}
+
+#[test]
+fn a_declared_namespace_wins_over_what_the_identifiers_look_like() {
+    // A declaration is recorded, not checked: a user who says their list is
+    // an in-house spelling is telling the engine something it cannot read
+    // off the file, and `map_identifiers` is how they find out otherwise.
+    let declared = Declared {
+        identifier_namespace: Some("my curated list".to_owned()),
+        ..declared_human()
+    };
+    let loaded = load::entity_set(&fixture("entities_hgnc.tsv"), None, &declared).unwrap();
+    assert_eq!(
+        loaded
+            .dimensions()
+            .render(Dimension::IdentifierNamespace)
+            .as_deref(),
+        Some("my curated list")
+    );
+    assert_eq!(
+        loaded.dimensions().source(Dimension::IdentifierNamespace),
+        Some(&Source::Declared)
+    );
+}
+
+#[test]
+fn a_blank_declared_namespace_is_a_gap_not_a_blank_label() {
+    // A blank that compares equal to another blank is a false agreement.
+    for blank in ["", "   "] {
+        let declared = Declared {
+            identifier_namespace: Some(blank.to_owned()),
+            ..declared_human()
+        };
+        let loaded = load::entity_set(&fixture("entities_hgnc.tsv"), None, &declared).unwrap();
+        assert_eq!(
+            loaded
+                .dimensions()
+                .render(Dimension::IdentifierNamespace)
+                .as_deref(),
+            Some("HGNC symbol"),
+            "{blank:?}"
+        );
+    }
+}
+
+#[test]
+fn a_declared_subject_and_release_are_carried() {
+    let declared = Declared {
+        subject: Some("breast carcinoma".to_owned()),
+        release: Some("HGNC 2026-09".to_owned()),
+        ..declared_human()
+    };
+    let loaded = load::entity_set(&fixture("entities_hgnc.tsv"), None, &declared).unwrap();
+    assert_eq!(
+        loaded.dimensions().render(Dimension::Subject).as_deref(),
+        Some("breast carcinoma")
+    );
+    assert_eq!(
+        loaded.dimensions().render(Dimension::Release).as_deref(),
+        Some("HGNC 2026-09")
+    );
+}
+
+#[test]
+fn the_identifier_column_can_be_named() {
+    // The mapping table's own identifiers live under `id`; a file that
+    // spells it differently says so rather than being guessed at.
+    let loaded = load::entity_set(
+        &fixture("map_hgnc_to_ensembl.tsv"),
+        Some("id"),
+        &declared_human(),
+    )
+    .unwrap();
+    assert_eq!(
+        loaded
+            .dimensions()
+            .render(Dimension::IdentifierNamespace)
+            .as_deref(),
+        Some("HGNC symbol")
+    );
+}
+
+#[test]
+fn a_file_with_no_such_column_says_which_columns_it_has() {
+    let error = load::entity_set(
+        &fixture("entities_hgnc.tsv"),
+        Some("symbol"),
+        &declared_human(),
+    )
+    .unwrap_err();
+    let said = error.to_string();
+    assert!(said.contains("symbol"), "{said}");
+    assert!(said.contains("log2fc"), "{said}");
+}

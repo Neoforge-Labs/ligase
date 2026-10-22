@@ -25,10 +25,23 @@
 
 use std::io::BufRead;
 
-/// One row of a table.
+/// One row of a table, as text and as fields.
+///
+/// Both, because the callers want different things and neither should
+/// re-split what the other already split: a canonical form hashes the
+/// line, and a loader reads one column out of the fields.
 pub(crate) struct Row {
     /// The line as written, without its line ending.
     pub line: String,
+    /// Its fields, split on tabs.
+    fields: Vec<String>,
+}
+
+impl Row {
+    /// One field by position, trimmed, or `None` past the end of the row.
+    pub(crate) fn field(&self, at: usize) -> Option<&str> {
+        self.fields.get(at).map(|field| field.trim())
+    }
 }
 
 /// A tab-separated table being read, header first.
@@ -57,6 +70,11 @@ impl<R: BufRead> Table<R> {
         &self.header
     }
 
+    /// Which column has this name, if one does.
+    pub(crate) fn column(&self, name: &str) -> Option<usize> {
+        self.header.iter().position(|column| column == name.trim())
+    }
+
     /// The next row, or `None` at the end of the file.
     ///
     /// A blank line is skipped rather than read as a row of one empty
@@ -69,14 +87,15 @@ impl<R: BufRead> Table<R> {
             if line.is_empty() {
                 continue;
             }
-            let columns = line.split('\t').count();
-            if columns != self.header.len() {
+            let fields: Vec<String> = line.split('\t').map(ToOwned::to_owned).collect();
+            if fields.len() != self.header.len() {
                 return Err(format!(
-                    "a row of {columns} columns under a header of {}",
+                    "a row of {} columns under a header of {}",
+                    fields.len(),
                     self.header.len()
                 ));
             }
-            return Ok(Some(Row { line }));
+            return Ok(Some(Row { line, fields }));
         }
     }
 }

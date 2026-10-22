@@ -512,6 +512,8 @@ fn load_reference(
         frame,
         samples: None,
         release: declared_release(release)?,
+        identifier_namespace: None,
+        subject: None,
     };
     load::reference(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -532,6 +534,8 @@ fn load_alignment(
         frame: None,
         samples,
         release: None,
+        identifier_namespace: None,
+        subject: None,
     };
     load::alignment(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -552,6 +556,8 @@ fn load_variants(
         frame: None,
         samples,
         release: None,
+        identifier_namespace: None,
+        subject: None,
     };
     load::variants(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -572,6 +578,8 @@ fn load_reads(
         samples,
         frame: None,
         release: None,
+        identifier_namespace: None,
+        subject: None,
     };
     load::reads(&r1, r2.as_deref(), &declared)
         .map(|inner| PyDataset { inner })
@@ -600,6 +608,8 @@ fn load_intervals(
         frame: None,
         samples: None,
         release: None,
+        identifier_namespace: None,
+        subject: None,
     };
     load::intervals(&path, format, &declared)
         .map(|inner| PyDataset { inner })
@@ -619,6 +629,8 @@ fn load_samples(
         samples: None,
         frame: None,
         release: None,
+        identifier_namespace: None,
+        subject: None,
     };
     load::samples(&paths, paired, &declared)
         .map(|datasets| {
