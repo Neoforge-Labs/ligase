@@ -57,6 +57,10 @@ The full catalogue, including which formats can state which dimension, is in
 | `sample_set` | The sample identifiers, **in order** |
 | `pairing` | Single-end against paired-end |
 | `quality_encoding` | Phred+33 against Phred+64 |
+| `release` | Which release of a versioned resource the data is on, declared on a reference as `release="GRCh38.p14"` and compared by equality, because two releases of one build can share a name |
+
+`subject` and `source_set` complete the ten; they apply to no kind the engine
+reads yet and are listed in the catalogue.
 
 Each dimension is inferred from the file where the format records it, and
 declared by the user once where it does not. A FASTA cannot tell you its

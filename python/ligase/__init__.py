@@ -178,8 +178,8 @@ def reference(
             `GRCh38.p14` or `Ensembl 110`. A FASTA cannot record it, and
             two releases of one build can differ in sequence while sharing
             a name. It is compared by equality: two references declare the
-            same release only if their labels are identical, so `GRCh38.p13`
-            and `GRCh38.p14` do not match.
+            same release only if their labels are identical after
+            trimming, so `GRCh38.p13` and `GRCh38.p14` do not match.
 
     Returns:
         The loaded reference.

@@ -99,7 +99,7 @@ every member to be correct.
 A set with no members is never stored as an empty set. It would compare equal
 to every other empty set, so two datasets that declared nothing would *agree*
 on organism. The Python loaders refuse it where it is passed; the core, which
-cannot raise, records the dimension as unknown with a reason.
+could raise but chooses not to, records the dimension as unknown with a reason.
 
 ## Reference identity
 

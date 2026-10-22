@@ -68,10 +68,15 @@ error. D35, D36 and D37 written into
 - A `Reference` declared `organism=["HIV-1", "Homo sapiens"]`, checked against
   an `Alignment` declared `organism="HIV-1"`, fails with an error naming
   *Homo sapiens* as the difference.
-- What a v0.1 pipeline sees is unchanged: a single organism renders as exactly
-  `HIV-1`, the three new axes are **appended** to the dimension list rather
-  than slotted in beside the axes they resemble, and `ligase check`'s own
-  tests and the diagnostics captured for the docs are untouched.
+- What a v0.1 pipeline's checks and diagnostics see is unchanged: a single
+  organism renders as exactly `HIV-1`, the three new axes are **appended** to
+  the dimension list rather than slotted in beside the axes they resemble, and
+  `ligase check`'s own tests and the diagnostics captured for the docs are
+  untouched. What is not unchanged is the *catalogue* a script can read back:
+  a `Reference` now lists `release` among its applicable dimensions, and
+  reports why it is unknown where it previously reported nothing, so code that
+  iterates the unknown dimensions and prompts for each will now ask for one
+  more.
 
 **Done.** That third clause is a restatement, and the original is worth
 recording: the feature spec asked that "`ligase check` on the HIV demo
@@ -114,6 +119,14 @@ corrupted to dates and the loader notices them; namespace inference is
 exercised by fixtures for HGNC, Ensembl, Entrez and UniProt, and declines to
 infer when a file mixes two.
 
+**Standing requirement, from M7.** The first kind to claim a dimension axis
+must pin that axis's arm in `check.rs::compare` and in `graph.rs::propagate`
+with a test. Until a kind applies an axis, `check_step` never reaches its arms,
+so no test can catch one written against the wrong field, and the compiler
+cannot either: `Organism` and `SourceSet` are one type, and so are `Release`
+and `Subject`. This milestone gives `identifier_namespace` a kind and may touch
+`subject`; if it applies `subject`, the requirement falls on it.
+
 ## M9 — Inspect
 `ligase inspect`, generated into [the CLI reference](/reference/cli/) by the
 existing `generate_cli.py`.
@@ -141,6 +154,18 @@ recorded in one order replay correctly when issued in the other; a request
 made with an auth header stores no trace of it; the CI `demo` job caches on
 remote digests.
 
+**Standing requirement, from M7.** The first kind to claim a dimension axis
+must pin that axis's arm in `check.rs::compare` and in `graph.rs::propagate`
+with a test. Until a kind applies an axis, `check_step` never reaches its arms,
+so no test can catch one written against the wrong field, and the compiler
+cannot either: `Organism` and `SourceSet` are one type, and so are `Release`
+and `Subject`. If this milestone gives `source_set` a kind, the requirement
+falls on it, and it must also re-examine the dedup rule first. The set type
+folds members that differ only in ASCII case, which is right for accessions and
+wrong for object keys, and `source_set` gets a type of its own if it is to hold
+the latter
+([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)).
+
 ## M11 — Stochastic steps
 A step that is not deterministic says so, and an unseeded one is refused. D40.
 
@@ -159,6 +184,15 @@ A `RankedList` kind, canonicalised **in order**. D41.
 test says so; a `RankedList` and an `EntitySet` in different namespaces refuse
 to join; a `RankedList` released `HGNC 2026-09` refuses to score against an
 `EntitySet` released `HGNC 2026-03`.
+
+**Standing requirement, from M7.** The first kind to claim a dimension axis
+must pin that axis's arm in `check.rs::compare` and in `graph.rs::propagate`
+with a test. Until a kind applies an axis, `check_step` never reaches its arms,
+so no test can catch one written against the wrong field, and the compiler
+cannot either: `Organism` and `SourceSet` are one type, and so are `Release`
+and `Subject`. A `RankedList` brings `source_set` and `subject` into play, so
+the requirement falls on this milestone for both, and the `source_set` dedup
+question under M10 must be settled before `source_set` is applied.
 
 ## M13 — Step library
 `ligase.steps`: typed steps that ship with their dimensions, their citation

@@ -1008,6 +1008,19 @@ leading question rather than on the value: the same set comparison asks "did
 you pass data from the wrong organism?" on one axis and "was a source added or
 removed upstream?" on the other.
 
+**The sharing is settled for `organism` and provisional for `source_set`.**
+The set type collapses members that differ only in ASCII case, keeping the
+first spelling. For Latin binomials that is exactly right. For what
+`source_set` will hold it is mixed: `GSE12345` and `gse12345` are the same
+study, but `s3://bucket/A.vcf` and `s3://bucket/a.vcf` are two different
+objects, and the second would be dropped without a word. Nothing can go wrong
+today, because no kind applies `source_set`. The right to split it into a type
+of its own, with its own equality, is reserved for the milestone that gives
+the dimension a kind, and the obligation is written into
+[M10](/project/milestones/#m10--remotes-and-replay) and
+[M12](/project/milestones/#m12--ranked-lists). Splitting it then is the
+decision recorded here being carried out, not reversed.
+
 ## D37 — Organism is set-valued
 
 `organism` was a single string, which assumes a dataset is about one
@@ -1050,8 +1063,9 @@ two files may simply not belong together.
 **An empty list is a gap, not an empty set.** Two datasets that each declared
 no organism would otherwise *agree*, which is exactly the silence the
 dimension exists to break. So the Python loaders refuse a list naming no
-organism, and the core, which cannot raise, records the dimension as unknown
-with a reason rather than as a set of nothing.
+organism, and the core, which could raise but chooses not to (`load::reference`
+returns a `Result`, and an empty list is not among its errors), records the
+dimension as unknown with a reason rather than as a set of nothing.
 
 There is still no alias table. `["human"]` and `["Homo sapiens"]` are two
 different sets and are reported as a mismatch, because equating them means

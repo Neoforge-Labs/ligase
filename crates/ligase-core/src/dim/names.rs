@@ -20,17 +20,32 @@ use std::fmt;
 /// An ordered set of names, compared as a set.
 ///
 /// Members are compared case-insensitively and ignoring surrounding space,
-/// and order never matters: a host–pathogen dataset about `HIV-1` and
-/// `Homo sapiens` is the same dataset however the two were listed. There is
-/// no alias table — equating "human" with "Homo sapiens" would mean
-/// guessing, and a wrong guess passes `check()` silently. Declare one
-/// spelling and use it.
+/// and order never matters. "Case-insensitively" means ASCII case only
+/// (`eq_ignore_ascii_case`): `HIV-1` and `hiv-1` are one name, but no Unicode
+/// folding is attempted. That is immaterial for Latin binomials and worth
+/// knowing before a set holds arbitrary labels. A host–pathogen dataset about
+/// `HIV-1` and `Homo sapiens` is the same dataset however the two were
+/// listed. There is no alias table — equating "human" with "Homo sapiens"
+/// would mean guessing, and a wrong guess passes `check()` silently. Declare
+/// one spelling and use it.
 ///
 /// Insertion order is kept (so a message can echo what the user wrote) but
 /// is not part of the identity, and a name given twice is recorded once in
 /// its first spelling. Blank names are dropped rather than stored, since an
 /// empty member would compare equal to every other empty member and mean
 /// nothing.
+///
+/// # An empty set must never be a known dimension
+///
+/// An empty set is a legal *value*: it is what [`NameSet::of`] returns for
+/// no names, and `Display` renders it as an empty string. It must never reach
+/// a `Dim::known`, because two known empty sets compare equal, and that is a
+/// false agreement, the thing this engine exists to refuse. The type does not
+/// enforce this; the loaders do, by building the dimension through
+/// `load::organism`, which turns an empty declaration into an unknown one
+/// with a reason. A new loader of a set-valued dimension must go through that
+/// path (or an equivalent that checks [`NameSet::is_empty`] first), and
+/// `tests/declared_dimensions.rs` fails if one does not.
 #[derive(Clone, Debug)]
 pub struct NameSet {
     members: Vec<String>,
@@ -46,7 +61,7 @@ impl NameSet {
     /// A set of several names.
     ///
     /// Each is trimmed, blanks are dropped, and a name already present
-    /// (ignoring case) is skipped so the first spelling wins.
+    /// (ignoring ASCII case) is skipped so the first spelling wins.
     #[must_use]
     pub fn of<I, S>(names: I) -> Self
     where
@@ -110,7 +125,7 @@ pub(crate) fn english_list<S: AsRef<str>>(names: &[S]) -> String {
 }
 
 impl PartialEq for NameSet {
-    /// Same members, in any order, ignoring case.
+    /// Same members, in any order, ignoring ASCII case.
     ///
     /// The scan is quadratic on purpose. A set holds a handful of organisms
     /// or sources, so sorting or hashing would cost more than it saves, and
@@ -140,6 +155,12 @@ impl fmt::Display for NameSet {
 pub type Organism = NameSet;
 
 /// The sources a dataset was assembled from.
+///
+/// Shares [`NameSet`]'s ASCII-case-insensitive dedup for now, which is right
+/// for study accessions (`GSE12345` and `gse12345` are one study) and wrong
+/// for object keys (`s3://bucket/A.vcf` and `s3://bucket/a.vcf` are two
+/// objects, and the second would be dropped). No kind applies this dimension
+/// yet. The type is to be split when one does; see D36.
 pub type SourceSet = NameSet;
 
 /// A scalar label, compared exactly.

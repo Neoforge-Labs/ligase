@@ -48,9 +48,8 @@ apply to nothing yet and come alive in M8 and M12.
 - Docs claims about use or adoption must be true. The project has no outside
   users; invent no quotes, logos or metrics.
 - Conventional commit messages, small and focused.
-- Work from the worktree at
-  `/Users/theforge/Mirror/ligase/.claude/worktrees/ligase-v0-2-spec-2bc869`.
-  Its venv is `.venv`, built with `pip install -e ".[dev,docs]"` — the `docs`
+- Work from the repository root of the milestone's worktree (`<worktree
+  root>`), never from another checkout. Its venv is `.venv`, built with `pip install -e ".[dev,docs]"` — the `docs`
   extra is needed because `web/scripts/render_notebooks.py` imports marimo and
   `npm run generate` runs it. Python commands below mean `.venv/bin/python`.
   After any Rust change, re-run `.venv/bin/pip install -e . --quiet` before

@@ -113,12 +113,15 @@ aln = lg.alignment(
 )
 
 # Nothing has run. This reads the FASTA index and the BAM header.
-lg.check_step("call", {"ref": ref, "aln": aln})
+lg.check_step("call", {"aln": aln, "ref": ref})
 ```
 
 That passes. Change the alignment to `organism="HIV-1"` alone, which is the
 declaration this page is about, and the same `check_step` call refuses with the
-message shown above, before anything runs.
+message shown above, before anything runs. The two value lines follow the
+order the inputs are bound in, which is why `aln` comes before `ref` in the
+snippet: bind them the other way round and the same two lines come out
+swapped.
 
 Two organism sets are equal when they name the same organisms, in any order, so
 `["Homo sapiens", "HIV-1"]` and `["HIV-1", "Homo sapiens"]` agree. A single

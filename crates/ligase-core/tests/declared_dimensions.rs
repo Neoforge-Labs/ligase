@@ -188,3 +188,35 @@ fn only_a_reference_carries_a_release() {
     let sam = load::alignment(&fixture("tiny_bare.sam"), &declared).expect("loads");
     assert!(!sam.dimensions().release.is_known());
 }
+
+// `NameSet` does not forbid an empty set, so nothing in the type stops a
+// loader from handing one to `Dim::known`. Two known empty sets compare
+// equal, which is a false agreement. The only thing that prevents it is that
+// every loader routes through `load::organism`, and this is where that is
+// held: a loader written later that builds the dimension itself, and so
+// skips the emptiness check, fails here.
+#[test]
+fn no_loader_can_be_made_to_report_a_known_empty_organism_set() {
+    for empty in [names(&[]), names(&[""]), names(&["", "  "])] {
+        let declared = declared(empty);
+
+        let loaded = [
+            load::reference(&fixture("tiny_bare.fasta"), &declared).expect("loads"),
+            load::alignment(&fixture("tiny_bare.sam"), &declared).expect("loads"),
+            load::variants(&fixture("tiny_bare.vcf"), &declared).expect("loads"),
+            load::reads(&fixture("reads_phred33_1.fastq"), None, &declared).expect("loads"),
+            load::intervals(&fixture("tiny_bare.bed"), None, &declared).expect("loads"),
+        ];
+        for found in &loaded {
+            let dimensions = found.dimensions();
+            assert!(
+                !dimensions.organism.is_known(),
+                "{:?} reported a known organism for {:?}",
+                found.kind(),
+                declared.organism
+            );
+            assert!(dimensions.reason(Dimension::Organism).is_some());
+            assert_eq!(dimensions.render(Dimension::Organism), None);
+        }
+    }
+}

@@ -2,7 +2,7 @@
 //!
 //! The catalogue is `web/content/reference/dimensions.mdx`: organism,
 //! reference, contig naming, coordinates, sample set, pairing, quality
-//! encoding. Every value travels with its provenance, so an error message can
+//! encoding, release, subject and source set. Every value travels with its provenance, so an error message can
 //! say *where* a value came from without reconstructing it after the fact.
 //! That provenance is the part that makes the error useful: "these two
 //! references disagree" sends a user hunting, while "one came from a BAM
@@ -139,7 +139,8 @@ impl<T> Dim<T> {
 /// report that already exists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Dimension {
-    /// Which organism the data is from.
+    /// Which organisms the data is about: a set, since one dataset can be
+    /// about several.
     Organism,
     /// Which reference build the data is on.
     Reference,
@@ -379,7 +380,8 @@ impl QualityEncoding {
 /// format cannot express must not masquerade as a value.
 #[derive(Clone, Debug)]
 pub struct Dimensions {
-    /// Which organism the data is from.
+    /// Which organisms the data is about: a set, since one dataset can be
+    /// about several.
     pub organism: Dim<Organism>,
     /// Which reference build the data is on.
     pub reference: Dim<ReferenceId>,
@@ -421,6 +423,12 @@ impl Default for Dimensions {
 
 impl Dimensions {
     /// Render a dimension's value, if known.
+    ///
+    /// Reads the field only. This record knows nothing of
+    /// [`DataKind`](crate::types::DataKind), so it answers for a dimension
+    /// that does not apply to the kind as readily as for one that does; a
+    /// caller that cares whether the dimension applies must ask
+    /// [`DataKind::applies`](crate::types::DataKind::applies) first.
     #[must_use]
     pub fn render(&self, dimension: Dimension) -> Option<String> {
         match dimension {
@@ -447,6 +455,9 @@ impl Dimensions {
     }
 
     /// Where a dimension's value came from, if known.
+    ///
+    /// Reads the field only; see [`Dimensions::render`] on asking
+    /// [`DataKind::applies`](crate::types::DataKind::applies) first.
     #[must_use]
     pub const fn source(&self, dimension: Dimension) -> Option<&Source> {
         match dimension {
@@ -464,6 +475,12 @@ impl Dimensions {
     }
 
     /// Why a dimension is unknown, if it is.
+    ///
+    /// Reads the field only, so for a dimension that does not apply to the
+    /// kind it still returns the default "not recorded in the file and not
+    /// declared" text, which would be wrong to show a user. A caller that
+    /// cares whether the dimension applies must ask
+    /// [`DataKind::applies`](crate::types::DataKind::applies) first.
     #[must_use]
     pub const fn reason(&self, dimension: Dimension) -> Option<&'static str> {
         match dimension {

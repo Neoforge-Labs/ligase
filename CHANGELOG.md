@@ -26,8 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   two value lines state both sets in full but cannot point at the member that
   makes them unequal. A list naming nothing is refused where it is passed,
   since two datasets that each declared no organism would otherwise *agree*.
-  `organism=` still accepts a plain string, which is a set of one and renders
-  exactly as it did, so **no v0.1 pipeline needs editing.**
+  In the Python API `organism=` still accepts a plain string, which is a set
+  of one and renders exactly as it did, so **no v0.1 pipeline written against
+  the Python API needs editing.** The Rust crate is another matter, and is
+  under *Changed* and *Removed* below.
 
   Three dimensions arrive with it. `release` says which versioned external
   resource the data came from, and it is its own dimension rather than a
@@ -358,9 +360,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `mkdocs build --strict`. It regenerates, builds, and then fails on a broken
   link, a dangling anchor, a page nothing links to, or a Markdown link that
   never resolved.
+- **The Rust API of the `ligase` crate changed shape with the set-valued
+  organism.** `crates/ligase-core` is published, and `organism` held a single
+  string in its public types, so making it a set could not be additive.
+  `load::Declared.organism` is `Option<Vec<String>>` where it was
+  `Option<String>`, which breaks every site that constructs a `Declared`: wrap
+  the one name in a list, `Some(vec![name])`. `dim::Organism` is now an alias
+  of `dim::NameSet`, a set of names, where it was its own struct. The Python
+  API is not affected.
+- **A `Reference` now has a `release`.** Its applicable dimensions gained a
+  fourth entry, `release`, and `unknown_reason("release")` returns a reason
+  (`a FASTA does not record which release it came from; declare it`) where it
+  used to return `None`. This is visible on both surfaces: `lg.reference(...)
+  .applicable` is `('organism', 'reference', 'contig_naming', 'release')`
+  rather than three names, so a script that iterates it and prompts for every
+  unknown dimension will now ask for a release. Nothing is demanded: a
+  reference with no release declared still loads and still checks.
 
 ### Removed
 
+- **`dim::Organism::as_str`.** `Organism` is a set now, so there is no single
+  string to borrow. `to_string()` (the `Display` impl) is the replacement, and
+  returns `HIV-1` for a set of one and `HIV-1 and Homo sapiens` for two; a
+  caller that wants the members takes `as_slice()`.
 - **The MkDocs site.** `docs/`, `mkdocs.yml`, the `docs.yml` workflow and the
   `mkdocs`, `mkdocs-material` and `mkdocstrings` entries in the `docs` extra
   are gone; `marimo` stays, because the notebooks still need it. The MDX under
