@@ -6,9 +6,17 @@
   "scripts": {
     "generate": "python3 scripts/generate_api.py && python3 scripts/generate_cli.py && python3 scripts/capture_diagnostics.py && python3 scripts/capture_quickstart.py && python3 scripts/render_notebooks.py",
     "dev": "npm run generate && next dev",
-    "build": "npm run generate && next build && pagefind --site out --output-subdir _pagefind && node scripts/write-redirects.mjs",
+    "build": "npm run generate && next build && pagefind --site out --output-subdir _pagefind && node scripts/write-redirects.mjs && node scripts/generate-llms.mjs",
     "links": "node scripts/check-links.mjs",
-    "check": "npm run build && npm run links",
+    "seo": "node scripts/check-seo.mjs",
+    "contrast": "node scripts/check-contrast.mjs",
+    "orphans": "node scripts/check-contrast.mjs --orphans",
+    "shiki": "node scripts/check-contrast.mjs --shiki",
+    "mark": "node scripts/check-mark.mjs",
+    "furniture": "node scripts/check-furniture.mjs",
+    "selectors": "node scripts/check-furniture.mjs --built",
+    "assets": "node scripts/check-assets.mjs",
+    "check": "npm run contrast && npm run orphans && npm run mark && npm run furniture && npm run build && npm run selectors && npm run shiki && npm run links && npm run assets && npm run seo",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

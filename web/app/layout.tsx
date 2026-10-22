@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { Source_Serif_4 } from 'next/font/google'
+import { Playfair_Display, Source_Serif_4 } from 'next/font/google'
 import { GeistMono } from 'geist/font/mono'
 import { GeistSans } from 'geist/font/sans'
 import { Footer, Layout, Navbar } from 'nextra-theme-docs'
@@ -27,6 +27,24 @@ const sourceSerif = Source_Serif_4({
   axes: ['opsz'],
 })
 
+/*
+ * The display face, used only for the wordmark and the largest headings.
+ * Its variable name is what --lg-font-display in tokens.css reads.
+ *
+ * Playfair Display is a 400-900 family: 400 is its lightest real weight, and
+ * the Google Fonts API refuses wght@300 outright. (The lighter, differently
+ * drawn face with a 300 is the separate "Playfair" family.) Every rule that
+ * sets the display face must therefore ask for a weight listed here, which
+ * scripts/check-furniture.mjs enforces.
+ */
+const playfair = Playfair_Display({
+  subsets: ['latin'],
+  weight: ['400'],
+  style: ['normal', 'italic'],
+  display: 'swap',
+  variable: '--font-playfair',
+})
+
 export const metadata: Metadata = {
   metadataBase: new URL('https://ligase.neoforgelabs.tech'),
   title: {
@@ -36,13 +54,58 @@ export const metadata: Metadata = {
   description:
     'Biological data carries dimensions — organism, reference build, coordinate system, sample set — and Ligase refuses to connect steps whose dimensions disagree. A Rust core with a Python surface.',
   applicationName: 'Ligase',
+  // Only the small variant is declared: icon.svg's thin slabs collapse at 16px.
+  icons: {
+    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+    shortcut: '/favicon.svg',
+    // Next links a file-convention icon only when `icons` is unset, so the
+    // Apple icon (app/apple-icon.png/route.tsx) has to be named here.
+    apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
   authors: [{ name: 'Kelyn Njeri' }],
+  // Relative, so each page resolves it against metadataBase and its own path
+  // and declares itself, with the trailing slash the export serves.
+  alternates: { canonical: './' },
   openGraph: {
     type: 'website',
     siteName: 'Ligase',
     url: 'https://ligase.neoforgelabs.tech',
+    // Rendered at build time by app/opengraph-image.png/route.tsx.
+    images: [
+      {
+        url: '/opengraph-image.png',
+        width: 1200,
+        height: 630,
+        alt: 'Ligase: type-safe, reproducible computational biology pipelines',
+      },
+    ],
   },
-  twitter: { card: 'summary_large_image' },
+  twitter: {
+    card: 'summary_large_image',
+    images: ['/opengraph-image.png'],
+  },
+}
+
+/*
+ * Structured data, and only what can be checked against the repository. The
+ * project is pre-alpha and has no outside users, so there is deliberately no
+ * rating, review, download or interaction count here, and none may be added
+ * until it is true (scripts/check-seo.mjs fails on them).
+ */
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Ligase',
+  description:
+    'A pre-alpha Rust core with a Python surface for computational biology pipelines. Biological data types carry dimensions, and the engine refuses to connect steps whose dimensions disagree.',
+  url: 'https://ligase.neoforgelabs.tech/',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'Linux, macOS, Windows',
+  programmingLanguage: ['Rust', 'Python'],
+  softwareVersion: '0.1.0',
+  sameAs: 'https://github.com/Neoforge-Labs/ligase',
+  license: ['https://spdx.org/licenses/MIT.html', 'https://spdx.org/licenses/Apache-2.0.html'],
+  author: { '@type': 'Person', name: 'Kelyn Njeri' },
 }
 
 const navbar = (
@@ -60,6 +123,7 @@ const footer = (
         Dual-licensed <a href="/licence/">MIT or Apache-2.0</a>. Copyright © 2026 Kelyn
         Paul Njeri, NeoForge Labs.
       </p>
+      <p className="lg-mono">◉ WESTLANDS, NAIROBI · MMXXVI</p>
     </div>
   </Footer>
 )
@@ -70,7 +134,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       lang="en"
       dir="ltr"
       suppressHydrationWarning
-      className={`${GeistSans.variable} ${GeistMono.variable} ${sourceSerif.variable}`}
+      className={`${GeistSans.variable} ${GeistMono.variable} ${sourceSerif.variable} ${playfair.variable}`}
     >
       {/*
         Nextra derives its own accent (links, active nav, focus rings) and page
@@ -79,16 +143,31 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       */}
       <Head
         color={{
-          hue: { light: 243, dark: 244 },
-          saturation: { light: 59, dark: 100 },
-          lightness: { light: 54, dark: 79 },
+          hue: { light: 23, dark: 23 },
+          saturation: { light: 89, dark: 84 },
+          lightness: { light: 35, dark: 48 },
         }}
-        backgroundColor={{ light: '#fbfaf7', dark: '#0d0e11' }}
+        backgroundColor={{ light: '#f5f5f0', dark: '#0a0a0b' }}
       >
-        <meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)" />
-        <meta name="theme-color" content="#0d0e11" media="(prefers-color-scheme: dark)" />
+        {/*
+          One unconditional value, placed first. The site opens dark whatever
+          the OS prefers (`defaultTheme: 'dark'` below), so a light variant
+          keyed to prefers-color-scheme gives an OS-light visitor cream
+          browser chrome around a near-black page. Nextra's <Head> still emits
+          its own light/dark pair after this; a browser takes the first
+          theme-color whose media matches, which is this one, and
+          check-furniture --built asserts that it stays first. A light variant
+          would only be right if it tracked the applied theme, which needs
+          script, so a visitor who has chosen light keeps dark chrome.
+        */}
+        <meta name="theme-color" content="#0a0a0b" />
       </Head>
-      <body>
+      <body className="lg-grain">
+        <script
+          type="application/ld+json"
+          // `<` is escaped so no string in the block can close the script tag.
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
+        />
         <Layout
           navbar={navbar}
           footer={footer}
@@ -101,6 +180,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           sidebar={{ defaultMenuCollapseLevel: 1, autoCollapse: false, toggleButton: true }}
           toc={{ title: 'On this page', backToTop: 'Back to top' }}
           darkMode
+          // Dark is what a visitor sees on arrival; light stays one toggle away.
+          nextThemes={{ defaultTheme: 'dark' }}
         >
           {children}
         </Layout>

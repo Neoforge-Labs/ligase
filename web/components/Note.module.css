@@ -8,10 +8,18 @@
   max-width: var(--lg-measure);
 }
 
+/*
+ * The default callout is neutral on purpose. Brand orange is the link colour,
+ * the `ran` status colour and sits close to `notice`, so a brand-tinted
+ * default -- the most common element on the site -- would have competed with
+ * all three. A grey rule on a sunken sheet reads as an aside and nothing
+ * more. Only warning, tip and caution carry a signal.
+ */
 .note[data-kind='note'] {
-  border-color: var(--lg-brand-rule);
-  background: var(--lg-brand-soft);
-  box-shadow: inset 3px 0 0 0 var(--lg-brand);
+  border-color: var(--lg-rule);
+  background: var(--lg-paper-sunken);
+  box-shadow: inset 3px 0 0 0 var(--lg-rule-strong);
+  color: var(--lg-ink);
 }
 
 .note[data-kind='warning'] {
@@ -54,7 +62,7 @@
 }
 
 .note[data-kind='note'] .label {
-  color: var(--lg-brand);
+  color: var(--lg-ink-muted);
 }
 .note[data-kind='warning'] .label {
   color: var(--lg-refuse);

@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **The docs can be found, and read by something that is not a browser.**
+  The site published no sitemap, no `robots.txt`, no canonical address on
+  any page and no structured data, so a crawler learned about it only by
+  following links. There is now a sitemap generated from the page map
+  rather than listed by hand, a `robots.txt` that names the AI crawlers
+  and allows them, a canonical on every page equal to the page's own
+  address, and one JSON-LD block describing Ligase as a software
+  application. That block says "pre-alpha" in its description and carries
+  no rating, review, download count or award, because there are none to
+  carry.
+
+  The same pages are published as prose: `llms.txt` indexes them,
+  `llms-full.txt` holds all of them, and every page has an `index.md` beside
+  its HTML with the components resolved to text. Each page states the
+  address of the HTML it came from. A page that still contains a JSX tag
+  after conversion fails the build, since that means a component was left
+  to render itself in a place with no renderer.
+
+  The honesty rule in `CLAUDE.md` is now a check rather than a promise: the
+  prose is scanned for the phrases an adoption claim is made of ("trusted
+  by", "widely used", "production-ready" and the rest of the list in
+  `check-seo.mjs`), and one sentence is allowed to contain one — the one on
+  the in-use page that says there is no "trusted by" list. It is pinned
+  exactly, once, in one file, and the check also fails if that sentence
+  stops appearing, so the exemption cannot outlive the page it was written
+  for.
+- **A social card and a home-screen icon.** Neither existed, so a link to
+  the docs unfurled as a bare URL. The card (1200 by 630) and the Apple
+  touch icon (180 by 180) are generated at build time from the same
+  geometry as the mark and written to `/opengraph-image.png` and
+  `/apple-icon.png`. They are route handlers in folders named `*.png`
+  rather than Next's file conventions, because under a static export the
+  conventions write an extensionless file and GitHub Pages chooses a
+  `Content-Type` from the extension. `check-assets.mjs` reads the PNG
+  signature and the dimensions from each file's header and fails if any
+  page references one that was not emitted.
 - **A step says what its own work rested on** (**D32**). A resistance
   reading makes assumptions with a clinical direction — no coverage at all,
   codons below the depth asked for, codons no read spans — and all three
@@ -116,6 +152,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **The docs moved onto the Neoforge Labs identity.** They were warm paper
+  and violet, designed before the project had to belong to anything; they are
+  now near-black (`#0A0A0B`) with cream (`#F5F5F0`) ink and the flame orange
+  (`#E36414`) the other NeoForge sites use, and a visitor arrives in the dark
+  theme. Light is kept and retuned rather than dropped, because this is
+  long-form reading and the cream is what it reads best on.
+
+  Orange owns hue 23, so the four signal colours were moved to stay clear of
+  it: `refuse` is a cool crimson, `agree` a green, `notice` a yellow, and the
+  contrast gate holds the brand 25 degrees of hue from the two it could be
+  confused with. Every text colour is held to 4.5:1 on every surface it can
+  sit on, in both themes, and four of the design's first-draft values failed
+  that and were moved to pass it; the gate also fails if the two themes stop
+  declaring the same tokens, which is what a half-converted theme looks like.
+
+  **Light-mode orange is `#a8460a`, not the brand's.** The brand orange is
+  3.15:1 on cream, which fails AA as link text. Only light-mode text
+  darkens; dark mode and the two SVGs use the brand hex exactly. The cost is
+  that the light site is a darker, browner orange than the brand's own, which
+  is a divergence from the house style chosen over an inaccessible link.
+- **A mark, in two optical sizes.** The logo is a ligature binding the `l` and
+  `i` of "Ligase": a tall serif stem, a shorter one with its tittle, and one
+  slanted orange tie across both, which is what the project does to two
+  steps. It is drawn twice, because a mark that works at 120px does not work
+  at 16. `icon.svg` has the fine slabs; `favicon.svg` has thicker slabs and
+  tie, and it carries its own colour scheme handling so it does not vanish
+  on a light tab strip. Only the small variant is declared as the favicon.
+- **The docs are set as a research journal.** Playfair Display for the page
+  title and display titles only, Source Serif for prose, Geist for headings
+  and the interface and Geist Mono for labels and code; an orange letterspaced eyebrow; each
+  `h2` numbered `§ 01`, each figure `FIG. 01`, both counters restarting on
+  every page and incremented only by an `h2` inside the content, so a
+  generated page with no `h2` never shows a stray count; and a film grain and
+  an aurora behind the landing hero. The grain and the aurora switch off
+  under `prefers-reduced-motion`. The engine's own panels, `<Diagnostic>` and
+  `<RunReport>`, are numbered as figures.
+
+  **Playfair Display has no weight 300.** The brand's CSS asks for it; the
+  family is 400 to 900, and the font service answers a request for 300 with
+  an error. Declaring the weight anyway would make the browser fall back to a
+  different face and say nothing, so the display face is 400, the lightest
+  weight that exists, and `check-furniture.mjs` fails if any rule asks the
+  display face for a weight `layout.tsx` does not load.
+
+  **`VOL. 02 — THE ENGINE` is a knowing placeholder.** The landing page
+  opens with the parent site's device, a three-part letterspaced row above
+  the hero (`VOL. 02 — THE ENGINE`, `◉ WESTLANDS, NAIROBI`, `MMXXVI`) with a
+  hairline beneath, and the footer repeats the place and the year on every
+  page. The parent site is `VOL. 01`, so `02` is a guess at the sequence, and
+  which volume this is belongs to the author, who has not said. It ships as
+  written so the cover is judged with a realistic line in it, and is recorded
+  here so it is not mistaken for a settled number. The masthead was named in
+  the design and went unbuilt until the last review caught it; the checker
+  now reads the built HTML and fails unless it is on the landing page exactly
+  once, on no other page, and every footer carries the locality line.
+- **The 404 is the mark, refusing.** It is the same `l` and `i`, but the tie
+  is cut in two, the halves offset, and drawn in the refusal colour rather
+  than the brand orange. Ligase's job is to refuse a connection that does not
+  hold, and this is that refusal drawn. It is noindex, and declares its own
+  address as its canonical rather than Next's internal `/_not-found`, which
+  would have leaked into public HTML.
+- **The docs print, now that they are dark.** A dark default makes a printed
+  page a block of ink unless the stylesheet intervenes, and about 52,000
+  words of prose are the kind of thing people print. A print stylesheet puts
+  every colour token on white, rules and tokens included, pins the signal
+  colours to ink (a printer drops backgrounds, and a pale-on-dark
+  `Diagnostic` would print as pale on white; the words that carry the
+  meaning are in the text, not the colour), hides the sidebar, contents list,
+  grain and aurora, and takes syntax tokens from the light theme whichever
+  theme the reader was in. It hides the grain's pseudo-element and not the
+  grain itself: the grain is mounted on `body`, and hiding it would print
+  every page blank, which an earlier draft did and the checker now forbids.
+- **Code blocks use the high-contrast GitHub themes.** The pair chosen for
+  the old violet palette, `github-light` and `github-dark-default`, was
+  measured against the surfaces a block is actually drawn on (the stylesheet
+  overrides the theme's own background): on white its keywords were 3.8:1 and
+  its variables 2.9:1. `github-light-high-contrast` and
+  `github-dark-high-contrast` clear 4.5:1 on every token colour they emit,
+  the closest being light-mode comments at 5.04:1 on white (the worst dark
+  token is 8.42:1), and their hues (deep red, blue, brown, green) stay out of
+  the way of the orange. `npm run shiki` re-measures this against the built
+  HTML, because `check-contrast.mjs` reads `tokens.css` and a Shiki theme is
+  not in it. Still one theme per colour
+  scheme rather than one forced through a filter, and still Shiki's bundled
+  themes, so nothing was added to `package.json`.
+- **`npm run check` is the whole gate.** The branch wrote five checkers and
+  the gate ran two of them. The favicon-variant guard, the display-weight
+  guard, the print-blanking guard and the one that enforces the project's
+  no-adoption-claims rule were run by hand or not at all, and `--orphans`
+  was referenced by no script. All of them now run from `check`, the
+  source-only ones first so a palette failure surfaces in a second rather
+  than after a build, and CI runs `npm run check` itself instead of a copy of
+  its steps, which is how a new checker would otherwise be written and never
+  wired in. The dependency guard compares `package.json` with the merge-base,
+  so CI now checks out full history and names `origin/main` as the base.
+  Two checks were added after that: `npm run shiki` measures every syntax
+  colour in the built HTML against the surface code is drawn on, and
+  `--orphans` now also requires theme-dependent non-colour tokens
+  (`--lg-shadow-raised`) in both themes.
 - **Codons are read from the reads, not from the combinations of their
   bases** (**D31**). A codon used to be assembled from the VCF — the
   alleles credited at each of its three bases, then every combination of

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <title>Ligase</title>
+  <style>@media (prefers-color-scheme: dark){.letterforms{fill:#F5F5F0}}</style>
+  <g class="letterforms" fill="#0A0A0B">
+    <rect x="26" y="10" width="16" height="76"/>
+    <rect x="18" y="10" width="32" height="6"/>
+    <rect x="15" y="80" width="38" height="6"/>
+    <rect x="60" y="44" width="16" height="42"/>
+    <rect x="52" y="44" width="32" height="6"/>
+    <rect x="49" y="80" width="38" height="6"/>
+    <circle cx="68" cy="26" r="9"/>
+  </g>
+  <polygon points="26,58 76,52 76,66 26,72" fill="#E36414"/>
+</svg>

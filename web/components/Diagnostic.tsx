@@ -120,9 +120,16 @@ export type DiagnosticProps = {
    * Say `nothing ran` where the point is that no compute happened.
    */
   note?: ReactNode
+  /**
+   * Number the panel as a figure, `FIG. NN`, at the left of its bar. The
+   * number is counted in CSS (`lg-figure`, reset per page), so nothing is
+   * threaded through props and it can never disagree with the figures
+   * around it. It sits beside `note` and never replaces it. Defaults to true.
+   */
+  figure?: boolean
 }
 
-export function Diagnostic({ children, note }: DiagnosticProps) {
+export function Diagnostic({ children, note, figure = true }: DiagnosticProps) {
   const raw = typeof children === 'string' ? children.replace(/\n+$/, '') : ''
   const lines = parse(raw)
   const [copied, setCopied] = useState(false)
@@ -142,6 +149,7 @@ export function Diagnostic({ children, note }: DiagnosticProps) {
   return (
     <div className={styles.panel} role="group" aria-label="Engine diagnostic">
       <div className={styles.bar}>
+        {figure ? <span className="lg-figure" aria-hidden="true" /> : null}
         {header?.kind === 'header' ? (
           <span className={styles.barLeft}>
             <span className={styles.type}>{header.type}</span>

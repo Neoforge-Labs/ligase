@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import styles from './Hero.module.css'
+import { Masthead } from './Masthead'
 
 /*
  * The landing hero.
@@ -12,11 +13,14 @@ import styles from './Hero.module.css'
  */
 
 export function Hero({
+  masthead,
   eyebrow,
   title,
   children,
   actions,
 }: {
+  /** Draw the journal masthead above the eyebrow. Only the landing page does. */
+  masthead?: boolean
   eyebrow?: ReactNode
   title: ReactNode
   children: ReactNode
@@ -24,6 +28,10 @@ export function Hero({
 }) {
   return (
     <header className={styles.hero}>
+      <div className={styles.atmosphere} aria-hidden="true">
+        <div className="lg-aurora" />
+      </div>
+      {masthead ? <Masthead /> : null}
       {eyebrow ? <p className={styles.eyebrow}>{eyebrow}</p> : null}
       <h1 className={styles.title}>{title}</h1>
       <div className={styles.lede}>{children}</div>

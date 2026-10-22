@@ -1,0 +1,85 @@
+/*
+ * The card lockup, to the geometry measured from Neoforge Labs' SubBrands:
+ * a 3:4 portrait, 1.5rem padding growing to 2rem, a 2px rule across the top
+ * in the product's colour, and a 1px orange hairline that grows from 48px to
+ * 96px over 500ms on hover.
+ *
+ * `--card-colour` is set inline from the `colour` prop. There is no image and
+ * no scrim: see BrandCard.tsx.
+ */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  aspect-ratio: 3 / 4;
+  width: 100%;
+  max-width: 18rem;
+  margin-block: 1.6rem;
+  padding: 1.5rem;
+  background: var(--lg-paper-raised);
+  border: 1px solid var(--lg-rule);
+  border-top: 2px solid var(--card-colour, var(--lg-rule-strong));
+  border-radius: var(--lg-radius-lg);
+  color: var(--lg-ink);
+  text-decoration: none !important;
+  transition: border-color 500ms ease;
+}
+
+@media (min-width: 768px) {
+  .card {
+    padding: 2rem;
+  }
+}
+
+a.card:hover {
+  border-color: var(--lg-rule-strong);
+  border-top-color: var(--card-colour, var(--lg-rule-strong));
+}
+
+a.card:focus-visible {
+  outline: 2px solid var(--lg-brand);
+  outline-offset: 3px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.foot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hairline {
+  width: 48px;
+  height: 1px;
+  background: var(--lg-brand);
+  transition: width 500ms ease;
+}
+
+.card:hover .hairline {
+  width: 96px;
+}
+
+/* The display face and its one loaded weight in the same rule, so the guard
+   in check-furniture.mjs can see both. Only 400 is loaded; an inherited bold
+   would render faux-bold with nothing to flag it. */
+.title {
+  font-family: var(--lg-font-display);
+  font-weight: 400;
+  font-size: 1.75rem;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--lg-ink);
+}
+
+.tagline {
+  font-family: var(--lg-font-ui);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--lg-ink-muted);
+}

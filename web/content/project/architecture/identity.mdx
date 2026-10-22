@@ -1,0 +1,288 @@
+---
+title: "Visual identity"
+description: "How the Ligase mark is drawn, what each colour means to the engine, how the journal furniture numbers a page, and the six places the site departs from the Neoforge Labs brand or from CLAUDE.md, with the reason for each."
+---
+# Visual identity
+
+Ligase is a Neoforge Labs product, and the docs are dressed to sit beside the
+parent site. This page records how that dressing is built and, more usefully,
+where it was deliberately not copied. It lives under `project/` because it is
+written about Ligase, not for someone using it.
+
+Every value below is read from the files that hold it: `app/tokens.css`,
+`app/globals.css`, `components/Mark.tsx`, and the two SVGs in `public/`. Three
+scripts hold those files to what this page says: `check-contrast.mjs`,
+`check-mark.mjs` and `check-furniture.mjs`, all run by `npm run check`, as are
+`check-assets.mjs` for the generated images and `check-seo.mjs` for discovery.
+
+<Note kind="note" title="Why there is no concept or guide page">
+CLAUDE.md asks every feature for a concept page, a guide page and an
+architecture page. A visual identity has no API to explain and no task to walk
+through, so a concept page and a guide page would be padding. This is the one
+page, and it is the architecture page. That is a departure from the letter of
+the rule, made on purpose.
+</Note>
+
+## The mark
+
+Ligase and ligature share a Latin root, *ligare*, to bind. A ligature is the
+typographer's word for two letters cast as one piece of type, and that is what
+the mark draws: the `l` and the `i` of the name, joined at the waist by a
+single tie. A tall serif stem, a shorter stem with its tittle, and one slanted
+bar across both. It is the smallest honest picture of what the tool does,
+which is to refuse to connect two things unless they belong together.
+
+The tie is a slanted polygon, not a flat bar. The parent site italicises one
+word, Labs, and sets it in orange; the slant is how the mark speaks the same
+language. The letterforms take the current text colour and the tie takes the
+brand orange, so a single-colour variant needs no second drawing. Nothing in
+it depends on a webfont: the stems and serifs are rectangles and the tittle is
+a circle, so it rasterises identically everywhere.
+
+### Two optical sizes
+
+A drawing that is right at 48px is wrong at 24px: its thin slabs fall between
+pixels and the mark turns to dust. So it is drawn twice, on the same 100 by 100
+grid.
+
+| | Display (`icon.svg`) | Small (`favicon.svg`, `Mark.tsx`) |
+|---|---|---|
+| Stem width | 10 | 16 |
+| Serif slab thickness | 3.5 | 6 |
+| Tittle radius | 6 | 9 |
+| Tie | `30,56 72,48 72,57 30,65`, about 11 degrees | `26,58 76,52 76,66 26,72`, about 7 degrees, and thicker |
+| Used for | any size from 32px up | anything below 32px: the browser tab, the navbar glyph (24px, `Mark.tsx`) |
+
+The small drawing is thicker everywhere and its tie is flatter, because a steep
+thin diagonal is the first thing to alias. `favicon.svg` also carries a
+`prefers-color-scheme` rule that flips its letterforms to cream, since a tab
+strip can be light or dark whatever the page is doing. `icon.svg` is drawn in
+cream and expects a dark ground. In both, the tie is the brand hex `#E36414`
+exactly. The `Mark` component, which draws the navbar wordmark, is different:
+its tie and its italic `ase` take `var(--lg-brand)`, so in the light theme they
+darken to `#a8460a` with everything else, as described in the decisions below.
+
+`check-mark.mjs` holds both drawings to this geometry, and holds the favicon to
+its colour-scheme handling first, because a favicon that vanishes on a light
+tab strip is the failure it exists to catch.
+
+### The wordmark
+
+The wordmark is `Lig` followed by an italic orange `ase`, set in the display
+face. The suffix *-ase* is how most enzyme names end, by the IUBMB convention
+(not all of them: trypsin, pepsin and papain predate it), and ligases are the
+enzymes that join molecules, so the italic does the work Labs does on the
+parent site.
+
+### The card lockup
+
+A Neoforge product is presented as a card: a code row in the mono voice, a rule
+across the top in the product's own colour, the name in the display face, and
+one line saying what it is. The component is `BrandCard`, and it takes the
+geometry from the parent site's own cards: a 3:4 portrait, padding of 1.5rem
+growing to 2rem, a 2px top rule, and a 1px orange hairline that grows from 48px
+to 96px over 500ms on hover.
+
+<BrandCard code="06 / COMP BIO" colour="#332C5C" />
+
+The parent's cards carry photography. This one does not, and there is no scrim,
+because inventing an image would be a claim about a product that does not
+exist. "Open" appears on the right of the code row only when the card is given
+somewhere to open, for the same reason. The code and the colour above are
+placeholders for how the card reads, not a claim about how Ligase is catalogued
+anywhere.
+
+That also costs the card something. `#332C5C` is a deep violet, and as a 2px
+rule against the dark card surface it is nearly invisible. On the parent site
+the same colours sit over photography, which is what makes them read. The card
+keeps the colour and the geometry and states the limitation rather than
+inventing imagery to hide it.
+
+## The palette
+
+The site has one organising idea: Ligase's product is a well-written refusal,
+so the engine's voice is the visual centre and everything else defers to it.
+That gives the palette its shape. There are four signal colours, and each means
+exactly what the engine means by it.
+
+| Signal | Means | Dark | Light |
+|---|---|---|---|
+| `brand` | navigation, links, and "this ran" | `#e36414` | `#a8460a` |
+| `refuse` | a diagnostic: the engine declining to connect two steps | `#f05a72` | `#b02339` |
+| `agree` | a check that passed, a step skipped by early cutoff | `#5ecf92` | `#2a774f` |
+| `notice` | a `noticed` line: not an error, but not nothing either | `#d9bf4e` | `#7d6808` |
+
+Orange owns hue 23, so the others sit as far from it as they can. Measured on
+the shipped values, refuse is about 350, agree about 148 and notice about 49.
+Notice is the tightest pair with brand, at 25.6 degrees, which is why
+`check-contrast.mjs` fails the build if brand comes within 25 degrees of notice
+or of refuse. It is also why a notice panel always carries the word "noticed"
+rather than relying on colour alone.
+
+The ground is near-black (`#0a0a0b`) with cream ink (`#f5f5f0`), and the
+theme a visitor arrives in is dark. Light is kept, fully retuned, because this
+is long-form reading and printing: near-black ink on cream paper. Every
+`-soft` and `-rule` value is an opaque blend of its signal onto the surface it
+sits on, so the contrast gate can measure it.
+
+`check-contrast.mjs` reads `tokens.css` itself and fails if any text colour
+drops below 4.5:1 on any of the three surfaces it can sit on, in either theme.
+Sixty checks run. The numbers in this section are not a claim, they are a gate.
+
+## The journal system
+
+The docs are set like a research journal, and the apparatus is small and
+numbered.
+
+- **`§ NN`** is printed above every `h2` inside the page content, in the
+  eyebrow voice, and restarts on every page. The number is printed by the same
+  pseudo-element that increments it, so a page with no `h2` shows no marker and
+  nothing ever reads `§ 00`. This is how the generated API, CLI and notebook
+  pages, whose headings are shaped by their generators, stay clean.
+- **`FIG. NN`** numbers the engine's own output. `Diagnostic` and `RunReport`
+  each carry a figure label at the start of their bar, counted by a second
+  counter that restarts with the first. Pass `figure={false}` to leave one
+  unnumbered.
+- **Eyebrows** are `.lg-eyebrow`: 10px mono, 0.28em tracking, uppercase, in
+  the brand colour. A quieter sibling, `.lg-mono`, is 11px, 0.22em, in muted
+  ink, and is what a UI label uses.
+- **The masthead** opens the landing page: `VOL. 02 — THE ENGINE`,
+  `◉ WESTLANDS, NAIROBI` and `MMXXVI` in one letterspaced row, with a hairline
+  beneath, above the hero's eyebrow. It mirrors how neoforgelabs.tech opens
+  (`VOL. 01 — A RESEARCH HOLDING`) and is set in the quiet `.lg-mono` voice,
+  not the orange eyebrow, as the parent's is. `Hero` draws it only when given
+  the `masthead` prop, which only `content/index.mdx` passes, so no other page
+  has a cover. On a narrow screen the centre part goes rather than the row
+  overflowing. **`VOL. 02` is a placeholder:** the parent site is `VOL. 01`,
+  the sequence is a guess, and the volume number is the author's to give. The
+  footer repeats the place and the year (`◉ WESTLANDS, NAIROBI · MMXXVI`) on
+  every page. `check-assets.mjs` reads the built HTML and fails unless the
+  masthead is on the landing page exactly once and on no other page, and
+  unless every footer carries the line.
+- **Grain and aurora** are the site's two atmosphere layers. The
+  grain, `.lg-grain`, is a fixed 256px tile of fractal noise at 3.5% opacity.
+  It is noise, not orange. The aurora, `.lg-aurora`, is three orange radial
+  gradients at 8%, 5% and 4% under a 60px blur; its parent must be
+  `position: relative` with `overflow: hidden`, or the blur spills out and
+  causes horizontal scroll. The grain is mounted globally, on `body` in
+  `layout.tsx`; the aurora is mounted on the landing page's hero, inside a
+  wrapper that does nothing but clip it, so the hero itself never clips a
+  focus ring. Both switch off under
+  `prefers-reduced-motion` and in print.
+
+A heading that numbers itself is not given a second number. Six headings on
+the quickstart read `## 1. Two files that do not agree` and so on: those are
+steps the reader follows in order, which a section marker does not say, and the
+page's prose is not ours to reword. Nextra's heading ids start with the number
+(`1-two-files-...`), so a heading whose id begins with a digit and a hyphen
+keeps its slot in the count but hides its `§` marker, which means the closing
+"What to read next" is `§ 07` and not `§ 01`.
+
+The landing page is not a numbered section of the journal. Its bands render an
+`h2`, and `content/_meta.ts` gives the page `layout: 'full'` with no sidebar or
+contents list, so a `§ NN` above each band would be noise. `Band` suppresses
+the marker on its own heading, and because a pseudo-element that is not
+generated cannot increment, the counter does not advance either.
+
+Print forces ink on paper: white ground, black text, no grain, aurora, sidebar
+or contents list, and every signal token reset to a printable value. The site
+defaults to near-black, and 52,000 words that cannot be printed would be a
+silent regression of the dark flip.
+
+## Where this departs from the brand
+
+Six decisions diverge from the Neoforge Labs brand, or from the letter of
+CLAUDE.md. Each is stated with its reason.
+
+### 1. Body prose stays Source Serif, not Playfair
+
+The brand sets its display type in Playfair Display. The docs use it for the
+`h1`, display titles, hero and band headings, stat figures, the wordmark and
+the card title, and nowhere else. Body prose stays in Source Serif 4.
+Playfair is a Didone: high contrast, with hairlines so fine that they vanish at
+19px on a screen. That is fine for a headline and wrong for 52,000 words.
+`check-furniture.mjs` fails if the prose rule stops using the serif.
+
+### 2. Light-mode orange darkens to `#a8460a`
+
+The brand orange, `#e36414`, is 3.15:1 on the cream paper. That fails WCAG AA
+for text, and links are text. Light-mode brand is therefore `#a8460a`, which is
+5.42:1 on cream. Only the light theme darkens: dark mode and the SVG assets use
+the brand hex exactly, while the `Mark` component follows `--lg-brand` and so
+darkens with the light theme. `check-contrast.mjs` pins the dark brand to `#e36414` and
+polices the light one by contrast alone.
+
+### 3. `--lg-ink-faint` is louder than designed
+
+The design asked for `#6e6e78` in dark and `#85858f` in light. The first is
+3.54:1 on a raised panel and the second 3.05:1 on a sunken one; both fail the
+4.5:1 the same design demands. AA is the commitment and the hexes were the means
+to it, so they moved, to `#7f7f89` and `#696973`. The cost is that the faintest
+text reads slightly louder than intended. Dark `ink-faint` now sits at 4.51:1
+on `paper-raised`, with almost no headroom: any later change to that surface
+will break the gate, and the gate will say so. Two other values moved for the
+same reason, light `agree` to `#2a774f` and light `notice` to `#7d6808`.
+
+### 4. The default callout came off brand
+
+Brand is already the link colour and the colour of `ran`, and it sits 25.6
+degrees from `notice`. A default callout in brand would have made it a third
+meaning for one colour, on the most common panel on the site, and five
+semantics were competing for four signals. The default `Note` is now neutral: a
+strong rule on a sunken ground in ordinary ink. Warning, tip and caution keep
+refuse, agree and notice. `check-furniture.mjs` fails if the default callout
+uses the brand colour in any property.
+
+### 5. The display weight is 400
+
+The brand's CSS asks for a light display weight of 300. Playfair Display is a
+400 to 900 family, and the Google Fonts request for 300 is refused with an HTTP
+400, so nothing would build. 400 is its lightest real weight, and that is what
+the site loads and what every display rule asks for. The lighter, differently
+drawn face that does ship a 300 is a separate family called Playfair, not this
+one. Because only 400 is loaded, an inherited bold would render as faux-bold
+with nothing to flag it, so `check-furniture.mjs` requires every rule that sets
+the display face to declare an explicit weight that `layout.tsx` actually loads.
+
+### 6. The parent site probably does not render Playfair at all
+
+This one is about the brand, not about the docs. As read from its source,
+Neoforge's own site does not load Playfair from Google. Its `@font-face`
+sources are all `local('Playfair Display')`, `local('Georgia')` and
+`local('Times New Roman')`, with a `font-weight: 300 900` asserted rather than
+loaded. Playfair Display is rarely installed on a reader's machine, so the
+parent most likely renders Georgia, and its light weight is nominal.
+
+The docs serve real webfonts instead. Its display type will therefore not match
+the parent site pixel for pixel on most machines. It matches the intent, and it
+is more consistent than the original, because every reader gets the same face.
+Whether to change that is a decision for the parent site, not for this one.
+
+### 7. Code colours come from a bundled theme, and are measured
+
+The code themes were chosen by measuring every token colour against the
+surface a block is drawn on: the stylesheet forces `pre` to `--lg-paper-raised`,
+which is white in the light theme and `#17171c` in the dark one.
+`github-light-high-contrast` and `github-dark-high-contrast` clear AA on every
+colour either theme emits. The closest is the light-mode comment colour,
+`#66707B`, at 5.04:1 on white; the worst dark token is 8.42:1. That is a pair of
+bundled Shiki themes rather than a custom one, because a custom theme is more
+surface than this earns.
+
+This is checked rather than asserted. `check-contrast.mjs` reads `tokens.css`,
+and a Shiki theme is not in it, so a separate check covers code: `npm run shiki`
+reads
+the colours Shiki wrote into the built HTML and fails the build if any is under
+4.5:1 on `--lg-paper-raised`.
+
+## Where things live
+
+| What | File |
+|---|---|
+| Colour, type and space tokens | `web/app/tokens.css` |
+| Journal furniture, counters, print | `web/app/globals.css` |
+| The wordmark and its 24px glyph (small variant) | `web/components/Mark.tsx` |
+| The two drawings | `web/public/icon.svg`, `web/public/favicon.svg` |
+| The card lockup | `web/components/BrandCard.tsx` |
+| The masthead | `web/components/Masthead.tsx`, drawn by `Hero` |
+| The gates | `web/scripts/check-contrast.mjs`, `check-mark.mjs`, `check-furniture.mjs` |

@@ -1,9 +1,55 @@
+/*
+ * The run report panel.
+ *
+ * The same plate as the diagnostic -- a raised sheet, a hairline frame, a bar
+ * across the top with a figure number at its left -- but with no signal
+ * colour on the frame. A run is not a refusal; its colour lives in the
+ * status column, one word per row.
+ */
+
 .panel {
   margin-block: 1.8em;
   border: 1px solid var(--lg-rule);
   border-radius: var(--lg-radius-lg);
   background: var(--lg-paper-raised);
   overflow: hidden;
+}
+
+/* ---- Top bar ---- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 1rem 0.6rem 1.15rem;
+  background: var(--lg-paper-sunken);
+  border-bottom: 1px solid var(--lg-rule);
+  font-family: var(--lg-font-mono);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+/* The figure label is global (`.lg-figure`, counted in globals.css) and is
+   only positioned here, so a Diagnostic and a RunReport on one page draw
+   from the same count and look like the same kind of plate. */
+.bar > :global(.lg-figure) {
+  flex: none;
+  line-height: 1.5;
+}
+
+/* The divider and its gap exist to separate the label from what follows, so a
+   label with nothing after it has neither. */
+.bar > :global(.lg-figure):not(:last-child) {
+  padding-right: 1rem;
+  border-right: 1px solid var(--lg-rule);
+}
+
+/* Pushed to the right, where Diagnostic puts its own note. */
+.note {
+  color: var(--lg-ink-muted);
+  font-style: normal;
+  margin-left: auto;
 }
 
 .body {

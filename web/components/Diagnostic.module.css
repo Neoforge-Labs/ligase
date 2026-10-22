@@ -1,14 +1,21 @@
 /*
  * The diagnostic panel.
  *
- * Shape borrowed from rustc: a labelled frame, the error type leading, the
- * values aligned so a mismatch is visible as a mismatch, and the question
- * the engine asks set apart from the facts it reports.
+ * Set as a plate in a journal: a raised sheet with a hairline frame, a
+ * labelled bar across the top, and a figure number in that bar's left corner.
+ * The shape is borrowed from rustc -- the error type leading, the values
+ * aligned so a mismatch is visible as a mismatch, and the question the engine
+ * asks set apart from the facts it reports.
+ *
+ * The frame is neutral. What marks this as a refusal is the 3px rule down the
+ * left edge and the error type in the bar, and nothing else: the old panel
+ * also tinted its bar and its border, which was three statements of the same
+ * thing and left no colour spare for the rest of the page.
  */
 
 .panel {
   margin-block: 1.8em;
-  border: 1px solid var(--lg-refuse-rule);
+  border: 1px solid var(--lg-rule);
   border-radius: var(--lg-radius-lg);
   background: var(--lg-paper-raised);
   overflow: hidden;
@@ -26,11 +33,26 @@
   gap: 1rem;
   flex-wrap: wrap;
   padding: 0.6rem 1rem 0.6rem 1.15rem;
-  background: var(--lg-refuse-soft);
-  border-bottom: 1px solid var(--lg-refuse-rule);
+  background: var(--lg-paper-sunken);
+  border-bottom: 1px solid var(--lg-rule);
   font-family: var(--lg-font-mono);
   font-size: 0.76rem;
   line-height: 1.5;
+}
+
+/* The figure label is global (`.lg-figure`, counted in globals.css) and is
+   only positioned here: a plate number, divided from the bar's content by a
+   hairline, that stays on its own rather than wrapping with the note. */
+.bar > :global(.lg-figure) {
+  flex: none;
+  line-height: 1.5;
+}
+
+/* The divider and its gap exist to separate the label from what follows, so a
+   label with nothing after it has neither. */
+.bar > :global(.lg-figure):not(:last-child) {
+  padding-right: 1rem;
+  border-right: 1px solid var(--lg-rule);
 }
 
 .barLeft,
@@ -39,6 +61,14 @@
   align-items: center;
   gap: 0.6ch;
   flex-wrap: wrap;
+}
+
+/* The left group takes the slack, so the figure label, the step and the
+   note/copy group sit at the left, middle and right rather than being spread
+   by justify-content. */
+.barLeft {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .type {
@@ -55,7 +85,7 @@
   font-family: var(--lg-font-mono);
   color: var(--lg-ink);
   background: color-mix(in srgb, var(--lg-paper-raised) 70%, transparent);
-  border: 1px solid var(--lg-refuse-rule);
+  border: 1px solid var(--lg-rule-strong);
   border-radius: 3px;
   padding: 0.05em 0.4em;
   font-size: 0.95em;

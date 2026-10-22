@@ -4,7 +4,7 @@ import type { MetaRecord } from 'nextra'
  * The internals, outside in: where things live, what a type is, how the
  * graph is built from it, how it runs, what is cached, how outputs are
  * canonicalised before hashing, what a step noticed about its own work,
- * what is recorded, and the one domain interpreter.
+ * what is recorded, the one domain interpreter, and how the site is dressed.
  */
 const meta: MetaRecord = {
   workspace: 'Workspace',
@@ -16,6 +16,7 @@ const meta: MetaRecord = {
   notes: 'Notes',
   provenance: 'Provenance',
   hivdb: 'Resistance interpretation',
+  identity: 'Visual identity',
 }
 
 export default meta
