@@ -50,10 +50,12 @@ apply to nothing yet and come alive in M8 and M12.
 - Conventional commit messages, small and focused.
 - Work from the worktree at
   `/Users/theforge/Mirror/ligase/.claude/worktrees/ligase-v0-2-spec-2bc869`.
-  Its venv is `.venv` (already built with `pip install -e ".[dev]"`); Python
-  commands below mean `.venv/bin/python`. After any Rust change, re-run
-  `.venv/bin/pip install -e . --quiet` before the Python tests, or they test
-  the old extension module.
+  Its venv is `.venv`, built with `pip install -e ".[dev,docs]"` — the `docs`
+  extra is needed because `web/scripts/render_notebooks.py` imports marimo and
+  `npm run generate` runs it. Python commands below mean `.venv/bin/python`.
+  After any Rust change, re-run `.venv/bin/pip install -e . --quiet` before
+  the Python tests, or they test the old extension module. `web/node_modules`
+  must be installed (`npm ci` in `web/`) for any `npm run` target.
 
 ## Review Focus
 
@@ -982,14 +984,30 @@ reads were interpreted as viral. Link `organism` to
 
 Add `'mixed-organism': 'My pathogen results include host reads'` to
 `web/content/silent-failures/_meta.ts`, placed by how often the failure
-happens as that file's comment requires, and add the page to the list in
-`web/content/silent-failures/index.mdx`. `npm run orphans` fails on a page
-nothing links to, so both edits are required.
+happens as that file's comment requires, and add the page to the
+`<HazardGrid>` in `web/content/silent-failures/index.mdx`. Both edits are
+required: `web/scripts/check-links.mjs` fails on a page that "exists but
+nothing links to it, and it is in no nav".
+
+Note which gate proves that, because it is easy to get wrong: `npm run
+orphans` is `check-contrast.mjs --orphans`, which checks that the light and
+dark themes declare the same *colour tokens* — nothing to do with pages. The
+page check lives in `npm run links`, which runs over the exported HTML in
+`out/` and therefore needs a completed `npm run build` first. That is why it
+sits inside `npm run check` after the build, and why this task cannot prove
+reachability on its own (see also the anchor ordering below).
 
 - [ ] **Step 4: Verify**
 
-Run: `cd web && npm run generate && npm run orphans`
-Expected: PASS, with no orphan reported.
+Run: `cd web && npm run generate`
+Expected: PASS — the five generators run clean, and `diagnostics.generated.ts`
+now carries `mixedOrganism`. This needs the `docs` extra installed
+(`pip install -e ".[dev,docs]"`), because `render_notebooks.py` imports
+marimo.
+
+Then confirm reachability by hand — the page is named in `_meta.ts` and linked
+from the index — and leave the machine check to Task 7's `npm run check`,
+which is the only place the page check and the anchor check can both run.
 
 - [ ] **Step 5: Commit**
 
