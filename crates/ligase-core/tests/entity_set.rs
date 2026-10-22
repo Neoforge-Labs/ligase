@@ -103,3 +103,22 @@ fn a_gene_list_is_written_as_a_table() {
     // Tools read a format off the name, so the suffix is not cosmetic.
     assert_eq!(ligase::exec::output_suffix(DataKind::EntitySet), ".tsv");
 }
+
+#[test]
+fn a_dataset_carries_what_loading_it_noticed() {
+    use ligase::dim::Dimensions;
+    use ligase::note::Note;
+    use ligase::types::Dataset;
+
+    let noticed = Dataset::new(DataKind::EntitySet, None, Dimensions::default()).with_notes(vec![
+        Note::IdentifierIsADate {
+            identifier: "2-Sep".to_owned(),
+        },
+    ]);
+    assert_eq!(noticed.notes().len(), 1);
+
+    // And an ordinary dataset says nothing, so this channel stays silent
+    // for every kind that has nothing to report.
+    let quiet = Dataset::new(DataKind::Reference, None, Dimensions::default());
+    assert!(quiet.notes().is_empty());
+}

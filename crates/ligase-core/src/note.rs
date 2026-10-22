@@ -144,6 +144,23 @@ pub enum Note {
         /// The depth a position had to reach to count as read.
         depth: u32,
     },
+    /// An identifier that is a date rather than a name.
+    ///
+    /// What a spreadsheet does to `SEPT7`, `MARCH1` and `DEC1`.
+    IdentifierIsADate {
+        /// The identifier, exactly as the file writes it.
+        identifier: String,
+    },
+    /// An identifier a mapping table had no entry for.
+    IdentifierUnmapped {
+        /// The identifier, in the space it came from.
+        identifier: String,
+    },
+    /// An identifier a mapping table sent to more than one target.
+    IdentifierAmbiguous {
+        /// The identifier, in the space it came from.
+        identifier: String,
+    },
     /// Codons read base by base because no read spans them (D31).
     CodonsUnphased {
         /// The gene.
@@ -167,6 +184,26 @@ impl Note {
         })
     }
 
+    /// The note for an identifier, if something is wrong with it.
+    ///
+    /// `None` for an ordinary identifier, which is nearly all of them and
+    /// the case that must stay silent.
+    ///
+    /// Only one corruption is detected, and it is the one a spreadsheet
+    /// causes: a gene symbol read as a date. `SEPT7` becomes `2-Sep`,
+    /// `MARCH1` becomes `1-Mar`, and the gene is then absent from every
+    /// join for the rest of the analysis. The other thing Excel does —
+    /// turning a symbol into a date *serial* such as `42615` — is
+    /// deliberately not attempted, because `42615` is also a perfectly good
+    /// Entrez gene ID and a rule that flagged it would report real
+    /// identifiers as mistakes.
+    #[must_use]
+    pub fn about_identifier(identifier: &str) -> Option<Self> {
+        looks_like_a_date(identifier.trim()).then(|| Self::IdentifierIsADate {
+            identifier: identifier.trim().to_owned(),
+        })
+    }
+
     /// A stable name for this kind of note.
     ///
     /// Spelled out rather than derived, because it is written into a cache,
@@ -180,6 +217,9 @@ impl Note {
             Self::GeneBarelyRead { .. } => "gene-barely-read",
             Self::CodonsUnread { .. } => "codons-unread",
             Self::CodonsUnphased { .. } => "codons-unphased",
+            Self::IdentifierIsADate { .. } => "identifier-is-a-date",
+            Self::IdentifierUnmapped { .. } => "identifier-unmapped",
+            Self::IdentifierAmbiguous { .. } => "identifier-ambiguous",
         }
     }
 
@@ -213,6 +253,12 @@ impl Note {
                 unphased,
                 depth,
             } => format!("gene={gene} unphased={unphased} depth={depth}"),
+            // One value and nothing else, so there is no separator to
+            // escape: an identifier read out of a TSV holds no tab and no
+            // newline, which is all `parse` needs of it.
+            Self::IdentifierIsADate { identifier }
+            | Self::IdentifierUnmapped { identifier }
+            | Self::IdentifierAmbiguous { identifier } => identifier.clone(),
         }
     }
 
@@ -256,6 +302,15 @@ impl Note {
                 codons: counted(value, "codons")?,
                 depth: counted(value, "depth")?,
             }),
+            "identifier-is-a-date" => Some(Self::IdentifierIsADate {
+                identifier: value.to_owned(),
+            }),
+            "identifier-unmapped" => Some(Self::IdentifierUnmapped {
+                identifier: value.to_owned(),
+            }),
+            "identifier-ambiguous" => Some(Self::IdentifierAmbiguous {
+                identifier: value.to_owned(),
+            }),
             "codons-unphased" => Some(Self::CodonsUnphased {
                 gene: named(value, "gene")?.to_owned(),
                 unphased: counted(value, "unphased")?,
@@ -297,6 +352,18 @@ impl Note {
             Self::CodonsUnphased { .. } => {
                 "Read a mutation at such a codon as a candidate, and sequence longer reads to \
                  settle it."
+            }
+            Self::IdentifierIsADate { .. } => {
+                "Export the file again with the identifier column typed as text, or recover the \
+                 symbol from the date -- `2-Sep` was `SEPT7`."
+            }
+            Self::IdentifierUnmapped { .. } => {
+                "Check the mapping table's release: an identifier missing from it is usually one \
+                 renamed or retired since the table was downloaded."
+            }
+            Self::IdentifierAmbiguous { .. } => {
+                "Decide which target you mean and add a one-to-one row for it, or keep the \
+                 identifier in the space it is already in."
             }
         }
     }
@@ -340,6 +407,23 @@ impl Note {
                 "A codon read base by base holds every combination of the alleles the caller \
                  credited at its three bases, so it can name a mutation no single read carries, \
                  which overstates resistance where a phased reading would not."
+            }
+            Self::IdentifierIsADate { .. } => {
+                "A date is in no identifier space, so this entity matches nothing in any other \
+                 file and silently drops out of every join downstream. It also stops the space \
+                 being inferred for the file at all, because one identifier the engine cannot \
+                 place is a file it will not guess about."
+            }
+            Self::IdentifierUnmapped { .. } => {
+                "An identifier that does not cross is left out of the output rather than carried \
+                 over unchanged, because carrying it would put a name from the old space into a \
+                 set that declares the new one. The output is therefore smaller than the input, \
+                 by exactly the identifiers named in these notes."
+            }
+            Self::IdentifierAmbiguous { .. } => {
+                "One identifier with several targets is left out rather than resolved: emitting \
+                 a row for each would make the set larger than the input without saying so, and \
+                 choosing one of them would be a guess about which the analysis meant."
             }
         }
     }
@@ -395,6 +479,21 @@ impl fmt::Display for Note {
                  all three of their bases {depth} times over, so a combination of bases no \
                  read carries may be reported there"
             ),
+            Self::IdentifierIsADate { identifier } => write!(
+                f,
+                "the identifier `{identifier}` is a date, not a name; a spreadsheet does this \
+                 to SEPT7, MARCH1 and DEC1"
+            ),
+            Self::IdentifierUnmapped { identifier } => write!(
+                f,
+                "the identifier `{identifier}` is in no row of the mapping table, so it is not \
+                 in the output"
+            ),
+            Self::IdentifierAmbiguous { identifier } => write!(
+                f,
+                "the identifier `{identifier}` maps to more than one target, so it is not in \
+                 the output"
+            ),
         }
     }
 }
@@ -410,6 +509,81 @@ fn named<'a>(value: &'a str, name: &str) -> Option<&'a str> {
 /// One field of a note's value, as the number it should be.
 fn counted(value: &str, name: &str) -> Option<u32> {
     named(value, name)?.parse().ok()
+}
+
+/// The month names a spreadsheet writes, lower-cased: the abbreviation it
+/// uses by default, and the full name it uses when the column is wide.
+const MONTHS: [&str; 24] = [
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "may",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "oct",
+    "nov",
+    "dec",
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+];
+
+/// Whether this reads as a date rather than as a name.
+///
+/// Three shapes, all of them things a spreadsheet produces from a gene
+/// symbol and none of them things a real identifier is: a day and a month
+/// in either order (`2-Sep`, `Sep-02`), and a numeric date (`2026-09-02`,
+/// `9/2/2026`). A month name on its own is not one, because `MAY` is a
+/// gene; nor is a hyphenated symbol such as `NKX2-1`, because neither half
+/// is a month.
+fn looks_like_a_date(identifier: &str) -> bool {
+    if identifier.is_empty() {
+        return false;
+    }
+    let parts: Vec<&str> = identifier.split(['-', '/']).collect();
+    match parts[..] {
+        // A day and a month, in either order.
+        [left, right] => is_month(left) != is_month(right) && (is_day(left) || is_day(right)),
+        // A numeric date: three numbers, or two numbers and a month.
+        [a, b, c] => {
+            let numbers = [a, b, c].iter().filter(|part| is_number(part)).count();
+            let months = [a, b, c].iter().filter(|part| is_month(part)).count();
+            numbers == 3 || (numbers == 2 && months == 1)
+        }
+        _ => false,
+    }
+}
+
+/// Whether this part is a month name, in full or abbreviated.
+///
+/// An exact match, never a prefix: `SEPT7` begins with `sep` and `MARCH1`
+/// with `mar`, and those are the very symbols this exists to recognise the
+/// corruption *of*. Matching them by prefix would report the intact symbol
+/// as the damage.
+fn is_month(part: &str) -> bool {
+    let lowered = part.to_ascii_lowercase();
+    MONTHS.contains(&lowered.as_str())
+}
+
+fn is_number(part: &str) -> bool {
+    !part.is_empty() && part.chars().all(|c| c.is_ascii_digit())
+}
+
+/// A number that could be a day of a month.
+fn is_day(part: &str) -> bool {
+    is_number(part) && part.parse::<u32>().is_ok_and(|day| (1..=31).contains(&day))
 }
 
 /// What a sample identifier is, when it is not a sample.
@@ -515,6 +689,15 @@ mod tests {
                 unphased: 6,
                 depth: 100,
             },
+            Note::IdentifierIsADate {
+                identifier: "2-Sep".to_owned(),
+            },
+            Note::IdentifierUnmapped {
+                identifier: "SEPT7".to_owned(),
+            },
+            Note::IdentifierAmbiguous {
+                identifier: "NKX2-1".to_owned(),
+            },
         ]
     }
 
@@ -599,5 +782,70 @@ mod tests {
         assert!(note.to_string().contains("an absolute path"));
         assert!(note.advice().contains("addreplacerg"));
         assert!(note.consequence().contains("dimension"));
+    }
+
+    #[test]
+    fn a_symbol_excel_turned_into_a_date_is_noticed() {
+        for identifier in [
+            "2-Sep",
+            "1-Mar",
+            "Sep-02",
+            "Dec-01",
+            "2026-09-02",
+            "9/2/2026",
+        ] {
+            assert!(
+                matches!(
+                    Note::about_identifier(identifier),
+                    Some(Note::IdentifierIsADate { .. })
+                ),
+                "{identifier}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_real_gene_symbol_is_left_alone() {
+        // The symbols Excel corrupts are themselves fine, and a hyphen in a
+        // symbol is ordinary: NKX2-1 and HLA-A are not dates.
+        for identifier in [
+            "SEPT7",
+            "MARCH1",
+            "DEC1",
+            "NKX2-1",
+            "HLA-A",
+            "TP53",
+            "ENSG00000141510",
+            "7157",
+            "P04637",
+            "",
+            "   ",
+            // A symbol that merely *starts* with a month's letters is not a
+            // date: only a whole month name counts, or `SEPT7-1` and
+            // `MARCH1-2` would be reported as dates on the strength of
+            // their first three letters.
+            "SEPT7-1",
+            "MARCH1-2",
+            "MAY",
+        ] {
+            assert_eq!(Note::about_identifier(identifier), None, "{identifier}");
+        }
+    }
+
+    #[test]
+    fn an_identifier_note_says_what_it_found_and_names_it() {
+        let note = Note::IdentifierIsADate {
+            identifier: "2-Sep".to_owned(),
+        };
+        assert!(note.to_string().contains("2-Sep"));
+        assert!(note.to_string().contains("date"));
+        // And none of the three explains a hash that moved: they describe
+        // what the data is, which is no reason for two machines to differ.
+        for note in every_kind()
+            .into_iter()
+            .filter(|note| note.code().starts_with("identifier-"))
+        {
+            assert!(!note.explains_a_difference(), "{}", note.code());
+        }
     }
 }

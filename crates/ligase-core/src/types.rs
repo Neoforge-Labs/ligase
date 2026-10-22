@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::dim::{Dimension, Dimensions};
+use crate::note::Note;
 
 /// What kind of biological data a dataset holds.
 ///
@@ -151,6 +152,16 @@ pub struct Dataset {
     /// message names.
     mates: Vec<PathBuf>,
     dimensions: Dimensions,
+    /// What loading this noticed, which its dimensions cannot say.
+    ///
+    /// Until now a [`Note`] could only come out of a step: either the
+    /// canonical form of its output or the body's own account of its work.
+    /// That leaves a file nobody computes with nothing to say, and a gene
+    /// list is exactly such a file — its symbols can arrive corrupted by a
+    /// spreadsheet, which is a fact about the input and not about any step.
+    /// So a loader may attach notes to what it loaded, and they travel with
+    /// the dataset to whoever is looking at it, `ligase inspect` included.
+    notes: Vec<Note>,
 }
 
 impl Dataset {
@@ -162,7 +173,19 @@ impl Dataset {
             path,
             mates: Vec::new(),
             dimensions,
+            notes: Vec::new(),
         }
+    }
+
+    /// The same dataset, with what loading it noticed.
+    ///
+    /// A builder rather than an argument to [`Self::new`], so that every
+    /// loader that notices nothing — which is all of them but one — needs
+    /// no change and says nothing by saying nothing.
+    #[must_use]
+    pub fn with_notes(mut self, notes: Vec<Note>) -> Self {
+        self.notes = notes;
+        self
     }
 
     /// The same dataset, with a second file belonging to it.
@@ -198,5 +221,15 @@ impl Dataset {
     #[must_use]
     pub const fn dimensions(&self) -> &Dimensions {
         &self.dimensions
+    }
+
+    /// What loading this noticed, which its dimensions cannot say.
+    ///
+    /// Empty for almost every file. A note is not an error and never stops
+    /// a run; it is something true of the data that a user cannot act on
+    /// without being told.
+    #[must_use]
+    pub fn notes(&self) -> &[Note] {
+        &self.notes
     }
 }
