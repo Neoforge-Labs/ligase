@@ -20,6 +20,8 @@ use std::path::{Path, PathBuf};
 
 use flate2::bufread::MultiGzDecoder;
 
+use crate::dim::{Dim, Organism, Release, Source};
+
 pub use alignment::alignment;
 pub use fasta::reference;
 pub use intervals::{IntervalFormat, intervals};
@@ -32,8 +34,12 @@ pub use variants::variants;
 /// once, then propagated.
 #[derive(Clone, Debug, Default)]
 pub struct Declared {
-    /// Which organism the data is from, e.g. `HIV-1`.
-    pub organism: Option<String>,
+    /// Which organisms the data is from, e.g. `["HIV-1"]`.
+    ///
+    /// A list because a host–pathogen dataset, a metagenome or a xenograft is
+    /// legitimately about more than one. An empty list, or one of only blank
+    /// names, declares nothing and is treated as not declared.
+    pub organism: Option<Vec<String>>,
     /// A human label for the reference build, e.g. `HXB2` or `hg38`.
     ///
     /// Display only. Reference *identity* never rests on a label, so two
@@ -49,6 +55,38 @@ pub struct Declared {
     /// Declared and never inferred, for the reason [`crate::dim::Frame`]
     /// gives: no FASTA records where its first base sits in anything else.
     pub frame: Option<(String, u64)>,
+    /// The release of the reference, e.g. `GRCh38.p14`.
+    ///
+    /// Only a reference carries one; the other loaders ignore it. A blank
+    /// release declares nothing and is treated as not declared.
+    pub release: Option<String>,
+}
+
+/// The organism dimension a loader reports from what the user declared.
+///
+/// One helper rather than a block in each loader so the rule that an empty
+/// declaration is a gap is stated once. Were `[]` taken as a known, empty
+/// set, two datasets that each declared nothing would *agree* on organism,
+/// which is the false agreement this engine exists to refuse. `reason` stays
+/// the caller's because each format says something different about why it
+/// cannot supply the answer itself.
+pub(crate) fn organism(declared: &Declared, reason: &'static str) -> Dim<Organism> {
+    match declared.organism.as_deref().map(Organism::of) {
+        Some(organisms) if !organisms.is_empty() => Dim::known(organisms, Source::Declared),
+        _ => Dim::unknown(reason),
+    }
+}
+
+/// The release dimension of a reference, from what the user declared.
+///
+/// Only the FASTA loader calls this, because only a reference has a release.
+/// A blank release is a gap for the same reason an empty organism list is:
+/// a blank that equals another blank is a false agreement.
+pub(crate) fn release(declared: &Declared) -> Dim<Release> {
+    match declared.release.as_deref().map(Release::new) {
+        Some(release) if !release.is_empty() => Dim::known(release, Source::Declared),
+        _ => Dim::unknown("a FASTA does not record which release it came from; declare it"),
+    }
 }
 
 /// Why a file could not be loaded.

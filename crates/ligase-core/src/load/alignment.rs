@@ -10,9 +10,7 @@ use noodles::sam::header::record::value::map::reference_sequence::tag::{
 use noodles::{bam, sam};
 
 use super::{Declared, LoadError, open};
-use crate::dim::{
-    Contig, CoordinateSystem, Dim, Dimensions, Organism, ReferenceId, SampleSet, Source,
-};
+use crate::dim::{Contig, CoordinateSystem, Dim, Dimensions, ReferenceId, SampleSet, Source};
 use crate::types::{DataKind, Dataset};
 
 /// Load an alignment, inferring its dimensions from the header.
@@ -103,10 +101,7 @@ pub fn alignment(path: &Path, declared: &Declared) -> Result<Dataset, LoadError>
     // free-text `@SQ SP` tag is deliberately not used as a source: matching
     // "Homo sapiens" against a declared "human" would need an alias table,
     // and a wrong guess there passes `check()` silently.
-    let organism = match &declared.organism {
-        Some(organism) => Dim::known(Organism::new(organism), Source::Declared),
-        None => Dim::unknown("not recorded in SAM/BAM headers; declare it"),
-    };
+    let organism = super::organism(declared, "not recorded in SAM/BAM headers; declare it");
 
     let dimensions = Dimensions {
         organism,

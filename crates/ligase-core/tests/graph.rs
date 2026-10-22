@@ -27,7 +27,7 @@ fn reference(name: &str) -> Dataset {
     load::reference(
         &fixture(name),
         &Declared {
-            organism: Some("HIV-1".into()),
+            organism: Some(vec!["HIV-1".into()]),
             build: Some("tiny".into()),
             ..Declared::default()
         },
@@ -690,7 +690,7 @@ fn two_problems_at_one_node_still_read_as_one_step() {
         load::reference(
             &fixture("tiny_other.fasta"),
             &Declared {
-                organism: Some("human".into()),
+                organism: Some(vec!["human".into()]),
                 build: Some("other".into()),
                 ..Declared::default()
             },
@@ -1059,7 +1059,7 @@ fn the_demo_pipeline_builds_and_checks_on_real_data() {
         load::reference(
             &fasta,
             &Declared {
-                organism: Some("HIV-1".into()),
+                organism: Some(vec!["HIV-1".into()]),
                 build: Some("HXB2".into()),
                 ..Declared::default()
             },

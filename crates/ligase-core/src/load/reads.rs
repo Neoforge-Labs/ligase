@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use noodles::fastq;
 
 use super::{Declared, LoadError, open, stem};
-use crate::dim::{Dim, Dimensions, Organism, Pairing, QualityEncoding, SampleSet, Source};
+use crate::dim::{Dim, Dimensions, Pairing, QualityEncoding, SampleSet, Source};
 use crate::types::{DataKind, Dataset};
 
 /// How many records to read before giving up on deciding the encoding.
@@ -66,10 +66,7 @@ pub fn reads(r1: &Path, r2: Option<&Path>, declared: &Declared) -> Result<Datase
         None => Dim::unknown("the file contains no quality scores"),
     };
 
-    let organism = match &declared.organism {
-        Some(organism) => Dim::known(Organism::new(organism), Source::Declared),
-        None => Dim::unknown("a FASTQ does not record its organism; declare it"),
-    };
+    let organism = super::organism(declared, "a FASTQ does not record its organism; declare it");
 
     let dimensions = Dimensions {
         organism,

@@ -29,7 +29,7 @@ fn a_reference_and_a_sample_bam_load_with_dimensions_inferred_from_headers() {
     let reference = load::reference(
         &fixture("tiny_bare.fasta"),
         &Declared {
-            organism: Some("HIV-1".into()),
+            organism: Some(vec!["HIV-1".into()]),
             build: Some("tiny".into()),
             ..Declared::default()
         },
@@ -159,7 +159,7 @@ fn the_real_demo_alignment_agrees_with_the_real_hxb2_reference() {
     let reference = load::reference(
         &fasta,
         &Declared {
-            organism: Some("HIV-1".into()),
+            organism: Some(vec!["HIV-1".into()]),
             build: Some("HXB2".into()),
             ..Declared::default()
         },

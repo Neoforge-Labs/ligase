@@ -72,14 +72,18 @@ fn fasta_organism_is_declared_not_inferred() {
     let declared = load::reference(
         &fixture("tiny_bare.fasta"),
         &Declared {
-            organism: Some("HIV-1".into()),
+            organism: Some(vec!["HIV-1".into()]),
             ..Declared::default()
         },
     )
     .unwrap();
     assert_eq!(
-        declared.dimensions().organism.value().map(|o| o.as_str()),
-        Some("HIV-1")
+        declared
+            .dimensions()
+            .organism
+            .value()
+            .map(ToString::to_string),
+        Some("HIV-1".to_owned())
     );
 }
 
@@ -338,7 +342,7 @@ fn real_hxb2_fasta_loads_with_the_expected_identity() {
     let dataset = load::reference(
         &path,
         &Declared {
-            organism: Some("HIV-1".into()),
+            organism: Some(vec!["HIV-1".into()]),
             build: Some("HXB2".into()),
             ..Declared::default()
         },
