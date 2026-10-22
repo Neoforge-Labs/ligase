@@ -108,7 +108,9 @@ fn two_references_from_the_same_release_agree() {
     );
 }
 
-// Review Focus 4: a release on one side only is silence, not a demand.
+// A release known on one side only is silence, not a demand: nothing in
+// `required_pair` names it, and a FASTA that records no release must stay
+// loadable.
 #[test]
 fn a_release_known_on_one_side_only_is_not_required() {
     let errors = check_step(
@@ -126,5 +128,52 @@ fn a_release_known_on_one_side_only_is_not_required() {
             .iter()
             .all(|error| error.dimension() != Some(Dimension::Release)),
         "got: {errors:#?}"
+    );
+}
+
+#[test]
+fn each_new_axis_reads_its_own_field() {
+    use ligase::dim::{SourceSet, Subject};
+
+    let dimensions = Dimensions {
+        release: Dim::known(Release::new("GRCh38.p14"), Source::Declared),
+        subject: Dim::known(
+            Subject::new("HeLa"),
+            Source::Derived {
+                step: "load".to_owned(),
+            },
+        ),
+        source_set: Dim::<SourceSet>::unknown("no sources were recorded"),
+        ..Dimensions::default()
+    };
+
+    assert_eq!(
+        dimensions.render(Dimension::Release).as_deref(),
+        Some("GRCh38.p14")
+    );
+    assert_eq!(
+        dimensions.render(Dimension::Subject).as_deref(),
+        Some("HeLa")
+    );
+    assert_eq!(dimensions.render(Dimension::SourceSet), None);
+
+    assert_eq!(
+        dimensions.source(Dimension::Release),
+        Some(&Source::Declared)
+    );
+    assert_eq!(
+        dimensions
+            .source(Dimension::Subject)
+            .map(Source::describe)
+            .as_deref(),
+        Some("from step `load`")
+    );
+    assert_eq!(dimensions.source(Dimension::SourceSet), None);
+
+    assert_eq!(dimensions.reason(Dimension::Release), None);
+    assert_eq!(dimensions.reason(Dimension::Subject), None);
+    assert_eq!(
+        dimensions.reason(Dimension::SourceSet),
+        Some("no sources were recorded")
     );
 }
