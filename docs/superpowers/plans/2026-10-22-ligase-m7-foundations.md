@@ -823,9 +823,7 @@ from tests.conftest import fixture
 
 
 def test_an_organism_can_be_declared_as_a_list() -> None:
-    ref = lg.reference(
-        fixture("tiny_bare.fasta"), organism=["HIV-1", "Homo sapiens"]
-    )
+    ref = lg.reference(fixture("tiny_bare.fasta"), organism=["HIV-1", "Homo sapiens"])
 
     organism = ref.dimension("organism")
     assert organism is not None
@@ -879,9 +877,7 @@ def test_release_does_not_apply_to_an_alignment() -> None:
 
 
 def test_a_wider_organism_set_is_reported_against_a_narrower_one() -> None:
-    ref = lg.reference(
-        fixture("tiny_bare.fasta"), organism=["HIV-1", "Homo sapiens"]
-    )
+    ref = lg.reference(fixture("tiny_bare.fasta"), organism=["HIV-1", "Homo sapiens"])
     aln = lg.alignment(fixture("tiny_bare.sam"), organism="HIV-1")
 
     errors = lg.dimension_errors("call", {"aln": aln, "ref": ref})
@@ -946,18 +942,20 @@ name, length and MD5, and a reference is the only kind that applies to
 requires:
 
 ```python
-Scenario(
-    key="mixedOrganism",
-    step="call",
-    expect="DimensionError",
-    description="A host-pathogen reference checked against a pathogen-only alignment.",
-    build=lambda lg: {
-        "aln": lg.alignment(fixture("tiny_bare.sam"), organism="HIV-1"),
-        "ref": lg.reference(
-            fixture("tiny_bare.fasta"), organism=["HIV-1", "Homo sapiens"]
-        ),
-    },
-),
+(
+    Scenario(
+        key="mixedOrganism",
+        step="call",
+        expect="DimensionError",
+        description="A host-pathogen reference checked against a pathogen-only alignment.",
+        build=lambda lg: {
+            "aln": lg.alignment(fixture("tiny_bare.sam"), organism="HIV-1"),
+            "ref": lg.reference(
+                fixture("tiny_bare.fasta"), organism=["HIV-1", "Homo sapiens"]
+            ),
+        },
+    ),
+)
 ```
 
 - [ ] **Step 1: Add the scenario and verify the capture fails the build before the page exists**
