@@ -18,9 +18,10 @@ use pyo3::prelude::*;
 use ligase::audit;
 use ligase::cache::Cache;
 use ligase::check::{Binding, CheckError, check_step as core_check_step, render, summarise};
+use ligase::convert::{self, Conversion};
 use ligase::dim::{CoordinateSystem, Dimension};
 use ligase::exec::{self, Host, Options, Recipe, Stores, Task};
-use ligase::graph::{Argument, Graph, NodeId, StepSpec};
+use ligase::graph::{Argument, Converted, Graph, NodeId, StepSpec};
 use ligase::hivdb;
 use ligase::load::{self, Declared, IntervalFormat, LoadError as CoreLoadError};
 use ligase::note::Note;
@@ -421,6 +422,62 @@ fn interpret_resistance(
     })
 }
 
+/// Why a name is not a registered conversion, naming the ones that are.
+///
+/// Built here rather than inline, because the decorator and the graph both
+/// refuse an unknown conversion and a user should get the same sentence
+/// whichever of them catches it.
+fn unregistered(name: &str) -> String {
+    let known: Vec<&str> = Conversion::ALL.iter().map(|entry| entry.name).collect();
+    format!(
+        "`{name}` is not a registered conversion; this engine ships {}",
+        known.join(" and ")
+    )
+}
+
+/// The axis a registered conversion crosses, or an error naming the ones
+/// that exist.
+///
+/// Asked by the step decorator, so that a step claiming a conversion the
+/// engine does not have is refused where it is written.
+#[pyfunction]
+fn conversion_axis(name: &str) -> PyResult<&'static str> {
+    Conversion::by_name(name)
+        .map(|conversion| conversion.axis.name())
+        .ok_or_else(|| PyValueError::new_err(unregistered(name)))
+}
+
+/// The parameter every conversion reads its target from.
+#[pyfunction]
+fn conversion_target_parameter() -> &'static str {
+    Conversion::TARGET
+}
+
+/// Rewrite a gene list's identifiers through a mapping table.
+///
+/// Returns what the conversion noticed, as pairs of a note's code and its
+/// value: what `lg.write` expects a body to hand back, so the engine says
+/// it in the run report, provenance, a bundle and the methods section.
+/// Every identifier that did not cross is named there.
+#[pyfunction]
+fn map_identifiers(
+    entities: PathBuf,
+    id_column: &str,
+    table: PathBuf,
+    table_id_column: &str,
+    column: &str,
+    out: PathBuf,
+) -> PyResult<Vec<(String, String)>> {
+    convert::map_identifiers(&entities, id_column, &table, table_id_column, column, &out)
+        .map(|notes| {
+            notes
+                .iter()
+                .map(|note| (note.code().to_owned(), note.value()))
+                .collect()
+        })
+        .map_err(PyValueError::new_err)
+}
+
 /// Every resistance algorithm this engine ships, newest first.
 #[pyfunction]
 fn resistance_algorithms() -> Vec<String> {
@@ -721,13 +778,19 @@ impl PyGraph {
     }
 
     /// Add a step over nodes that already exist, propagating its output.
-    #[pyo3(signature = (name, output, arguments, coordinates=None))]
+    ///
+    /// `conversion` is the registered conversion this step performs and the
+    /// target its call declared, as `(name, to)`. It is resolved against
+    /// the registry here rather than on the Python side so that the two
+    /// surfaces cannot disagree about which conversions exist.
+    #[pyo3(signature = (name, output, arguments, coordinates=None, conversion=None))]
     fn add_step(
         &mut self,
         name: &str,
         output: &str,
         arguments: Vec<PyArgument>,
         coordinates: Option<&str>,
+        conversion: Option<(String, String)>,
     ) -> PyResult<usize> {
         let output = kind(output)?;
         let coordinates = match coordinates {
@@ -741,6 +804,18 @@ impl PyGraph {
                     known.join(" or ")
                 ))
             })?),
+            None => None,
+        };
+
+        let conversion = match conversion {
+            Some((registered, to)) => {
+                let found = Conversion::by_name(&registered)
+                    .ok_or_else(|| PyValueError::new_err(unregistered(&registered)))?;
+                Some(Converted {
+                    conversion: found,
+                    target: found.target(&to).map_err(PyValueError::new_err)?,
+                })
+            }
             None => None,
         };
 
@@ -760,7 +835,7 @@ impl PyGraph {
                 name: name.to_owned(),
                 output,
                 coordinates,
-                conversion: None,
+                conversion,
                 arguments,
             })
             .map(NodeId::index)
@@ -1182,6 +1257,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(load_reference, m)?)?;
     m.add_function(wrap_pyfunction!(load_entity_set, m)?)?;
+    m.add_function(wrap_pyfunction!(conversion_axis, m)?)?;
+    m.add_function(wrap_pyfunction!(conversion_target_parameter, m)?)?;
+    m.add_function(wrap_pyfunction!(map_identifiers, m)?)?;
     m.add_function(wrap_pyfunction!(load_alignment, m)?)?;
     m.add_function(wrap_pyfunction!(load_variants, m)?)?;
     m.add_function(wrap_pyfunction!(load_reads, m)?)?;

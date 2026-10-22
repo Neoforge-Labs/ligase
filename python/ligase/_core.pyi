@@ -32,6 +32,16 @@ class Dataset:
     def samples(self) -> list[str] | None: ...
 
 def version() -> str: ...
+def conversion_axis(name: str) -> str: ...
+def conversion_target_parameter() -> str: ...
+def map_identifiers(
+    entities: str,
+    id_column: str,
+    table: str,
+    table_id_column: str,
+    column: str,
+    out: str,
+) -> list[tuple[str, str]]: ...
 def load_reference(
     path: str,
     organism: str | Sequence[str] | None = None,
@@ -205,6 +215,9 @@ class Graph:
         # (parameter, declared kind, node) per dataset argument.
         arguments: list[tuple[str, str | None, int]],
         coordinates: str | None = None,
+        # The registered conversion this step performs, and the target its
+        # call declared.
+        conversion: tuple[str, str] | None = None,
     ) -> int: ...
     def dataset(self, node: int) -> Dataset | None: ...
     def step_names(self, roots: list[int]) -> list[str]: ...

@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from . import _core, hivdb
 from .audit import AuditReport, StepAudit
+from .convert import map_identifiers
 from .errors import (
     CheckError,
     ContigNamingError,
@@ -114,6 +115,7 @@ __all__ = [
     "handle",
     "hivdb",
     "intervals",
+    "map_identifiers",
     "reads",
     "reference",
     "samples",

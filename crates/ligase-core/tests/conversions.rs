@@ -494,3 +494,15 @@ fn a_mapped_list_is_in_the_space_it_was_mapped_to() {
         Some("Ensembl gene")
     );
 }
+
+#[test]
+fn the_engine_is_a_tool_whose_version_is_its_own() {
+    // A conversion's work is code in this crate, not an external program:
+    // there is nothing to probe with `--version`, and the engine's own
+    // version is what changes its answers. Without this, a step declaring
+    // `tool="ligase"` would be probed for a binary that does not exist, and
+    // nothing about the engine would reach the cache key.
+    let version = ligase::exec::tool_version("ligase").unwrap();
+    assert!(version.contains("ligase"), "{version}");
+    assert!(version.contains(env!("CARGO_PKG_VERSION")), "{version}");
+}

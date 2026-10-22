@@ -79,7 +79,16 @@ GROUPS: tuple[Group, ...] = (
             "its signature; the graph is built from those signatures without calling "
             "any of them."
         ),
-        names=("step", "sh", "write", "handle", "Pipeline", "Step", "Shell"),
+        names=(
+            "step",
+            "sh",
+            "write",
+            "handle",
+            "map_identifiers",
+            "Pipeline",
+            "Step",
+            "Shell",
+        ),
     ),
     Group(
         slug="checking",
