@@ -423,6 +423,9 @@ fn compare(
         Dimension::SampleSet => a.sample_set.value() == b.sample_set.value(),
         Dimension::Pairing => a.pairing.value() == b.pairing.value(),
         Dimension::QualityEncoding => a.quality_encoding.value() == b.quality_encoding.value(),
+        Dimension::Release => a.release.value() == b.release.value(),
+        Dimension::Subject => a.subject.value() == b.subject.value(),
+        Dimension::SourceSet => a.source_set.value() == b.source_set.value(),
         Dimension::Reference => unreachable(),
     };
     if same {

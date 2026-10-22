@@ -705,6 +705,15 @@ fn propagate(spec: &StepSpec, inputs: &[&Dataset]) -> Dataset {
             &d.quality_encoding
         });
     }
+    if output.applies(Dimension::Release) {
+        dimensions.release = inherit(step, Dimension::Release, inputs, |d| &d.release);
+    }
+    if output.applies(Dimension::Subject) {
+        dimensions.subject = inherit(step, Dimension::Subject, inputs, |d| &d.subject);
+    }
+    if output.applies(Dimension::SourceSet) {
+        dimensions.source_set = inherit(step, Dimension::SourceSet, inputs, |d| &d.source_set);
+    }
 
     // A step's output has no path: it has not been computed, and giving it
     // one would be a claim about a file that does not exist.

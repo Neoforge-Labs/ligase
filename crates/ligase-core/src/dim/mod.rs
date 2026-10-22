@@ -130,6 +130,12 @@ impl<T> Dim<T> {
 }
 
 /// The dimension axes, for iteration and error reporting.
+///
+/// The first seven are in catalogue order. Newer axes are appended rather than
+/// slotted in beside the ones they resemble: [`Dimension::ALL`] is the order
+/// `check_step` walks, so it is also the order a user's multi-error report
+/// comes out in, and inserting an axis mid-list would silently reorder every
+/// report that already exists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Dimension {
     /// Which organism the data is from.
@@ -146,11 +152,18 @@ pub enum Dimension {
     Pairing,
     /// Phred+33 against Phred+64.
     QualityEncoding,
+    /// Which release of a reference the data is on.
+    Release,
+    /// Who or what the data is about.
+    Subject,
+    /// The upstream sources a dataset was assembled from.
+    SourceSet,
 }
 
 impl Dimension {
-    /// Every dimension, in catalogue order.
-    pub const ALL: [Self; 7] = [
+    /// Every dimension: the catalogue's seven in catalogue order, then the
+    /// axes added since, in the order they were added.
+    pub const ALL: [Self; 10] = [
         Self::Organism,
         Self::Reference,
         Self::ContigNaming,
@@ -158,6 +171,9 @@ impl Dimension {
         Self::SampleSet,
         Self::Pairing,
         Self::QualityEncoding,
+        Self::Release,
+        Self::Subject,
+        Self::SourceSet,
     ];
 
     /// The name used in messages and in the Python API.
@@ -171,6 +187,9 @@ impl Dimension {
             Self::SampleSet => "sample_set",
             Self::Pairing => "pairing",
             Self::QualityEncoding => "quality_encoding",
+            Self::Release => "release",
+            Self::Subject => "subject",
+            Self::SourceSet => "source_set",
         }
     }
 
@@ -198,6 +217,9 @@ impl Dimension {
             Self::SampleSet => "These must match, in order. Did the sample order change upstream?",
             Self::Pairing => "These must match. Did you mix single-end and paired-end reads?",
             Self::QualityEncoding => "These must match. Did you mix Phred+33 and Phred+64 reads?",
+            Self::Release => "These must match. Did one input come from a different release?",
+            Self::Subject => "These must match. Did you join data about different subjects?",
+            Self::SourceSet => "These must match. Was a source added or removed upstream?",
         }
     }
 }
@@ -370,6 +392,12 @@ pub struct Dimensions {
     pub pairing: Dim<Pairing>,
     /// The FASTQ quality offset.
     pub quality_encoding: Dim<QualityEncoding>,
+    /// Which release of the reference this is.
+    pub release: Dim<Release>,
+    /// Who or what the data is about.
+    pub subject: Dim<Subject>,
+    /// The upstream sources the data was assembled from.
+    pub source_set: Dim<SourceSet>,
 }
 
 impl Default for Dimensions {
@@ -383,6 +411,9 @@ impl Default for Dimensions {
             sample_set: Dim::unknown(NOT_SET),
             pairing: Dim::unknown(NOT_SET),
             quality_encoding: Dim::unknown(NOT_SET),
+            release: Dim::unknown(NOT_SET),
+            subject: Dim::unknown(NOT_SET),
+            source_set: Dim::unknown(NOT_SET),
         }
     }
 }
@@ -408,6 +439,9 @@ impl Dimensions {
                 .quality_encoding
                 .value()
                 .map(|encoding| encoding.describe().to_owned()),
+            Dimension::Release => self.release.value().map(ToString::to_string),
+            Dimension::Subject => self.subject.value().map(ToString::to_string),
+            Dimension::SourceSet => self.source_set.value().map(ToString::to_string),
         }
     }
 
@@ -422,6 +456,9 @@ impl Dimensions {
             Dimension::SampleSet => self.sample_set.source(),
             Dimension::Pairing => self.pairing.source(),
             Dimension::QualityEncoding => self.quality_encoding.source(),
+            Dimension::Release => self.release.source(),
+            Dimension::Subject => self.subject.source(),
+            Dimension::SourceSet => self.source_set.source(),
         }
     }
 
@@ -436,6 +473,9 @@ impl Dimensions {
             Dimension::SampleSet => self.sample_set.reason(),
             Dimension::Pairing => self.pairing.reason(),
             Dimension::QualityEncoding => self.quality_encoding.reason(),
+            Dimension::Release => self.release.reason(),
+            Dimension::Subject => self.subject.reason(),
+            Dimension::SourceSet => self.source_set.reason(),
         }
     }
 

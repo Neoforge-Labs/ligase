@@ -76,6 +76,12 @@ impl DataKind {
             (Self::Reads, _) => false,
 
             (Self::Reference, Dimension::Reference | Dimension::ContigNaming) => true,
+            // A reference has a release (GRCh38.p13 against GRCh38.p14), and
+            // it is checked whenever both sides state it. It is deliberately
+            // not in `check::required_pair`: a FASTA records no release, so
+            // demanding one would make an ordinary file unloadable. A
+            // demand the user cannot always meet is worse than a missed check.
+            (Self::Reference, Dimension::Release) => true,
             (Self::Reference, _) => false,
 
             // Pairing applies to an alignment (the SAM flags record it), but
