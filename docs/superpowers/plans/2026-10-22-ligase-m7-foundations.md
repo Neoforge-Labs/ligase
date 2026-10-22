@@ -59,7 +59,9 @@ apply to nothing yet and come alive in M8 and M12.
 
 Five things the spec implies, that a reasonable user will hit, and that no
 task's headline test would otherwise cover. Each has a test pinned to the
-task that owns the code.
+task that owns the code. The numbering here is for this document only: a
+test's own comment explains the case in its own words, and no shipped
+comment refers to "Review Focus N".
 
 1. **`organism="HIV-1"` must not be iterated into characters.** PyO3 extracts
    `Vec<String>` from any Python sequence, and a `str` is one — a naive
@@ -362,7 +364,9 @@ fn two_references_from_the_same_release_agree() {
     );
 }
 
-// Review Focus 4: a release on one side only is silence, not a demand.
+// A release known on one side only is silence, not a demand: nothing in
+// `required_pair` names it, and a FASTA that records no release must stay
+// loadable.
 #[test]
 fn a_release_known_on_one_side_only_is_not_required() {
     let errors = check_step(
@@ -662,8 +666,8 @@ fn one_organism_still_renders_exactly_as_it_did() {
     );
 }
 
-// Review Focus 2: an empty list is a gap, not an empty set that would
-// compare equal to another empty set.
+// An empty list is a gap, not an empty set — two datasets that each
+// declared nothing would otherwise *agree* on organism.
 #[test]
 fn an_empty_organism_list_is_unknown() {
     for empty in [names(&[]), names(&["", "  "])] {
@@ -688,7 +692,8 @@ fn a_reference_can_declare_its_release() {
     );
 }
 
-// Review Focus 5.
+// A blank is a gap too: a blank that compares equal to another blank is a
+// false agreement.
 #[test]
 fn a_blank_release_is_unknown() {
     let found = load::reference(
@@ -827,8 +832,8 @@ def test_an_organism_can_be_declared_as_a_list() -> None:
     assert organism.value == "HIV-1 and Homo sapiens"
 
 
-# Review Focus 1: the one that would be silent. A str is a Python sequence,
-# so a `Vec<String>` parameter would extract it as its characters.
+# The failure that would be silent: a str is a Python sequence, so a
+# `Vec<String>` parameter would extract it as its characters.
 def test_a_string_organism_is_not_split_into_characters() -> None:
     ref = lg.reference(fixture("tiny_bare.fasta"), organism="HIV-1")
 
@@ -845,7 +850,7 @@ def test_a_tuple_of_organisms_is_accepted() -> None:
     assert organism.value == "HIV-1 and Homo sapiens"
 
 
-# Review Focus 2, at the boundary where the message is read.
+# An empty list, refused at the boundary where the message is read.
 def test_an_empty_organism_list_is_refused() -> None:
     with pytest.raises(ValueError, match="organism"):
         lg.reference(fixture("tiny_bare.fasta"), organism=[])
