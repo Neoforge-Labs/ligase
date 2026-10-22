@@ -675,9 +675,10 @@ fn an_organism_set_that_differs_names_the_difference() {
         "{message}"
     );
     assert!(
-        message.contains("ref also lists Homo sapiens."),
+        message.contains("\n  ref also lists Homo sapiens.\n"),
         "{message}"
     );
+    assert!(!message.contains("aln also lists"), "{message}");
 }
 
 #[test]
@@ -739,8 +740,8 @@ fn an_organism_difference_on_both_sides_names_both() {
     let message = errors
         .iter()
         .find(|error| error.dimension() == Some(Dimension::Organism))
-        .map(ToString::to_string)
-        .unwrap_or_default();
+        .unwrap_or_else(|| panic!("expected an organism error, got: {errors:#?}"))
+        .to_string();
     assert!(
         message.contains("a also lists HIV-2, and b also lists Homo sapiens."),
         "{message}"
@@ -777,8 +778,8 @@ fn several_extra_organisms_on_one_side_read_as_an_english_list() {
     let message = errors
         .iter()
         .find(|error| error.dimension() == Some(Dimension::Organism))
-        .map(ToString::to_string)
-        .unwrap_or_default();
+        .unwrap_or_else(|| panic!("expected an organism error, got: {errors:#?}"))
+        .to_string();
     assert!(
         message.contains("\n  b also lists Homo sapiens and Mus musculus.\n"),
         "{message}"

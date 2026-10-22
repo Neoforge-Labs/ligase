@@ -26,7 +26,10 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::dim::{ContigNaming, Dimension, ReferenceId, Relation, Verdict, english_list, relate};
+use crate::dim::{
+    ContigNaming, Dimension, Dimensions, NameSet, ReferenceId, Relation, Verdict, english_list,
+    relate,
+};
 use crate::types::{DataKind, Dataset};
 
 /// One named input to a step.
@@ -452,11 +455,7 @@ fn compare(
         // do is point at the member that makes the sets differ. One arm
         // serves both dimensions because the comparison rule is the same.
         Dimension::Organism | Dimension::SourceSet => {
-            let (x, y) = match dimension {
-                Dimension::Organism => (a.organism.value(), b.organism.value()),
-                _ => (a.source_set.value(), b.source_set.value()),
-            };
-            let (Some(x), Some(y)) = (x, y) else {
+            let (Some(x), Some(y)) = (name_set(a, dimension), name_set(b, dimension)) else {
                 return None;
             };
             let clauses: Vec<String> = [(left, x.difference(y)), (right, y.difference(x))]
@@ -489,6 +488,27 @@ fn compare(
         detail,
         conclusion: dimension.leading_question().to_owned(),
     })
+}
+
+/// The [`NameSet`] a dimension holds, for the dimensions that hold one.
+///
+/// A lookup that can say "none" rather than a catch-all arm: a dimension
+/// added to the set-difference detail but not here yields no detail, which
+/// is a missing sentence, instead of quietly reading another dimension's
+/// value, which would be a wrong one.
+fn name_set(dimensions: &Dimensions, dimension: Dimension) -> Option<&NameSet> {
+    match dimension {
+        Dimension::Organism => dimensions.organism.value(),
+        Dimension::SourceSet => dimensions.source_set.value(),
+        Dimension::Reference
+        | Dimension::ContigNaming
+        | Dimension::Coordinates
+        | Dimension::SampleSet
+        | Dimension::Pairing
+        | Dimension::QualityEncoding
+        | Dimension::Release
+        | Dimension::Subject => None,
+    }
 }
 
 fn compare_reference(step: &str, left: &Binding, right: &Binding) -> Option<CheckError> {
