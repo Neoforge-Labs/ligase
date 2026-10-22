@@ -364,8 +364,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   organism.** `crates/ligase-core` is published, and `organism` held a single
   string in its public types, so making it a set could not be additive.
   `load::Declared.organism` is `Option<Vec<String>>` where it was
-  `Option<String>`, which breaks every site that constructs a `Declared`: wrap
-  the one name in a list, `Some(vec![name])`. `dim::Organism` is now an alias
+  `Option<String>`, which breaks every site that sets `organism`: wrap the one
+  name in a list, `Some(vec![name])`. A site that leaves it to
+  `..Declared::default()` is untouched. `dim::Organism` is now an alias
   of `dim::NameSet`, a set of names, where it was its own struct. The Python
   API is not affected.
 - **A `Reference` now has a `release`.** Its applicable dimensions gained a

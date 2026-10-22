@@ -124,8 +124,14 @@ must pin that axis's arm in `check.rs::compare` and in `graph.rs::propagate`
 with a test. Until a kind applies an axis, `check_step` never reaches its arms,
 so no test can catch one written against the wrong field, and the compiler
 cannot either: `Organism` and `SourceSet` are one type, and so are `Release`
-and `Subject`. This milestone gives `identifier_namespace` a kind and may touch
-`subject`; if it applies `subject`, the requirement falls on it.
+and `Subject`. This milestone gives `identifier_namespace` a kind, and an
+`EntitySet` may also apply `subject` or `source_set`; whichever of those it
+applies, the requirement falls on it. If it is the first kind to give
+`source_set` one, it must re-examine the dedup rule before it does: the set
+type folds members that differ only in ASCII case, which is right for
+accessions and wrong for object keys, and `source_set` gets a type of its own
+if it is to hold the latter
+([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)).
 
 ## M9 — Inspect
 `ligase inspect`, generated into [the CLI reference](/reference/cli/) by the
@@ -159,12 +165,13 @@ must pin that axis's arm in `check.rs::compare` and in `graph.rs::propagate`
 with a test. Until a kind applies an axis, `check_step` never reaches its arms,
 so no test can catch one written against the wrong field, and the compiler
 cannot either: `Organism` and `SourceSet` are one type, and so are `Release`
-and `Subject`. If this milestone gives `source_set` a kind, the requirement
-falls on it, and it must also re-examine the dedup rule first. The set type
-folds members that differ only in ASCII case, which is right for accessions and
-wrong for object keys, and `source_set` gets a type of its own if it is to hold
-the latter
-([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)).
+and `Subject`. Whichever milestone first gives `source_set` a kind re-examines
+the dedup rule before it does (see M8, which may get there first). If M8 gave
+it none, this milestone does, on the same grounds: the set type folds members
+that differ only in ASCII case, which is right for accessions and wrong for
+object keys
+([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)),
+and the requirement falls on it for `source_set` as for any axis it applies.
 
 ## M11 — Stochastic steps
 A step that is not deterministic says so, and an unseeded one is refused. D40.
@@ -192,7 +199,7 @@ so no test can catch one written against the wrong field, and the compiler
 cannot either: `Organism` and `SourceSet` are one type, and so are `Release`
 and `Subject`. A `RankedList` brings `source_set` and `subject` into play, so
 the requirement falls on this milestone for both, and the `source_set` dedup
-question under M10 must be settled before `source_set` is applied.
+question under M8 and M10 must be settled before `source_set` is applied.
 
 ## M13 — Step library
 `ligase.steps`: typed steps that ship with their dimensions, their citation
