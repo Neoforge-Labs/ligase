@@ -117,6 +117,7 @@ impl Bench {
                 name: name.to_owned(),
                 output: DataKind::Reference,
                 coordinates: None,
+                conversion: None,
                 arguments: inputs
                     .iter()
                     .map(|(param, node)| Argument {

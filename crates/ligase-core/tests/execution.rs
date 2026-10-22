@@ -103,6 +103,7 @@ impl Bench {
                 name: name.to_owned(),
                 output,
                 coordinates: None,
+                conversion: None,
                 arguments: inputs
                     .iter()
                     .map(|(param, node)| Argument {
@@ -136,6 +137,7 @@ impl Bench {
                 name: name.to_owned(),
                 output: DataKind::Alignment,
                 coordinates: None,
+                conversion: None,
                 arguments: vec![Argument {
                     param: "in".to_owned(),
                     declared: DataKind::Reference,
@@ -733,6 +735,7 @@ fn a_python_step_is_run_by_the_host_and_cached_like_any_other() {
             name: "resistance".into(),
             output: DataKind::ResistanceReport,
             coordinates: None,
+            conversion: None,
             arguments: vec![Argument {
                 param: "v".into(),
                 declared: DataKind::Reference,

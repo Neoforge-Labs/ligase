@@ -719,6 +719,7 @@ impl PyGraph {
                 name: name.to_owned(),
                 output,
                 coordinates,
+                conversion: None,
                 arguments,
             })
             .map(NodeId::index)

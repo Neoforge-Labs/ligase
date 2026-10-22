@@ -43,6 +43,7 @@ pub mod audit;
 pub mod cache;
 pub mod canon;
 pub mod check;
+pub mod convert;
 pub mod dim;
 pub mod exec;
 pub mod graph;

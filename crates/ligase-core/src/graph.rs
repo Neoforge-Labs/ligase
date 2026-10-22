@@ -43,6 +43,7 @@ use std::error::Error;
 use std::fmt;
 
 use crate::check::{self, Binding, CheckError, Scope};
+use crate::convert::{Conversion, Target};
 use crate::dim::{CoordinateSystem, Dim, Dimension, Dimensions, Source, display_path};
 use crate::hivdb::frame;
 use crate::types::{DataKind, Dataset};
@@ -96,11 +97,32 @@ pub struct StepSpec {
     /// input's would be a silent lie. Left unset, such an output reports its
     /// coordinate system as unknown.
     pub coordinates: Option<CoordinateSystem>,
+    /// The conversion this step performs, for a step that *crosses* an axis
+    /// rather than inheriting it.
+    ///
+    /// `None` for an ordinary step, which is nearly all of them. Where it
+    /// is set, the output inherits every dimension as usual and then has
+    /// this one axis overwritten — see [`propagate`].
+    pub conversion: Option<Converted>,
     /// Its dataset arguments, in the order the signature declares them.
     ///
     /// Order matters: a dimension is inherited from the first argument that
     /// states it.
     pub arguments: Vec<Argument>,
+}
+
+/// A conversion, and the target the call declared.
+///
+/// The conversion is a registry entry and the target is per-call, because
+/// one written `map_identifiers` step converts to whichever space its `to=`
+/// named: the axis belongs to the conversion and the destination belongs to
+/// the call.
+#[derive(Clone, Debug)]
+pub struct Converted {
+    /// Which registered conversion this is.
+    pub conversion: &'static Conversion,
+    /// Where it says its output has arrived.
+    pub target: Target,
 }
 
 /// Why a graph could not be built.
@@ -713,6 +735,27 @@ fn propagate(spec: &StepSpec, inputs: &[&Dataset]) -> Dataset {
     }
     if output.applies(Dimension::SourceSet) {
         dimensions.source_set = inherit(step, Dimension::SourceSet, inputs, |d| &d.source_set);
+    }
+    if output.applies(Dimension::IdentifierNamespace) {
+        dimensions.identifier_namespace =
+            inherit(step, Dimension::IdentifierNamespace, inputs, |d| {
+                &d.identifier_namespace
+            });
+    }
+
+    // A conversion crosses one axis. Everything above has just inherited
+    // the input's dimensions, this overwrites the single axis the step
+    // exists to change, and the rest travel on -- which is why the override
+    // comes after the inheritance rather than instead of it. A
+    // `map_identifiers` output that forgot its organism, subject and
+    // release would be a new gene list rather than the same one renamed.
+    if let Some(converted) = &spec.conversion {
+        converted.target.apply(
+            &mut dimensions,
+            Source::Derived {
+                step: step.to_owned(),
+            },
+        );
     }
 
     // A step's output has no path: it has not been computed, and giving it
