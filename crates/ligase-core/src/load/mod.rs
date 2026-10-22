@@ -81,11 +81,12 @@ pub(crate) fn organism(declared: &Declared, reason: &'static str) -> Dim<Organis
 ///
 /// Only the FASTA loader calls this, because only a reference has a release.
 /// A blank release is a gap for the same reason an empty organism list is:
-/// a blank that equals another blank is a false agreement.
-pub(crate) fn release(declared: &Declared) -> Dim<Release> {
+/// a blank that equals another blank is a false agreement. `reason` is the
+/// caller's, as with [`organism`], so this module names no file format.
+pub(crate) fn release(declared: &Declared, reason: &'static str) -> Dim<Release> {
     match declared.release.as_deref().map(Release::new) {
         Some(release) if !release.is_empty() => Dim::known(release, Source::Declared),
-        _ => Dim::unknown("a FASTA does not record which release it came from; declare it"),
+        _ => Dim::unknown(reason),
     }
 }
 

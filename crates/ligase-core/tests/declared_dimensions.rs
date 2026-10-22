@@ -86,6 +86,7 @@ fn a_blank_release_is_unknown() {
     .expect("loads");
 
     assert!(!found.dimensions().release.is_known());
+    assert!(found.dimensions().reason(Dimension::Release).is_some());
 }
 
 #[test]
@@ -112,4 +113,78 @@ fn every_loader_accepts_a_set_of_organisms() {
     let intervals =
         load::intervals(&fixture("tiny_bare.bed"), None, &declared(two)).expect("loads");
     assert_eq!(intervals.dimensions().render(Dimension::Organism), expected);
+}
+
+// Three published pages quote these words, so the text and which format says
+// it are both pinned in full.
+#[test]
+fn each_loader_says_in_its_own_words_why_the_organism_is_unknown() {
+    let none = Declared::default();
+
+    let fasta = load::reference(&fixture("tiny_bare.fasta"), &none).expect("loads");
+    assert_eq!(
+        fasta.dimensions().reason(Dimension::Organism),
+        Some("a FASTA does not record its organism; declare it")
+    );
+
+    let alignment = load::alignment(&fixture("tiny_bare.sam"), &none).expect("loads");
+    assert_eq!(
+        alignment.dimensions().reason(Dimension::Organism),
+        Some("not recorded in SAM/BAM headers; declare it")
+    );
+
+    let variants = load::variants(&fixture("tiny_bare.vcf"), &none).expect("loads");
+    assert_eq!(
+        variants.dimensions().reason(Dimension::Organism),
+        Some("a VCF does not record its organism; declare it")
+    );
+
+    let reads = load::reads(&fixture("reads_phred33_1.fastq"), None, &none).expect("loads");
+    assert_eq!(
+        reads.dimensions().reason(Dimension::Organism),
+        Some("a FASTQ does not record its organism; declare it")
+    );
+
+    let intervals = load::intervals(&fixture("tiny_bare.bed"), None, &none).expect("loads");
+    assert_eq!(
+        intervals.dimensions().reason(Dimension::Organism),
+        Some("an interval file does not record its organism; declare it")
+    );
+}
+
+// Release belongs to a reference alone. The other loaders leave it unknown
+// because it does not apply to their kind, which is a different thing from a
+// gap the user could fill: `applies` is what tells the two apart, since
+// `Dimensions::reason` reads the field and so still carries the default
+// "not set" text for a dimension that does not apply.
+#[test]
+fn only_a_reference_carries_a_release() {
+    let none = Declared::default();
+
+    let fasta = load::reference(&fixture("tiny_bare.fasta"), &none).expect("loads");
+    assert!(fasta.kind().applies(Dimension::Release));
+    assert!(!fasta.dimensions().release.is_known());
+    assert_eq!(
+        fasta.dimensions().reason(Dimension::Release),
+        Some("a FASTA does not record which release it came from; declare it")
+    );
+
+    let others = [
+        load::alignment(&fixture("tiny_bare.sam"), &none).expect("loads"),
+        load::variants(&fixture("tiny_bare.vcf"), &none).expect("loads"),
+        load::reads(&fixture("reads_phred33_1.fastq"), None, &none).expect("loads"),
+        load::intervals(&fixture("tiny_bare.bed"), None, &none).expect("loads"),
+    ];
+    for other in &others {
+        assert!(!other.kind().applies(Dimension::Release));
+        assert!(!other.dimensions().release.is_known());
+    }
+
+    // Even when declared, a non-reference loader does not take it up.
+    let declared = Declared {
+        release: Some("GRCh38.p14".into()),
+        ..Declared::default()
+    };
+    let sam = load::alignment(&fixture("tiny_bare.sam"), &declared).expect("loads");
+    assert!(!sam.dimensions().release.is_known());
 }

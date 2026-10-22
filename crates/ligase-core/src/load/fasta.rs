@@ -58,7 +58,10 @@ pub fn reference(path: &Path, declared: &Declared) -> Result<Dataset, LoadError>
 
     let dimensions = Dimensions {
         organism,
-        release: super::release(declared),
+        release: super::release(
+            declared,
+            "a FASTA does not record which release it came from; declare it",
+        ),
         reference,
         contig_naming,
         ..Dimensions::default()
