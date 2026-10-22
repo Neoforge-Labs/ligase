@@ -822,3 +822,75 @@ fn a_file_that_falls_back_to_its_bytes_notices_nothing() {
     assert_eq!(form(DataKind::Variants, &truncated), Form::Raw);
     assert!(notes(DataKind::Variants, &truncated).is_empty());
 }
+
+// -------------------------------------------------------- entity sets --
+
+#[test]
+fn a_gene_list_hashes_the_same_however_its_rows_are_ordered() {
+    // A set: the order the rows came off whatever made them says nothing.
+    let files = Files::new();
+    let shuffled = files.write("a.tsv", "id\tlog2fc\nBRCA1\t-1.0\nTP53\t2.0\n");
+    let ordered = files.write("b.tsv", "id\tlog2fc\nTP53\t2.0\nBRCA1\t-1.0\n");
+    assert_eq!(
+        canonical(DataKind::EntitySet, &shuffled),
+        canonical(DataKind::EntitySet, &ordered)
+    );
+}
+
+#[test]
+fn a_gene_list_with_different_columns_is_a_different_list() {
+    // Which columns it carries is part of what it says.
+    let files = Files::new();
+    let one = files.write("a.tsv", "id\tlog2fc\nTP53\t2.0\n");
+    let other = files.write("b.tsv", "id\tscore\nTP53\t2.0\n");
+    assert_ne!(
+        canonical(DataKind::EntitySet, &one),
+        canonical(DataKind::EntitySet, &other)
+    );
+}
+
+#[test]
+fn a_gene_listed_twice_is_not_a_gene_listed_once() {
+    // A set with a repeated member is a malformed set, and collapsing it
+    // quietly would make two different files agree.
+    let files = Files::new();
+    let once = files.write("a.tsv", "id\nTP53\n");
+    let twice = files.write("b.tsv", "id\nTP53\nTP53\n");
+    assert_ne!(
+        canonical(DataKind::EntitySet, &once),
+        canonical(DataKind::EntitySet, &twice)
+    );
+}
+
+#[test]
+fn a_gene_list_written_by_excel_means_what_a_unix_one_does() {
+    // CRLF is a line ending, not part of an identifier.
+    let files = Files::new();
+    let unix = files.write("a.tsv", "id\tlog2fc\nTP53\t2.0\n");
+    let excel = files.write("b.tsv", "id\tlog2fc\r\nTP53\t2.0\r\n");
+    assert_eq!(
+        canonical(DataKind::EntitySet, &unix),
+        canonical(DataKind::EntitySet, &excel)
+    );
+}
+
+#[test]
+fn a_ragged_gene_list_falls_back_to_its_bytes() {
+    let files = Files::new();
+    let ragged = files.write("a.tsv", "id\tlog2fc\nTP53\n");
+    assert_eq!(form(DataKind::EntitySet, &ragged), Form::Raw);
+}
+
+#[test]
+fn a_gene_list_with_no_header_falls_back_to_its_bytes() {
+    let files = Files::new();
+    let empty = files.write("a.tsv", "");
+    assert_eq!(form(DataKind::EntitySet, &empty), Form::Raw);
+}
+
+#[test]
+fn every_kind_says_what_its_canonical_form_keeps() {
+    for kind in DataKind::ALL {
+        assert!(canon::describe(kind).is_some(), "{kind:?}");
+    }
+}

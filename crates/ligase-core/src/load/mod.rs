@@ -10,6 +10,7 @@ mod alignment;
 mod fasta;
 mod intervals;
 mod reads;
+mod table;
 mod variants;
 
 use std::error::Error;
@@ -27,6 +28,8 @@ pub use fasta::reference;
 pub use intervals::{IntervalFormat, intervals};
 pub use reads::{reads, samples};
 pub use variants::variants;
+
+pub(crate) use table::Table;
 
 /// Dimensions the user states, for the ones a file cannot record.
 ///

@@ -23,17 +23,20 @@ pub enum DataKind {
     Intervals,
     /// An interpreted drug-resistance report.
     ResistanceReport,
+    /// A set of genes or proteins, named in one identifier space (TSV).
+    EntitySet,
 }
 
 impl DataKind {
     /// Every kind, so the Python layer can enumerate them.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Reads,
         Self::Reference,
         Self::Alignment,
         Self::Variants,
         Self::Intervals,
         Self::ResistanceReport,
+        Self::EntitySet,
     ];
 
     /// The name used in messages and in the Python API.
@@ -46,6 +49,7 @@ impl DataKind {
             Self::Variants => "Variants",
             Self::Intervals => "Intervals",
             Self::ResistanceReport => "ResistanceReport",
+            Self::EntitySet => "EntitySet",
         }
     }
 
@@ -116,6 +120,21 @@ impl DataKind {
 
             (Self::ResistanceReport, Dimension::SampleSet) => true,
             (Self::ResistanceReport, _) => false,
+
+            // The first kind here that holds no sequence, and the place
+            // this table earns the warning above it. A gene list has no
+            // coordinate system, no contigs, no read pairing and no
+            // quality scores -- not as gaps to be filled in, but because
+            // a list of gene names has no such properties to have. What
+            // it does have is the space its names live in, which is the
+            // dimension it was admitted for (D35), the organism those
+            // genes belong to, what the list is about, and the release of
+            // whatever named them.
+            (
+                Self::EntitySet,
+                Dimension::IdentifierNamespace | Dimension::Subject | Dimension::Release,
+            ) => true,
+            (Self::EntitySet, _) => false,
         }
     }
 }
