@@ -1,0 +1,233 @@
+---
+title: "Conversions"
+description: "The conversion registry: what an entry declares, why the target is read from one parameter, how propagation crosses a single axis, and what the next two entries will be."
+---
+
+# Conversions
+
+<Lede>
+The dimension checker refuses a join. The registry is where the engine keeps
+the ways past a refusal — as a table it can read, rather than as functions
+somebody calls.
+</Lede>
+
+## Why a registry, with one entry in it
+
+v0.2 ships one conversion. Building a registry for one entry looks like
+over-design, and the reason it is not is
+[D5](/project/decisions/): the dimensions are nodes, conversions are edges,
+and the automatic fixes planned for v0.3 are a **path search** over those
+edges. "Your HGNC list cannot join this Ensembl table, but `map_identifiers`
+would get you there" is the one-edge case of that search.
+
+A search needs edges it can inspect. Three functions named
+`map_identifiers`, `liftover` and `rename_contigs` give it nothing to search:
+the engine would have to know, in code, which axis each one moves and what it
+needs. So each is a row instead.
+
+## What an entry declares
+
+`crates/ligase-core/src/convert.rs`:
+
+```rust
+pub struct Conversion {
+    /// The step name a user writes, and the name an error sends them to.
+    pub name: &'static str,
+    /// The one axis it crosses. Every other dimension is inherited.
+    pub axis: Dimension,
+    /// The kinds it converts. In and out are the same kind.
+    pub kinds: &'static [DataKind],
+    /// What the user has to supply, for a message that has to say so.
+    pub supplies: &'static str,
+}
+```
+
+The whole registry, today:
+
+| `name` | `axis` | `kinds` | `supplies` |
+|---|---|---|---|
+| `map_identifiers` | `identifier_namespace` | `EntitySet` | a mapping table |
+
+Two lookups, and they are what a path search will use:
+`Conversion::by_name` and `Conversion::across(axis)`. The second is the
+interesting one — "is there a way across this axis?" — and its honest answer
+for nearly every axis is `None`. There is no way across `organism`.
+
+## The axis is a field, not an implication
+
+Propagation has to know which single dimension of a step's output to
+overwrite, and which to carry. `graph::propagate` inherits every applicable
+dimension from the inputs as usual, and *then* applies the conversion's
+target:
+
+```rust
+if let Some(converted) = &spec.conversion {
+    converted.target.apply(
+        &mut dimensions,
+        Source::Derived { step: step.to_owned() },
+    );
+}
+```
+
+Overriding **after** inheriting rather than instead of it is the load-bearing
+detail. A `map_identifiers` output that lost its organism, its subject and its
+release would be a new gene list rather than the same one renamed, and every
+check below it would have less to work with than the check above it. The axis
+field is what makes "one axis changes, the rest travel" expressible at all.
+
+This mechanism is not new. `coordinates` already works this way for a step
+that writes `Intervals`: a tool producing BED from a VCF changes the
+convention, so the step declares what it writes rather than inheriting a lie.
+A conversion is the general case of that.
+
+## The target is read from one parameter
+
+`Conversion::TARGET` is `"to"`, for every conversion there will ever be.
+
+The destination cannot live on the registry entry, because it is per *call*:
+one written `map_identifiers` step converts to whichever space its call named.
+It cannot live on the step decorator either, for the same reason. So it is an
+argument — and the Python surface has to find it among a step's arguments
+without knowing which conversion it is looking at.
+
+One spelling solves that, and it is checked when the step is **decorated**
+rather than when a pipeline runs:
+
+```python
+@step(tool="ligase", conversion="map_identifiers")
+def map_identifiers(
+    entities: EntitySet, table: EntitySet, *, column: str, to: str
+) -> EntitySet: ...
+```
+
+`Step.__init__` asks the engine two questions — is this a registered
+conversion, and what is the target parameter called — and raises
+`StepDefinitionError` if the answer to either is wrong. Both answers are the
+engine's, so the decorator and the graph cannot disagree about which
+conversions exist. `Pipeline._place` then reads `arguments["to"]` and hands
+`(name, to)` to `add_step`, which resolves it against the registry and refuses
+a target the axis cannot take — a blank one, in particular, because a blank
+label compares equal to another blank label and two outputs that *agreed*
+about being in no particular space would be the exact false agreement the
+dimension exists to break.
+
+## Why the mapping table is a typed input
+
+`table=` takes an `EntitySet` rather than a path, and this was a deliberate
+choice with two consequences.
+
+**Content, not a path, joins the cache key.** A plain parameter is hashed by
+its value, and a path's value does not change when the file behind it does. A
+typed input is hashed by its canonical form, so editing the mapping table
+reruns the mapping and everything below it.
+
+**The table's own space is checked.** Its identifiers are the source side of
+the mapping, so they are in the same space as the list being converted. An
+Entrez table handed to a list of HGNC symbols is therefore an ordinary
+`DimensionError` found by the ordinary checker — no special case, no extra
+validation inside the step — rather than a mapping that silently matches
+nothing. This is the dimension system being used on the conversion's own
+inputs, which is a good sign that the shape is right.
+
+## What a conversion does with what it cannot convert
+
+Every entry in this registry is an operation that **can fail for some
+inputs**. That is what distinguishes a conversion from a rename, and a rename
+across a dimension is what
+[D38](/project/decisions/#d38--identifier-namespaces-never-coerce) forbids.
+
+`convert::map_identifiers` reads the table into a
+`BTreeMap<String, Vec<String>>` — a `Vec` per key, not one value, because the
+one-to-many case has to stay visible; a map keeping the last row would resolve
+it silently, and which row came last is not a fact about the genes. Then, per
+input row:
+
+| Table says | Output | Note |
+|---|---|---|
+| exactly one target | the row, with the identifier replaced | — |
+| nothing | nothing | `IdentifierUnmapped` |
+| several targets | nothing | `IdentifierAmbiguous` |
+
+Neither failure is dropped and neither is carried over unchanged. Carrying one
+over would put a name from the old space into a set that declares the new one,
+and the whole point of the output's declaration is that it is true. So the
+output is smaller than the input by exactly the identifiers the notes name,
+and the notes reach the run report, provenance, the bundle and the methods
+paragraph by the ordinary route ([D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).
+
+One refusal is an `Err` rather than a note: `column` naming the table's own
+identifier column. That would map every identifier to itself and then declare
+a space the identifiers are not in — the implicit rename, arrived at by
+accident — so it is an error before anything is written.
+
+## The engine is a tool
+
+`map_identifiers` declares `tool="ligase"`, and `exec::BUILT_IN` lists
+`"ligase"` beside `"hivdb"`. Neither is an external program to probe with
+`--version`, and both change answers exactly as a tool does.
+
+Without it, nothing about the engine would reach the cache key for this step.
+`key.rs` hashes tool versions, parameters and input content; it does not hash
+the crate. A step body that only calls into the engine hashes the same however
+`convert.rs` changes underneath it, so the declaration is what makes a new
+engine rerun a conversion. The version reported is the crate's, which is
+weaker than `hivdb`'s content fingerprint of its own rules — an unreleased
+change to a conversion will not rerun a cached step — and that is the obvious
+thing to strengthen if it ever bites.
+
+## The next two entries
+
+Both are out of scope for v0.2 ([§7 of the feature spec](/project/milestones/)),
+and the registry is shaped so that each is a row rather than a redesign.
+
+| `name` | `axis` | `kinds` | `supplies` |
+|---|---|---|---|
+| `liftover` | `reference` | `Variants`, `Intervals`, `Alignment` | a chain file |
+| `rename_contigs` | `contig_naming` | `Variants`, `Intervals`, `Alignment` | nothing |
+
+What each needs that does not exist yet is a `Target` variant —
+`Target::Reference(ReferenceId)` and `Target::ContigNaming(ContigNaming)` —
+and the matching arm in `Conversion::target`, which parses a user's `to=`
+into the value the dimension holds. `Target` is an enum rather than a string
+precisely so that a conversion's declared value is the same type its
+dimension holds and cannot be put in the wrong field.
+
+Two tests hold the shape to this. `the_registry_is_the_shape_liftover_and_rename_contigs_will_use`
+asserts that `Conversion::across` returns `None` for `reference` and
+`contig_naming` today, so adding either is a visible change rather than a
+quiet one. And `the_registry_names_the_only_way_across_each_axis_it_covers`
+asserts that **every** registered conversion is named in its axis's
+`leading_question` — so a `liftover` added without updating what the
+`reference` axis tells users to do will fail the suite. That is the registry
+keeping the error messages honest, rather than the other way round.
+
+## Where the code is
+
+| What | Where |
+|---|---|
+| the registry, `Target`, and the mapping itself | `crates/ligase-core/src/convert.rs` |
+| `StepSpec.conversion`, `Converted`, the override in `propagate` | `crates/ligase-core/src/graph.rs` |
+| the `identifier_namespace` comparison | `crates/ligase-core/src/check.rs` |
+| `conversion_axis`, `conversion_target_parameter`, `map_identifiers` | `crates/ligase-py/src/lib.rs` |
+| `Step.conversion` and the decoration-time refusals | `python/ligase/graph.py` |
+| the library step | `python/ligase/convert.py` |
+| the tests | `crates/ligase-core/tests/conversions.rs`, `tests/test_conversions.py` |
+
+## What this does not touch
+
+`source_set` is still claimed by no kind. An `EntitySet` carries `organism`,
+`identifier_namespace`, `subject` and `release` and nothing else, so the
+question [D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)
+reserved — whether the shared `NameSet` type's ASCII-case deduplication is
+right for what `source_set` will hold — is untouched here and stays with
+[M10](/project/milestones/#m10--remotes-and-replay) and
+[M12](/project/milestones/#m12--ranked-lists).
+
+What was discharged is the other half of that obligation. Until a kind
+applied an axis, `check_step` never reached its comparison arm and
+`propagate` never reached its inheritance arm, so neither could be tested —
+and the compiler could not help, because `Release` and `Subject` are one type.
+A gene list claims three axes, so
+`each_axis_an_entity_set_claims_compares_its_own_field` and
+`a_step_over_a_gene_list_carries_every_axis_it_claims` now pin each arm to the
+field it is supposed to read.

@@ -147,6 +147,22 @@ SCENARIOS: tuple[Scenario, ...] = (
         },
     ),
     Scenario(
+        key="mixedIdentifiers",
+        step="score",
+        expect="DimensionError",
+        description=(
+            "A gene list of HGNC symbols scored against one of Ensembl IDs."
+        ),
+        build=lambda lg: {
+            "truth": lg.entity_set(
+                fixture("entities_hgnc.tsv"), organism="Homo sapiens"
+            ),
+            "found": lg.entity_set(
+                fixture("entities_ensembl.tsv"), organism="Homo sapiens"
+            ),
+        },
+    ),
+    Scenario(
         key="mixedOrganism",
         step="call",
         expect="DimensionError",

@@ -13,6 +13,7 @@ const meta: MetaRecord = {
   execution: 'Execution',
   cache: 'Cache',
   canonicalisation: 'Canonicalisation',
+  conversions: 'Conversions',
   notes: 'Notes',
   provenance: 'Provenance',
   hivdb: 'Resistance interpretation',

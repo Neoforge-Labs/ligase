@@ -9,6 +9,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A gene list knows which identifier space it is in, and two spaces refuse
+  to join** (**D38**). `TP53`, `ENSG00000141510`, `7157` and `P04637` are four
+  correct names for one gene and no two of them are equal as strings, and a
+  gene list records nowhere which space its names belong to. So joining a list
+  of symbols to a table of Ensembl IDs is a string comparison between two
+  naming conventions: it does not fail, it returns the rows the two columns
+  share, and an empty or nearly-empty overlap reads as poor concordance rather
+  than as a mismatch. The failure is now written up as "My gene-set overlap is
+  empty".
+
+  `identifier_namespace` is a new dimension, compared by equality. An
+  `EntitySet` — the gene or protein list, and the first kind here that holds
+  no sequence — carries it, along with `organism`, `subject` and `release`,
+  and carries none of the others: a list of gene names has no coordinate
+  system, no contigs, no read pairing and no quality scores, and demanding one
+  is the category error the dimension matrix exists to prevent. Load one with
+  `lg.entity_set("degs.tsv", organism="Homo sapiens")`: a TSV with a header,
+  the identifier column named by `id_column=` and defaulting to `id`, and
+  every other column carried as an attribute.
+
+  The space is the one dimension the engine usually reads **without being
+  told**. Seven are recognised — `Ensembl gene`, `UniProt accession`,
+  `RefSeq`, `HGNC ID`, `ChEMBL target`, `Entrez gene` and `HGNC symbol` —
+  tried most specific first, because a symbol has no distinguishing marker and
+  would otherwise claim a UniProt accession. Inference succeeds only when
+  every identifier in the file resolves to the same space, and declines in
+  three cases rather than guessing: a file that mixes two spaces, a file with
+  a header and no rows, and a file holding one identifier nothing claims. It
+  happens in the Rust loader, so `ligase inspect` will get it without a Python
+  round trip and the two surfaces cannot disagree about what a file's
+  identifiers are. A declaration, where you give one, is recorded rather than
+  checked — the engine knows seven spaces and a curated list's own spelling is
+  a space too.
+
+  Unlike `release`, `subject` and `source_set`, this axis is **demanded**
+  where two gene lists are joined: a user can always satisfy it, and two lists
+  that each say nothing would otherwise agree by silence, which is the failure
+  in its purest form.
+
+- **`lg.map_identifiers`, and the conversion registry it is the first entry
+  in.** The only way across an identifier space, because mapping between
+  spaces is a lookup with failures rather than a rename:
+
+  ```python
+  in_ensembl = lg.map_identifiers(
+      genes, hgnc_to_ensembl, column="ensembl_gene_id", to="Ensembl gene"
+  )
+  ```
+
+  The output declares the space named by `to=` and carries every other
+  dimension of its input unchanged, because a conversion crosses one axis and
+  is not a new list. The mapping table is itself an `EntitySet` rather than a
+  path, which buys two things: its contents join the cache key, so editing the
+  table reruns the mapping, and its own space is checked against the list
+  being mapped, so an Entrez table handed a list of symbols is refused before
+  anything runs.
+
+  Every identifier that does not cross is **named** — one the table has no row
+  for, and one it maps to several targets, which is left out rather than
+  resolved because emitting a row for each would make the output larger than
+  the input without saying so. The output is therefore smaller than the input
+  by exactly the identifiers the notes name, and those notes travel into the
+  run report, provenance, a bundle and the methods paragraph.
+
+  The registry is the deliberate half. A conversion declares the one axis it
+  crosses, the kinds it crosses it for, and what the user must supply, and
+  reads its destination from a parameter spelled `to` for every conversion
+  there will be — so `liftover` and `rename_contigs` are later rows rather
+  than a later redesign, and D5's conversion graph has edges it can search
+  rather than functions somebody calls. `@lg.step(conversion=...)` refuses, at
+  decoration, a step claiming a conversion the engine does not have or taking
+  no `to` parameter.
+
+- **A loaded dataset can say what loading it noticed.** `dataset.notes` is a
+  tuple of sentences, the same shape `StepRun.notes` already has. Until now a
+  note could only come out of a step, which left a file nobody computes with
+  nothing to say — and a gene list is exactly such a file. Open one in Excel
+  and some symbols come back as dates: `SEPT7` as `2-Sep`, `MARCH1` as
+  `1-Mar`, measured across published supplementary files at rates that made
+  HGNC rename the affected gene families. Such a file loads, because it is
+  valid TSV, and the loader says what it saw rather than refusing it or
+  repairing it — `2-Sep` could have been `SEPT7` or `SEPT2`. It also declines
+  to infer a space for a file it cannot fully read. The other corruption, a
+  symbol turned into a date serial such as `42615`, is deliberately not
+  detected: it is indistinguishable from an Entrez gene ID.
+
+- **`ligase` is a built-in tool**, beside `hivdb`. A step whose work is engine
+  code — a conversion — has nothing to probe with `--version`, and nothing
+  about the engine otherwise reaches a cache key, so such a step would hash
+  the same however the conversion changed underneath it. It now reports the
+  crate version.
+
 - **A dataset may be about more than one organism, and a reference can name
   its release** (**D35**, **D36**, **D37**). `organism` held a single string,
   so a host–pathogen sample, a metagenome or a xenograft had to be written

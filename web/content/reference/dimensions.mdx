@@ -6,24 +6,31 @@ description: "Every biological type carries dimensions. Each dimension is inferr
 
 Every biological type carries dimensions. Each dimension is inferred from the file where possible; otherwise the user declares it once and it propagates.
 
-| Dimension | Meaning | FASTA | FASTQ | BAM/SAM | VCF | BED/GFF |
-|---|---|---|---|---|---|---|
-| organism | the organisms the data is about, as a **set**: HIV-1, or HIV-1 and Homo sapiens together | declared | declared | from reference | from header if present | declared |
-| reference | build/accession, e.g. HXB2 (K03455), hg38 | sequence names + MD5 of contigs | n/a | @SQ lines (SN, LN, M5) | ##reference, ##contig | declared |
-| contig_naming | `chr1` vs `1` style | from names | n/a | @SQ SN | ##contig IDs | from records |
-| coordinates | 0-based half-open vs 1-based closed | n/a | n/a | 1-based closed (SAM *and* BAM) | 1-based closed | BED 0-based half-open, GFF 1-based closed |
-| sample_set | ordered sample IDs | n/a | from filename/declared | @RG SM | header sample columns | n/a |
-| strand/pairing | single/paired, read layout | n/a | from file pairing | flags | n/a | n/a |
-| quality_encoding | Phred+33 vs +64 | n/a | inferred from range | n/a | n/a | n/a |
-| release | which versioned external resource the data came from, e.g. `GRCh38.p14`, `Ensembl 110`, `ChEMBL 34` | declared | n/a | n/a | n/a | n/a |
-| subject | what the data is about when that is one named thing: a disease, a cell line, a cohort | n/a | n/a | n/a | n/a | n/a |
-| source_set | the sources a dataset was assembled from, as a **set**: kept in insertion order for display only, and compared as a set, so the order they were listed in is not part of the identity (unlike `sample_set`) | n/a | n/a | n/a | n/a | n/a |
+| Dimension | Meaning | FASTA | FASTQ | BAM/SAM | VCF | BED/GFF | Gene list (TSV) |
+|---|---|---|---|---|---|---|---|
+| organism | the organisms the data is about, as a **set**: HIV-1, or HIV-1 and Homo sapiens together | declared | declared | from reference | from header if present | declared | declared |
+| reference | build/accession, e.g. HXB2 (K03455), hg38 | sequence names + MD5 of contigs | n/a | @SQ lines (SN, LN, M5) | ##reference, ##contig | declared | n/a |
+| contig_naming | `chr1` vs `1` style | from names | n/a | @SQ SN | ##contig IDs | from records | n/a |
+| coordinates | 0-based half-open vs 1-based closed | n/a | n/a | 1-based closed (SAM *and* BAM) | 1-based closed | BED 0-based half-open, GFF 1-based closed | n/a |
+| sample_set | ordered sample IDs | n/a | from filename/declared | @RG SM | header sample columns | n/a | n/a |
+| strand/pairing | single/paired, read layout | n/a | from file pairing | flags | n/a | n/a | n/a |
+| quality_encoding | Phred+33 vs +64 | n/a | inferred from range | n/a | n/a | n/a | n/a |
+| release | which versioned external resource the data came from, e.g. `GRCh38.p14`, `Ensembl 110`, `ChEMBL 34` | declared | n/a | n/a | n/a | n/a | declared |
+| subject | what the data is about when that is one named thing: a disease, a cell line, a cohort | n/a | n/a | n/a | n/a | n/a | declared |
+| source_set | the sources a dataset was assembled from, as a **set**: kept in insertion order for display only, and compared as a set, so the order they were listed in is not part of the identity (unlike `sample_set`) | n/a | n/a | n/a | n/a | n/a | n/a |
+| identifier_namespace | which identifier space the entities are named in, e.g. `HGNC symbol`, `Ensembl gene`, `Entrez gene`, `UniProt accession` | n/a | n/a | n/a | n/a | n/a | from the identifiers' own pattern, or declared |
 
-The last three arrived after the others and sit at the bottom on purpose: a report of
+The last four arrived after the others and sit at the bottom on purpose: a report of
 several disagreements is ordered by this list, so slotting a new axis in
 beside the ones it resembles would have reordered every report that already
-existed. `subject` and `source_set` apply to no kind the engine reads today
-and come alive with the kinds that need them.
+existed. `source_set` applies to no kind the engine reads today and comes
+alive with the kinds that need it.
+
+A gene list is the first kind here that holds no sequence, which is why the
+last column is mostly `n/a`: a list of gene names has no coordinate system,
+no contigs, no read pairing and no quality scores. Those are not gaps to be
+filled in but properties the data does not have, and demanding one is the
+category error this table exists to prevent.
 
 ## Rules
 
@@ -48,6 +55,15 @@ and come alive with the kinds that need them.
   wherever both sides state it, and a file that records none is still
   loadable. A FASTA records no release, so requiring one would make an
   ordinary reference unusable.
+- An identifier namespace is compared by **equality** and never coerced. Two
+  gene lists in different spaces do not join, and the only way across is a
+  `map_identifiers` step, because mapping between spaces is a lookup with
+  failures rather than a rename
+  ([D38](/project/decisions/#d38--identifier-namespaces-never-coerce)).
+- Unlike `release`, `subject` and `source_set`, an identifier namespace **is**
+  demanded where two gene lists are joined: a user can always meet the demand,
+  by declaring it or by letting the loader read it off the file, and two lists
+  that each say nothing would otherwise agree by silence.
 - Unknown dimensions are allowed only if no downstream step requires them; otherwise `check()` fails with a request to declare them.
 
 ### A dataset may be about more than one organism
@@ -73,6 +89,35 @@ names and will be reported as a mismatch, because equating them means
 guessing. [My pathogen results include host
 reads](/silent-failures/mixed-organism/) is the failure this exists to catch,
 with the message it produces.
+
+### A gene list lives in an identifier space
+
+`TP53`, `ENSG00000141510`, `7157` and `P04637` are four names for one gene,
+and no two of them are equal as strings. A list of gene names records nowhere
+which of those spaces it is in, so joining two lists written in different ones
+returns an empty or nearly empty result and no complaint. That is
+[my gene-set overlap is empty](/silent-failures/mixed-identifiers/).
+
+So the space is a dimension, and it is the one dimension in this table the
+engine can usually read without being told:
+
+```python
+genes = lg.entity_set("results/degs.tsv", organism="Homo sapiens")
+genes.dimension("identifier_namespace").value   # 'HGNC symbol'
+genes.dimension("identifier_namespace").source  # "from the identifiers' own pattern: ..."
+```
+
+Seven spaces are recognised — `Ensembl gene`, `UniProt accession`, `RefSeq`,
+`HGNC ID`, `ChEMBL target`, `Entrez gene` and `HGNC symbol` — and the shapes
+are tried most specific first, because a symbol has no distinguishing marker
+and would otherwise claim a UniProt accession. The space is inferred only when
+**every** identifier in the file resolves to the same one; a file that mixes
+two, a file with no rows, and a file holding one name nothing claims all leave
+the dimension unknown rather than guessed.
+
+A declaration is accepted as given and not checked against the identifiers,
+because a curated list's own spelling is a space too and the engine has never
+heard of it. See [identifier spaces](/concepts/identifiers/).
 
 ### Coordinates are semantics, not encoding
 

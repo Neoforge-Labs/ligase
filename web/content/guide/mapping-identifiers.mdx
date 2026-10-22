@@ -1,0 +1,222 @@
+---
+title: "Crossing identifier spaces"
+description: "Load two gene lists, watch the engine refuse to join them, and convert one with map_identifiers — including what to do about the identifiers that do not cross."
+---
+
+# Crossing identifier spaces
+
+<Lede>
+You have a list of differentially expressed genes as HGNC symbols, and a
+published truth set as Ensembl IDs. This is how you compare them without
+quietly losing half of each.
+</Lede>
+
+## Load each list
+
+A gene list is an `EntitySet`: a TSV with a header, one column of
+identifiers, and as many attribute columns as you like. The identifier column
+is `id` unless you say otherwise.
+
+```python
+import ligase as lg
+
+mine = lg.entity_set("results/degs.tsv", organism="Homo sapiens")
+published = lg.entity_set(
+    "truth/published_set.tsv",
+    organism="Homo sapiens",
+    subject="breast carcinoma",
+)
+```
+
+Neither call declares an identifier space, because neither needs to. Ask what
+was loaded:
+
+```python
+>>> mine.dimension("identifier_namespace").value
+'HGNC symbol'
+>>> mine.dimension("identifier_namespace").source
+"from the identifiers' own pattern: results/degs.tsv"
+>>> published.dimension("identifier_namespace").value
+'Ensembl gene'
+```
+
+The loader read the space off the identifiers, and says so. It only does this
+when every identifier in the file resolves to one space; see
+[identifier spaces](/concepts/identifiers/) on the three cases where it
+declines and leaves the dimension unknown instead.
+
+## Watch the join be refused
+
+```python
+lg.check_step("score", {"truth": published, "found": mine})
+```
+
+```
+DimensionError in step `score`:
+  truth.identifier_namespace = Ensembl gene (from the identifiers' own pattern: truth/published_set.tsv)
+  found.identifier_namespace = HGNC symbol (from the identifiers' own pattern: results/degs.tsv)
+  These must match. Add a `map_identifiers` step; identifiers are never renamed implicitly.
+```
+
+Nothing has run. `check_step` read the two identifier columns and compared
+dimensions. There is no flag that makes this join work, and that is the
+design: see
+[D38](/project/decisions/#d38--identifier-namespaces-never-coerce).
+
+## Load the mapping table
+
+The mapping is itself an `EntitySet`, not a path, and the reason is worth a
+moment. Its identifiers are the **source** side of the mapping, so they are in
+the same space as the list you are converting; the targets live in an
+attribute column.
+
+```python
+hgnc_to_ensembl = lg.entity_set(
+    "refs/hgnc_to_ensembl.tsv",
+    organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
+    release="HGNC 2026-09",
+)
+```
+
+A table like that looks like this, and the target column can be called
+anything:
+
+```
+id      ensembl_gene_id
+TP53    ENSG00000141510
+BRCA1   ENSG00000012048
+```
+
+Two things follow from the table being typed. Its **contents** join the cache
+key, so editing the table reruns the mapping — which a path would not do,
+because a plain parameter is hashed by its value and a path's value does not
+change when the file behind it does. And its own space is **checked** against
+the list being mapped, so a table of Entrez IDs handed to a list of symbols is
+a `DimensionError` before anything runs, rather than a mapping that matches
+nothing.
+
+Declaring the table's `release` is optional and worth doing. It is compared by
+equality wherever both sides state it, and it is what a methods paragraph
+cites when a reviewer asks which HGNC download you used.
+
+## Convert
+
+```python
+in_ensembl = lg.map_identifiers(
+    mine,
+    hgnc_to_ensembl,
+    column="ensembl_gene_id",
+    to="Ensembl gene",
+)
+```
+
+`column=` names the table column holding the identifiers to convert *to*;
+`to=` declares the space the output is in. Both are explicit on purpose: what
+the output *is* must not depend on which identifiers happened to cross.
+
+The output declares `Ensembl gene` and carries everything else unchanged — the
+organism, the subject, the release — because a conversion crosses one axis and
+is not a new list. So the join now passes:
+
+```python
+@lg.step
+def score(truth: lg.EntitySet, found: lg.EntitySet) -> lg.EntitySet:
+    """Score a result set against a truth set."""
+    return lg.sh("comm -12 <(cut -f1 {truth} | sort) <(cut -f1 {found} | sort) > {out}")
+
+
+pipe = lg.Pipeline(score(published, in_ensembl))
+pipe.check()   # passes; nothing has run
+report = pipe.run()
+```
+
+## Read what did not cross
+
+This is the part that makes the step worth having over a `merge`.
+
+```python
+for run in report.steps:
+    for note in run.notes:
+        print(note)
+```
+
+```
+the identifier `SEPT7` is in no row of the mapping table, so it is not in the output
+the identifier `NKX2-1` maps to more than one target, so it is not in the output
+```
+
+Two kinds of identifier do not cross, and neither is dropped in silence:
+
+- **No row in the table.** Usually a symbol renamed or retired since the table
+  was downloaded. Check the table's release.
+- **Several rows in the table.** One symbol legitimately covering more than
+  one gene. It is left out rather than resolved, because emitting a row for
+  each would make the output larger than the input without saying so, and
+  choosing one would be a guess about which you meant. Decide, and add a
+  one-to-one row.
+
+So **the output is smaller than the input by exactly the identifiers the notes
+name**, and the notes travel into the run report, provenance, a reproducibility
+bundle and the methods paragraph. Nothing about the conversion is invisible
+later. See [fixing a noticed line](/guide/notes/) for what to do with one.
+
+## What a spreadsheet did to your file
+
+If the list has been through Excel, some symbols are now dates:
+
+```python
+>>> genes = lg.entity_set("results/degs_from_excel.tsv", organism="Homo sapiens")
+>>> for note in genes.notes:
+...     print(note)
+the identifier `2-Sep` is a date, not a name; a spreadsheet does this to SEPT7, MARCH1 and DEC1
+the identifier `1-Mar` is a date, not a name; a spreadsheet does this to SEPT7, MARCH1 and DEC1
+>>> genes.dimension("identifier_namespace")      # declined to infer
+None
+>>> genes.unknown_reason("identifier_namespace")
+"not declared, and the identifiers do not all match one namespace's pattern -- declare identifier_namespace"
+```
+
+The file loads — it is valid TSV, and refusing it would be turning a format
+problem into an engine failure. What the loader does instead is say what it
+saw and decline to infer a space for a file it cannot fully read.
+
+The fix is to re-export with the identifier column typed as text. There is no
+option to have Ligase repair it: `2-Sep` could have been `SEPT7` or `SEPT2`,
+and the engine will not guess which gene you meant.
+
+<Note kind="caution" title="Converting is not free">
+Every conversion loses the identifiers that do not cross, and a round trip
+loses more. Converting symbols to Ensembl and back does not return the list
+you started with. Where you have the choice, load the data in the space you
+intend to analyse in, and convert the *smaller* side — a truth set of 380
+genes rather than a count matrix of 60,000.
+</Note>
+
+## Declaring a space of your own
+
+An in-house panel, a consortium's numbering, a lab's accessions: declare the
+space and the engine will compare it like any other.
+
+```python
+panel = lg.entity_set(
+    "refs/resistance_panel.tsv",
+    organism="HIV-1",
+    identifier_namespace="NeoRx panel v3",
+    subject="HIV-1 drug resistance",
+)
+```
+
+A declared space is recorded rather than checked against the identifiers — the
+engine knows seven spaces and yours is not one of them, so it takes your word.
+It still refuses to join this panel to anything declaring a different space,
+which is the protection you wanted.
+
+## Next
+
+- [Identifier spaces](/concepts/identifiers/) — why this is a dimension, and
+  how inference decides.
+- [My overlap with the published gene set is empty](/silent-failures/mixed-identifiers/)
+  — the failure, and what the engine says about it.
+- [Conversions](/project/architecture/conversions/) — the registry
+  `map_identifiers` is the first entry in, and what the next two will be.

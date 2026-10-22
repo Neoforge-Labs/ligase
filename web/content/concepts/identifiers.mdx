@@ -1,0 +1,138 @@
+---
+title: "Identifier spaces"
+description: "Why the space a gene list's names live in is a dimension, why the engine infers it only when it is certain, and why there is no alias table."
+---
+
+# Identifier spaces
+
+<Lede>
+Which space are these genes named in? A list of gene names carries no answer
+to that, which is why joining two of them is the commonest silent failure in
+computational biology — and why the space is a dimension rather than a
+convention.
+</Lede>
+
+## A gene has many names, and none of them match
+
+| Space | `TP53` is |
+|---|---|
+| HGNC symbol | `TP53` |
+| Ensembl gene | `ENSG00000141510` |
+| Entrez gene | `7157` |
+| UniProt accession | `P04637` |
+| RefSeq | `NM_000546` |
+| HGNC ID | `HGNC:11998` |
+
+Six correct names for one gene, no two of which are equal as strings. A tool
+that joins two lists on their identifier column is comparing text, so joining
+a list from one space to a list from another produces an empty or nearly empty
+result and no complaint. That is
+[my overlap with the published gene set is empty](/silent-failures/mixed-identifiers/),
+written up with what the engine says about it.
+
+The space is not recorded in the file. A TSV has a column called `id`; which
+space its contents are in was decided by whatever exported it. So it is
+exactly the kind of fact this engine exists to carry: true of the data,
+needed by the step after next, and written down nowhere.
+
+## The rule: namespaces never coerce
+
+Two gene lists in different spaces do not join. There is no flag to make them,
+and the only way across is a `map_identifiers` step. That is
+[D38](/project/decisions/#d38--identifier-namespaces-never-coerce), and the
+argument for it is one word: **failures**.
+
+Going from `TP53` to `ENSG00000141510` is not a rename. It is a lookup in a
+table, and a lookup has three outcomes rather than one. Most identifiers find
+a row. Some find none, because they were renamed or retired since the table
+was downloaded. Some find several, because one symbol legitimately covers more
+than one gene.
+
+A dimension system that coerced silently would have to choose what to do with
+the second and third, invisibly, on your behalf. Drop them, and the output is
+quietly smaller than the input. Keep them unchanged, and a name from the old
+space is sitting in a set that claims to be in the new one. Pick the first of
+several, and the choice depends on the order of rows in a file.
+
+Make it a step instead and all three become visible: the output declares the
+space it has arrived in, and everything that did not cross is named. Nothing
+about this is inherent to identifiers — it is the same reasoning that makes
+[a field that cannot be dropped get noticed](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)
+rather than repaired.
+
+## Inference, and when it declines
+
+Six of the seven spaces the engine recognises carry a marker: a prefix
+(`ENSG`, `CHEMBL`), an underscore (`NM_`), a colon (`HGNC:`), or being digits
+throughout. An HGNC symbol carries none — it is upper-case letters and digits,
+which is also what a UniProt accession is made of. So the shapes are tried
+most specific first and the symbol is the fallback, which is how `P04637`
+reaches `UniProt accession` rather than being read as an unusual gene name.
+
+The loader then infers the space when, and only when, **every identifier in
+the file resolves to the same one**. It declines in three cases, and each is a
+refusal to guess rather than a shortcoming:
+
+- **A file that mixes two spaces.** This is precisely the corruption the
+  dimension exists to catch. Taking the majority would hide it.
+- **A file with no rows.** Every shape fits all zero identifiers, so an answer
+  here would declare a space for a file that names nothing.
+- **A file holding one identifier nothing claims.** `2-Sep` is in no space.
+  A file with one of those is partly corrupt, and a space declared over it
+  would be a claim about identifiers the engine could not read.
+
+Where it declines, the dimension is unknown with a reason, and two gene lists
+that both leave it unknown are **refused rather than joined** — because two
+lists agreeing by silence is the false agreement this dimension exists to
+break. Declare it, or fix the file.
+
+## Why a declaration is taken on trust
+
+When you declare `identifier_namespace="my curated list"`, the identifiers are
+not consulted at all. That looks like a missed opportunity and is a deliberate
+choice.
+
+The catalogue knows seven spaces. There are more than seven. A hand-curated
+resistance panel, a lab's internal accessions, a consortium's own numbering —
+each is a real space, named in a way the engine has never seen, and each has
+exactly the same right to be checked against another list as `Ensembl gene`
+does. If a declaration had to match the catalogue, the dimension would be
+unusable for the in-house truth sets that most need it, because those are the
+files nobody else can validate for you.
+
+So a declaration is a statement the engine records and compares. It cannot
+distinguish an unknown-but-correct space from a wrong one. What it can do is
+refuse to connect two sides whose statements disagree, which is the whole job.
+
+## There is no alias table
+
+`HGNC symbol` and `HGNC symbols` are two different spaces, and so are
+`Ensembl` and `Ensembl gene`. The engine will not equate them, for the same
+reason it will not equate `human` with `Homo sapiens`
+([D37](/project/decisions/#d37--organism-is-set-valued)): equating two
+spellings means guessing that they mean the same thing, and a wrong guess
+passes `check()` in silence, which is worse than a mismatch you can see.
+Choose one spelling and use it.
+
+## What carries the space, and what crosses it
+
+A gene list is an `EntitySet`, and it is the first type here that holds no
+sequence. It carries four dimensions — the organism its genes belong to, the
+space they are named in, what the list is about, and the release that named
+them — and it carries none of the others. Asking a gene list for its
+coordinate system is not a gap to be filled in; a list of names has no
+coordinate system to have. See
+[types and dimensions](/concepts/types-and-dimensions/) on why a dimension
+that does not apply is never demanded.
+
+Crossing the space is `map_identifiers`, and it is the first entry in the
+engine's **conversion registry** rather than a function bolted on beside the
+checker. The registry is the more interesting half: a conversion declares the
+one axis it crosses and reads its destination from its call, so
+`liftover` (one reference build to another) and `rename_contigs` are later
+rows in the same table. The point of building it now, with one entry, is that
+[D5](/project/decisions/)'s conversion graph — where the engine answers "what
+gets me from here to there?" by searching those rows — needs edges it can
+read rather than functions somebody calls. How that works is
+[the conversions page](/project/architecture/conversions/); how to use it is
+[crossing identifier spaces](/guide/mapping-identifiers/).

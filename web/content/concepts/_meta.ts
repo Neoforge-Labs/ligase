@@ -10,6 +10,7 @@ const meta: MetaRecord = {
   caching: 'Running, and not running',
   'semantic-hashing': 'What a file means',
   provenance: 'How was this produced?',
+  identifiers: 'Identifier spaces',
   notes: 'What a result rests on',
   'resistance-interpretation': 'Resistance interpretation',
 }
