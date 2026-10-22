@@ -347,6 +347,15 @@ impl PyDataset {
         )
     }
 
+    /// What loading this noticed, as one sentence each.
+    ///
+    /// Rendered here rather than handed over as codes, the way
+    /// `StepRun.notes` already is: the wording belongs to the engine, so
+    /// that every surface says the same thing about the same file.
+    fn notes(&self) -> Vec<String> {
+        self.inner.notes().iter().map(ToString::to_string).collect()
+    }
+
     /// The samples this data covers, in order, if they are known.
     fn samples(&self) -> Option<Vec<String>> {
         Some(
@@ -487,12 +496,19 @@ fn organisms(organism: Option<Organisms>) -> PyResult<Option<Vec<String>>> {
     Ok(Some(names))
 }
 
-/// A declared release, refusing a blank one as [`organisms`] refuses blank names.
-fn declared_release(release: Option<String>) -> PyResult<Option<String>> {
-    match release {
-        Some(label) if label.trim().is_empty() => Err(PyValueError::new_err(
-            "release was given a blank value; name the release, or leave it out",
-        )),
+/// A declared label, refusing a blank one as [`organisms`] refuses blank names.
+///
+/// One helper for every scalar declaration — `release`, `subject`,
+/// `identifier_namespace` — so there is one message template rather than
+/// three that could drift apart. The core reads a blank as unknown too, but
+/// a user who wrote `release=""`, or `subject=config.get("subject", "")`,
+/// has made a mistake worth naming here, where the message is read, rather
+/// than finding the dimension unexpectedly unknown later.
+fn declared_label(name: &str, value: Option<String>) -> PyResult<Option<String>> {
+    match value {
+        Some(label) if label.trim().is_empty() => Err(PyValueError::new_err(format!(
+            "{name} was given a blank value; name the {name}, or leave it out"
+        ))),
         label => Ok(label),
     }
 }
@@ -511,7 +527,7 @@ fn load_reference(
         build,
         frame,
         samples: None,
-        release: declared_release(release)?,
+        release: declared_label("release", release)?,
         identifier_namespace: None,
         subject: None,
     };
@@ -612,6 +628,31 @@ fn load_intervals(
         subject: None,
     };
     load::intervals(&path, format, &declared)
+        .map(|inner| PyDataset { inner })
+        .map_err(to_py)
+}
+
+/// Load a gene or protein list from a TSV with a header.
+#[pyfunction]
+#[pyo3(signature = (path, id_column=None, organism=None, identifier_namespace=None, subject=None, release=None))]
+fn load_entity_set(
+    path: PathBuf,
+    id_column: Option<&str>,
+    organism: Option<Organisms>,
+    identifier_namespace: Option<String>,
+    subject: Option<String>,
+    release: Option<String>,
+) -> PyResult<PyDataset> {
+    let declared = Declared {
+        organism: organisms(organism)?,
+        build: None,
+        frame: None,
+        samples: None,
+        release: declared_label("release", release)?,
+        identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
+        subject: declared_label("subject", subject)?,
+    };
+    load::entity_set(&path, id_column, &declared)
         .map(|inner| PyDataset { inner })
         .map_err(to_py)
 }
@@ -1140,6 +1181,7 @@ fn version() -> &'static str {
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(load_reference, m)?)?;
+    m.add_function(wrap_pyfunction!(load_entity_set, m)?)?;
     m.add_function(wrap_pyfunction!(load_alignment, m)?)?;
     m.add_function(wrap_pyfunction!(load_variants, m)?)?;
     m.add_function(wrap_pyfunction!(load_reads, m)?)?;

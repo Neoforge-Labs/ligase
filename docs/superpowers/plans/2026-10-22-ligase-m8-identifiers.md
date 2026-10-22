@@ -1341,10 +1341,12 @@ git commit -m "feat(convert): map a gene list's identifiers, naming every one th
 class EntitySet(Dataset):
     """A set of genes or proteins, named in one identifier space."""
 
+
 # python/ligase/types.py, on Dataset
 @property
 def notes(self) -> tuple[str, ...]:
     """What loading this noticed and its dimensions cannot say."""
+
 
 # python/ligase/__init__.py
 def entity_set(
@@ -1382,7 +1384,10 @@ def test_a_gene_list_has_no_coordinate_system_to_ask_about() -> None:
     assert "sample_set" not in genes.applicable
     assert genes.dimension("coordinates") is None
     assert set(genes.applicable) == {
-        "organism", "release", "subject", "identifier_namespace",
+        "organism",
+        "release",
+        "subject",
+        "identifier_namespace",
     }
 
 
@@ -1514,7 +1519,9 @@ def test_two_spaces_refuse_to_join_and_say_what_to_do_about_it() -> None:
 
 
 def test_a_mapped_list_declares_ensembl_and_joins_an_ensembl_list() -> None:
-    mapped = lg.map_identifiers(hgnc(), table(), column="ensembl_gene_id", to="Ensembl gene")
+    mapped = lg.map_identifiers(
+        hgnc(), table(), column="ensembl_gene_id", to="Ensembl gene"
+    )
 
     @lg.step
     def score(left: lg.EntitySet, right: lg.EntitySet) -> lg.EntitySet:
@@ -1535,7 +1542,9 @@ def test_a_conversion_carries_every_other_axis() -> None:
         subject="breast carcinoma",
         release="HGNC 2026-09",
     )
-    mapped = lg.map_identifiers(genes, table(), column="ensembl_gene_id", to="Ensembl gene")
+    mapped = lg.map_identifiers(
+        genes, table(), column="ensembl_gene_id", to="Ensembl gene"
+    )
     lg.Pipeline(mapped).check()
     assert mapped.dataset.dimension("subject").value == "breast carcinoma"
     assert mapped.dataset.dimension("release").value == "HGNC 2026-09"
@@ -1551,7 +1560,9 @@ def test_a_table_in_the_wrong_space_is_refused_before_anything_runs() -> None:
 
 
 def test_running_it_names_every_symbol_that_did_not_cross(tmp_path: Path) -> None:
-    mapped = lg.map_identifiers(hgnc(), table(), column="ensembl_gene_id", to="Ensembl gene")
+    mapped = lg.map_identifiers(
+        hgnc(), table(), column="ensembl_gene_id", to="Ensembl gene"
+    )
     report = lg.Pipeline(mapped).run(cache=tmp_path / "cache")
     notes = [note for run in report.steps for note in run.notes]
     assert any("SEPT7" in note for note in notes)
@@ -1668,22 +1679,22 @@ field actually is.
 
 ```python
 # in web/scripts/capture_diagnostics.py SCENARIOS
-Scenario(
-    key="mixedIdentifiers",
-    step="score",
-    expect="DimensionError",
-    description=(
-        "A gene list of HGNC symbols scored against one of Ensembl IDs."
+(
+    Scenario(
+        key="mixedIdentifiers",
+        step="score",
+        expect="DimensionError",
+        description=("A gene list of HGNC symbols scored against one of Ensembl IDs."),
+        build=lambda lg: {
+            "truth": lg.entity_set(
+                fixture("entities_hgnc.tsv"), organism="Homo sapiens"
+            ),
+            "found": lg.entity_set(
+                fixture("entities_ensembl.tsv"), organism="Homo sapiens"
+            ),
+        },
     ),
-    build=lambda lg: {
-        "truth": lg.entity_set(
-            fixture("entities_hgnc.tsv"), organism="Homo sapiens"
-        ),
-        "found": lg.entity_set(
-            fixture("entities_ensembl.tsv"), organism="Homo sapiens"
-        ),
-    },
-),
+)
 ```
 
 - [ ] **Step 2: Run the generator to verify it captures one error**
