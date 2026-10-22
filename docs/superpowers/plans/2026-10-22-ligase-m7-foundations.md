@@ -56,6 +56,12 @@ apply to nothing yet and come alive in M8 and M12.
   After any Rust change, re-run `.venv/bin/pip install -e . --quiet` before
   the Python tests, or they test the old extension module. `web/node_modules`
   must be installed (`npm ci` in `web/`) for any `npm run` target.
+- **Every `npm run` target needs the venv on PATH.** `web/package.json` invokes
+  the five generators as bare `python3`, so without it `generate_api.py` fails
+  with "cannot import ligase". Run them as
+  `PATH="<worktree>/.venv/bin:$PATH" npm run <target>` from `web/`. Verified
+  working: all five generators pass that way, the four marimo notebooks
+  included.
 
 ## Review Focus
 
