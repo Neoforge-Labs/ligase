@@ -15,6 +15,7 @@ mod reference;
 use std::fmt;
 use std::path::PathBuf;
 
+pub(crate) use names::english_list;
 pub use names::{Label, NameSet, Organism, Release, SourceSet, Subject};
 pub use reference::{Contig, ContigOrder, Frame, ReferenceId, Relation, Verdict, relate};
 

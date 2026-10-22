@@ -26,7 +26,7 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::dim::{ContigNaming, Dimension, ReferenceId, Relation, Verdict, relate};
+use crate::dim::{ContigNaming, Dimension, ReferenceId, Relation, Verdict, english_list, relate};
 use crate::types::{DataKind, Dataset};
 
 /// One named input to a step.
@@ -447,6 +447,31 @@ fn compare(
             };
             x.same_members(y)
                 .then(|| "The same samples appear in both, in a different order.".to_owned())
+        }
+        // The lines above already state both sets in full; what they cannot
+        // do is point at the member that makes the sets differ. One arm
+        // serves both dimensions because the comparison rule is the same.
+        Dimension::Organism | Dimension::SourceSet => {
+            let (x, y) = match dimension {
+                Dimension::Organism => (a.organism.value(), b.organism.value()),
+                _ => (a.source_set.value(), b.source_set.value()),
+            };
+            let (Some(x), Some(y)) = (x, y) else {
+                return None;
+            };
+            let clauses: Vec<String> = [(left, x.difference(y)), (right, y.difference(x))]
+                .into_iter()
+                .filter(|(_, extra)| !extra.is_empty())
+                .map(|(binding, extra)| {
+                    format!("{} also lists {}", binding.name, english_list(&extra))
+                })
+                .collect();
+            // Two sets that compared unequal always differ somewhere, so an
+            // empty list is not reachable. If it ever happened, the error
+            // still stands on its two value lines; leaving the detail off is
+            // more honest than inventing a clause, and a panic would turn a
+            // reported disagreement into a crash.
+            (!clauses.is_empty()).then(|| format!("{}.", clauses.join(", and ")))
         }
         _ => None,
     };

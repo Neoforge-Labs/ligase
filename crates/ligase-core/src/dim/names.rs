@@ -94,11 +94,18 @@ impl NameSet {
 }
 
 /// Join names as English does: `a`, `a and b`, `a, b and c`.
-fn render(members: &[String]) -> String {
-    match members {
+///
+/// Shared with the error text in `check`, which lists the members one input
+/// has and the other lacks. Defining the join once means a set and the
+/// difference between two sets can never be punctuated differently.
+pub(crate) fn english_list<S: AsRef<str>>(names: &[S]) -> String {
+    match names {
         [] => String::new(),
-        [only] => only.clone(),
-        [init @ .., last] => format!("{} and {last}", init.join(", ")),
+        [only] => only.as_ref().to_owned(),
+        [init @ .., last] => {
+            let init: Vec<&str> = init.iter().map(AsRef::as_ref).collect();
+            format!("{} and {}", init.join(", "), last.as_ref())
+        }
     }
 }
 
@@ -125,7 +132,7 @@ impl Eq for NameSet {}
 
 impl fmt::Display for NameSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&render(&self.members))
+        f.write_str(&english_list(&self.members))
     }
 }
 
