@@ -429,6 +429,9 @@ fn compare(
         Dimension::Release => a.release.value() == b.release.value(),
         Dimension::Subject => a.subject.value() == b.subject.value(),
         Dimension::SourceSet => a.source_set.value() == b.source_set.value(),
+        Dimension::IdentifierNamespace => {
+            a.identifier_namespace.value() == b.identifier_namespace.value()
+        }
         Dimension::Reference => unreachable(),
     };
     if same {
@@ -507,7 +510,11 @@ fn name_set(dimensions: &Dimensions, dimension: Dimension) -> Option<&NameSet> {
         | Dimension::Pairing
         | Dimension::QualityEncoding
         | Dimension::Release
-        | Dimension::Subject => None,
+        | Dimension::Subject
+        // A namespace is a `Label`, not a `NameSet`: there is no set
+        // difference to point at, and the two value lines say everything
+        // there is to say about one label against another.
+        | Dimension::IdentifierNamespace => None,
     }
 }
 

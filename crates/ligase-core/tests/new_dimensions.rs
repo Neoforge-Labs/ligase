@@ -38,6 +38,7 @@ fn the_three_axes_are_appended_so_earlier_reports_keep_their_order() {
             "release",
             "subject",
             "source_set",
+            "identifier_namespace",
         ]
     );
 }
