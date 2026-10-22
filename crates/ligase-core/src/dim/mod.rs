@@ -9,11 +9,13 @@
 //! `@SQ` header and the other from the FASTA you passed" tells them what to
 //! change.
 
+mod names;
 mod reference;
 
 use std::fmt;
 use std::path::PathBuf;
 
+pub use names::{Label, NameSet, Organism, Release, SourceSet, Subject};
 pub use reference::{Contig, ContigOrder, Frame, ReferenceId, Relation, Verdict, relate};
 
 /// Where a dimension's value came from.
@@ -203,42 +205,6 @@ impl Dimension {
 impl fmt::Display for Dimension {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
-    }
-}
-
-/// The organism the data is from.
-///
-/// Compared case-insensitively and ignoring surrounding space. No alias table:
-/// equating "human" with "Homo sapiens" would mean guessing, and a wrong guess
-/// here passes `check()` silently. Declare one spelling and use it.
-#[derive(Clone, Debug)]
-pub struct Organism(String);
-
-impl Organism {
-    /// Record an organism as the user spelled it.
-    #[must_use]
-    pub fn new(name: &str) -> Self {
-        Self(name.trim().to_owned())
-    }
-
-    /// The organism as spelled.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl PartialEq for Organism {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.eq_ignore_ascii_case(&other.0)
-    }
-}
-
-impl Eq for Organism {}
-
-impl fmt::Display for Organism {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
     }
 }
 
