@@ -443,8 +443,9 @@ fn resistance_fingerprint() -> PyResult<String> {
 /// read as a list of names, `"HIV-1"` would be `["H", "I", "V", "-", "1"]`,
 /// and every organism comparison after it would succeed or fail for the
 /// wrong reason without anything crashing. PyO3 tries an untagged enum's
-/// variants in declaration order, and (as of 0.30) also refuses to read a
-/// `str` as a `Vec`; this does not lean on the second of those.
+/// variants in declaration order, and (as the version in use does) also
+/// refuses to read a `str` as a `Vec`; this does not lean on the second of
+/// those.
 #[derive(FromPyObject)]
 enum Organisms {
     /// A single organism, as `organism="HIV-1"`.
@@ -462,17 +463,37 @@ impl Organisms {
     }
 }
 
-/// What the loaders declare as the organisms, refusing an empty list.
+/// What the loaders declare as the organisms, refusing a declaration that
+/// names none.
 ///
-/// The core refuses it too, by leaving the dimension unknown, but a user who
-/// wrote `organism=[]` has made a mistake worth naming here, where the
-/// message is read, rather than finding a dimension unexpectedly unknown.
+/// The core also reads an empty or all-blank declaration as unknown, but a
+/// user who wrote `organism=[]`, or `organism=config.get("organism", "")`,
+/// has made a mistake worth naming here, where the message is read, rather
+/// than finding a dimension unexpectedly unknown.
 fn organisms(organism: Option<Organisms>) -> PyResult<Option<Vec<String>>> {
-    match organism.map(Organisms::into_vec) {
-        Some(names) if names.is_empty() => Err(PyValueError::new_err(
+    let Some(names) = organism.map(Organisms::into_vec) else {
+        return Ok(None);
+    };
+    if names.is_empty() {
+        return Err(PyValueError::new_err(
             "organism was given an empty list; name at least one organism, or leave it out",
+        ));
+    }
+    if names.iter().all(|name| name.trim().is_empty()) {
+        return Err(PyValueError::new_err(
+            "organism was given only blank names; name at least one organism, or leave it out",
+        ));
+    }
+    Ok(Some(names))
+}
+
+/// A declared release, refusing a blank one as [`organisms`] refuses blank names.
+fn declared_release(release: Option<String>) -> PyResult<Option<String>> {
+    match release {
+        Some(label) if label.trim().is_empty() => Err(PyValueError::new_err(
+            "release was given a blank value; name the release, or leave it out",
         )),
-        names => Ok(names),
+        label => Ok(label),
     }
 }
 
@@ -490,7 +511,7 @@ fn load_reference(
         build,
         frame,
         samples: None,
-        release,
+        release: declared_release(release)?,
     };
     load::reference(&path, &declared)
         .map(|inner| PyDataset { inner })

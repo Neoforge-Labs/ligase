@@ -185,7 +185,10 @@ def reference(
         The loaded reference.
 
     Raises:
-        ValueError: If `organism` is an empty list.
+        ValueError: If `organism` names no organism (an empty list, or only
+            blank names), or `release` is blank.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
         LoadError: If the file cannot be read or is not a FASTA.
     """
     return Reference(_core.load_reference(path, organism, build, frame, release))
@@ -217,7 +220,10 @@ def alignment(
         The loaded alignment.
 
     Raises:
-        ValueError: If `organism` is an empty list.
+        ValueError: If `organism` names no organism: an empty list, or only
+            blank names.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
         LoadError: If the file cannot be read or is not a SAM/BAM.
     """
     return Alignment(_core.load_alignment(path, organism, build, samples))
@@ -250,7 +256,10 @@ def variants(
         The loaded variant calls.
 
     Raises:
-        ValueError: If `organism` is an empty list.
+        ValueError: If `organism` names no organism: an empty list, or only
+            blank names.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
         LoadError: If the file cannot be read or is not a VCF.
     """
     return Variants(_core.load_variants(path, organism, build, samples))
@@ -285,7 +294,10 @@ def reads(
         The loaded reads.
 
     Raises:
-        ValueError: If `organism` is an empty list.
+        ValueError: If `organism` names no organism: an empty list, or only
+            blank names.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
         LoadError: If a file cannot be read or is not a FASTQ.
     """
     samples = None if sample is None else [sample]
@@ -326,7 +338,10 @@ def intervals(
         The loaded intervals.
 
     Raises:
-        ValueError: If `organism` is an empty list.
+        ValueError: If `organism` names no organism: an empty list, or only
+            blank names.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
         LoadError: If the file cannot be read, is not in the format given,
             or its format cannot be told from its name.
     """
@@ -362,7 +377,10 @@ def samples(
         apply a chain of steps to every one of them.
 
     Raises:
-        ValueError: If `organism` is an empty list.
+        ValueError: If `organism` names no organism: an empty list, or only
+            blank names.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
         LoadError: If a file cannot be read, or the files cannot be grouped
             into whole samples.
     """
