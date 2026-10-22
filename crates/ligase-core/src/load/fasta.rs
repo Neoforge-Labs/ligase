@@ -11,7 +11,7 @@ use std::path::Path;
 use md5::{Digest as _, Md5};
 
 use super::{Declared, LoadError, open};
-use crate::dim::{Contig, Dim, Dimensions, Frame, Organism, ReferenceId, Source};
+use crate::dim::{Contig, Dim, Dimensions, Frame, ReferenceId, Source};
 use crate::types::{DataKind, Dataset};
 
 /// Load a reference FASTA, inferring its contigs.
@@ -23,10 +23,7 @@ use crate::types::{DataKind, Dataset};
 pub fn reference(path: &Path, declared: &Declared) -> Result<Dataset, LoadError> {
     let contigs = scan(path)?;
 
-    let organism = match &declared.organism {
-        Some(organism) => Dim::known(Organism::new(organism), Source::Declared),
-        None => Dim::unknown("a FASTA does not record its organism; declare it"),
-    };
+    let organism = super::organism(declared, "a FASTA does not record its organism; declare it");
 
     let (reference, contig_naming) = if contigs.is_empty() {
         (
@@ -61,6 +58,10 @@ pub fn reference(path: &Path, declared: &Declared) -> Result<Dataset, LoadError>
 
     let dimensions = Dimensions {
         organism,
+        release: super::release(
+            declared,
+            "a FASTA does not record which release it came from; declare it",
+        ),
         reference,
         contig_naming,
         ..Dimensions::default()

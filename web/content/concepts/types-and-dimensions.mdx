@@ -50,17 +50,52 @@ The full catalogue, including which formats can state which dimension, is in
 
 | Dimension | What it captures |
 |---|---|
-| `organism` | HIV-1, SARS-CoV-2, human |
+| `organism` | The organisms the data is about — a set, so a host–pathogen sample names both |
 | `reference` | The build, by contig identity — *not* by name |
 | `contig_naming` | `chr1` against `1` |
 | `coordinates` | 0-based half-open against 1-based closed |
 | `sample_set` | The sample identifiers, **in order** |
 | `pairing` | Single-end against paired-end |
 | `quality_encoding` | Phred+33 against Phred+64 |
+| `release` | Which release of a versioned resource the data is on, declared on a reference as `release="GRCh38.p14"` and compared by equality, because two releases of one build can share a name |
+
+`subject` and `source_set` complete the ten; they apply to no kind the engine
+reads yet and are listed in the catalogue.
 
 Each dimension is inferred from the file where the format records it, and
 declared by the user once where it does not. A FASTA cannot tell you its
 organism; a BAM `@SQ` header can tell you its reference exactly.
+
+## Why organism is a set and not a name
+
+A dimension is only as good as the data it can express. `organism` began as a
+single string, which quietly assumes every dataset is about one organism, and
+a great deal of real work is not.
+
+A plasma sample from a person with HIV-1 holds the person's nucleic acid as
+well as the virus's, and the ordinary reference for it is a combined FASTA
+carrying both genomes. A metagenome is about however many organisms are in the
+sample. A xenograft is about two by construction.
+
+Given one string, each of those gets written down as whichever organism the
+*analysis* is about — the pathogen, usually — and that declaration is true of
+the analysis and false of the data. This is the worse half of the problem: a
+dimension that cannot express what you have does not simply go unused, it gets
+**declared wrongly**, or left blank. A wrong declaration agrees with the next
+wrong declaration and the check passes; a blank one is a dimension that was
+never compared. Either way the engine has been told something it will act on.
+
+So an organism is a set, and a single organism is a set of one:
+
+```python
+ref = lg.reference("refs/hxb2_plus_host.fasta", organism=["HIV-1", "Homo sapiens"])
+```
+
+Two sets agree when they name the same organisms, in any order, and where they
+disagree the error names the organism one side lists and the other does not.
+The full story is [my pathogen results include host
+reads](/silent-failures/mixed-organism/) and
+[D37](/project/decisions/#d37--organism-is-set-valued).
 
 ## Three ideas that make this work
 

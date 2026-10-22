@@ -182,7 +182,7 @@ fn organism_on_intervals_is_declared_not_inferred() {
         &fixture("tiny_bare.bed"),
         None,
         &Declared {
-            organism: Some("HIV-1".into()),
+            organism: Some(vec!["HIV-1".into()]),
             ..Declared::default()
         },
     )

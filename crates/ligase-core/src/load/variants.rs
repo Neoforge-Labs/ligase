@@ -5,9 +5,7 @@ use std::path::Path;
 use noodles::vcf;
 
 use super::{Declared, LoadError, open};
-use crate::dim::{
-    Contig, CoordinateSystem, Dim, Dimensions, Organism, ReferenceId, SampleSet, Source,
-};
+use crate::dim::{Contig, CoordinateSystem, Dim, Dimensions, ReferenceId, SampleSet, Source};
 use crate::types::{DataKind, Dataset};
 
 /// Load variant calls, inferring dimensions from the header.
@@ -60,10 +58,7 @@ pub fn variants(path: &Path, declared: &Declared) -> Result<Dataset, LoadError> 
         }
     };
 
-    let organism = match &declared.organism {
-        Some(organism) => Dim::known(Organism::new(organism), Source::Declared),
-        None => Dim::unknown("a VCF does not record its organism; declare it"),
-    };
+    let organism = super::organism(declared, "a VCF does not record its organism; declare it");
 
     let dimensions = Dimensions {
         organism,

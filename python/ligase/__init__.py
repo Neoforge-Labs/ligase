@@ -62,7 +62,7 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
 __all__ = [
     "Alignment",
@@ -139,9 +139,10 @@ def version() -> str:
 def reference(
     path: str,
     *,
-    organism: str | None = None,
+    organism: str | Sequence[str] | None = None,
     build: str | None = None,
     frame: tuple[str, int] | None = None,
+    release: str | None = None,
 ) -> Reference:
     """Load a reference FASTA, inferring its contigs.
 
@@ -152,6 +153,10 @@ def reference(
     Args:
         path: The FASTA, optionally gzipped.
         organism: The organism, e.g. `HIV-1`. A FASTA cannot record this.
+            Give a list for data that is about more than one organism, such as a
+            host-pathogen dataset, a metagenome or a xenograft; two sets of
+            organisms are equal when they name the same ones, whatever the
+            order.
         build: A human label such as `HXB2` or `hg38`. Display only --
             reference identity never rests on a label, so two files both
             labelled `hg38` still fail to match if their contigs disagree.
@@ -169,20 +174,30 @@ def reference(
             it unset for a whole-genome reference such as HXB2 itself,
             which is recognised by its length; a step that needs a frame
             and cannot work one out asks for it by name.
+        release: Which release of the reference this is, e.g.
+            `GRCh38.p14` or `Ensembl 110`. A FASTA cannot record it, and
+            two releases of one build can differ in sequence while sharing
+            a name. It is compared by equality: two references declare the
+            same release only if their labels are identical after
+            trimming, so `GRCh38.p13` and `GRCh38.p14` do not match.
 
     Returns:
         The loaded reference.
 
     Raises:
+        ValueError: If `organism` names no organism (an empty list, or only
+            blank names), or `release` is blank.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
         LoadError: If the file cannot be read or is not a FASTA.
     """
-    return Reference(_core.load_reference(path, organism, build, frame))
+    return Reference(_core.load_reference(path, organism, build, frame, release))
 
 
 def alignment(
     path: str,
     *,
-    organism: str | None = None,
+    organism: str | Sequence[str] | None = None,
     build: str | None = None,
     samples: list[str] | None = None,
 ) -> Alignment:
@@ -194,6 +209,10 @@ def alignment(
     Args:
         path: The alignment file.
         organism: The organism. SAM and BAM headers do not record it.
+            Give a list for data that is about more than one organism, such as a
+            host-pathogen dataset, a metagenome or a xenograft; two sets of
+            organisms are equal when they name the same ones, whatever the
+            order.
         build: A human label for the reference build. Display only.
         samples: The sample identifiers, overriding the `@RG SM` tags.
 
@@ -201,6 +220,10 @@ def alignment(
         The loaded alignment.
 
     Raises:
+        ValueError: If `organism` names no organism: an empty list, or only
+            blank names.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
         LoadError: If the file cannot be read or is not a SAM/BAM.
     """
     return Alignment(_core.load_alignment(path, organism, build, samples))
@@ -209,7 +232,7 @@ def alignment(
 def variants(
     path: str,
     *,
-    organism: str | None = None,
+    organism: str | Sequence[str] | None = None,
     build: str | None = None,
     samples: list[str] | None = None,
 ) -> Variants:
@@ -222,6 +245,10 @@ def variants(
     Args:
         path: The VCF, optionally gzipped or BGZF-compressed.
         organism: The organism. A VCF does not record it.
+            Give a list for data that is about more than one organism, such as a
+            host-pathogen dataset, a metagenome or a xenograft; two sets of
+            organisms are equal when they name the same ones, whatever the
+            order.
         build: A human label for the reference build. Display only.
         samples: The sample identifiers, overriding the header columns.
 
@@ -229,6 +256,10 @@ def variants(
         The loaded variant calls.
 
     Raises:
+        ValueError: If `organism` names no organism: an empty list, or only
+            blank names.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
         LoadError: If the file cannot be read or is not a VCF.
     """
     return Variants(_core.load_variants(path, organism, build, samples))
@@ -238,7 +269,7 @@ def reads(
     r1: str,
     r2: str | None = None,
     *,
-    organism: str | None = None,
+    organism: str | Sequence[str] | None = None,
     sample: str | None = None,
 ) -> Reads:
     """Load sequencing reads, inferring what a FASTQ can tell us.
@@ -252,6 +283,10 @@ def reads(
         r1: The reads, or the first mate of a pair. Optionally gzipped.
         r2: The second mate, if the reads are paired.
         organism: The organism. A FASTQ does not record it.
+            Give a list for data that is about more than one organism, such as a
+            host-pathogen dataset, a metagenome or a xenograft; two sets of
+            organisms are equal when they name the same ones, whatever the
+            order.
         sample: The sample identifier, overriding the one taken from the
             filename.
 
@@ -259,6 +294,10 @@ def reads(
         The loaded reads.
 
     Raises:
+        ValueError: If `organism` names no organism: an empty list, or only
+            blank names.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
         LoadError: If a file cannot be read or is not a FASTQ.
     """
     samples = None if sample is None else [sample]
@@ -269,7 +308,7 @@ def intervals(
     path: str,
     *,
     format: str | None = None,  # noqa: A002 - the file's format, not a builtin
-    organism: str | None = None,
+    organism: str | Sequence[str] | None = None,
     build: str | None = None,
 ) -> Intervals:
     """Load genomic intervals from a BED or GFF, inferring what they say.
@@ -289,12 +328,20 @@ def intervals(
             say. A format is never guessed: guessing it wrong shifts every
             interval by a base.
         organism: The organism. An interval file does not record it.
+            Give a list for data that is about more than one organism, such as a
+            host-pathogen dataset, a metagenome or a xenograft; two sets of
+            organisms are equal when they name the same ones, whatever the
+            order.
         build: A human label for the reference build. Display only.
 
     Returns:
         The loaded intervals.
 
     Raises:
+        ValueError: If `organism` names no organism: an empty list, or only
+            blank names.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
         LoadError: If the file cannot be read, is not in the format given,
             or its format cannot be told from its name.
     """
@@ -305,7 +352,7 @@ def samples(
     pattern: str,
     *,
     paired: bool = False,
-    organism: str | None = None,
+    organism: str | Sequence[str] | None = None,
 ) -> Samples:
     """Find sequencing runs and group them into samples.
 
@@ -320,12 +367,20 @@ def samples(
             samples' files would produce results for a mixture of two
             people without anything crashing.
         organism: The organism. A FASTQ does not record it.
+            Give a list for data that is about more than one organism, such as a
+            host-pathogen dataset, a metagenome or a xenograft; two sets of
+            organisms are equal when they name the same ones, whatever the
+            order.
 
     Returns:
         The samples, in the order their files appeared. Use `.map()` to
         apply a chain of steps to every one of them.
 
     Raises:
+        ValueError: If `organism` names no organism: an empty list, or only
+            blank names.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
         LoadError: If a file cannot be read, or the files cannot be grouped
             into whole samples.
     """

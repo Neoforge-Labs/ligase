@@ -73,7 +73,7 @@ impl Bench {
             &path,
             None,
             &Declared {
-                organism: Some("HIV-1".into()),
+                organism: Some(vec!["HIV-1".into()]),
                 samples: Some(vec![id.to_owned()]),
                 ..Declared::default()
             },
@@ -90,7 +90,7 @@ impl Bench {
         let dataset = load::reference(
             &path,
             &Declared {
-                organism: Some("HIV-1".into()),
+                organism: Some(vec!["HIV-1".into()]),
                 build: Some("HXB2".into()),
                 ..Declared::default()
             },

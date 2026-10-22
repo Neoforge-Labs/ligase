@@ -3,6 +3,13 @@
 ## What Ligase is
 A Rust-powered, Python-facing framework for computational biology pipelines that are correct and reproducible by construction. Its core idea: biological data types carry dimensions (organism, reference build, coordinate system, sample set), and the engine refuses to connect steps whose dimensions don't match — like units in physics.
 
+**The scope rule (D35).** A kind earns its place in Ligase only if it brings a
+dimension whose mismatch is a documented silent failure in real research. A
+kind that is a file format with a schema is a parser, and Ligase does not need
+more parsers. The answer to a kind that fails that test is no, however
+convenient the kind would be for one project. A kind need not hold sequence:
+what disqualifies it is bringing no dimension.
+
 ## Why it exists
 The worst comp bio bugs are silent: hg19 vs hg38 mixups, 0- vs 1-based coordinates, "chr1" vs "1", shuffled sample IDs. Workflow tools (Snakemake, Nextflow) move files but don't understand them. Ligase does.
 

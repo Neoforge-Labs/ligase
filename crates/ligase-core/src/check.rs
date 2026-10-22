@@ -26,7 +26,10 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::dim::{ContigNaming, Dimension, ReferenceId, Relation, Verdict, relate};
+use crate::dim::{
+    ContigNaming, Dimension, Dimensions, NameSet, ReferenceId, Relation, Verdict, english_list,
+    relate,
+};
 use crate::types::{DataKind, Dataset};
 
 /// One named input to a step.
@@ -423,6 +426,9 @@ fn compare(
         Dimension::SampleSet => a.sample_set.value() == b.sample_set.value(),
         Dimension::Pairing => a.pairing.value() == b.pairing.value(),
         Dimension::QualityEncoding => a.quality_encoding.value() == b.quality_encoding.value(),
+        Dimension::Release => a.release.value() == b.release.value(),
+        Dimension::Subject => a.subject.value() == b.subject.value(),
+        Dimension::SourceSet => a.source_set.value() == b.source_set.value(),
         Dimension::Reference => unreachable(),
     };
     if same {
@@ -445,6 +451,27 @@ fn compare(
             x.same_members(y)
                 .then(|| "The same samples appear in both, in a different order.".to_owned())
         }
+        // The lines above already state both sets in full; what they cannot
+        // do is point at the member that makes the sets differ. One arm
+        // serves both dimensions because the comparison rule is the same.
+        Dimension::Organism | Dimension::SourceSet => {
+            let (Some(x), Some(y)) = (name_set(a, dimension), name_set(b, dimension)) else {
+                return None;
+            };
+            let clauses: Vec<String> = [(left, x.difference(y)), (right, y.difference(x))]
+                .into_iter()
+                .filter(|(_, extra)| !extra.is_empty())
+                .map(|(binding, extra)| {
+                    format!("{} also lists {}", binding.name, english_list(&extra))
+                })
+                .collect();
+            // Two sets that compared unequal always differ somewhere, so an
+            // empty list is not reachable. If it ever happened, the error
+            // still stands on its two value lines; leaving the detail off is
+            // more honest than inventing a clause, and a panic would turn a
+            // reported disagreement into a crash.
+            (!clauses.is_empty()).then(|| format!("{}.", clauses.join(", and ")))
+        }
         _ => None,
     };
 
@@ -461,6 +488,27 @@ fn compare(
         detail,
         conclusion: dimension.leading_question().to_owned(),
     })
+}
+
+/// The [`NameSet`] a dimension holds, for the dimensions that hold one.
+///
+/// A lookup that can say "none" rather than a catch-all arm: a dimension
+/// added to the set-difference detail but not here yields no detail, which
+/// is a missing sentence, instead of quietly reading another dimension's
+/// value, which would be a wrong one.
+fn name_set(dimensions: &Dimensions, dimension: Dimension) -> Option<&NameSet> {
+    match dimension {
+        Dimension::Organism => dimensions.organism.value(),
+        Dimension::SourceSet => dimensions.source_set.value(),
+        Dimension::Reference
+        | Dimension::ContigNaming
+        | Dimension::Coordinates
+        | Dimension::SampleSet
+        | Dimension::Pairing
+        | Dimension::QualityEncoding
+        | Dimension::Release
+        | Dimension::Subject => None,
+    }
 }
 
 fn compare_reference(step: &str, left: &Binding, right: &Binding) -> Option<CheckError> {

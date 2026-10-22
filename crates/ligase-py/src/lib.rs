@@ -436,19 +436,82 @@ fn resistance_fingerprint() -> PyResult<String> {
     hivdb::ruleset::fingerprint().map_err(PyValueError::new_err)
 }
 
+/// `organism=` as Python may spell it: one name, or several.
+///
+/// The `String` variant stays first, and `str` is named as its own case,
+/// because a Python `str` is also a sequence of one-character strings:
+/// read as a list of names, `"HIV-1"` would be `["H", "I", "V", "-", "1"]`,
+/// and every organism comparison after it would succeed or fail for the
+/// wrong reason without anything crashing. PyO3 tries an untagged enum's
+/// variants in declaration order, and (as the version in use does) also
+/// refuses to read a `str` as a `Vec`; this does not lean on the second of
+/// those.
+#[derive(FromPyObject)]
+enum Organisms {
+    /// A single organism, as `organism="HIV-1"`.
+    One(String),
+    /// Several, as `organism=["HIV-1", "Homo sapiens"]`.
+    Many(Vec<String>),
+}
+
+impl Organisms {
+    fn into_vec(self) -> Vec<String> {
+        match self {
+            Self::One(name) => vec![name],
+            Self::Many(names) => names,
+        }
+    }
+}
+
+/// What the loaders declare as the organisms, refusing a declaration that
+/// names none.
+///
+/// The core also reads an empty or all-blank declaration as unknown, but a
+/// user who wrote `organism=[]`, or `organism=config.get("organism", "")`,
+/// has made a mistake worth naming here, where the message is read, rather
+/// than finding a dimension unexpectedly unknown.
+fn organisms(organism: Option<Organisms>) -> PyResult<Option<Vec<String>>> {
+    let Some(names) = organism.map(Organisms::into_vec) else {
+        return Ok(None);
+    };
+    if names.is_empty() {
+        return Err(PyValueError::new_err(
+            "organism was given an empty list; name at least one organism, or leave it out",
+        ));
+    }
+    if names.iter().all(|name| name.trim().is_empty()) {
+        return Err(PyValueError::new_err(
+            "organism was given only blank names; name at least one organism, or leave it out",
+        ));
+    }
+    Ok(Some(names))
+}
+
+/// A declared release, refusing a blank one as [`organisms`] refuses blank names.
+fn declared_release(release: Option<String>) -> PyResult<Option<String>> {
+    match release {
+        Some(label) if label.trim().is_empty() => Err(PyValueError::new_err(
+            "release was given a blank value; name the release, or leave it out",
+        )),
+        label => Ok(label),
+    }
+}
+
 #[pyfunction]
-#[pyo3(signature = (path, organism=None, build=None, frame=None))]
+#[pyo3(signature = (path, organism=None, build=None, frame=None, release=None))]
 fn load_reference(
     path: PathBuf,
-    organism: Option<String>,
+    organism: Option<Organisms>,
     build: Option<String>,
     frame: Option<(String, u64)>,
+    release: Option<String>,
 ) -> PyResult<PyDataset> {
     let declared = Declared {
-        organism,
+        organism: organisms(organism)?,
         build,
         frame,
         samples: None,
+        release: declared_release(release)?,
     };
     load::reference(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -459,15 +522,16 @@ fn load_reference(
 #[pyo3(signature = (path, organism=None, build=None, samples=None))]
 fn load_alignment(
     path: PathBuf,
-    organism: Option<String>,
+    organism: Option<Organisms>,
     build: Option<String>,
     samples: Option<Vec<String>>,
 ) -> PyResult<PyDataset> {
     let declared = Declared {
-        organism,
+        organism: organisms(organism)?,
         build,
         frame: None,
         samples,
+        release: None,
     };
     load::alignment(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -478,15 +542,16 @@ fn load_alignment(
 #[pyo3(signature = (path, organism=None, build=None, samples=None))]
 fn load_variants(
     path: PathBuf,
-    organism: Option<String>,
+    organism: Option<Organisms>,
     build: Option<String>,
     samples: Option<Vec<String>>,
 ) -> PyResult<PyDataset> {
     let declared = Declared {
-        organism,
+        organism: organisms(organism)?,
         build,
         frame: None,
         samples,
+        release: None,
     };
     load::variants(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -498,14 +563,15 @@ fn load_variants(
 fn load_reads(
     r1: PathBuf,
     r2: Option<PathBuf>,
-    organism: Option<String>,
+    organism: Option<Organisms>,
     samples: Option<Vec<String>>,
 ) -> PyResult<PyDataset> {
     let declared = Declared {
-        organism,
+        organism: organisms(organism)?,
         build: None,
         samples,
         frame: None,
+        release: None,
     };
     load::reads(&r1, r2.as_deref(), &declared)
         .map(|inner| PyDataset { inner })
@@ -517,7 +583,7 @@ fn load_reads(
 fn load_intervals(
     path: PathBuf,
     format: Option<&str>,
-    organism: Option<String>,
+    organism: Option<Organisms>,
     build: Option<String>,
 ) -> PyResult<PyDataset> {
     let format = match format {
@@ -529,10 +595,11 @@ fn load_intervals(
         None => None,
     };
     let declared = Declared {
-        organism,
+        organism: organisms(organism)?,
         build,
         frame: None,
         samples: None,
+        release: None,
     };
     load::intervals(&path, format, &declared)
         .map(|inner| PyDataset { inner })
@@ -544,13 +611,14 @@ fn load_intervals(
 fn load_samples(
     paths: Vec<PathBuf>,
     paired: bool,
-    organism: Option<String>,
+    organism: Option<Organisms>,
 ) -> PyResult<Vec<PyDataset>> {
     let declared = Declared {
-        organism,
+        organism: organisms(organism)?,
         build: None,
         samples: None,
         frame: None,
+        release: None,
     };
     load::samples(&paths, paired, &declared)
         .map(|datasets| {

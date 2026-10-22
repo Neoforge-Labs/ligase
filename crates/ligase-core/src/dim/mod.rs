@@ -2,18 +2,21 @@
 //!
 //! The catalogue is `web/content/reference/dimensions.mdx`: organism,
 //! reference, contig naming, coordinates, sample set, pairing, quality
-//! encoding. Every value travels with its provenance, so an error message can
+//! encoding, release, subject and source set. Every value travels with its provenance, so an error message can
 //! say *where* a value came from without reconstructing it after the fact.
 //! That provenance is the part that makes the error useful: "these two
 //! references disagree" sends a user hunting, while "one came from a BAM
 //! `@SQ` header and the other from the FASTA you passed" tells them what to
 //! change.
 
+mod names;
 mod reference;
 
 use std::fmt;
 use std::path::PathBuf;
 
+pub(crate) use names::english_list;
+pub use names::{Label, NameSet, Organism, Release, SourceSet, Subject};
 pub use reference::{Contig, ContigOrder, Frame, ReferenceId, Relation, Verdict, relate};
 
 /// Where a dimension's value came from.
@@ -128,9 +131,16 @@ impl<T> Dim<T> {
 }
 
 /// The dimension axes, for iteration and error reporting.
+///
+/// The first seven are in catalogue order. Newer axes are appended rather than
+/// slotted in beside the ones they resemble: [`Dimension::ALL`] is the order
+/// `check_step` walks, so it is also the order a user's multi-error report
+/// comes out in, and inserting an axis mid-list would silently reorder every
+/// report that already exists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Dimension {
-    /// Which organism the data is from.
+    /// Which organisms the data is about: a set, since one dataset can be
+    /// about several.
     Organism,
     /// Which reference build the data is on.
     Reference,
@@ -144,11 +154,18 @@ pub enum Dimension {
     Pairing,
     /// Phred+33 against Phred+64.
     QualityEncoding,
+    /// Which release of a reference the data is on.
+    Release,
+    /// Who or what the data is about.
+    Subject,
+    /// The upstream sources a dataset was assembled from.
+    SourceSet,
 }
 
 impl Dimension {
-    /// Every dimension, in catalogue order.
-    pub const ALL: [Self; 7] = [
+    /// Every dimension: the catalogue's seven in catalogue order, then the
+    /// axes added since, in the order they were added.
+    pub const ALL: [Self; 10] = [
         Self::Organism,
         Self::Reference,
         Self::ContigNaming,
@@ -156,6 +173,9 @@ impl Dimension {
         Self::SampleSet,
         Self::Pairing,
         Self::QualityEncoding,
+        Self::Release,
+        Self::Subject,
+        Self::SourceSet,
     ];
 
     /// The name used in messages and in the Python API.
@@ -169,6 +189,9 @@ impl Dimension {
             Self::SampleSet => "sample_set",
             Self::Pairing => "pairing",
             Self::QualityEncoding => "quality_encoding",
+            Self::Release => "release",
+            Self::Subject => "subject",
+            Self::SourceSet => "source_set",
         }
     }
 
@@ -196,6 +219,9 @@ impl Dimension {
             Self::SampleSet => "These must match, in order. Did the sample order change upstream?",
             Self::Pairing => "These must match. Did you mix single-end and paired-end reads?",
             Self::QualityEncoding => "These must match. Did you mix Phred+33 and Phred+64 reads?",
+            Self::Release => "These must match. Did one input come from a different release?",
+            Self::Subject => "These must match. Did you join data about different subjects?",
+            Self::SourceSet => "These must match. Was a source added or removed upstream?",
         }
     }
 }
@@ -203,42 +229,6 @@ impl Dimension {
 impl fmt::Display for Dimension {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
-    }
-}
-
-/// The organism the data is from.
-///
-/// Compared case-insensitively and ignoring surrounding space. No alias table:
-/// equating "human" with "Homo sapiens" would mean guessing, and a wrong guess
-/// here passes `check()` silently. Declare one spelling and use it.
-#[derive(Clone, Debug)]
-pub struct Organism(String);
-
-impl Organism {
-    /// Record an organism as the user spelled it.
-    #[must_use]
-    pub fn new(name: &str) -> Self {
-        Self(name.trim().to_owned())
-    }
-
-    /// The organism as spelled.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl PartialEq for Organism {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.eq_ignore_ascii_case(&other.0)
-    }
-}
-
-impl Eq for Organism {}
-
-impl fmt::Display for Organism {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
     }
 }
 
@@ -390,7 +380,8 @@ impl QualityEncoding {
 /// format cannot express must not masquerade as a value.
 #[derive(Clone, Debug)]
 pub struct Dimensions {
-    /// Which organism the data is from.
+    /// Which organisms the data is about: a set, since one dataset can be
+    /// about several.
     pub organism: Dim<Organism>,
     /// Which reference build the data is on.
     pub reference: Dim<ReferenceId>,
@@ -404,6 +395,12 @@ pub struct Dimensions {
     pub pairing: Dim<Pairing>,
     /// The FASTQ quality offset.
     pub quality_encoding: Dim<QualityEncoding>,
+    /// Which release of the reference this is.
+    pub release: Dim<Release>,
+    /// Who or what the data is about.
+    pub subject: Dim<Subject>,
+    /// The upstream sources the data was assembled from.
+    pub source_set: Dim<SourceSet>,
 }
 
 impl Default for Dimensions {
@@ -417,12 +414,21 @@ impl Default for Dimensions {
             sample_set: Dim::unknown(NOT_SET),
             pairing: Dim::unknown(NOT_SET),
             quality_encoding: Dim::unknown(NOT_SET),
+            release: Dim::unknown(NOT_SET),
+            subject: Dim::unknown(NOT_SET),
+            source_set: Dim::unknown(NOT_SET),
         }
     }
 }
 
 impl Dimensions {
     /// Render a dimension's value, if known.
+    ///
+    /// Reads the field only. This record knows nothing of
+    /// [`DataKind`](crate::types::DataKind), so it answers for a dimension
+    /// that does not apply to the kind as readily as for one that does; a
+    /// caller that cares whether the dimension applies must ask
+    /// [`DataKind::applies`](crate::types::DataKind::applies) first.
     #[must_use]
     pub fn render(&self, dimension: Dimension) -> Option<String> {
         match dimension {
@@ -442,10 +448,16 @@ impl Dimensions {
                 .quality_encoding
                 .value()
                 .map(|encoding| encoding.describe().to_owned()),
+            Dimension::Release => self.release.value().map(ToString::to_string),
+            Dimension::Subject => self.subject.value().map(ToString::to_string),
+            Dimension::SourceSet => self.source_set.value().map(ToString::to_string),
         }
     }
 
     /// Where a dimension's value came from, if known.
+    ///
+    /// Reads the field only; see [`Dimensions::render`] on asking
+    /// [`DataKind::applies`](crate::types::DataKind::applies) first.
     #[must_use]
     pub const fn source(&self, dimension: Dimension) -> Option<&Source> {
         match dimension {
@@ -456,10 +468,19 @@ impl Dimensions {
             Dimension::SampleSet => self.sample_set.source(),
             Dimension::Pairing => self.pairing.source(),
             Dimension::QualityEncoding => self.quality_encoding.source(),
+            Dimension::Release => self.release.source(),
+            Dimension::Subject => self.subject.source(),
+            Dimension::SourceSet => self.source_set.source(),
         }
     }
 
     /// Why a dimension is unknown, if it is.
+    ///
+    /// Reads the field only, so for a dimension that does not apply to the
+    /// kind it still returns the default "not recorded in the file and not
+    /// declared" text, which would be wrong to show a user. A caller that
+    /// cares whether the dimension applies must ask
+    /// [`DataKind::applies`](crate::types::DataKind::applies) first.
     #[must_use]
     pub const fn reason(&self, dimension: Dimension) -> Option<&'static str> {
         match dimension {
@@ -470,6 +491,9 @@ impl Dimensions {
             Dimension::SampleSet => self.sample_set.reason(),
             Dimension::Pairing => self.pairing.reason(),
             Dimension::QualityEncoding => self.quality_encoding.reason(),
+            Dimension::Release => self.release.reason(),
+            Dimension::Subject => self.subject.reason(),
+            Dimension::SourceSet => self.source_set.reason(),
         }
     }
 

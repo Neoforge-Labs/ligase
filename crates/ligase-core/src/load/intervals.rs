@@ -15,7 +15,7 @@ use std::io::BufRead as _;
 use std::path::Path;
 
 use super::{Declared, LoadError, open};
-use crate::dim::{Contig, CoordinateSystem, Dim, Dimensions, Organism, ReferenceId, Source};
+use crate::dim::{Contig, CoordinateSystem, Dim, Dimensions, ReferenceId, Source};
 use crate::types::{DataKind, Dataset};
 
 /// Which interval format a file holds.
@@ -162,10 +162,10 @@ pub fn intervals(
         )
     };
 
-    let organism = match &declared.organism {
-        Some(organism) => Dim::known(Organism::new(organism), Source::Declared),
-        None => Dim::unknown("an interval file does not record its organism; declare it"),
-    };
+    let organism = super::organism(
+        declared,
+        "an interval file does not record its organism; declare it",
+    );
 
     let dimensions = Dimensions {
         organism,

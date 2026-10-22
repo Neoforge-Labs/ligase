@@ -19,7 +19,7 @@
 //! let hxb2 = load::reference(
 //!     "refs/HXB2.fasta".as_ref(),
 //!     &Declared {
-//!         organism: Some("HIV-1".into()),
+//!         organism: Some(vec!["HIV-1".into()]),
 //!         build: Some("HXB2".into()),
 //!         ..Declared::default()
 //!     },

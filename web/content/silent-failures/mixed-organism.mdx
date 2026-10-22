@@ -1,0 +1,150 @@
+---
+title: "My pathogen results include host reads"
+description: "A host–pathogen sample whose organism was declared as the pathogen alone. Every file is well formed and every contig matches, so nothing objects, and the sample is treated as one organism when it is two."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# My pathogen results include host reads
+
+<Lede>
+You sequenced a patient sample and called variants against the virus. Some of
+them are in places the virus is not variable, or are supported by a handful of
+reads, or look like human sequence once you go and look. The pipeline ran
+cleanly, the VCF is valid, and nothing said the sample was **more than one
+organism**.
+</Lede>
+
+## What actually happened
+
+A host–pathogen sample is not one organism. A plasma or PBMC sample from a
+person with HIV-1 contains the person's nucleic acid as well as the virus's. A
+metagenome contains many organisms. A xenograft contains two. The reads in the
+file are a mixture, and the alignment step has to decide where each one goes.
+
+The standard way to handle that is a **combined reference**: the pathogen genome
+and the host genome in one FASTA, so that a host read has a host contig of its
+own to land on and does not get forced onto the virus. That is the arrangement
+this page follows. The reference covers two organisms. The alignment made
+against it is about the same two, because its reads came from both.
+
+The trouble starts when the alignment is described as being about the pathogen
+alone, which is what the analysis is about and so what is natural to write down.
+From then on, whoever picks up that alignment is told it is virus-only. They
+proceed on that belief, and a later step treats everything in the file as viral.
+
+## Why nothing crashed
+
+Before v0.2 (milestone M7), a dataset in Ligase could declare **one** organism.
+There was no way to write a combined reference down as what it was, and no way to
+say that an alignment against it covered two organisms. The only available
+choice was a single name, and the natural one is the pathogen. A reference
+declared `organism="HIV-1"` and an alignment declared `organism="HIV-1"` agree,
+so the comparison passed.
+
+Everything else was also fine. The alignment's `@SQ` header named contigs the
+reference has, with the lengths and checksums the reference has. The BAM was
+valid. Each individual fact was true; what was missing was a place to say that
+the data was about two organisms, and nothing could object to a statement that
+was never made.
+
+An ordinary tool has the same blind spot for a plain reason. A variant caller
+sees reads and a reference. It has no concept of what organism the reads came
+from, so it cannot tell host reads from viral reads, and it has no business
+guessing.
+
+## What Ligase says
+
+The `organism` dimension is a **set**. Here the reference says it is about HIV-1
+and *Homo sapiens*, as a combined reference is. The alignment was declared as
+the pathogen alone, which is how it would have been written before.
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.mixedOrganism}</Diagnostic>
+
+Three things are worth noticing.
+
+The two declarations are shown on adjacent lines, **each against the name it is
+bound to**: `aln.organism` first, then `ref.organism`. Each is marked
+`(declared)`, because no alignment header and no FASTA records an organism, so
+these are statements that a person made. Nothing was inferred.
+
+The line after the two declarations names **the difference itself**:
+`ref also lists Homo sapiens`. You are not left comparing two lists by eye to
+find the extra member. For a metagenome with a dozen organisms on one side and
+eleven on the other, that line is the part you read.
+
+And the closing question is the organism dimension's own, and it was written
+when `organism` was a single string. "Did you pass data from the wrong
+organism?" is a fair question, but it is only half of what the engine can say
+here. The engine cannot tell which reading applies. The alignment may be
+declared too narrowly, because it really is host–pathogen. The reference may be
+declared too broadly. Or the alignment may be the wrong data for this reference.
+It reports which sets differ and leaves the choice to the person who knows the
+sample.
+
+### The same check, the other way round
+
+The message above shows the combined reference against a pathogen-only
+alignment. The reverse arrangement is also caught, and it is the one that matches
+the spurious-mapping worry. If the reference is the virus alone and the sample
+really is host–pathogen, the host reads that resemble the viral reference, because
+of a repeat, a low-complexity stretch or an endogenous element, have nowhere
+else to go and can map to it anyway. They reach the variant caller looking like
+viral reads that differ from the reference, and are reported as variants.
+Declare the alignment `["HIV-1", "Homo sapiens"]` against that virus-only
+reference and the engine refuses the join in the same way, with the sides
+swapped. The detail line reads `aln also lists Homo sapiens.`
+
+## How it is caught
+
+Pass a list wherever the data is about more than one organism, and say the same
+thing on both sides:
+
+```python
+import ligase as lg
+
+ref = lg.reference(
+    "data/refs/hxb2_plus_host.fasta",
+    organism=["HIV-1", "Homo sapiens"],
+)
+aln = lg.alignment(
+    "data/alignments/sample01.bam",
+    organism=["HIV-1", "Homo sapiens"],
+)
+
+# Nothing has run. This reads the FASTA index and the BAM header.
+lg.check_step("call", {"aln": aln, "ref": ref})
+```
+
+That passes. Change the alignment to `organism="HIV-1"` alone, which is the
+declaration this page is about, and the same `check_step` call refuses with the
+message shown above, before anything runs. The two value lines follow the
+order the inputs are bound in, which is why `aln` comes before `ref` in the
+snippet: bind them the other way round and the same two lines come out
+swapped.
+
+Two organism sets are equal when they name the same organisms, in any order, so
+`["Homo sapiens", "HIV-1"]` and `["HIV-1", "Homo sapiens"]` agree. A single
+string is a set of one.
+
+<Note kind="warning" title="This checks what was declared, not what is in the reads">
+Ligase does not read sequence content for this, and it cannot tell you that a
+BAM contains host reads. It does not screen for contamination. What the
+dimension does is make each side state what it is about, and refuse to connect
+two sides whose statements disagree. A sample that really is host–pathogen,
+declared as such on the data and on the reference, passes the check. Whether a
+decontamination step is needed, and whether it worked, is still a question about
+the reads.
+
+If you declare a host–pathogen sample as its pathogen alone *and* use a
+pathogen-only reference, the declarations agree and the check has nothing to
+object to, just as before. The check can only be as informative as the
+declarations you give it.
+</Note>
+
+The reasoning for making `organism` a set is recorded in
+[the decision log](/project/decisions/#d37--organism-is-set-valued). For how
+organism sits alongside the other dimensions, see
+[the dimension catalogue](/reference/dimensions/); for why the engine
+compares dimensions rather than trusting files to agree, see
+[types and dimensions](/concepts/types-and-dimensions/).

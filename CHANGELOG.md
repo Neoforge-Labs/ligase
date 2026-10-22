@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A dataset may be about more than one organism, and a reference can name
+  its release** (**D35**, **D36**, **D37**). `organism` held a single string,
+  so a host–pathogen sample, a metagenome or a xenograft had to be written
+  down as whichever one organism the analysis was about. That declaration is
+  true of the analysis and false of the data; two of them agree with each
+  other, so the check passed and a later step treated everything in the file
+  as one organism's. The failure is now written up as "My pathogen results
+  include host reads".
+
+  `organism` is an ordered set compared by set equality: members are trimmed,
+  compared without regard to case, repeats collapse, and the order they were
+  given in is not part of the identity, so `["Homo sapiens", "HIV-1"]` and
+  `["HIV-1", "Homo sapiens"]` are the same set. Where two sets differ the
+  error names the difference — `ref also lists Homo sapiens` — because the
+  two value lines state both sets in full but cannot point at the member that
+  makes them unequal. A list naming nothing is refused where it is passed,
+  since two datasets that each declared no organism would otherwise *agree*.
+  In the Python API `organism=` still accepts a plain string, which is a set
+  of one and renders exactly as it did, so **no v0.1 pipeline written against
+  the Python API needs editing.** The Rust crate is another matter, and is
+  under *Changed* and *Removed* below.
+
+  Three dimensions arrive with it. `release` says which versioned external
+  resource the data came from, and it is its own dimension rather than a
+  generalised `reference` because a reference compares by containment and a
+  release by equality, and one dimension carrying two comparison rules is the
+  quiet complexity this engine exists to refuse. It applies to a reference
+  today — `lg.reference(..., release="GRCh38.p14")`, where two releases of
+  one build can differ in sequence while sharing a name — and `subject` and
+  `source_set` apply to no kind the engine reads yet. All three were
+  *appended* to the dimension list rather than slotted in beside the axes
+  they resemble, because a report of several disagreements is ordered by that
+  list and inserting one would have reordered every existing report. None of
+  the three is ever demanded: each is compared wherever both sides state it.
+
+  And the scope rule that governs what may be added next: a kind earns its
+  place in Ligase only if it brings a dimension whose mismatch is a documented
+  silent failure in real research. A kind that is a file format with a schema
+  is a parser, and Ligase does not need more parsers.
 - **The docs can be found, and read by something that is not a browser.**
   The site published no sitemap, no `robots.txt`, no canonical address on
   any page and no structured data, so a crawler learned about it only by
@@ -321,9 +360,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `mkdocs build --strict`. It regenerates, builds, and then fails on a broken
   link, a dangling anchor, a page nothing links to, or a Markdown link that
   never resolved.
+- **The Rust API of the `ligase` crate changed shape with the set-valued
+  organism.** `crates/ligase-core` is published, and `organism` held a single
+  string in its public types, so making it a set could not be additive.
+  `load::Declared.organism` is `Option<Vec<String>>` where it was
+  `Option<String>`, which breaks every site that sets `organism`: wrap the one
+  name in a list, `Some(vec![name])`. A site that leaves it to
+  `..Declared::default()` is untouched. `dim::Organism` is now an alias
+  of `dim::NameSet`, a set of names, where it was its own struct. The Python
+  API is not affected.
+- **A `Reference` now has a `release`.** Its applicable dimensions gained a
+  fourth entry, `release`, and `unknown_reason("release")` returns a reason
+  (`a FASTA does not record which release it came from; declare it`) where it
+  used to return `None`. This is visible on both surfaces: `lg.reference(...)
+  .applicable` is `('organism', 'reference', 'contig_naming', 'release')`
+  rather than three names, so a script that iterates it and prompts for every
+  unknown dimension will now ask for a release. Nothing is demanded: a
+  reference with no release declared still loads and still checks.
 
 ### Removed
 
+- **`dim::Organism::as_str`.** `Organism` is a set now, so there is no single
+  string to borrow. `to_string()` (the `Display` impl) is the replacement, and
+  returns `HIV-1` for a set of one and `HIV-1 and Homo sapiens` for two; a
+  caller that wants the members takes `as_slice()`.
 - **The MkDocs site.** `docs/`, `mkdocs.yml`, the `docs.yml` workflow and the
   `mkdocs`, `mkdocs-material` and `mkdocstrings` entries in the `docs` extra
   are gone; `marimo` stays, because the notebooks still need it. The MDX under

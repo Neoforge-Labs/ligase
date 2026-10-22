@@ -50,3 +50,176 @@ PRJNA517147 could not serve as a source of expected answers: its
 per-sample calls are published only as colour in a heatmap, reverse
 transcriptase only. It remains the demo's default dataset. See
 [validation](/project/validation/).
+
+## M7 — Foundations
+The [scope rule](/project/decisions/#d35--a-kind-must-bring-a-dimension-that-catches-a-documented-silent-failure)
+in `CLAUDE.md`. `release`, `subject` and `source_set` added as dimensions,
+applying to no existing kind except `release` on a `Reference` — a genome
+build has a release. `organism` set-valued, with the symmetric-difference
+error. D35, D36 and D37 written into
+[the decision log](/project/decisions/).
+
+**Done when:**
+- Every existing test still passes and none of their assertions change. The
+  Rust call sites that construct a declaration move with the value type —
+  `Declared::organism` holds a list now — but no existing Python test is
+  touched, because the Python surface only widens: `organism=` takes a string
+  as it always did.
+- A `Reference` declared `organism=["HIV-1", "Homo sapiens"]`, checked against
+  an `Alignment` declared `organism="HIV-1"`, fails with an error naming
+  *Homo sapiens* as the difference.
+- What a v0.1 pipeline's checks and diagnostics see is unchanged: a single
+  organism renders as exactly `HIV-1`, the three new axes are **appended** to
+  the dimension list rather than slotted in beside the axes they resemble, and
+  `ligase check`'s own tests and the diagnostics captured for the docs are
+  untouched. What is not unchanged is the *catalogue* a script can read back:
+  a `Reference` now lists `release` among its applicable dimensions, and
+  reports why it is unknown where it previously reported nothing, so code that
+  iterates the unknown dimensions and prompts for each will now ask for one
+  more.
+
+**Done.** That third clause is a restatement, and the original is worth
+recording: the feature spec asked that "`ligase check` on the HIV demo
+produces byte-identical output to v0.1.0". `data/` is gitignored, so a plain
+checkout has no HIV demo to run and the clause would have been a promise
+rather than a check. What is checkable without the data is what it now says —
+the single-organism rendering is pinned in Rust by
+`one_organism_still_renders_exactly_as_it_did` and in Python by
+`tests/test_types.py`, the appended order by
+`the_three_axes_are_appended_so_earlier_reports_keep_their_order`, and
+`tests/test_cli.py` and `capture_diagnostics.py`'s existing scenarios are
+unchanged by this milestone. The demo itself is covered
+where the data exists: CI's `demo` job fetches the reads and the reference and
+then runs the whole suite, which is where `tests/test_pipeline.py` asserts
+that the demo's organism survives inheritance through two steps.
+
+## The v0.2 roadmap
+
+Everything below is planned and none of it is built. v0.2 exists to make
+Ligase useful to a scientist who has never heard of this project, and three
+things carry that: the commonest silent bug in biology — identifiers from one
+namespace joined to another — becomes a refused connection; the fetch that
+starts every pipeline comes inside the engine's guarantees, where today it
+sits outside them, including in Ligase's own demo; and the cost of adopting
+any of it drops, because `ligase inspect` works on files you already have and
+a library of typed steps means composing a pipeline rather than writing shell.
+
+One milestone per session, as before. v0.2 ships after M14.
+
+## M8 — Identifiers
+The `identifier_namespace` dimension. An `EntitySet` kind — the gene or
+protein list — with its loader, canonical form and Python surface.
+`map_identifiers` with a user-supplied mapping table, and the conversion
+registry it sits in. D38.
+
+**Done when:** an `EntitySet` of HGNC symbols and one of Ensembl IDs refuse to
+join; `map_identifiers` across them succeeds, declares Ensembl, and notices
+every unmapped symbol by name; the fixture set includes `SEPT7`-style symbols
+corrupted to dates and the loader notices them; namespace inference is
+exercised by fixtures for HGNC, Ensembl, Entrez and UniProt, and declines to
+infer when a file mixes two.
+
+**Standing requirement, from M7.** The first kind to claim a dimension axis
+must pin that axis's arm in `check.rs::compare` and in `graph.rs::propagate`
+with a test. Until a kind applies an axis, `check_step` never reaches its arms,
+so no test can catch one written against the wrong field, and the compiler
+cannot either: `Organism` and `SourceSet` are one type, and so are `Release`
+and `Subject`. This milestone gives `identifier_namespace` a kind, and an
+`EntitySet` may also apply `subject` or `source_set`; whichever of those it
+applies, the requirement falls on it. If it is the first kind to give
+`source_set` one, it must re-examine the dedup rule before it does: the set
+type folds members that differ only in ASCII case, which is right for
+accessions and wrong for object keys, and `source_set` gets a type of its own
+if it is to hold the latter
+([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)).
+
+## M9 — Inspect
+`ligase inspect`, generated into [the CLI reference](/reference/cli/) by the
+existing `generate_cli.py`.
+
+**Done when:** `ligase inspect tiny_bare.fasta tiny_prefixed.sam` prints the
+same `ContigNamingError` the home page shows and exits non-zero; a single file
+prints every dimension with its source; the quickstart gains an "inspect
+first" section captured by `capture_quickstart.py`.
+
+## M10 — Remotes and replay
+`PinnedRemote` and `RecordedQuery`, with record, replay and refresh; the
+*pinned*, *replayed* and *live* audit verdicts; drift reporting; recorded
+bodies in the bundle; the methods-paragraph wording for both. The HIV demo
+retrofitted onto them. D39.
+
+**Done when:** the demo runs end to end from `lg.remote` calls with no shell
+script; a deliberately wrong digest fails loudly before any step runs; a
+pipeline with a `RecordedQuery` step runs once against a local mock server and
+again with that server **down**, completing from the record with an identical
+result; `--replay` on a query with no record fails before any step runs;
+`--refresh` against a mock whose response changed reports the drift and does
+not overwrite the record without being told to; a bundle exported from the
+recorded run replays on a clean machine with no network; two paginated calls
+recorded in one order replay correctly when issued in the other; a request
+made with an auth header stores no trace of it; the CI `demo` job caches on
+remote digests.
+
+**Standing requirement, from M7.** The first kind to claim a dimension axis
+must pin that axis's arm in `check.rs::compare` and in `graph.rs::propagate`
+with a test. Until a kind applies an axis, `check_step` never reaches its arms,
+so no test can catch one written against the wrong field, and the compiler
+cannot either: `Organism` and `SourceSet` are one type, and so are `Release`
+and `Subject`. Whichever milestone first gives `source_set` a kind re-examines
+the dedup rule before it does (see M8, which may get there first). If M8 gave
+it none, this milestone does, on the same grounds: the set type folds members
+that differ only in ASCII case, which is right for accessions and wrong for
+object keys
+([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)),
+and the requirement falls on it for `source_set` as for any axis it applies.
+
+## M11 — Stochastic steps
+A step that is not deterministic says so, and an unseeded one is refused. D40.
+
+**Done when:** decorating an unseeded `stochastic=True` step raises
+`StepDefinitionError` naming the missing seed; a seeded stochastic step audits
+as *reproducible* over two runs with the same seed; the methods paragraph
+names the seed; the test uses a real stochastic tool on the tiny fixtures
+(IQ-TREE on a small alignment, or a seeded Python step where the tool is
+absent).
+
+## M12 — Ranked lists
+A `RankedList` kind, canonicalised **in order**. D41.
+
+**Done when:** two files with identical rows in different orders produce
+*different* canonical hashes — the inverse of every other kind's test, and the
+test says so; a `RankedList` and an `EntitySet` in different namespaces refuse
+to join; a `RankedList` released `HGNC 2026-09` refuses to score against an
+`EntitySet` released `HGNC 2026-03`.
+
+**Standing requirement, from M7.** The first kind to claim a dimension axis
+must pin that axis's arm in `check.rs::compare` and in `graph.rs::propagate`
+with a test. Until a kind applies an axis, `check_step` never reaches its arms,
+so no test can catch one written against the wrong field, and the compiler
+cannot either: `Organism` and `SourceSet` are one type, and so are `Release`
+and `Subject`. A `RankedList` brings `source_set` and `subject` into play, so
+the requirement falls on this milestone for both, and the `source_set` dedup
+question under M8 and M10 must be settled before `source_set` is applied.
+
+## M13 — Step library
+`ligase.steps`: typed steps that ship with their dimensions, their citation
+and their canonical form, and the demo rewritten on them. D42.
+
+**Done when:** `examples/hiv-resistance/pipeline.py` contains no `lg.sh` call
+of its own; every library step has a fixture test, a citation that resolves
+and a page under `guide/steps/`; the validation suite still passes 81 of 81 at
+15% and 5%, with the same nine explained discrepancies at 2%.
+
+## M14 — Remote store
+The content-addressed store gains a blob tier with pluggable backends, on the
+trait M10 introduces. The index stays local and rebuildable. D43.
+
+**Done when:** the full suite passes against a MinIO container in CI with
+`LIGASE_STORE` set and no test changed; a second checkout on a clean machine
+pointed at the same bucket completes the HIV demo entirely from cache, with
+zero steps run; an object corrupted in place in the bucket is rejected on read
+with an error naming the hash mismatch, and the step reruns; deleting the
+local SQLite index and running again rebuilds it from the store; a thin bundle
+replays on a machine with store access and fails with a clear message on one
+without; the default install has no `object_store` dependency and
+`ligase store status` says so.

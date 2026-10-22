@@ -640,3 +640,148 @@ fn two_datasets_covering_different_contigs_are_not_a_mismatch() {
 
     assert!(errors.is_empty(), "errors were: {errors:#?}");
 }
+
+#[test]
+fn an_organism_set_that_differs_names_the_difference() {
+    let reference = Dataset::new(
+        DataKind::Reference,
+        Some("refs/hxb2.fasta".into()),
+        Dimensions {
+            organism: Dim::known(Organism::of(["HIV-1", "Homo sapiens"]), Source::Declared),
+            ..Dimensions::default()
+        },
+    );
+    let alignment = Dataset::new(
+        DataKind::Alignment,
+        Some("aln/one.bam".into()),
+        Dimensions {
+            organism: Dim::known(Organism::new("HIV-1"), Source::Declared),
+            ..Dimensions::default()
+        },
+    );
+
+    let errors = check_step("call", &[bind("aln", alignment), bind("ref", reference)]);
+    let found: Vec<_> = errors
+        .iter()
+        .filter(|error| error.dimension() == Some(Dimension::Organism))
+        .collect();
+    assert_eq!(found.len(), 1, "got: {errors:#?}");
+
+    let message = found[0].to_string();
+    // Both sides are stated in full, and the difference is named.
+    assert!(message.contains("aln.organism = HIV-1"), "{message}");
+    assert!(
+        message.contains("ref.organism = HIV-1 and Homo sapiens"),
+        "{message}"
+    );
+    assert!(
+        message.contains("\n  ref also lists Homo sapiens.\n"),
+        "{message}"
+    );
+    assert!(!message.contains("aln also lists"), "{message}");
+}
+
+#[test]
+fn organism_sets_in_different_orders_agree() {
+    let left = Dimensions {
+        organism: Dim::known(Organism::of(["HIV-1", "Homo sapiens"]), Source::Declared),
+        ..Dimensions::default()
+    };
+    let right = Dimensions {
+        organism: Dim::known(Organism::of(["homo sapiens", "hiv-1"]), Source::Declared),
+        ..Dimensions::default()
+    };
+
+    let errors = check_step(
+        "report",
+        &[
+            bind(
+                "a",
+                Dataset::new(DataKind::Reference, Some("a.fasta".into()), left),
+            ),
+            bind(
+                "b",
+                Dataset::new(DataKind::Reference, Some("b.fasta".into()), right),
+            ),
+        ],
+    );
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.dimension() != Some(Dimension::Organism)),
+        "got: {errors:#?}"
+    );
+}
+
+#[test]
+fn an_organism_difference_on_both_sides_names_both() {
+    let left = Dimensions {
+        organism: Dim::known(Organism::of(["HIV-1", "HIV-2"]), Source::Declared),
+        ..Dimensions::default()
+    };
+    let right = Dimensions {
+        organism: Dim::known(Organism::of(["HIV-1", "Homo sapiens"]), Source::Declared),
+        ..Dimensions::default()
+    };
+
+    let errors = check_step(
+        "report",
+        &[
+            bind(
+                "a",
+                Dataset::new(DataKind::Reference, Some("a.fasta".into()), left),
+            ),
+            bind(
+                "b",
+                Dataset::new(DataKind::Reference, Some("b.fasta".into()), right),
+            ),
+        ],
+    );
+    let message = errors
+        .iter()
+        .find(|error| error.dimension() == Some(Dimension::Organism))
+        .unwrap_or_else(|| panic!("expected an organism error, got: {errors:#?}"))
+        .to_string();
+    assert!(
+        message.contains("a also lists HIV-2, and b also lists Homo sapiens."),
+        "{message}"
+    );
+}
+
+#[test]
+fn several_extra_organisms_on_one_side_read_as_an_english_list() {
+    let left = Dimensions {
+        organism: Dim::known(Organism::new("HIV-1"), Source::Declared),
+        ..Dimensions::default()
+    };
+    let right = Dimensions {
+        organism: Dim::known(
+            Organism::of(["HIV-1", "Homo sapiens", "Mus musculus"]),
+            Source::Declared,
+        ),
+        ..Dimensions::default()
+    };
+
+    let errors = check_step(
+        "report",
+        &[
+            bind(
+                "a",
+                Dataset::new(DataKind::Reference, Some("a.fasta".into()), left),
+            ),
+            bind(
+                "b",
+                Dataset::new(DataKind::Reference, Some("b.fasta".into()), right),
+            ),
+        ],
+    );
+    let message = errors
+        .iter()
+        .find(|error| error.dimension() == Some(Dimension::Organism))
+        .unwrap_or_else(|| panic!("expected an organism error, got: {errors:#?}"))
+        .to_string();
+    assert!(
+        message.contains("\n  b also lists Homo sapiens and Mus musculus.\n"),
+        "{message}"
+    );
+}

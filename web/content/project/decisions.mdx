@@ -937,3 +937,138 @@ reads them as unread. A ceiling computed from those would turn nearly every
 published expectation indeterminate, and the oracle would stop being an oracle.
 Teaching the fixtures to state their coverage is the prerequisite, and it is a
 change to the validation suite rather than to the engine.
+
+## D35 — A kind must bring a dimension that catches a documented silent failure
+
+The engine knows six kinds of data, and every request for a seventh arrives
+the same way: a project has files in a format Ligase does not know, and
+teaching it the format looks like a morning's work.
+
+A kind earns its place only if it brings a **dimension whose mismatch is a
+documented silent failure in real research** — not a conceivable one, but one
+somebody has published, or chased for a week, or had pointed out in review. A kind
+that is a file format with a schema is a **parser**, and Ligase does not need
+more parsers: the libraries that read those formats exist and are better at
+it than a side project will be.
+
+The cost a kind carries is not its loader. It is a canonical form, a row in
+the applicability matrix for every dimension, a share of the vocabulary every
+error message is written in, and all of that kept correct for as long as the
+engine exists. A kind that catches nothing spends it to make Ligase a worse
+version of a format library. So the answer to a kind that fails the test is
+**no**, however convenient it would be for one project — including this one.
+
+The rule also says something permissive that is easy to miss: a kind need not
+hold sequence. A curated gene list is a text file with one column, and the
+identifier space those genes are named in is as sharp a dimension as
+`coordinates` and more widely botched. What disqualifies a kind is bringing
+no dimension, not being unlike a BAM.
+
+## D36 — Release is its own dimension; Reference keeps its meaning
+
+Data that came from a versioned external resource — a ChEMBL version, an
+Ensembl release, an HGNC download date, a snapshot timestamp — wants a
+dimension, because two inputs built from different releases of one database
+are the hg19-against-hg38 failure in a different costume. The tempting place
+to put it is `reference`, generalised from "which genome build this is on" to
+"which pinned external version this is relative to". A ChEMBL version is a
+pinned external version. The phrase even fits.
+
+It is rejected, and the reason is the comparison rule rather than the
+phrasing. `reference` compares by **containment**
+([D10](#d10--references-relate-by-containment)): contig names, lengths and
+MD5s, with extra contigs in the reference allowed, because a VCF whose header
+lists only the contigs it has variants on is correct input. A database
+release has no contigs. There is nothing for one release to contain of
+another, and `ChEMBL 33` against `ChEMBL 34` is a mismatch outright —
+**equality**, with no subset case to make room for.
+
+The generalised dimension would therefore carry two comparison rules and pick
+between them by the kind of data it happened to be sitting on. That is the
+quiet complexity this engine exists to refuse: the same dimension passing
+`check()` under one rule and failing under the other, with no error message
+able to say which rule it applied or why. So `release` is a dimension of its
+own, meaning *which versioned external resource this data came from*, and
+`reference` keeps the meaning it had.
+
+### Two dimensions may share one rule
+
+The converse is not forbidden, and the implementation rests on it. One
+dimension may not carry two rules; two dimensions may share one.
+
+`release` and `subject` are both "one label, and a different label is a
+different thing", so they are one type. `organism` and `source_set` are both
+"which of these things is the data about", where order is noise and a missing
+member is the whole point, so they are the other. Four axes, two value types,
+and each rule written exactly once — which is the point, because a rule
+implemented twice is a rule that will eventually be implemented differently.
+
+What differs per dimension is the wording a user reads, and that lives on the
+leading question rather than on the value: the same set comparison asks "did
+you pass data from the wrong organism?" on one axis and "was a source added or
+removed upstream?" on the other.
+
+**The sharing is settled for `organism` and provisional for `source_set`.**
+The set type collapses members that differ only in ASCII case, keeping the
+first spelling. For Latin binomials that is exactly right. For what
+`source_set` will hold it is mixed: `GSE12345` and `gse12345` are the same
+study, but `s3://bucket/A.vcf` and `s3://bucket/a.vcf` are two different
+objects, and the second would be dropped without a word. Nothing can go wrong
+today, because no kind applies `source_set`. The right to split it into a type
+of its own, with its own equality, is reserved for the milestone that gives
+the dimension a kind, and the obligation is written into
+[M8](/project/milestones/#m8--identifiers),
+[M10](/project/milestones/#m10--remotes-and-replay) and
+[M12](/project/milestones/#m12--ranked-lists). Splitting it then is the
+decision recorded here being carried out, not reversed.
+
+## D37 — Organism is set-valued
+
+`organism` was a single string, which assumes a dataset is about one
+organism. A host–pathogen sample is not: plasma from a person with HIV-1
+holds the person's nucleic acid as well as the virus's, and the ordinary
+reference for it is a combined FASTA carrying both genomes. A metagenome is
+about many organisms. A xenograft is about two. A disease knowledge graph
+joins human genes to evidence from model organisms.
+
+Given one string, every one of those gets written down as whichever organism
+the *analysis* is about — the pathogen, the host — and the declaration is then
+true of the analysis and false of the data. Two such declarations agree with
+each other, so nothing objects, and a later step treats everything in the file
+as one organism's. That is the failure written up in
+[my pathogen results include host reads](/silent-failures/mixed-organism/).
+
+So `organism` is an ordered set, and a single organism is a set of one:
+`organism="HIV-1"` means what it always meant and renders as it always did.
+Comparison is **set equality** — the same members, in any order, each trimmed
+and compared without regard to case — because `["Homo sapiens", "HIV-1"]` and
+`["HIV-1", "Homo sapiens"]` are the same dataset, and the order somebody typed
+two names in is not a fact about the sample. Insertion order is kept so a
+message can echo what was written; it is not part of the identity.
+
+An unequal comparison then names the **symmetric difference** instead of only
+reporting that two sets differ: `ref also lists Homo sapiens.`, or, where each
+side holds something the other lacks, `aln also lists HIV-2, and ref also
+lists Homo sapiens.` The two value lines already state both sets in full; what
+they cannot do is point at the member that makes them unequal, and for a
+metagenome of a dozen organisms checked against one of eleven, that member is
+the only part worth reading.
+
+Naming the difference rather than choosing a reading of it is
+[D26](#d26--a-field-that-cannot-be-dropped-is-noticed-instead)'s habit: the
+engine says what it saw and leaves the rest to the person who knows the
+sample. There are three readings here and the engine cannot tell them apart —
+the narrow side may be declared too narrowly, the wide side too widely, or the
+two files may simply not belong together.
+
+**An empty list is a gap, not an empty set.** Two datasets that each declared
+no organism would otherwise *agree*, which is exactly the silence the
+dimension exists to break. So the Python loaders refuse a list naming no
+organism, and the core, which could raise but chooses not to (`load::reference`
+returns a `Result`, and an empty list is not among its errors), records the
+dimension as unknown with a reason rather than as a set of nothing.
+
+There is still no alias table. `["human"]` and `["Homo sapiens"]` are two
+different sets and are reported as a mismatch, because equating them means
+guessing, and a wrong guess passes `check()` silently. Declare one spelling
+and use it.
