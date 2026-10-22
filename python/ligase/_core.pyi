@@ -4,7 +4,7 @@ This surface is private. The public API is in `ligase/__init__.py`, which is
 where the docstrings and the exception hierarchy live.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import final
 
 class LoadError(Exception):
@@ -33,38 +33,39 @@ class Dataset:
 def version() -> str: ...
 def load_reference(
     path: str,
-    organism: str | None = None,
+    organism: str | Sequence[str] | None = None,
     build: str | None = None,
     frame: tuple[str, int] | None = None,
+    release: str | None = None,
 ) -> Dataset: ...
 def load_alignment(
     path: str,
-    organism: str | None = None,
+    organism: str | Sequence[str] | None = None,
     build: str | None = None,
     samples: list[str] | None = None,
 ) -> Dataset: ...
 def load_variants(
     path: str,
-    organism: str | None = None,
+    organism: str | Sequence[str] | None = None,
     build: str | None = None,
     samples: list[str] | None = None,
 ) -> Dataset: ...
 def load_reads(
     r1: str,
     r2: str | None = None,
-    organism: str | None = None,
+    organism: str | Sequence[str] | None = None,
     samples: list[str] | None = None,
 ) -> Dataset: ...
 def load_intervals(
     path: str,
     format: str | None = None,  # noqa: A002 - the file's format, not a builtin
-    organism: str | None = None,
+    organism: str | Sequence[str] | None = None,
     build: str | None = None,
 ) -> Dataset: ...
 def load_samples(
     paths: list[str],
     paired: bool,
-    organism: str | None = None,
+    organism: str | Sequence[str] | None = None,
 ) -> list[Dataset]: ...
 
 # One finding: (kind, step, dimension, scope, message). The dimension is
