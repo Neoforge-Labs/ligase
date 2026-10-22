@@ -8,6 +8,7 @@ const meta: MetaRecord = {
   'wrong-reference-build': 'My variant positions are wrong',
   'coordinate-systems': 'My intervals are off by one',
   'shuffled-samples': 'My sample labels look swapped',
+  'mixed-organism': 'My pathogen results include host reads',
   'reference-frame': 'My resistance report names the wrong gene',
   'contig-order': 'GATK rejects my sequence dictionary',
 }

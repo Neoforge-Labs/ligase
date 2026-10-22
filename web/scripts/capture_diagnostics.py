@@ -146,6 +146,20 @@ SCENARIOS: tuple[Scenario, ...] = (
             "aln": lg.alignment(fixture("tiny_bare.sam"), organism="test"),
         },
     ),
+    Scenario(
+        key="mixedOrganism",
+        step="call",
+        expect="DimensionError",
+        description=(
+            "A host-pathogen reference checked against a pathogen-only alignment."
+        ),
+        build=lambda lg: {
+            "aln": lg.alignment(fixture("tiny_bare.sam"), organism="HIV-1"),
+            "ref": lg.reference(
+                fixture("tiny_bare.fasta"), organism=["HIV-1", "Homo sapiens"]
+            ),
+        },
+    ),
 )
 
 
