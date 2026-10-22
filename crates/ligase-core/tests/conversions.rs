@@ -346,3 +346,151 @@ fn a_mapped_list_joins_the_list_it_was_mapped_to() {
         graph.check(&[scored])
     );
 }
+
+// ----------------------------------------------- mapping, in the engine --
+
+mod common;
+
+use common::fixture;
+use ligase::convert;
+use ligase::note::Note;
+use tempfile::TempDir;
+
+/// Map `entities_hgnc.tsv` through the committed table, into a temp file.
+fn mapped(entities: &str, column: &str) -> (TempDir, std::path::PathBuf, Vec<Note>) {
+    let directory = TempDir::new().unwrap();
+    let out = directory.path().join("mapped.tsv");
+    let notes = convert::map_identifiers(
+        &fixture(entities),
+        "id",
+        &fixture("map_hgnc_to_ensembl.tsv"),
+        "id",
+        column,
+        &out,
+    )
+    .unwrap();
+    (directory, out, notes)
+}
+
+#[test]
+fn mapping_rewrites_what_it_can_and_names_what_it_cannot() {
+    let (_kept, out, notes) = mapped("entities_hgnc.tsv", "ensembl_gene_id");
+    let written = std::fs::read_to_string(&out).unwrap();
+
+    // The header is the input's, and the attribute columns are carried.
+    assert!(written.starts_with("id\tlog2fc\n"), "{written}");
+    assert!(written.contains("ENSG00000141510\t2.4"), "{written}");
+    assert!(written.contains("ENSG00000012048\t-1.8"), "{written}");
+
+    // TP53 and BRCA1 crossed. SEPT7 is in no row of the table, and NKX2-1
+    // is in two, so neither is in the output under any name.
+    assert!(!written.contains("TP53"), "{written}");
+    assert!(!written.contains("SEPT7"), "{written}");
+    assert!(!written.contains("NKX2-1"), "{written}");
+
+    let said: Vec<String> = notes.iter().map(ToString::to_string).collect();
+    assert!(
+        notes.iter().any(|note| matches!(
+            note,
+            Note::IdentifierUnmapped { identifier } if identifier == "SEPT7"
+        )),
+        "{said:?}"
+    );
+    assert!(
+        notes.iter().any(|note| matches!(
+            note,
+            Note::IdentifierAmbiguous { identifier } if identifier == "NKX2-1"
+        )),
+        "{said:?}"
+    );
+    assert_eq!(notes.len(), 2, "{said:?}");
+}
+
+#[test]
+fn a_one_to_many_mapping_does_not_quietly_make_the_set_bigger() {
+    // NKX2-1 has two Ensembl genes in the table. Emitting both would change
+    // the set's cardinality without a word; picking one would be a guess.
+    let (_kept, out, _notes) = mapped("entities_hgnc.tsv", "ensembl_gene_id");
+    let rows = std::fs::read_to_string(&out).unwrap().lines().count();
+    assert_eq!(
+        rows, 3,
+        "a header and the two identifiers that crossed once"
+    );
+}
+
+#[test]
+fn a_carriage_return_does_not_stop_an_identifier_being_found() {
+    // The same list, written by Excel. Its TP53 must still cross.
+    let (_kept, out, _notes) = mapped("entities_crlf.tsv", "ensembl_gene_id");
+    let written = std::fs::read_to_string(&out).unwrap();
+    assert!(written.contains("ENSG00000141510"), "{written}");
+}
+
+#[test]
+fn mapping_a_column_onto_itself_is_refused() {
+    // It would map every identifier to itself and then declare a space the
+    // identifiers are not in: the implicit rename D38 forbids.
+    let directory = TempDir::new().unwrap();
+    let error = convert::map_identifiers(
+        &fixture("entities_hgnc.tsv"),
+        "id",
+        &fixture("map_hgnc_to_ensembl.tsv"),
+        "id",
+        "id",
+        &directory.path().join("mapped.tsv"),
+    )
+    .unwrap_err();
+    assert!(error.contains("own identifier column"), "{error}");
+}
+
+#[test]
+fn a_mapping_table_with_no_such_column_says_which_columns_it_has() {
+    let directory = TempDir::new().unwrap();
+    let error = convert::map_identifiers(
+        &fixture("entities_hgnc.tsv"),
+        "id",
+        &fixture("map_hgnc_to_ensembl.tsv"),
+        "id",
+        "entrez_id",
+        &directory.path().join("mapped.tsv"),
+    )
+    .unwrap_err();
+    assert!(error.contains("entrez_id"), "{error}");
+    assert!(error.contains("ensembl_gene_id"), "{error}");
+}
+
+#[test]
+fn a_list_with_no_identifier_column_is_refused() {
+    let directory = TempDir::new().unwrap();
+    let error = convert::map_identifiers(
+        &fixture("entities_hgnc.tsv"),
+        "symbol",
+        &fixture("map_hgnc_to_ensembl.tsv"),
+        "id",
+        "ensembl_gene_id",
+        &directory.path().join("mapped.tsv"),
+    )
+    .unwrap_err();
+    assert!(error.contains("symbol"), "{error}");
+}
+
+#[test]
+fn a_mapped_list_is_in_the_space_it_was_mapped_to() {
+    // The output is not merely smaller: every identifier in it now resolves
+    // to the target space, which is what makes the output's declaration of
+    // that space true rather than asserted.
+    use ligase::dim::KnownNamespace;
+
+    let (_kept, out, _notes) = mapped("entities_hgnc.tsv", "ensembl_gene_id");
+    let written = std::fs::read_to_string(&out).unwrap();
+    let identifiers: Vec<&str> = written
+        .lines()
+        .skip(1)
+        .filter_map(|line| line.split('\t').next())
+        .collect();
+    assert!(!identifiers.is_empty());
+    assert_eq!(
+        KnownNamespace::infer(identifiers).map(KnownNamespace::name),
+        Some("Ensembl gene")
+    );
+}
