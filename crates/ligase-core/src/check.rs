@@ -50,6 +50,9 @@ pub enum ErrorKind {
     ContigNaming,
     /// The same contigs in a different order.
     ContigOrder,
+    /// A reference is not numbered along the frame a step's own coordinates
+    /// are stated in.
+    ReferenceFrame,
     /// A dimension the step requires is unknown.
     Undeclared,
     /// A step was handed a kind of data it does not declare.
@@ -64,6 +67,7 @@ impl ErrorKind {
             Self::Dimension => "DimensionError",
             Self::ContigNaming => "ContigNamingError",
             Self::ContigOrder => "ContigOrderError",
+            Self::ReferenceFrame => "ReferenceFrameError",
             Self::Undeclared => "UndeclaredDimensionError",
             Self::StepType => "StepTypeError",
         }
@@ -76,6 +80,7 @@ impl ErrorKind {
             Self::Dimension => "dimension",
             Self::ContigNaming => "contig_naming",
             Self::ContigOrder => "contig_order",
+            Self::ReferenceFrame => "reference_frame",
             Self::Undeclared => "undeclared",
             Self::StepType => "step_type",
         }
@@ -768,6 +773,34 @@ pub fn undeclared_at(
         conclusion: format!(
             "`{step}` needs {dimension} to agree. Declare it where you load the data."
         ),
+    }
+}
+
+/// A reference that is not numbered along the frame a step requires.
+///
+/// Built here rather than where the frame is known, so that this reads like
+/// every other finding: both values, where each came from, then what to do.
+/// The engine's own side has no file to have come from, so it says so.
+#[must_use]
+pub fn reference_frame(
+    step: &str,
+    binding: &Binding,
+    expected: &str,
+    detail: String,
+    conclusion: String,
+) -> CheckError {
+    CheckError {
+        kind: ErrorKind::ReferenceFrame,
+        step: step.to_owned(),
+        node: None,
+        scope: None,
+        dimension: Some(Dimension::Reference),
+        lines: vec![
+            value_line(binding, Dimension::Reference, None),
+            format!("{step} reads positions in {expected} (built into this engine)"),
+        ],
+        detail: Some(detail),
+        conclusion,
     }
 }
 

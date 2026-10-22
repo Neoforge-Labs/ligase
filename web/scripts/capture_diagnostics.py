@@ -15,6 +15,12 @@ The inputs are the committed test fixtures, by their real paths, so the file
 names in the captured output are the ones a reader can go and look at. The
 reference-build scenario declares `build=` names, which is how a real pipeline
 names a build the file headers cannot identify on their own.
+
+Most scenarios are one step's inputs disagreeing with each other, which
+`lg.dimension_errors` finds on its own. One is not: a reference in the wrong
+coordinate frame disagrees with what the *step* reads, which is known from
+its return annotation rather than from any input, so that scenario is checked
+as a whole pipeline (`pipeline=True`).
 """
 
 from __future__ import annotations
@@ -46,6 +52,13 @@ class Scenario:
     """Returns the step's named inputs, given the `ligase` module."""
     description: str
     """What this demonstrates, for the generated file's comments."""
+    pipeline: bool = False
+    """Check a whole one-step pipeline rather than the inputs alone.
+
+    For a disagreement between an input and what the step itself reads,
+    which `dimension_errors` cannot see: it compares inputs, and a step's
+    own coordinate frame comes from its return annotation.
+    """
 
 
 def fixture(name: str) -> str:
@@ -110,6 +123,20 @@ SCENARIOS: tuple[Scenario, ...] = (
         },
     ),
     Scenario(
+        key="referenceFrame",
+        step="resistance",
+        expect="ReferenceFrameError",
+        pipeline=True,
+        description=(
+            "A pol-relative reference against gene windows stated in whole-genome "
+            "K03455 coordinates."
+        ),
+        build=lambda lg: {
+            "v": lg.variants(fixture("hivdb_pol.vcf"), organism="HIV-1"),
+            "ref": lg.reference(fixture("hivdb_pol.fasta"), organism="HIV-1"),
+        },
+    ),
+    Scenario(
         key="contigOrder",
         step="call",
         expect="ContigOrderError",
@@ -122,9 +149,46 @@ SCENARIOS: tuple[Scenario, ...] = (
 )
 
 
+def pipeline_errors(lg: Any, scenario: Scenario) -> list[Any]:
+    """Check a one-step pipeline built from the scenario's inputs.
+
+    A step's own coordinate frame comes from what it is annotated to
+    return, so a reference in the wrong frame is only a disagreement once
+    there is a step to disagree with. `CheckError.errors` carries every
+    problem the check found, so the one-diagnostic rule below still bites.
+    """
+    from ligase import types
+
+    def resistance(v: Any, ref: Any) -> Any:
+        """Interpret variants as drug resistance."""
+        return lg.hivdb.interpret(v, ref)
+
+    # Set as objects rather than written as annotations: this module uses
+    # `from __future__ import annotations`, so a written annotation is a
+    # string resolved against the module's globals, and `ligase` is
+    # imported inside a function here so that a missing extension gets the
+    # explanation in `main` rather than an ImportError at import time.
+    resistance.__annotations__ = {
+        "v": types.Variants,
+        "ref": types.Reference,
+        "return": types.ResistanceReport,
+    }
+
+    pipe = lg.Pipeline(lg.step(tool="hivdb")(resistance)(**scenario.build(lg)))
+    try:
+        pipe.check()
+    except lg.CheckError as error:
+        return list(error.errors)
+    return []
+
+
 def capture(lg: Any, scenario: Scenario) -> str:
     """Run one scenario and return the engine's text, or exit with why not."""
-    errors = lg.dimension_errors(scenario.step, scenario.build(lg))
+    errors = (
+        pipeline_errors(lg, scenario)
+        if scenario.pipeline
+        else lg.dimension_errors(scenario.step, scenario.build(lg))
+    )
 
     if not errors:
         raise SystemExit(

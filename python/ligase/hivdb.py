@@ -47,6 +47,29 @@ at all can write the same bytes. So the step hands them back to the engine,
 which says them wherever it says what a run did -- the run report, the
 step's `notes` on `pipe.run()`, provenance, a reproducibility bundle and
 the methods section (D32).
+
+## Why the reference has to be in the engine's own frame
+
+The gene windows are positions in HXB2 K03455 counted from the first base
+of the genome, and they are built into the engine. A pol-relative
+reference -- the obvious thing to have when the amplicon is pol -- is a
+slice of K03455 starting at 2085, so every position in it is 2084 lower
+than the window means, and the window named protease lands in integrase.
+
+That used to be read without complaint and reported as
+protease-inhibitor resistance. It is now a `ReferenceFrameError`, raised
+by `check()` before anything runs where the pipeline declared a frame, and
+by this function otherwise.
+
+## Why a gene barely read is not assessed
+
+A few unread codons a report survives honestly: the rules that name them
+go undetermined, the score is a floor and the unread positions are listed.
+A gene mostly *unread* it does not. Nothing there refutes resistance and
+nothing shows it, so every drug lands at zero, which the algorithm's own
+ranges read as susceptible -- a clean clinical negative from a gene the run
+never covered. So a gene read below `gene_coverage` of its codons is
+reported as not assessed, which is what it is.
 """
 
 from __future__ import annotations
@@ -54,6 +77,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from . import _core
+from .errors import ReferenceFrameError
 from .recipes import write
 
 if TYPE_CHECKING:
@@ -62,7 +86,15 @@ if TYPE_CHECKING:
     from .recipes import Noticed
     from .types import Alignment, Reference, ResistanceReport, Variants
 
-__all__ = ["ALGORITHMS", "DEFAULT", "fingerprint", "interpret"]
+__all__ = [
+    "ALGORITHMS",
+    "DEFAULT",
+    "DEPTH",
+    "GENE_COVERAGE",
+    "MIXTURE",
+    "fingerprint",
+    "interpret",
+]
 
 #: Every resistance algorithm the engine ships, newest first.
 ALGORITHMS: tuple[str, ...] = tuple(_core.resistance_algorithms())
@@ -82,6 +114,15 @@ MIXTURE: float = 0.15
 
 #: What depth a position must reach to count as read at all.
 DEPTH: int = 100
+
+#: What share of a gene's codons must be read for the gene to be assessed.
+#:
+#: A policy, not a fact, which is why it is a parameter: how much of a gene
+#: a surveillance programme will call susceptible on is its own decision,
+#: and a judgement belongs in a cache key rather than in a constant nobody
+#: can see. Four fifths by default, because the failure it guards against
+#: is a susceptible call made from a gene that was largely not sequenced.
+GENE_COVERAGE: float = 0.8
 
 
 def fingerprint() -> str:
@@ -107,6 +148,7 @@ def interpret(
     algorithm: str = DEFAULT,
     mixture: float = MIXTURE,
     depth: int = DEPTH,
+    gene_coverage: float = GENE_COVERAGE,
 ) -> ResistanceReport:
     """Score a sample's variants against a vendored resistance algorithm.
 
@@ -135,6 +177,11 @@ def interpret(
         depth: The depth a position must reach to count as read. A codon
             whose bases do not all reach it is reported as unread rather
             than as reference.
+        gene_coverage: The share of a gene's codons that must be read for
+            the gene to be assessed at all. A gene below it is reported as not
+            assessed rather than scored against the little that was seen,
+            because a gene mostly unread scores zero, and zero reads as
+            susceptible.
 
     Returns:
         A recipe, typed as the report the step declares.
@@ -142,6 +189,10 @@ def interpret(
     Raises:
         ValueError: If `algorithm` is not one the engine ships. The error
             names the ones it does.
+        ReferenceFrameError: When the recipe runs, if `reference` cannot be
+            the frame the gene windows are stated in. A pipeline is refused
+            earlier than this, by `check()`, where the reference's declared
+            frame is known.
     """
     if algorithm not in ALGORITHMS:
         raise ValueError(
@@ -156,14 +207,22 @@ def interpret(
         hedge dropped here is a hedge with a clinical direction that
         nobody is ever told about.
         """
-        return _core.interpret_resistance(
-            reference.file,
-            variants.file,
-            str(out),
-            None if coverage is None else coverage.file,
-            algorithm,
-            mixture,
-            depth,
-        )
+        try:
+            return _core.interpret_resistance(
+                reference.file,
+                variants.file,
+                str(out),
+                None if coverage is None else coverage.file,
+                algorithm,
+                mixture,
+                depth,
+                gene_coverage,
+            )
+        except _core.FrameError as error:
+            # Named here rather than in the engine: the hierarchy is what
+            # Python code catches on, and this belongs beside the other
+            # disagreements about data. No step to name -- a check that ran
+            # before this would have said which.
+            raise ReferenceFrameError(str(error), dimension="reference") from error
 
     return write(produce)

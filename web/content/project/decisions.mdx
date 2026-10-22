@@ -828,3 +828,112 @@ What this does not do is make a shell step able to hedge. A command cannot
 be asked what it assumed, so a step that shells out has to say it in the
 file it writes. That is a limit of the mechanism and not a decision
 against it.
+
+## D33 — The frame a reference is numbered along is declared, not guessed
+
+`codon::GENES` states the HIV-1 coding regions as nucleotide ranges — protease
+is 2253..2549 — and those numbers mean nothing on their own. They are positions
+in HXB2 K03455, counted from the first base of the genome. Nothing checked that
+the reference handed to a reading was numbered that way.
+
+A *pol*-relative reference is the obvious thing to have when the amplicon is
+*pol*: K03455 2085..5096, so every position in it is 2084 lower. Handed one, the
+engine read what is really integrase as protease and reported intermediate
+protease-inhibitor resistance, with no error and no note
+([SAWA's evaluation](/project/in-use/sawa/) found it). That is the class of bug
+this project exists to prevent, so finding it here settles what the fix has to
+be: loud, and before any compute.
+
+**A reference now carries the frame its positions are numbered along**, as part
+of its identity — a name and the base of that frame its own base 1 is. A step
+annotated `-> ResistanceReport` has said in its signature what it reads, so the
+graph compares the two and refuses a reference that is not that frame.
+
+### Why the frame is declared and never inferred
+
+It cannot be read out of a file. A 3,012-base slice of K03455 and a 3,012-base
+genome of something else are identical from the outside — same kind of defline,
+same kind of bases, no record anywhere of where base 1 sits in anything else.
+
+One case is an exception and it is the common one: a reference whose single
+contig is **9,719 bases** is whole-genome K03455, or something deliberately
+numbered along it, and needs no declaration. Length is the one fact the gene
+windows actually depend on. Checksum equality would have been stricter and
+wrong, because it would refuse an HXB2-coordinate consensus of another subtype,
+which is a legitimate thing to interpret against.
+
+Everything else is asked about rather than guessed at. The reference demo
+declares nothing and is unaffected.
+
+### Why this is not the `coordinates` dimension
+
+[D9](#d9--coordinates-are-semantics-not-encoding) keeps `coordinates` to
+semantics: whether a position is counted from zero or from one. A frame is one
+axis further out — what a position is counted *along* — and folding the two
+together would make one dimension answer two questions.
+
+Nor is it an eighth dimension. Dimension checking is pairwise: two inputs that
+both state a value must agree, and a value is *required* only where a step joins
+two inputs on it. Only a reference can state a frame, so an eighth axis would
+have had nothing to be compared against and would never have fired. Reference
+identity is where it belongs, and it is what the task asked for in the first
+place: a frame is part of what makes two references the same reference.
+
+### Why a declared slice is refused rather than shifted
+
+Once a reference says it starts at K03455 2085, the engine knows the offset and
+could add 2084 to every window. It does not. Shifting coordinates is a
+*conversion*, and conversions are typed functions in a conversion graph —
+[D8](#d8--out-of-scope-for-v01) puts auto-fixing out of
+v0.1's scope, and doing it here would be auto-fixing by another name. The error
+names the offset and the padding that fixes it instead.
+
+### What this does not catch
+
+A declaration is taken at its word, because there is nothing in a FASTA to check
+it against. A *pol*-relative reference declared as a whole genome passes the
+check. The reading is the floor under that: the windows reach base 5093, and a
+file that does not is refused when it is read, which is late but not silent.
+
+## D34 — A gene barely read is not assessed
+
+[D29](#d29--an-interpretation-never-invents-a-susceptible-result) says an
+interpretation never invents a susceptible result, and the report already
+honours that per *position*: an unread position makes every rule naming it
+undetermined, the score is a floor, and the unread positions are listed.
+
+What that does not survive is a gene mostly **unread**. Nothing there refutes
+resistance and nothing there shows it, so every drug scored against the gene
+lands at zero — which the algorithm's own global range reads as level 1,
+Susceptible. A clean clinical negative, from a gene the run never covered.
+SAWA saw it: a sequence covering 32% of integrase came back as five susceptible
+integrase inhibitors, where Stanford's service declines to report the gene.
+
+So a gene read below `gene_coverage` of its codons is left out of the reading,
+which makes its drugs *not assessed* — the same state as a gene the pipeline
+never supplied, which is what it effectively is. The reading says which gene,
+how much it read and how much it needed, as a
+[note](/project/architecture/notes/) the engine carries into the run report,
+provenance, a bundle and the methods section (D32).
+
+**Four fifths by default, and a parameter.** How much of a gene a surveillance
+programme is willing to call susceptible on is its own decision, and a
+judgement belongs in a cache key rather than in a constant nobody can see —
+the same reasoning as `mixture` and `depth`.
+
+### The sharper rule, and why it is not here yet
+
+The exact question is not what share of a gene was read but whether the
+positions *this drug's rules* name were read, and if not, whether what was
+missed could change the level. The engine has the floor already; comparing it
+against the ceiling the unread positions allow would let a drug report
+"indeterminate" rather than a level, with no threshold at all.
+
+It is deferred because it would have to live in the scoring layer, and the
+scoring layer is pinned to 3,348 published Stanford expectations whose fixtures
+name only the positions that differ from consensus B. Every other position was
+sequenced and found wild-type, but the fixture does not say so, so the engine
+reads them as unread. A ceiling computed from those would turn nearly every
+published expectation indeterminate, and the oracle would stop being an oracle.
+Teaching the fixtures to state their coverage is the prerequisite, and it is a
+change to the validation suite rather than to the engine.

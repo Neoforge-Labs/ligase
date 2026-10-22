@@ -97,9 +97,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Pages for the failures Ligase exists to catch**, titled after the symptom
   somebody would search for rather than the feature that catches it: a BED
   file that intersects nothing, variant positions that are wrong, intervals
-  off by one, sample labels that look swapped, and a sequence dictionary GATK
-  rejects. Each states the bug, says why nothing crashed, and then shows the
-  engine's real diagnostic.
+  off by one, sample labels that look swapped, a resistance report that names
+  the wrong gene, and a sequence dictionary GATK rejects. Each states the bug,
+  says why nothing crashed, and then shows the engine's real diagnostic. The
+  resistance one is the only hazard on the list that was found in this engine
+  rather than collected from the literature.
 - **`web/scripts/capture_diagnostics.py`**, which captures those diagnostics
   from a live run on every docs build rather than letting them be pasted in.
   It fails the build if the engine stops producing the error a page claims it
@@ -124,6 +126,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Case pages for what has actually been run**: the HIV-1 validation as a
   worked case, and a note that SAWA is evaluating Ligase for drug-resistance
   surveillance. Both say plainly that the project has no outside users.
+- **A reference carries the coordinate frame it is numbered along.**
+  `lg.reference(..., frame=("K03455", 2085))` declares that base 1 of a file
+  is base 2085 of K03455, which is what a pol-relative reference is. It is
+  declared because no FASTA records it, and a whole genome needs no
+  declaration because its length identifies it.
+- **A gene read too thinly is reported as not assessed**, rather than scored
+  against the little that was seen. A `gene_coverage` parameter on
+  `lg.hivdb.interpret` says how much of a gene must be read, four fifths by
+  default.
 - **Example notebooks**, four [marimo](https://marimo.io) notebooks from
   dimensions and their provenance, through an error caught before compute and
   a fanned-out graph that has not run, to resistance interpretation and why
@@ -326,6 +337,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The errors reference showed a `ReferenceFrameError` nobody had run.** It
+  was pasted in and hand-wrapped, and it named a fixture file
+  (`hxb2_pol.fasta`) that does not exist, so a reader could not go and look at
+  the input that produced it. It is captured from a live run now, by
+  `web/scripts/capture_diagnostics.py`, against a committed *pol*-relative
+  fixture — which means the docs build fails if the engine stops producing
+  that error. Capturing it needed the script to be able to check a whole
+  one-step pipeline, because a frame mismatch is a disagreement between an
+  input and what the *step* reads, not between two inputs.
+- **A pol-relative reference is refused rather than read as protease.** The
+  HIV-1 gene windows are positions in HXB2 K03455 counted from the first
+  base of the genome, and nothing checked that the reference handed to
+  `lg.hivdb.interpret` was in that frame. Handed a pol-relative reference —
+  K03455 2085..5096, so every position 2084 lower — the engine read what is
+  really integrase as protease and reported intermediate
+  protease-inhibitor resistance, with no error and no note. It is now a
+  `ReferenceFrameError`, a `DimensionError` like every other disagreement
+  about data, raised by `check()` before any compute and by the reading
+  itself for a caller who arrives without a pipeline. Found by SAWA, and it
+  is exactly the class of bug Ligase exists to prevent.
+- **A gene barely covered no longer reports as susceptible.** A gene read in
+  part refutes nothing and shows nothing, so every drug scored against it
+  landed at zero, which the algorithm's ranges read as susceptible — a clean
+  clinical negative from a gene the run never covered. SAWA saw a sequence
+  with 32% of integrase report all five integrase inhibitors susceptible.
+
+- **Three pages still said nine discrepancies at 2%.** The count dropped to
+  three when codons started being read from the reads spanning them (D31),
+  and the validation page was corrected with it. The home page's figure and
+  the HIV-1 resistance page under `project/in-use/` were written for this
+  site rather than ported to it, so the change that corrected the Markdown
+  never reached them, and the site said both numbers at once. The home page
+  also cited the validation page at the path it had before the docs switch.
+- `demo'''s` on the milestones page, which the MkDocs page it was ported
+  from had too.
 - **Six of the nine validation discrepancies at the 2% threshold.** They
   were all one cause, the phasing a VCF cannot carry: five NRTI rows on
   Sample 3 reading `K219KEGR` for `K219KE`, and Sample 4's lenacapavir row

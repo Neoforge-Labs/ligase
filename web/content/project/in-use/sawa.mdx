@@ -13,10 +13,12 @@ is not an independent third party — it shares an author with Ligase.
 </Lede>
 
 It is on this page for one reason: somebody tried to use Ligase for real work
-and immediately hit a way in which Ligase is silently wrong. That is worth more
-than a feature list, and burying it would be the wrong instinct.
+and immediately hit a way in which Ligase was silently wrong. That is worth more
+than a feature list, and burying it would be the wrong instinct. The defect
+below is fixed; the account of it stays, because what a project does when it is
+caught being wrong is the more useful thing to read.
 
-## What it found: *pol*-relative coordinates are read as whole-genome ones
+## What it found: *pol*-relative coordinates were read as whole-genome ones
 
 Ligase's `lg.hivdb.interpret` expects positions in **HXB2 K03455 whole-genome
 coordinates**, with the gene windows for protease, reverse transcriptase and
@@ -25,23 +27,36 @@ integrase fixed in the engine.
 SAWA's sequences are *pol*-relative. Its reference spans K03455 2085–5096, so
 every position carries an offset of 2084.
 
-Hand Ligase a *pol*-relative reference and it does not complain. It reads what
-is actually reverse transcriptase and integrase as though it were protease, and
-reports **intermediate protease-inhibitor resistance** — a clinically
+Handed a *pol*-relative reference, Ligase did not complain. It read what is
+actually reverse transcriptase and integrase as though it were protease, and
+reported **intermediate protease-inhibitor resistance** — a clinically
 meaningful, entirely wrong result, with no error and no warning.
 
 This is exactly the class of bug the rest of this site is about, in Ligase
 itself. A coordinate system that the data does not state, assumed by a
 consumer, with plausible output when the assumption is wrong.
 
-<Note kind="warning" title="If you are using lg.hivdb.interpret">
-Supply whole-genome HXB2 coordinates. A *pol*-only reference must be padded to
-its true offset and named for the accession — `"N" * 2084 + hxb2_pol`, named
-`K03455` — or the gene windows land on the wrong genes.
+### What was done about it
 
-This is a real sharp edge in v0.1 and not yet guarded by the type system. The
-`coordinates` dimension distinguishes 0-based from 1-based conventions; it does
-not yet carry a reference-relative origin, which is what would have caught this.
+A reference now carries **the coordinate frame its positions are numbered
+along**, as part of its identity, and the resistance step states the frame its
+gene windows are positions in. The two are compared before any compute, and a
+reference that is not that frame — or that cannot be shown to be — is a
+[`ReferenceFrameError`](/reference/errors/#referenceframeerror) rather than a
+report. [D33](/project/decisions/#d33--the-frame-a-reference-is-numbered-along-is-declared-not-guessed)
+argues the design, including why the frame is declared rather than inferred.
+
+<Note kind="info" title="If you are using lg.hivdb.interpret">
+A whole-genome HXB2 reference needs nothing: 9,719 bases identifies it. A
+*pol*-only reference is padded to its true offset and declared —
+
+```python
+ref = lg.reference("hxb2_padded.fasta", organism="HIV-1", frame=("K03455", 1))
+```
+
+— where `hxb2_padded.fasta` is `"N" * 2084 + hxb2_pol`. The padding reads as
+unsequenced, so capsid comes back *not assessed* rather than susceptible, which
+is the honest answer for a *pol* amplicon.
 </Note>
 
 ## Other findings so far
@@ -51,12 +66,15 @@ B.** Scoring HXB2 against itself produces a name like `N232N` — a position
 called as itself — with a score that agrees with Stanford while the name does
 not. Sierra emits no such names.
 
-**Absent positions read as wild type.** Where a sequence does not cover a gene,
-Ligase scores that gene as susceptible rather than declining to assess it. For
-partial sequences this produces false *susceptible* calls, which is the
-dangerous direction for a resistance report. The pipeline's own reference demo
-does not hit this because it supplies an alignment and has coverage; a consumer
-passing a bare VCF can.
+**A barely-covered gene read as susceptible.** Where a sequence covered only
+part of a gene, Ligase scored the gene anyway. A gene read in part refutes
+nothing and shows nothing, so every drug landed at zero, which the algorithm's
+own ranges read as susceptible: SAWA saw a sequence covering 32% of integrase
+reported as five susceptible integrase inhibitors, where Stanford's own service
+declines to report the gene. This was the dangerous direction for a resistance
+report, and it is fixed — a gene read below a stated share of its codons is now
+reported as *not assessed*
+([D34](/project/decisions/#d34--a-gene-barely-read-is-not-assessed)).
 
 **The input shape is the fit problem, not the scoring.** `lg.hivdb.interpret`
 takes a VCF plus a reference FASTA, optionally with a BAM for coverage. SAWA

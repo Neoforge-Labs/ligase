@@ -10,6 +10,14 @@ from typing import final
 class LoadError(Exception):
     """A file could not be read or did not parse as the expected format."""
 
+class FrameError(ValueError):
+    """A reference is not numbered along the frame a step's coordinates mean.
+
+    Private plumbing: `ligase.hivdb.interpret` turns this into the public
+    `ReferenceFrameError`, which is a `DimensionError` like every other
+    disagreement about data.
+    """
+
 @final
 class Dataset:
     @property
@@ -27,6 +35,7 @@ def load_reference(
     path: str,
     organism: str | None = None,
     build: str | None = None,
+    frame: tuple[str, int] | None = None,
 ) -> Dataset: ...
 def load_alignment(
     path: str,
@@ -78,6 +87,7 @@ def interpret_resistance(
     algorithm: str | None = None,
     mixture: float | None = None,
     depth: int | None = None,
+    gene_coverage: float | None = None,
 ) -> list[tuple[str, str]]: ...
 def resistance_algorithms() -> list[str]: ...
 def default_resistance_algorithm() -> str: ...

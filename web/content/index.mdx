@@ -106,12 +106,15 @@ compared against the Stanford HIVdb results published by the HIVGenoPipe study.
   <Stat value="81 / 81" label="Drug calls agreeing at a 15% threshold" note="tests/test_validation.py" tone="agree" />
   <Stat value="81 / 81" label="Drug calls agreeing at a 5% threshold" note="tests/test_validation.py" tone="agree" />
   <Stat value="3,348" label="Scoring expectations reproduced exactly" note="Sierra 3.5.3, HIVDB 9.8" tone="agree" />
-  <Stat value="9" label="Calls differing at 2%, each with a recorded cause" note="concepts/validation" tone="notice" />
+  <Stat value="3" label="Calls differing at 2%, each with a recorded cause" note="project/validation" tone="notice" />
 </Stats>
 
 The scoring engine is checked against Stanford's own answers rather than against
 expectations derived from the same rules it reads, because that would test the parser
-against itself. [What was compared, and what did not agree](/project/validation/).
+against itself. Three calls differ at the 2% threshold, where there were nine: six
+were codons read from a VCF, which carries no phasing, and went when codons started
+being read from the haplotypes the reads carry.
+[What was compared, and what did not agree](/project/validation/).
 
 </Band>
 
@@ -136,8 +139,9 @@ v0.1.0 is on [crates.io](https://crates.io/crates/ligase) as `ligase` and on
 are done. It is **pre-alpha**: the API will change, and there are no outside users yet.
 
 [SAWA](/project/in-use/sawa/), a sibling project, is evaluating it for HIV drug-resistance
-surveillance. That evaluation has already turned up a silent coordinate hazard in *pol*
-numbering, which is written up rather than buried. Its agreement figures are SAWA's to
-publish, not this project's.
+surveillance. That evaluation turned up a silent coordinate hazard in *pol* numbering —
+written up rather than buried, and since fixed: a reference now carries the frame its
+positions are numbered along, and one in the wrong frame is refused before any compute.
+SAWA's agreement figures are theirs to publish, not this project's.
 
 </Band>

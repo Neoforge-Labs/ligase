@@ -271,6 +271,13 @@ create_exception!(
     "A file could not be read or did not parse as the expected format."
 );
 
+create_exception!(
+    _core,
+    FrameError,
+    PyValueError,
+    "A reference is not numbered along the frame a step's coordinates mean."
+);
+
 fn to_py(error: CoreLoadError) -> PyErr {
     LoadError::new_err(error.to_string())
 }
@@ -366,7 +373,11 @@ impl PyDataset {
 /// report, provenance, a bundle and the methods section (D32). Empty only
 /// for a reading with an alignment, full coverage and every codon phased.
 #[pyfunction]
-#[pyo3(signature = (reference, variants, out, alignment=None, algorithm=None, mixture=None, depth=None))]
+#[pyo3(signature = (reference, variants, out, alignment=None, algorithm=None, mixture=None, depth=None, gene_coverage=None))]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each is a separately documented judgement that belongs in the cache key; bundling them would hide them from the Python signature this mirrors"
+)]
 fn interpret_resistance(
     reference: PathBuf,
     variants: PathBuf,
@@ -375,6 +386,7 @@ fn interpret_resistance(
     algorithm: Option<String>,
     mixture: Option<f64>,
     depth: Option<u32>,
+    gene_coverage: Option<f64>,
 ) -> PyResult<Vec<(String, String)>> {
     hivdb::write_report(
         &reference,
@@ -383,6 +395,7 @@ fn interpret_resistance(
         algorithm.as_deref().unwrap_or(hivdb::ruleset::DEFAULT),
         mixture.unwrap_or(hivdb::codon::MIXTURE),
         depth.unwrap_or(hivdb::codon::DEPTH),
+        gene_coverage.unwrap_or(hivdb::codon::GENE_COVERAGE),
         &out,
     )
     .map(|notes| {
@@ -391,7 +404,12 @@ fn interpret_resistance(
             .map(|note| (note.code().to_owned(), note.value()))
             .collect()
     })
-    .map_err(PyValueError::new_err)
+    .map_err(|error| match error {
+        // Distinct because the fix is distinct: not a different file, but
+        // the same sequence put back where its numbers mean what they say.
+        hivdb::ReportError::Frame(detail) => FrameError::new_err(detail),
+        hivdb::ReportError::Other(detail) => PyValueError::new_err(detail),
+    })
 }
 
 /// Every resistance algorithm this engine ships, newest first.
@@ -419,15 +437,17 @@ fn resistance_fingerprint() -> PyResult<String> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (path, organism=None, build=None))]
+#[pyo3(signature = (path, organism=None, build=None, frame=None))]
 fn load_reference(
     path: PathBuf,
     organism: Option<String>,
     build: Option<String>,
+    frame: Option<(String, u64)>,
 ) -> PyResult<PyDataset> {
     let declared = Declared {
         organism,
         build,
+        frame,
         samples: None,
     };
     load::reference(&path, &declared)
@@ -446,6 +466,7 @@ fn load_alignment(
     let declared = Declared {
         organism,
         build,
+        frame: None,
         samples,
     };
     load::alignment(&path, &declared)
@@ -464,6 +485,7 @@ fn load_variants(
     let declared = Declared {
         organism,
         build,
+        frame: None,
         samples,
     };
     load::variants(&path, &declared)
@@ -483,6 +505,7 @@ fn load_reads(
         organism,
         build: None,
         samples,
+        frame: None,
     };
     load::reads(&r1, r2.as_deref(), &declared)
         .map(|inner| PyDataset { inner })
@@ -508,6 +531,7 @@ fn load_intervals(
     let declared = Declared {
         organism,
         build,
+        frame: None,
         samples: None,
     };
     load::intervals(&path, format, &declared)
@@ -526,6 +550,7 @@ fn load_samples(
         organism,
         build: None,
         samples: None,
+        frame: None,
     };
     load::samples(&paths, paired, &declared)
         .map(|datasets| {
@@ -1047,5 +1072,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDataset>()?;
     m.add_class::<PyGraph>()?;
     m.add("LoadError", m.py().get_type::<LoadError>())?;
+    m.add("FrameError", m.py().get_type::<FrameError>())?;
     Ok(())
 }

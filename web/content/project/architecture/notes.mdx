@@ -19,8 +19,8 @@ something only canonicalisation finds.
 pub enum Note {
     SampleIsAFile { sample: String },
     ReadingWithoutCoverage,
-    GenePastReference { gene: String, end: u32, contig: String, length: u32 },
     GeneUnread { gene: String, depth: u32 },
+    GeneBarelyRead { gene: String, read: u32, codons: u32, needed: u32 },
     CodonsUnread { gene: String, read: u32, codons: u32, depth: u32 },
     CodonsUnphased { gene: String, unphased: u32, depth: u32 },
 }

@@ -25,6 +25,7 @@
 //! and a rerun in 2030 agree or explain themselves.
 
 pub mod codon;
+pub mod frame;
 pub mod report;
 pub mod ruleset;
 pub mod score;
@@ -33,10 +34,37 @@ pub use codon::{Gene, Reading, read};
 pub use ruleset::{Acids, Ruleset};
 pub use score::{Assessment, Observed, Protein, interpret};
 
+use std::fmt;
 use std::path::Path;
 
 use crate::load::LoadError;
 use crate::note::Note;
+
+/// Why a report could not be written.
+///
+/// Two variants rather than one string because the two mean different
+/// things to a caller: a frame mismatch is the reference being in the wrong
+/// coordinate system, which a Python caller catches as a
+/// `ReferenceFrameError` and fixes by putting the sequence back where its
+/// numbers mean what they say. Everything else is a file, an algorithm name
+/// or a score out of range.
+#[derive(Clone, Debug)]
+pub enum ReportError {
+    /// The reference is not the frame [`codon::GENES`] is stated in.
+    Frame(String),
+    /// Anything else, already phrased for a user.
+    Other(String),
+}
+
+impl fmt::Display for ReportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Frame(detail) | Self::Other(detail) => f.write_str(detail),
+        }
+    }
+}
+
+impl std::error::Error for ReportError {}
 
 /// Interpret one sample's calls and write the report.
 ///
@@ -58,6 +86,8 @@ use crate::note::Note;
 /// - `algorithm` — which vendored algorithm to use, e.g. `HIVDB_9.8`.
 /// - `mixture` — the fraction an allele must reach to count as present.
 /// - `depth` — the depth a position must reach to count as read.
+/// - `gene_coverage` — the share of a gene's codons that must be read for
+///   the gene to be assessed rather than reported as not assessed.
 ///
 /// # Returns
 ///
@@ -68,8 +98,13 @@ use crate::note::Note;
 ///
 /// # Errors
 ///
-/// If a file cannot be read, the algorithm is not one this engine ships,
-/// or a score falls outside the algorithm's own ranges.
+/// If a file cannot be read, the reference cannot be the frame the gene
+/// windows are stated in, the algorithm is not one this engine ships, or a
+/// score falls outside the algorithm's own ranges.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each is a separately documented judgement that belongs in the cache key; bundling them would hide them from the Python signature this mirrors"
+)]
 pub fn write_report(
     reference: &Path,
     variants: &Path,
@@ -77,13 +112,24 @@ pub fn write_report(
     algorithm: &str,
     mixture: f64,
     depth: u32,
+    gene_coverage: f64,
     out: &Path,
-) -> Result<Vec<Note>, String> {
-    let ruleset = Ruleset::vendored(algorithm)?;
-    let reading = read(reference, variants, alignment, mixture, depth)
-        .map_err(|error: LoadError| error.to_string())?;
-    let assessments = interpret(&ruleset, &reading.observed)?;
+) -> Result<Vec<Note>, ReportError> {
+    let ruleset = Ruleset::vendored(algorithm).map_err(ReportError::Other)?;
+    let reading = read(
+        reference,
+        variants,
+        alignment,
+        mixture,
+        depth,
+        gene_coverage,
+    )
+    .map_err(|error| match &error {
+        LoadError::Frame { .. } => ReportError::Frame(error.to_string()),
+        _ => ReportError::Other(error.to_string()),
+    })?;
+    let assessments = interpret(&ruleset, &reading.observed).map_err(ReportError::Other)?;
     std::fs::write(out, report::render(&ruleset, &reading, &assessments))
-        .map_err(|error| format!("{}: {error}", out.display()))?;
+        .map_err(|error| ReportError::Other(format!("{}: {error}", out.display())))?;
     Ok(reading.notes)
 }
