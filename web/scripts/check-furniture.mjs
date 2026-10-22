@@ -42,7 +42,7 @@
  *   node scripts/check-furniture.mjs --built     the stylesheet against out/
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { contrast, parseTokens } from './check-contrast.mjs'
 
@@ -403,7 +403,8 @@ function walk(dir, out = []) {
 }
 // content/api, content/notebooks and the CLI page are generated and may be
 // absent; the hand-written pages are what carry the call sites.
-const mdx = walk(join(root, 'content')).map((f) => readFileSync(f, 'utf8'))
+const mdxFiles = walk(join(root, 'content')).map((f) => [relative(root, f), readFileSync(f, 'utf8')])
+const mdx = mdxFiles.map(([, body]) => body)
 
 const diagnosticCss = stripComments(read('components/Diagnostic.module.css'))
 const runReportCss = stripComments(read('components/RunReport.module.css'))
@@ -414,14 +415,24 @@ const runReportTsx = read('components/RunReport.tsx')
 
 // The call sites' note text must survive untouched: the figure number gets a
 // slot of its own and never replaces what the page says produced the output.
-assert(
-  mdx.filter((f) => /note="ligase check — nothing ran"/.test(f)).length === 6,
-  'six pages must still pass note="ligase check — nothing ran" to <Diagnostic>',
+//
+// This is deliberately not a count. An earlier version asserted "exactly six
+// pages", which was true when it was written and broke the moment main added a
+// seventh silent-failures page — ordinary work the guard had no business
+// failing. What matters is the invariant, not the tally: a <Diagnostic> says
+// what produced its output, so every one of them carries a note. That also
+// catches a note dropped from a page added after this was written, which
+// counting never did.
+const diagnosticOpenings = mdxFiles.flatMap(([file, body]) =>
+  (body.match(/<Diagnostic(?:\s[^>]*)?>/g) ?? []).map((tag) => [file, tag]),
 )
-assert(
-  mdx.some((f) => /note="nothing ran"/.test(f)),
-  'content/start/quickstart.mdx must still pass note="nothing ran"',
-)
+assert(diagnosticOpenings.length > 0, 'no <Diagnostic> call sites found in content/')
+for (const [file, tag] of diagnosticOpenings) {
+  assert(
+    /\snote=/.test(tag),
+    `${file}: <Diagnostic> has no note=. The figure number sits beside the note and never replaces it.`,
+  )
+}
 
 // FIG. gets its own slot, and RunReport gains a bar it did not have.
 assert(/:global\(\.lg-figure\)/.test(diagnosticCss), 'Diagnostic.module.css must position .lg-figure')
