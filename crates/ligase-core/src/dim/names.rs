@@ -108,6 +108,12 @@ impl PartialEq for NameSet {
     /// The scan is quadratic on purpose. A set holds a handful of organisms
     /// or sources, so sorting or hashing would cost more than it saves, and
     /// both would need a case-folded copy of every member to be correct.
+    ///
+    /// Equal length plus "every member of `self` is in `other`" is only
+    /// enough because [`NameSet::of`] collapses case-insensitive repeats, so
+    /// members are pairwise distinct and the check is a bijection rather
+    /// than merely a surjection. The reverse check is defensive: it makes
+    /// the symmetry obvious but is not load-bearing.
     fn eq(&self, other: &Self) -> bool {
         self.members.len() == other.members.len()
             && self.members.iter().all(|m| other.contains(m))

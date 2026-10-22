@@ -61,3 +61,13 @@ fn a_blank_label_is_empty() {
     assert!(Label::new("   ").is_empty());
     assert!(!Label::new("GRCh38.p14").is_empty());
 }
+
+#[test]
+fn sets_of_different_sizes_are_not_equal() {
+    assert_ne!(
+        NameSet::of(["HIV-1"]),
+        NameSet::of(["HIV-1", "Homo sapiens"])
+    );
+    assert_ne!(NameSet::of(["HIV-1"]), NameSet::of(["HIV-2"]));
+    assert_eq!(NameSet::of([] as [&str; 0]).to_string(), "");
+}
