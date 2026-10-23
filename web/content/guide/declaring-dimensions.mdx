@@ -55,7 +55,7 @@ aln = lg.alignment("data/alignments/SRR32217714.bam")
 `organism` and `build` are *declared*: a FASTA records neither. Everything
 else is read out of the files.
 
-There are four loaders:
+There are nine loaders:
 
 | Loader | Reads | Returns |
 |---|---|---|
@@ -63,6 +63,11 @@ There are four loaders:
 | `lg.alignment(path, ...)` | SAM or BAM | `Alignment` |
 | `lg.variants(path, ...)` | VCF (optionally gzipped or BGZF) | `Variants` |
 | `lg.reads(r1, r2, ...)` | FASTQ (optionally gzipped) | `Reads` |
+| `lg.intervals(path, ...)` | BED, GFF3 or GTF (optionally gzipped) | `Intervals` |
+| `lg.entity_set(path, ...)` | TSV with a header: a gene or protein list | `EntitySet` |
+| `lg.ranked_list(path, ...)` | the same, with its rows in rank order: best first | `RankedList` |
+| `lg.samples(pattern, ...)` | the FASTQs matching a glob, grouped into samples | `Samples` |
+| `lg.remote(locator, kind=...)` | a pinned remote, fetched and read as `kind` | whatever `kind` names |
 
 ### More than one organism
 
@@ -99,8 +104,9 @@ grch38 = lg.reference("refs/GRCh38.fasta", organism="human", release="GRCh38.p14
 
 Two releases of one build can differ in sequence while sharing a name, so
 `release` is compared by **equality**: `GRCh38.p13` and `GRCh38.p14` do not
-match. Only a reference takes one — `release` applies to no other kind these
-loaders read — and it is never *required*, since a FASTA records no release
+match. A reference takes one, and so do a gene list and a ranking — `release`
+applies to no other kind these loaders read — and it is never *required*,
+since a FASTA records no release
 and demanding one would make an ordinary reference unloadable. So it is
 compared wherever both sides state it and passed over when either does not
 ([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)).

@@ -244,15 +244,17 @@ keeping the error messages honest, rather than the other way round.
 `identifier_namespace`, `subject` and `release` and nothing else, so the
 question [D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)
 reserved — whether the shared `NameSet` type's ASCII-case deduplication is
-right for what `source_set` will hold — is untouched here and stays with
-[M10](/project/milestones/#m10--remotes-and-replay) and
-[M12](/project/milestones/#m12--ranked-lists).
+right for what `source_set` will hold — is untouched here. It has since been
+answered: [M10](/project/milestones/#m10--remotes-and-replay) settled that
+`source_set` must **not** fold ASCII case, and
+[M12](/project/milestones/#m12--ranked-lists) declined the axis, so no kind
+in v0.2 applies it and the type split travels to `KnowledgeGraph` in v0.3.
 
 What was discharged is the other half of that obligation. Until a kind
 applied an axis, `check_step` never reached its comparison arm and
 `propagate` never reached its inheritance arm, so neither could be tested —
 and the compiler could not help, because `Release` and `Subject` are one type.
-A gene list claims three axes, so
+A gene list claims four axes, so
 `each_axis_an_entity_set_claims_compares_its_own_field` and
 `a_step_over_a_gene_list_carries_every_axis_it_claims` now pin each arm to the
 field it is supposed to read.

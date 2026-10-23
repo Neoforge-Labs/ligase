@@ -52,7 +52,7 @@ TypeError
 └── StepDefinitionError            the decorated function is not usable
 ```
 
-Catching `CheckError` catches all five of the first group. Catching
+Catching `CheckError` catches all six of the first group. Catching
 `DimensionError` catches the naming and order cases too, which is usually
 what you want; catch `ContigNamingError` on its own only when you mean to
 treat naming differently from everything else.
@@ -185,8 +185,9 @@ the code rather than in the data.
 **A file could not be read, or did not parse as the format expected.** The
 path is wrong, the file is truncated, or a `.fasta` is not a FASTA.
 
-Raised by the loaders — `lg.reference`, `lg.alignment`, `lg.variants`,
-`lg.reads`, `lg.intervals` — at the point of loading, so it names the file.
+Raised by every loader — `lg.reference`, `lg.alignment`, `lg.variants`,
+`lg.reads`, `lg.intervals`, `lg.entity_set`, `lg.ranked_list`, `lg.samples`
+and `lg.remote` — at the point of loading, so it names the file.
 
 ## RunError
 

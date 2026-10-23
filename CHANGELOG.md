@@ -715,6 +715,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Documentation: fifteen false claims about what the engine is.** Nothing
+  checks a hand-written sentence that counts things, and five milestones
+  landing in succession left a trail of them. The loader table in
+  [declaring dimensions](https://ligase.neoforgelabs.tech/guide/declaring-dimensions/)
+  said "there are four loaders" above four rows when the Python surface
+  exposes nine, and described `release` as applying to a reference and
+  nothing else when a gene list and a ranking both carry it. The "in brief"
+  dimension table in
+  [types and dimensions](https://ligase.neoforgelabs.tech/concepts/types-and-dimensions/)
+  omitted `identifier_namespace` altogether, counted the axes as ten rather
+  than eleven, and said `subject` applied to no kind the engine reads.
+  Three pages still announced the absence of things that M5 and M8 built: a
+  methods paragraph and a reproducibility bundle, dimensions as "not
+  converted", and conversions as "still v2". The
+  [silent-failure index](https://ligase.neoforgelabs.tech/silent-failures/)
+  listed seven hazards and the section has eight pages — the missing one
+  being the gene-set overlap that M8 added. `LoadError` named five of the
+  nine loaders that raise it; `CheckError` was said to catch five of its six
+  subclasses; D35 counted six kinds of data where there are eight; the docs
+  gate's generators were listed as five of six; the type system called eleven
+  dimensions ten; a gene list was said to claim three axes where it claims
+  four; and the `source_set` deduplication question was still described as
+  open with M10 and M12, both of which have since answered it.
+
+  Each fix was checked against the code rather than against another page —
+  `Dimension::ALL`, `DataKind::ALL`, `types::applies`, `Conversion::ALL`, the
+  `loading` group in `generate_api.py`, and `web/package.json`'s `generate`
+  script — and where a claim was false the sentence was made true rather than
+  made vague: the four-row loader table became a nine-row one, not "several
+  loaders".
+
 - **A `map_identifiers` step annotated to return a ranked list now declares
   the space it arrived in.** The conversion registry listed `EntitySet`
   alone, and the graph guards a conversion's axis override on whether the
