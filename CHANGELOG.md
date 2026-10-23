@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A `RankedList` type — the ranked table, where the order is the result.**
+  A ranking of differentially expressed genes, of predicted drug targets, of
+  candidate compounds, answers the question *which of these matters most*,
+  and rank is simply the row position. So a `RankedList` is an `EntitySet`
+  and one more thing: its canonical form **preserves row order**, where every
+  other type in Ligase sorts its records because the order they arrived in is
+  not a fact about the biology
+  ([D41](https://ligase.neoforgelabs.tech/project/decisions/)).
+
+  ```python
+  ranked = lg.ranked_list("results/degs_ranked.tsv", organism="Homo sapiens")
+  truth = lg.entity_set("truth/known_drivers.tsv", organism="Homo sapiens")
+  ```
+
+  It is the exact inverse of its own unranked sibling over the very same
+  bytes. Reorder a gene list and nothing downstream reruns; reorder a ranking
+  and everything below it does, because the two orderings are two different
+  answers and a cache that called them the same would serve the wrong one.
+  Both are right, and the choice of type is the choice of claim.
+
+  Everything else about the two types is identical, deliberately. A ranking
+  carries the same four dimensions — `organism`, `identifier_namespace`,
+  `subject`, `release` — reads its identifier space off its own identifiers
+  the same way, and notices the same `SEPT7`-eaten-by-a-spreadsheet
+  corruption. They share one loader; they do not share a canonical form,
+  because that is the one place they differ. A `score` column is an ordinary
+  attribute column and is compared **exactly**: no tolerance is declared for
+  one, because none has been measured.
+
+  This brings two refusals to a ranked result. A ranking of symbols scored
+  against a truth set of Ensembl IDs is refused rather than returning a
+  precision of nearly zero that reads as a verdict on your method. And a
+  ranking named by `HGNC 2026-09` scored against a set named by
+  `HGNC 2026-03` is refused too — the subtler one, since both files are
+  symbols and both look right, over six months in which a symbol can be
+  retired, renamed or moved to another gene. See
+  [comparing ranked lists](https://ligase.neoforgelabs.tech/guide/ranked-lists/).
+
 - **`ligase inspect FILE [FILE...]` — the whole idea, on files you already
   have.** Until now the cheapest way to find out whether Ligase was worth
   anything to you was to write a pipeline. `inspect` needs no pipeline, no
@@ -560,6 +598,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   last time before `docs/` was deleted, and there is nothing left to port.
 
 ### Fixed
+
+- **A `map_identifiers` step annotated to return a ranked list now declares
+  the space it arrived in.** The conversion registry listed `EntitySet`
+  alone, and the graph guards a conversion's axis override on whether the
+  conversion covers the step's output kind — so such a step carried the
+  *input's* identifier namespace onto an output that had crossed, which is a
+  false statement about data produced by the engine itself. Found while
+  adding `RankedList`, and not reachable before it existed.
+
+- **A ranking and a gene list joined in one step now demand an identifier
+  namespace of each other.** It was demanded between two gene lists and, by
+  a catch-all arm, of nothing else — so the mixed pair, which is what
+  scoring a ranking against a curated truth set is, could join by silence.
+  Two lists that each say nothing overlapping in nothing is the failure the
+  dimension exists to break.
 
 - **The errors reference showed a `ReferenceFrameError` nobody had run.** It
   was pasted in and hand-wrapped, and it named a fixture file

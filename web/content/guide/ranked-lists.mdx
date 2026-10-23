@@ -1,0 +1,203 @@
+---
+title: "Comparing ranked lists"
+description: "Load a ranked list, score it against a truth set, and see why reordering the rows changes the result — rank is the output, so rank is hashed."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+import { ranked } from '../../lib/ranked.generated'
+
+# Comparing ranked lists
+
+<Lede>
+You have the top 200 differentially expressed genes, in order, and a curated
+set of genes known to matter. This is how you score one against the other —
+and how Ligase stops you scoring a ranking against something named in a
+different space or by a different release.
+</Lede>
+
+## Load the ranking
+
+A ranked list is a `RankedList`: a TSV with a header, best row first, one
+column of identifiers, and as many attribute columns as you like.
+
+```python
+import ligase as lg
+
+ranked = lg.ranked_list("results/degs_ranked.tsv", organism="Homo sapiens")
+```
+
+The file behind it is an ordinary ranked table:
+
+```
+id      score   padj
+TP53    12.4    1.2e-14
+BRCA1   9.1     4.4e-11
+EGFR    7.7     8.1e-09
+NKX2-1  3.2     2.0e-04
+```
+
+Rank is the **row position**. There is no rank column to declare, and a file
+that happens to number its rows carries that number as an ordinary attribute
+column like any other. If your identifiers are not under `id` — and a ranked
+table often has a column of its own in the way — name the column:
+
+```python
+ranked = lg.ranked_list(
+    "results/degs_ranked.tsv",
+    id_column="gene",
+    organism="Homo sapiens",
+)
+```
+
+Everything a gene list carries, a ranking carries. The space its names live in
+is read off the identifiers themselves, where they agree:
+
+```python
+>>> ranked.dimension("identifier_namespace").value
+'HGNC symbol'
+>>> ranked.dimension("identifier_namespace").source
+"from the identifiers' own pattern: results/degs_ranked.tsv"
+```
+
+<Note kind="note">
+A `RankedList` and an [`EntitySet`](/guide/mapping-identifiers/) carry
+**exactly** the same dimensions: `organism`, `identifier_namespace`,
+`subject` and `release`. The difference between the two types is what their
+canonical form keeps, and nothing else.
+</Note>
+
+## Score it against a truth set
+
+```python
+truth = lg.entity_set(
+    "truth/known_drivers.tsv",
+    organism="Homo sapiens",
+    subject="breast carcinoma",
+)
+
+
+@lg.step(tool="python3")
+def score(ranked: lg.RankedList, truth: lg.EntitySet) -> lg.RankedList:
+    """Mark each ranked gene as a hit or a miss against the truth set."""
+    return lg.sh("python3 scripts/score.py {ranked} {truth} > {out}")
+```
+
+The step takes one of each type and returns a ranking, and nothing about it
+runs until you ask it to. What the check compares is the two inputs'
+dimensions.
+
+## The two refusals
+
+### Different identifier spaces
+
+A ranking of symbols scored against a truth set of Ensembl IDs gives a
+precision of nearly zero. Nothing errors, nothing is empty, and the number
+reads as a verdict on your method rather than on your identifiers.
+
+```python
+lg.check_step("score", {"ranked": ranked, "truth": truth})
+```
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.rankedNamespace}</Diagnostic>
+
+There is no flag that makes this join work. The only way across is a
+[`map_identifiers`](/guide/mapping-identifiers/) step, because mapping
+between spaces is a lookup with failures rather than a rename
+([D38](/project/decisions/#d38--identifier-namespaces-never-coerce)).
+
+### Different releases
+
+The subtler one. Both files are symbols, both look right, and they were named
+by HGNC downloads six months apart — over which a symbol can be retired,
+renamed, or moved to another gene.
+
+```python
+ranked = lg.ranked_list(
+    "results/degs_ranked.tsv",
+    organism="Homo sapiens",
+    release="HGNC 2026-09",
+)
+truth = lg.entity_set(
+    "truth/known_drivers.tsv",
+    organism="Homo sapiens",
+    release="HGNC 2026-03",
+)
+```
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.rankedRelease}</Diagnostic>
+
+A release is compared by **equality**, never by containment, which is why it
+is a dimension of its own rather than part of `reference`
+([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)).
+It is also never *demanded*: a file that records no release still loads, and
+the comparison happens wherever both sides state one. So declaring it on both
+sides is how you get this check — and the half-minute it takes is the whole
+cost of not publishing a concordance figure that measures your naming.
+
+## Reordering the rows changes the result
+
+This is the one way a `RankedList` behaves unlike everything else in Ligase,
+and it is worth seeing rather than being told. What follows is a real
+one-step pipeline over one file of each type. Run it once:
+
+<RunReport>{ranked.firstRun}</RunReport>
+
+Run it again with nothing touched, and there is nothing to do:
+
+<RunReport>{ranked.unchanged}</RunReport>
+
+Now reorder the **ranking** — the same four rows, the same four scores, moved
+around — and change nothing else:
+
+<RunReport>{ranked.rankingReordered}</RunReport>
+
+It ran. Then reorder the **set** the same way:
+
+<RunReport>{ranked.setReordered}</RunReport>
+
+It did not. The engine read the changed file, canonicalised it, and found it
+had seen this set before: the rows of a set arrive in whatever order they came
+off whatever produced them, and that is not a fact about the genes.
+
+Both answers are right, and that is the point. The twelfth-ranked gene and the
+first-ranked gene are different claims about the same two genes, so for a
+ranking the order *is* the answer and the answer is hashed
+([D41](/project/decisions/#d41--in-a-ranked-list-rank-order-is-the-result)).
+If you find yourself wanting the set behaviour, you want an `EntitySet` — the
+choice of type is the choice of claim.
+
+<Note kind="caution">
+`ligase inspect` reads a `.tsv` as an `EntitySet`, because a file cannot say
+whether its order is meaningful and guessing would be a claim about your data
+that nothing in the file supports. Dimensions, notes and namespace inference
+are identical either way; only the canonical form differs, and that only
+matters once a step produces one. Annotate the step, and the graph knows.
+</Note>
+
+## A score is compared exactly
+
+A `score` column is an ordinary attribute column, and it is compared **to the
+last digit**. Ligase declares a numeric tolerance in exactly one place —
+`QUAL` in a VCF, where a Phred-scaled floating-point accumulation can move its
+last digits with the order the terms were added in — and nowhere else, because
+a tolerance nobody has measured would be a guess baked into every cache key.
+See [what a file means](/concepts/semantic-hashing/#a-tolerance-where-a-number-cannot-be-expected-to-repeat).
+
+So a rerun whose scores differ in the ninth decimal place is a rerun whose
+output differs, and downstream steps rerun. If that turns out to cost you
+real time, `ligase audit` is how you measure the drift before anyone argues
+about a tolerance for it:
+
+```console
+$ ligase audit score
+```
+
+See [checking that a step repeats](/guide/semantic-hashing/#auditing-a-step).
+
+## What to reach for
+
+| You have | Load it as |
+|---|---|
+| A ranking: DEGs by score, targets by predicted affinity, a leaderboard | `lg.ranked_list` |
+| A set: pathway membership, a curated panel, GWAS hits, a truth set | `lg.entity_set` |
+| A ranking you want to compare across identifier spaces | `lg.ranked_list`, then `lg.map_identifiers` on the set |

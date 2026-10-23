@@ -86,6 +86,8 @@ compared the same way, and the rules for a format live in one place.
 | `Variants` | dates, sources, `##reference` paths, tool command lines | sorted |
 | `Intervals` | `track`, `browser` and comment lines | sorted |
 | `ResistanceReport` | — | header kept, rows sorted |
+| `EntitySet` | — | header kept, rows **as a set** |
+| `RankedList` | — | header kept, rows **in order** |
 
 ## Why some formats sort and others do not
 
@@ -98,6 +100,27 @@ record order is whatever order the intervals happened to be sorted in.
 So a reference's contigs and a BAM's `@SQ` lines keep their order, and
 alignment records, variant records, intervals, reads and report rows are
 sorted. The same line, drawn once, in two places.
+
+### The one kind where the order is the answer
+
+A `RankedList` is the third answer to that question, and the only one.
+
+A ranking of differentially expressed genes, of predicted drug targets, of
+anything, is a claim about *which of these matters most*. The twelfth-ranked
+gene and the first-ranked gene are two different claims about the same two
+genes, and rank is simply the row position — so the order is not "whatever
+order the rows came out in", it is the result. A canonical form that sorted
+it would make two different answers agree, which would let a cache serve the
+wrong one, and it would do so in silence.
+
+So a ranking keeps its order
+([D41](/project/decisions/#d41--in-a-ranked-list-rank-order-is-the-result)),
+which makes it the exact inverse of its own unranked sibling over the very
+same bytes: reorder an `EntitySet` and nothing downstream reruns, reorder a
+`RankedList` and everything below it does. Both are right, and the choice of
+type is the choice of claim. See
+[comparing ranked lists](/guide/ranked-lists/#reordering-the-rows-changes-the-result),
+where that difference is shown on a real run of both.
 
 ## A tolerance, where a number cannot be expected to repeat
 

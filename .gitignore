@@ -40,3 +40,4 @@ dist/
 /web/content/notebooks/
 /web/lib/diagnostics.generated.ts
 /web/lib/quickstart.generated.ts
+/web/lib/ranked.generated.ts

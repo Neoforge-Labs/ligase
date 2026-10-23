@@ -66,7 +66,7 @@ ligase.neoforgelabs.tech, built, link-checked and deployed by
 `.github/workflows/web.yml`. Pages are `web/content/<section>/<page>.mdx`,
 and the nav is the `_meta.ts` in each directory. The MDX is the source: there
 is no Markdown behind it, and nothing is ported or generated from anywhere
-except the five generators listed below.
+except the six generators listed below.
 
 It is organised by what a reader is doing, not by how the project is built:
 
@@ -108,6 +108,11 @@ gitignored:
   through the real CLI in a temp directory by `capture_quickstart.py`. The
   page promises that every output on it is real, so it fails the build if
   what the commands produce stops matching what the page claims.
+- `web/lib/ranked.generated.ts` — four real `ligase run` reports, by
+  `capture_ranked.py`, which builds a one-step pipeline over a `RankedList`
+  and an `EntitySet` in a temp directory and reorders each input in turn. The
+  ranking rerunning and the set not is the whole of D41, so the build fails
+  if either stops being true.
 
 ### Writing rules
 - Engine output on a page comes from a real run, never from imagination.
