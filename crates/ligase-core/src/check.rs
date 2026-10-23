@@ -639,7 +639,7 @@ fn naming_conclusion(
 
 // ------------------------------------------------------------ rendering --
 
-fn value_line(binding: &Binding, dimension: Dimension, suffix: Option<&str>) -> String {
+pub(crate) fn value_line(binding: &Binding, dimension: Dimension, suffix: Option<&str>) -> String {
     let dimensions = binding.dataset.dimensions();
     let value = dimensions
         .render(dimension)
@@ -754,7 +754,7 @@ fn undeclared_all(step: &str, dimension: Dimension, unknown: &[&Binding]) -> Che
     }
 }
 
-fn unknown_line(binding: &Binding, dimension: Dimension) -> String {
+pub(crate) fn unknown_line(binding: &Binding, dimension: Dimension) -> String {
     let reason = binding
         .dataset
         .dimensions()
