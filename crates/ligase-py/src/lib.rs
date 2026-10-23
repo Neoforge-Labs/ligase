@@ -535,6 +535,67 @@ fn map_identifiers(
         .map_err(PyValueError::new_err)
 }
 
+/// The reference this engine has for a tool, if it has a checked one.
+///
+/// `None` for a tool the citation table does not cover, which a methods
+/// section then reports as uncited (D24) rather than omitting.
+///
+/// This is here for `ligase.steps`. A library step is admitted only when
+/// its tool's citation resolves (D42), and the test that holds a future
+/// contributor to that has to be able to run on a machine with none of the
+/// tools installed — otherwise the criterion is checked on one machine in
+/// the world and is not a criterion.
+#[pyfunction]
+fn citation(tool: &str) -> Option<String> {
+    prov::cite::of(tool).map(prov::cite::Citation::render)
+}
+
+/// How a file of this kind would be hashed: `canonical`, or `raw`.
+///
+/// `raw` means the file did not parse as the kind it was read as, so its
+/// bytes stood in for its meaning. That is the conservative fallback and
+/// never a wrong answer in itself — but for a step's *output* it is a
+/// quiet loss, because every volatile field the canonical form would have
+/// stripped is then hashed, and early cutoff stops working below that step.
+///
+/// Here for the same reason as [`citation`]: a library step declares how
+/// its output canonicalises (D42), and a declaration that nothing checks
+/// is a comment. It is what catches a step annotated `-> Alignment` whose
+/// output is in fact a BAM *index*, which parses as neither and so would
+/// be hashed as an alignment's meaning with nothing saying so.
+#[pyfunction]
+fn canonical_form(kind_name: &str, path: PathBuf) -> PyResult<&'static str> {
+    let data = kind(kind_name)?;
+    let raw = ContentHash::of_file(&path).map_err(|error| {
+        LoadError::new_err(format!("{} could not be read: {error}", path.display()))
+    })?;
+    ligase::canon::hash(data, &path, raw)
+        .map(|canonical| match canonical.form {
+            ligase::canon::Form::Canonical => "canonical",
+            ligase::canon::Form::Raw => "raw",
+        })
+        .map_err(|error| {
+            LoadError::new_err(format!("{} could not be read: {error}", path.display()))
+        })
+}
+
+/// What version a tool reports, as the engine would hash it.
+///
+/// The third of the three accessors `ligase.steps` needs. D42 asks a
+/// library step to declare its tool's version capture, and the engine's
+/// probe table is a claim about what these programs actually print -- so
+/// the test that holds it is a test against the installed programs, and it
+/// needs to be able to ask.
+///
+/// # Errors
+///
+/// If the tool is not installed, prints nothing, or fails a probe that did
+/// not expect to fail. The message says what to do about it.
+#[pyfunction]
+fn tool_version(tool: &str) -> PyResult<String> {
+    exec::tool_version(tool).map_err(PyValueError::new_err)
+}
+
 /// Every resistance algorithm this engine ships, newest first.
 #[pyfunction]
 fn resistance_algorithms() -> Vec<String> {
@@ -1657,6 +1718,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(resistance_algorithms, m)?)?;
     m.add_function(wrap_pyfunction!(default_resistance_algorithm, m)?)?;
     m.add_function(wrap_pyfunction!(resistance_fingerprint, m)?)?;
+    m.add_function(wrap_pyfunction!(citation, m)?)?;
+    m.add_function(wrap_pyfunction!(canonical_form, m)?)?;
+    m.add_function(wrap_pyfunction!(tool_version, m)?)?;
     m.add_class::<PyDataset>()?;
     m.add_class::<PyGraph>()?;
     m.add("LoadError", m.py().get_type::<LoadError>())?;
