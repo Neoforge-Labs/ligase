@@ -1,0 +1,228 @@
+---
+title: "Remote inputs"
+description: "How a locator becomes bytes, where the digest is checked, and why the store became a trait in the same change."
+---
+
+# Remote inputs
+
+`crates/ligase-core/src/remote/`, `crates/ligase-core/src/store.rs`, and the
+`remotes` table in the cache's database. The decision is
+[D39](/project/decisions/#d39--a-remote-is-pinned-or-recorded-and-both-are-replayable);
+this page is how it is built and what was given up to build it that way.
+
+## Four files
+
+| File | What it owns |
+|---|---|
+| `remote/locator.rs` | reading a locator, and turning it into URLs |
+| `remote/fetch.rs` | the `Transport` trait, the `ureq` client, the `Offline` one |
+| `remote/pinned.rs` | resolution: store, then source, then verify |
+| `store.rs` | the `BlobStore` trait and its filesystem backend |
+
+Nothing above `pinned::resolve` knows about HTTP, and nothing in `fetch.rs`
+knows about digests or kinds. That seam is what lets a test take the network
+away without stubbing anything the engine actually does.
+
+## Resolution, in order
+
+```text
+locator ──▶ parse ──▶ index hit? ──▶ store hit? ──▶ digest satisfies? ──▶ done, no network
+                             │              │                 │
+                             └──────────────┴─────────────────┴──▶ fetch
+                                                                     │
+                                            stage ─▶ hash ─▶ canonicalise ─▶ compare
+                                                                     │
+                                                      mismatch ──────┴────── match
+                                                          │                    │
+                                                    forget the record    store and record
+```
+
+Two orderings matter.
+
+**The digest is checked before anything is stored.** A fetch that was not
+what the pin promised leaves the cache exactly as it found it: no object
+under a name that claims to be verified, and no row a later run would serve
+without asking. `FsStore::put_file_as` is the half of that in the store — a
+staged file is refused if it is not what the key says, so an interrupted
+download cannot acquire a whole file's name.
+
+**A record that does not satisfy the declaration is not the answer.** If the
+pipeline pins `D` and the index holds `D'`, the index is ignored and the
+source is asked. That is the case where you bumped a pin because the source
+legitimately changed, and serving the old bytes would be the opposite of what
+you asked for.
+
+## Why resolution is eager
+
+A remote resolves when the pipeline declares it, during the import of the
+pipeline file — not in a phase between graph-building and execution.
+
+The reason is the type system. A remote's dimensions cannot be known until
+its bytes are in hand, and `check()` compares dimensions before any compute.
+A lazy handle would mean a `Reference` whose dimensions are unknown until
+later, which is a hole in the one invariant the engine has.
+
+The cost is real and worth naming: `ligase check` on a cold store reaches the
+network. On a warm one it reaches nothing. The benefit is that "a wrong
+digest fails before any step runs" is not a feature that had to be built —
+there is no graph yet when it fails.
+
+It also forces one piece of plumbing. The cache directory has to be known
+*before* the pipeline file is imported, so `--cache` is applied by `main` in
+`cli.py` rather than passed to `pipeline.run()`. That is what
+`ligase.remotes` exists for: a per-run setting, set once, read during the
+import.
+
+## The transport trait
+
+```rust
+pub trait Transport: Send + Sync {
+    fn get(&self, url: &str, into: &Path) -> Result<Fetched, FetchError>;
+}
+```
+
+Two implementations. `Network` wraps a `ureq` agent. `Offline` always fails,
+with a message saying what to do — and it is a transport rather than a flag
+threaded through the resolver precisely so that an offline run exercises the
+same resolution path as any other, minus the fetch.
+
+### What the client is for
+
+Restraint, not speed:
+
+- **A 404 is retried zero times**; a 503 or 429 is retried with backoff.
+  Retrying something that will not change wastes time and, against a
+  rate-limited archive, spends a budget the next real request needs.
+- **A redirect is followed, bounded, and the URL that answered is recorded
+  separately from the locator.** Two different facts: the locator is what you
+  asked for and belongs in a methods paragraph; the final URL is what replied
+  and belongs in a record of the fetch.
+- **Nothing is buffered.** An SRA run is gigabytes; it streams to a staged
+  file, and a body one byte over the limit is refused without being read to
+  its end.
+
+### An auth header has nowhere to go
+
+"A request made with an auth header stores no trace of it" is not implemented
+as a filter. `Fetched` has no field for request headers, and neither does
+anything derived from it — so there is nothing to strip. That is the only
+version of the guarantee a later field cannot quietly undo, and a test
+asserts over the whole record rather than over a list of header names.
+
+## Why `ureq` and not `reqwest`
+
+The feature spec named `reqwest`. Measured against this workspace's actual
+tree, `reqwest` with blocking and rustls adds **82 crates**; `ureq` with
+rustls and gzip adds **16**.
+
+The deciding argument is the install story, and it is
+[D11](/project/decisions/) again. `reqwest`'s `rustls` feature resolves to
+`aws-lc-rs`, which pulls `aws-lc-sys` and **cmake** — a new build-tool
+requirement, and a wheel that needs cmake does not build on a machine without
+one. `ureq` resolves to `ring`, which needs only a C compiler, and
+`rusqlite`'s bundled SQLite already requires one. So `ureq` adds no toolchain
+requirement at all.
+
+Second: blocking is what the engine wants. The executor is a rayon thread
+pool that deliberately never touches an async runtime.
+`reqwest::blocking` starts a tokio runtime on a background thread to serve
+calls that are synchronous anyway.
+
+### The GIL
+
+The fetch releases it. Holding it through a minutes-long SRA download would
+freeze every other Python thread, and when the tests first ran it deadlocked
+outright against a local server the test was fetching *from*: the server's
+thread could not run while the fetch it was answering held the lock. Found by
+writing the test, which is the only way that one gets found.
+
+## What the cache remembers
+
+A `remotes` table, keyed on `(locator, kind)` — because the same URL read as
+two kinds is two facts, since a digest is over what a file means and what it
+means depends on how it is read.
+
+| Column | What |
+|---|---|
+| `digest` | the fold over the files' canonical hashes, in order |
+| `bytes` | the fold over their byte hashes |
+| `files` | one line per object: key, the URL that answered, the byte count |
+| `fetched_at` | seconds since the epoch |
+
+Keeping both digests is what lets a source that rewrote a file without
+changing its meaning be *noticed* rather than either ignored or failed on. It
+is detectable when the objects have gone from the store and the row has not —
+a cleared CI cache, say — which is the case that actually happens.
+
+`files` is tab-separated and readable with `sqlite3`, because a cache whose
+whole purpose is explaining a result should be explicable itself.
+
+A pinned remote's row is **replaced** by a later fetch of the same locator
+and kind. That is right here — a later fetch is either the same answer or a
+failure — and it is emphatically not how a recorded query will behave, which
+is why the two will be different tables rather than one with a flag.
+
+## The store trait, and the shape M14 needs
+
+```rust
+pub struct ObjectKey { pub hash: ContentHash, pub suffix: String }
+
+pub trait BlobStore {
+    fn has(&self, key: &ObjectKey) -> Result<bool, StoreError>;
+    fn get(&self, key: &ObjectKey) -> Result<Option<Vec<u8>>, StoreError>;
+    fn put(&self, key: &ObjectKey, bytes: &[u8]) -> Result<(), StoreError>;
+    fn put_file(&self, staged: &Path, suffix: &str) -> Result<ObjectKey, StoreError>;
+    fn put_file_as(&self, staged: &Path, key: &ObjectKey) -> Result<(), StoreError>;
+    fn local_path(&self, key: &ObjectKey) -> Result<Option<PathBuf>, StoreError>;
+    fn checked_get(&self, key: &ObjectKey) -> Result<Option<Vec<u8>>, StoreError> { … }
+}
+```
+
+D39 names three operations. Three were not enough, and the two additions are
+not conveniences.
+
+**A key carries a suffix.** The existing store already wrote objects as
+`store/ab/cdef….vcf.gz`, and the suffix is functional: a step's output is
+handed to `bcftools` as a path, and those tools dispatch on the extension. A
+trait keyed on the hash alone could not name the file it was asked for. An
+object store handles a suffixed key as happily as a filesystem does, so
+nothing is given up. The alternative — a pure hash→bytes tier with the local
+backend hard-linking a suffixed name on demand — is cleaner on paper and
+costs a second name for every object.
+
+**`local_path` is the escape hatch** a filesystem has and an object store
+does not. It returns `None` for a backend with no local copy, so M14's
+two-tier store answers by fetching into its local tier first and returning
+*that* path — which is what keeps "a local store is always the first tier"
+expressible.
+
+**`checked_get` is a provided method**, not a backend's job. D39's rule that
+nothing read from a store is trusted must not be something each backend
+author remembers separately: an object's name is a claim about its contents,
+and a wrong answer served quickly from a shared cache is worse than no cache
+at all. So the backends implement the unchecked primitives and the trait does
+the verifying.
+
+## Trade-offs, stated
+
+**`ligase check` can reach the network.** On a cold store, resolving a remote
+is a fetch. The alternative was a dimension-less handle, which is worse.
+
+**A fetched body must parse as its kind.** A local file that will not parse
+falls back to its bytes
+([D21](/project/decisions/#d21--canonicalisation-falls-back-to-the-bytes)); a
+fetched one is refused. The asymmetry is deliberate: a local file is one you
+chose, and a fetched one is whatever an archive returned — and the thing it
+returns when it has nothing is an HTML error page with a 200 on it. Refusing
+it is the only guard that works when no digest was declared.
+
+**A remote is recorded against every step that uses it.** One fetch handed to
+three steps is three rows, de-duplicated by the methods report rather than at
+write time. Consistent with how `references` already works: a provenance
+record is about one computation.
+
+**The dedup rule for `source_set` is settled and not implemented.** See
+[D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)
+and the [M10 milestone](/project/milestones/#m10--remotes-and-replay): no
+kind applies that axis yet, and shipping an unexercised value type is the
+condition M7's standing requirement exists to prevent.

@@ -1,0 +1,146 @@
+---
+title: "Where the data came from"
+description: "The first step of nearly every pipeline is a fetch, and until now it sat outside everything Ligase promises. A remote is pinned or recorded, and both are replayable."
+---
+
+# Where the data came from
+
+The first step of nearly every pipeline is a fetch. Until now it sat outside
+everything this engine promises — including in Ligase's own demo, where a
+three-hundred-line shell script downloaded some reads and the engine took its
+word for what had arrived.
+
+That is a strange hole to leave. Everything downstream is content-addressed:
+a step's key is built from its code, its parameters, its inputs' contents and
+its tools' versions, and the engine refuses to connect two steps whose
+dimensions disagree. And then the first input arrives from a URL that nobody
+checked, named by a filename that proves nothing.
+
+A remote input closes it. `lg.remote("ncbi:K03455.1", kind=Reference,
+digest="1f460b25…")` is an input like any other: its dimensions are read
+from the bytes that arrived, its content hash is in every cache key below it,
+and its locator is in the methods paragraph.
+
+## Two promises, and why they are not one
+
+There are two kinds of remote and conflating them would be the usual mistake.
+
+|  | A **pinned remote** | A **recorded query** |
+|---|---|---|
+| Examples | an SRA run, a PDB entry, a numbered ChEMBL release, HXB2 by accession | a live Open Targets query, a REST call to Monarch |
+| The promise | the same bytes forever, *from the source* | the same bytes forever, *from the record* |
+| When the source changes | a loud failure: the remote moved | reported as drift, never a silent re-fetch |
+| Reproducible from | the source — anyone, anywhere, any time | the bundle — anyone holding the record |
+
+The difference is which reproducibility claim is on offer.
+
+**Source reproducibility** — that a third party will serve the same answer
+next Tuesday — is a real promise, and some sources make it. An SRA run
+accession is an undertaking: NCBI will not change what `SRR8525904` means.
+HXB2 is `K03455.1` and will be. A numbered database release exists so that it
+can be cited. Where a source makes that promise, a digest is how you hold it
+to it.
+
+**No live query can make that promise**, and pretending otherwise is how a
+paper becomes unreproducible without anyone noticing. Open Targets will
+answer differently next quarter, because it is supposed to: new evidence
+arrives. So a recorded query promises something else, and something that
+turns out to be enough — that anyone with the record gets the same result.
+
+<Note kind="note" title="One half is built">
+This page describes the design whole, because the two halves are only
+coherent together. `lg.remote` and the pinned half are built; `lg.query` and
+record/replay are the next milestone. See
+[the milestones](/project/milestones/).
+</Note>
+
+## What a digest is over
+
+What the file **means**, not what its bytes are: the canonical form of what
+arrives, read as its declared kind, folded over its files in order. For a
+kind with no canonical form the fold is over the bytes, which needs no
+special case because [canonicalisation already falls back to
+them](/project/decisions/#d21--canonicalisation-falls-back-to-the-bytes).
+
+This is the one choice here worth arguing about, and the argument came from
+the shell script this feature deleted. It pinned HXB2 by the checksum of its
+*sequence* rather than of the file, and said why in a comment: "NCBI may
+reflow lines or reword a defline without the biology changing, and that must
+not break the build."
+
+That comment is right, and the reason is about people rather than bytes. An
+alarm that fires on a cosmetic reformat teaches you to bump pins without
+reading — and then the one that matters gets bumped too. So:
+
+- the canonical digest differs from the pin → **the remote moved**, and the
+  error names both digests so you can see how far;
+- the canonical digest matches and the bytes do not → the source rewrote the
+  file and the biology is unchanged, which is
+  [noticed](/concepts/notes/) rather than failed on.
+
+Folding even a single file means a lone file and a paired run are described
+the same way, and that swapping a pair's mates is a different digest — which
+it must be, since it reverses every read's orientation.
+
+## When it happens
+
+A remote resolves when the pipeline declares it, while the file is still
+being read. That is not an optimisation waiting to be deferred: a remote's
+dimensions cannot be known until its bytes are in hand, and the engine checks
+dimensions [before any compute](/concepts/pipelines/). You cannot type-check
+data you have not got.
+
+Which is why "a wrong digest fails before any step runs" needs no arranging.
+There is no graph yet. No step has been decorated. The failure happens
+earlier than anything that could have gone wrong because of it.
+
+On the second run nothing is fetched. The locator, its digest and its objects
+are in the store, so resolution is a lookup — and a pipeline built on remotes
+runs offline once it has run online.
+
+## A closed set of four schemes
+
+`sra:`, `ncbi:`, `ensembl:` and `https:`. Anything else is an error naming the
+four.
+
+The set is closed because a scheme is a promise that the engine knows how to
+turn an accession into bytes *and* how to recognise the answer. `ncbi:` asks
+eutils for FASTA. `sra:` knows ENA's directory layout and that a run is a
+pair of files. An open set, or one extensible by configuration, would be a
+promise the engine could not keep — and the failure would be a fetch of the
+wrong thing rather than an error.
+
+`https:` is the escape hatch for everything else, and deliberately the only
+one. It says "these exact bytes, from this exact URL", which is a promise you
+make rather than one the engine makes for you.
+
+A bare `SRR8525904` with no scheme is refused rather than guessed at. That
+looks unhelpful and is not: a guess would be right often enough to be
+trusted, and then one day it would fetch from the wrong archive.
+
+## What a 200 is not
+
+An archive asked for an accession it does not have does not always say so.
+NCBI answers with an HTTP 200 and an HTML page beginning `Error: ID list is
+empty`. Nothing in the status says anything is wrong, and with no digest
+declared there is nothing to compare against either.
+
+So the engine reads what arrives as the kind it was declared to be, and
+refuses a body that will not parse as one. That is a deliberate departure
+from [D21](/project/decisions/#d21--canonicalisation-falls-back-to-the-bytes),
+which says a local file that will not parse falls back to its bytes rather
+than failing: a local file is one you chose, and a fetched one is whatever an
+archive happened to return.
+
+## Where this goes next
+
+Records are the first thing written to the content-addressed store that a lab
+will want to *share*, which is why the store became a trait in the same
+change — a small one, `get`, `put`, `has`, with the local filesystem as its
+only implementation so far. An object store behind it is
+[M14](/project/milestones/#m14--remote-store), and it turns the store into
+something a lab points every machine at.
+
+- [Using remote inputs](/guide/remotes/) — how to write one
+- [D39](/project/decisions/#d39--a-remote-is-pinned-or-recorded-and-both-are-replayable) — the decision
+- [Remote inputs, inside](/project/architecture/remotes/) — how it works
