@@ -102,8 +102,15 @@ def server() -> Iterator[Server]:
 
 @pytest.fixture(autouse=True)
 def _cache(tmp_path: Path) -> Iterator[None]:
-    """A store of its own for each test, and no setting left behind."""
-    lg.remotes.configure(cache=tmp_path / ".ligase")
+    """A store of its own for each test, and no setting left behind.
+
+    `offline` is set explicitly rather than left alone. `configure` leaves
+    an argument it was not given, which is right for a caller setting one
+    thing — and means a test running after one that configured the demo's
+    store offline would otherwise inherit it and fail to fetch. These tests
+    run in a random order, so that is a certainty rather than a risk.
+    """
+    lg.remotes.configure(cache=tmp_path / ".ligase", offline=False)
     try:
         yield
     finally:

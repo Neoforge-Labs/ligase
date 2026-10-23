@@ -327,6 +327,7 @@ def pipeline_errors(lg: Any, scenario: Scenario) -> list[Any]:
         "return": types.ResistanceReport,
     }
 
+    assert scenario.build is not None
     pipe = lg.Pipeline(lg.step(tool="hivdb")(resistance)(**scenario.build(lg)))
     try:
         pipe.check()
@@ -344,7 +345,9 @@ def provoked(lg: Any, scenario: Scenario) -> list[Any]:
     assert scenario.provoke is not None
     try:
         scenario.provoke(lg)
-    except Exception as error:  # noqa: BLE001 - the error is the output
+    # Broad on purpose: the error *is* the output, and narrowing this would
+    # mean this script deciding which classes a page may show.
+    except Exception as error:
         return [error]
     return []
 
