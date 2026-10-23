@@ -95,6 +95,7 @@ impl Bench {
             tools: Vec::new(),
             parameters: Vec::new(),
             citations: Vec::new(),
+            seed: None,
         }];
 
         (

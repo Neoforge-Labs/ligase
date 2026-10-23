@@ -167,3 +167,49 @@ fn the_key_format_is_pinned_to_its_version() {
         "cf2545b88fb4eed84ae356d9e0a2775afb31c4f05480054e7e5a129b775eb097",
     );
 }
+
+// ------------------------------------------------------------------ seeds --
+//
+// M11. `CLAUDE.md` requires random seeds to be explicit, typed, hashed
+// parameters, and the module docs here say a seed needs nothing special
+// because it is an ordinary parameter. That is true and it is unpinned, and
+// an unpinned property is one that can be lost: if two seeds shared a key,
+// the second run would be served the first one's answer, in silence.
+
+#[test]
+fn a_step_run_under_two_seeds_has_two_keys() {
+    let one = key_with(|i| i.parameters = vec![("seed".into(), "42".into())]);
+    let other = key_with(|i| i.parameters = vec![("seed".into(), "43".into())]);
+
+    assert_ne!(one, other, "two seeds are two runs and two answers");
+}
+
+#[test]
+fn the_same_seed_is_the_same_key() {
+    // The other half, and the reason the first half matters: a seeded step
+    // is meant to hit the cache. If it did not, nothing would ever notice
+    // that two seeds collide.
+    let one = key_with(|i| i.parameters = vec![("seed".into(), "42".into())]);
+    let again = key_with(|i| i.parameters = vec![("seed".into(), "42".into())]);
+
+    assert_eq!(one, again);
+}
+
+#[test]
+fn declaring_a_parameter_the_seed_does_not_move_the_key() {
+    // The declaration is not an ingredient. It cannot change a result -- it
+    // says what a parameter *is*, not what it is set to -- so adding
+    // `stochastic=True, seed="seed"` to a step that already took a seed must
+    // not rerun anything. The same reasoning `Task::citations` records for
+    // itself, and the reason the declaration travels on the task rather than
+    // into `Ingredients`.
+    // There is no way to express the declaration here, and that *is* the
+    // assertion: `Ingredients` has no field for it, so the compiler keeps
+    // the declaration out of the key rather than a test having to.
+    let seeded = key_with(|i| i.parameters = vec![("seed".into(), "42".into())]);
+
+    assert_eq!(
+        seeded,
+        key_with(|i| i.parameters = vec![("seed".into(), "42".into())])
+    );
+}
