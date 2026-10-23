@@ -80,6 +80,19 @@ pub struct Request<'a> {
     /// no query: a bundle should not carry an empty table explaining a
     /// feature the run did not use.
     pub queries: Option<&'a Cache>,
+    /// Leave the object bodies out, and name the store they are in.
+    ///
+    /// A *fat* bundle carries a recorded query's response body, which is
+    /// the whole of what makes a recorded query reproducible: a reviewer
+    /// with no network and no API key replays from it (D39).
+    ///
+    /// A *thin* one does not, and therefore does not promise that. It is
+    /// for a collaborator who can reach the lab's store, where carrying
+    /// the bodies would be carrying what they already have. The trade is
+    /// stated in the bundle's README and in `store.tsv`, and seeding one
+    /// without store access fails before any step runs rather than
+    /// quietly replaying half a pipeline.
+    pub thin: bool,
 }
 
 /// What a bundle turned out to hold.
@@ -420,7 +433,7 @@ pub fn write(into: &Path, request: &Request<'_>) -> Result<Summary, BundleError>
     methods.push_str(&request.methods.text());
     methods.push('\n');
     put(into, "METHODS.md", &methods)?;
-    put(into, "README.md", &readme(request.methods))?;
+    put(into, "README.md", &readme(request.methods, request.thin))?;
 
     // ---- the claim
     let mut results = Table::new(&["step", "scope", "key", "bytes", "canonical"]);
@@ -557,7 +570,9 @@ pub fn write(into: &Path, request: &Request<'_>) -> Result<Summary, BundleError>
             source: io::Error::other(error.to_string()),
         })?;
         if !held.is_empty() {
-            create_dir(&into.join("records"))?;
+            if !request.thin {
+                create_dir(&into.join("records"))?;
+            }
             let mut records = Table::new(&[
                 "request", "revision", "recorded", "locator", "kind", "method", "url", "status",
                 "body", "digest",
@@ -586,6 +601,9 @@ pub fn write(into: &Path, request: &Request<'_>) -> Result<Summary, BundleError>
                             path: into.to_path_buf(),
                             source: io::Error::other(error.to_string()),
                         })?;
+                if request.thin {
+                    continue;
+                }
                 let Some(body) = body else { continue };
                 let name = format!("records/{}", record.body);
                 fs::write(into.join(&name), &body).map_err(|error| BundleError::Io {
@@ -595,6 +613,24 @@ pub fn write(into: &Path, request: &Request<'_>) -> Result<Summary, BundleError>
             }
             put(into, "records.tsv", &records.finish())?;
         }
+    }
+
+    // ---- where the bodies are, for a bundle that does not carry them
+    //
+    // A thin bundle is only readable where this is: without it a reviewer
+    // would have a `records.tsv` naming hashes and nowhere to get them,
+    // which is the quiet failure `--thin` has to avoid.
+    if request.thin {
+        let mut store = Table::new(&["name", "value"]);
+        store.row(&["thin", "yes"]);
+        store.row(&[
+            "store",
+            request
+                .queries
+                .and_then(|cache| cache.objects().remote_url())
+                .unwrap_or("(none configured on the machine that wrote this)"),
+        ]);
+        put(into, "store.tsv", &store.finish())?;
     }
 
     // ---- what it was run with
@@ -785,6 +821,12 @@ pub fn seed(bundle: &Path, cache: &Cache) -> Result<usize, BundleError> {
         return Ok(0);
     }
 
+    // A thin bundle says so in `store.tsv`, and the difference is not
+    // cosmetic: it decides whether a body that is not in the directory
+    // means "damaged" or "in the store named here".
+    let thin = bundle.join("store.tsv").is_file();
+    let mut absent: Vec<String> = Vec::new();
+
     let mut added = 0;
     for row in read_table(bundle, "records.tsv", 10)? {
         let (request, revision, locator, kind, method, url, status, body, digest) = (
@@ -792,13 +834,29 @@ pub fn seed(bundle: &Path, cache: &Cache) -> Result<usize, BundleError> {
         );
         let request = parse_hash(bundle, "records.tsv", request)?;
 
-        // A body whose file is missing is a damaged bundle, and the
-        // manifest is what reports that. Here it is simply not seeded: a
-        // record whose body cannot be served is worse than no record,
-        // because `--replay` would succeed and then fail on the read.
         let Some(key) = parse_key(body) else { continue };
-        let Ok(bytes) = fs::read(bundle.join("records").join(body)) else {
-            continue;
+        let bytes = match fs::read(bundle.join("records").join(body)) {
+            Ok(bytes) => bytes,
+            // A thin bundle carries no bodies at all, by construction, so
+            // the store it names is where they are. Verified on the way
+            // in like anything read from a store.
+            Err(_) if thin => match cache.objects().checked_get(&key) {
+                Ok(Some(bytes)) => bytes,
+                Ok(None) => {
+                    absent.push(key.to_string());
+                    continue;
+                }
+                Err(error) => {
+                    absent.push(format!("{key} ({error})"));
+                    continue;
+                }
+            },
+            // A fat bundle with a body file missing is a damaged bundle,
+            // and the manifest is what reports that. Here it is simply
+            // not seeded: a record whose body cannot be served is worse
+            // than no record, because `--replay` would succeed and then
+            // fail on the read.
+            Err(_) => continue,
         };
 
         let record = QueryRecord {
@@ -855,7 +913,46 @@ pub fn seed(bundle: &Path, cache: &Cache) -> Result<usize, BundleError> {
             })?;
         added += 1;
     }
+
+    // One failure naming everything missing, rather than one per record
+    // and rather than a run that starts and fails on its fourth query.
+    // This is what `--thin` trades away, said at the moment it costs
+    // something.
+    if !absent.is_empty() {
+        let store = store_named_by(bundle).unwrap_or_else(|| "(unnamed)".to_owned());
+        return Err(BundleError::Malformed {
+            path: bundle.join("store.tsv"),
+            detail: format!(
+                "this is a thin bundle: it names the store {store} and \
+                 carries no response bodies of its own. {} could not be \
+                 read from there, so the run would replay some queries and \
+                 not others, which is the one thing a replay must not do. \
+                 Point LIGASE_STORE at a store holding them, or ask for a \
+                 bundle written without --thin. Missing: {}",
+                plural(absent.len(), "body"),
+                absent.join(", ")
+            ),
+        });
+    }
     Ok(added)
+}
+
+/// The store a thin bundle names, if it names one.
+fn store_named_by(bundle: &Path) -> Option<String> {
+    let text = fs::read_to_string(bundle.join("store.tsv")).ok()?;
+    text.lines()
+        .filter_map(|line| line.split_once('\t'))
+        .find(|(name, _)| *name == "store")
+        .map(|(_, value)| value.to_owned())
+}
+
+/// `1 body`, `3 bodies`.
+fn plural(count: usize, word: &str) -> String {
+    if count == 1 {
+        format!("{count} {word}")
+    } else {
+        format!("{count} {}", word.trim_end_matches('y').to_owned() + "ies")
+    }
 }
 
 /// An object key as [`ObjectKey::to_string`] writes it: 64 hex characters
@@ -869,7 +966,7 @@ fn parse_key(text: &str) -> Option<ObjectKey> {
 }
 
 /// What a bundle says about itself.
-fn readme(methods: &Methods) -> String {
+fn readme(methods: &Methods, thin: bool) -> String {
     let mut out = String::from(
         "# Reproducibility bundle\n\n\
          Written by Ligase. Everything here describes how a set of results was\n\
@@ -889,6 +986,7 @@ fn readme(methods: &Methods) -> String {
          | `environment.tsv` | The engine, the platform and every tool's version. |\n\
          | `steps/` | The source of every step. |\n\
          | `pipeline/` | The pipeline file itself, where one was given. |\n\
+         | `store.tsv` | Where the bodies are, in a thin bundle. |\n\
          | `MANIFEST` | Every file above, hashed, so damage is visible. |\n\n\
          ## What is not here\n\n\
          Most of the data. Sequencing runs are gigabytes and a bundle is\n\
@@ -921,6 +1019,28 @@ fn readme(methods: &Methods) -> String {
          A `differs` is worth reading alongside the input lines: an input\n\
          reported as `changed` or `absent` explains an output that moved.\n\n",
     );
+
+    // Said here rather than only in `store.tsv`, because the thing a thin
+    // bundle stops promising is the thing the paragraph above has just
+    // promised, and a reader who got that far has to be told.
+    if thin {
+        out.push_str(
+            "## This is a thin bundle\n\n\
+             It carries the manifest and the hashes and **not** the object\n\
+             bodies, so it is small and it is not self-contained. Checking\n\
+             it needs access to the store named in `store.tsv`, with\n\
+             whatever credentials that store wants.\n\n\
+             That includes the recorded query responses. A fat bundle --\n\
+             `ligase methods --bundle` without `--thin` -- carries them, and\n\
+             a reviewer replays it with no network and no API key. **This\n\
+             one does not make that promise.** It is for a collaborator who\n\
+             can already reach the lab's store; for a reviewer, a referee or\n\
+             an archive, write a fat one.\n\n\
+             Without store access, `ligase methods --verify` on this\n\
+             directory fails before any step runs and names what is\n\
+             missing. It will not replay half a pipeline.\n\n",
+        );
+    }
 
     // Only when there is one: a standing paragraph about a problem this
     // bundle does not have would be noise in every bundle that is fine.

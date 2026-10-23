@@ -33,11 +33,18 @@
 //! key derived from an object rests on it still being what it was.
 
 use std::fmt;
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::hash::ContentHash;
+
+mod fs;
+pub mod published;
+mod remote;
+mod tiered;
+
+pub use fs::FsStore;
+pub use tiered::{StoreStats, Survey, TieredStore};
 
 /// An object's name: the hash of its contents, and the extension it is read
 /// under.
@@ -105,6 +112,31 @@ pub enum StoreError {
         /// Where the offending object was found.
         at: PathBuf,
     },
+    /// A published row that answers a different question.
+    ///
+    /// A row's name is the hash of the question rather than of its
+    /// contents ([`published`]), so the body restating the question is
+    /// the only check it can carry. One that restates the wrong question
+    /// was written by hand or by accident, and a store holding one is a
+    /// store to look at rather than to read.
+    Impostor {
+        /// The object it was found under.
+        at: String,
+        /// What it says it is instead.
+        claims: String,
+    },
+    /// A store URL this build cannot open.
+    ///
+    /// Either the URL names nothing Ligase knows, or it names a backend
+    /// this build was not compiled with. The two are deliberately one
+    /// variant with two reasons, because what a user needs is the reason
+    /// and not the category.
+    Unsupported {
+        /// The URL as it was given.
+        url: String,
+        /// Why it cannot be opened, and what to do instead.
+        reason: String,
+    },
 }
 
 impl fmt::Display for StoreError {
@@ -124,6 +156,12 @@ impl fmt::Display for StoreError {
                 expected.to_hex(),
                 found.to_hex()
             ),
+            Self::Impostor { at, claims } => write!(
+                f,
+                "the row at {at} is not the row it was asked for: it is {claims}. \
+                 It has been refused rather than believed"
+            ),
+            Self::Unsupported { url, reason } => write!(f, "{url}: {reason}"),
         }
     }
 }
@@ -132,7 +170,7 @@ impl std::error::Error for StoreError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
-            Self::Mismatch { .. } => None,
+            Self::Mismatch { .. } | Self::Impostor { .. } | Self::Unsupported { .. } => None,
         }
     }
 }
@@ -207,6 +245,28 @@ pub trait BlobStore {
     /// an I/O failure.
     fn put_file_as(&self, staged: &Path, key: &ObjectKey) -> Result<(), StoreError>;
 
+    /// Hold a file that is already in a store, under a key already known.
+    ///
+    /// For a tier writing through to the one below it: the object has been
+    /// installed and hashed, and what is left is to copy it without
+    /// reading it into memory. The default does read it into memory, which
+    /// is right for a filesystem and wrong for a forty-gigabyte upload, so
+    /// a backend that can stream overrides this.
+    ///
+    /// Unlike [`put_file`](BlobStore::put_file), the source is **left
+    /// where it is**: it belongs to the tier above.
+    ///
+    /// # Errors
+    ///
+    /// If the file cannot be read or the object cannot be written.
+    fn put_from_path(&self, key: &ObjectKey, from: &Path) -> Result<(), StoreError> {
+        let bytes = std::fs::read(from).map_err(|source| StoreError::Io {
+            path: from.to_path_buf(),
+            source,
+        })?;
+        self.put(key, &bytes)
+    }
+
     /// Where this object sits on this filesystem, if it sits on one.
     ///
     /// `None` for a backend with no local copy. M14's two-tier store answers
@@ -217,6 +277,30 @@ pub trait BlobStore {
     ///
     /// If the store cannot be consulted, or a lower tier cannot be read.
     fn local_path(&self, key: &ObjectKey) -> Result<Option<PathBuf>, StoreError>;
+
+    /// The bytes of a published row, which cannot be verified by hash.
+    ///
+    /// A row's name is the hash of the question it answers, not of its
+    /// contents ([`published`]), so [`checked_get`](BlobStore::checked_get)
+    /// would refuse every one of them. The check a row *can* carry is that
+    /// its body restates the table and key it was found under, and
+    /// [`published::fetch`] applies it on every read — including a read
+    /// served from a local tier, so a bad row cannot be laundered by
+    /// being cached.
+    ///
+    /// A key that is not a row's falls through to the ordinary, verified
+    /// read. That is what keeps this from being a way around verification:
+    /// it cannot fetch an *object* unverified however it is called.
+    ///
+    /// # Errors
+    ///
+    /// If the store cannot be read.
+    fn get_row(&self, key: &ObjectKey) -> Result<Option<Vec<u8>>, StoreError> {
+        if key.suffix != ROW_SUFFIX {
+            return self.checked_get(key);
+        }
+        self.get(key)
+    }
 
     /// The object's bytes, verified against the hash its key claims.
     ///
@@ -246,161 +330,112 @@ pub trait BlobStore {
     }
 }
 
-/// The store as a directory of files.
+/// The suffix of a published row.
 ///
-/// The default and, until M14, the only backend. Objects are fanned out over
-/// the first byte of the hash: a flat directory of one object per step per
-/// sample is a directory no filesystem enjoys.
-#[derive(Clone, Debug)]
-pub struct FsStore {
-    root: PathBuf,
+/// Rows are the one object class whose name is the hash of the *question*
+/// rather than of the contents ([`published`]), so they cannot be read
+/// through the verified path and are told apart from objects by this.
+pub const ROW_SUFFIX: &str = ".row";
+
+/// The environment variable that names the store.
+///
+/// The one Ligase-owned name in the whole of this feature. Everything else
+/// a backend needs -- endpoint, region, credentials -- comes from the
+/// provider's own environment, so a user who already has `aws s3 ls`
+/// working has Ligase working (D43).
+pub const STORE_VARIABLE: &str = "LIGASE_STORE";
+
+/// The URL schemes a store can be named by.
+///
+/// Closed and listed, on the same ground as a remote locator's four
+/// schemes (D39): a set extensible by configuration would be a promise the
+/// engine could not keep.
+pub const SCHEMES: [&str; 4] = ["file", "s3", "gs", "az"];
+
+/// What a store URL turned out to name.
+///
+/// Parsed before anything connects. A URL that cannot work is then an
+/// error with the alternatives in it, rather than a run that starts, gets
+/// an hour in, and misses on every lookup because the store it was told
+/// about does not exist.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Backend {
+    /// A directory, which may be a network mount. Served by [`FsStore`],
+    /// so it needs no feature and no dependency: a lab with an NFS share
+    /// already has somewhere to put a shared store.
+    Local(PathBuf),
+    /// An object store, served by the `remote-store` feature.
+    Remote {
+        /// The URL, passed to the backend as it was given.
+        url: String,
+    },
 }
 
-impl FsStore {
-    /// Open the store at `root`, creating it if it is not there.
+impl Backend {
+    /// What this URL names, or why it cannot name anything.
+    ///
+    /// Note that a bucket URL parses in *every* build, including one
+    /// compiled without the feature. Opening it is what fails there, and
+    /// the difference matters: "this build has no remote-store support"
+    /// sends a user to their installation, and "unknown scheme" would send
+    /// them to fix a URL that is correct.
     ///
     /// # Errors
     ///
-    /// If the directory cannot be created.
-    pub fn open(root: &Path) -> Result<Self, StoreError> {
-        create_dir(root)?;
-        Ok(Self {
-            root: root.to_path_buf(),
+    /// [`StoreError::Unsupported`] for a URL with no scheme, an unknown
+    /// scheme, or nothing after the scheme.
+    pub fn parse(url: &str) -> Result<Self, StoreError> {
+        let unsupported = |reason: &str| StoreError::Unsupported {
+            url: url.to_owned(),
+            reason: reason.to_owned(),
+        };
+
+        let Some((scheme, rest)) = url.split_once("://") else {
+            return Err(unsupported(&format!(
+                "a store URL needs a scheme, one of {}",
+                SCHEMES.join(", ")
+            )));
+        };
+        if rest.is_empty() {
+            return Err(unsupported("a store URL needs something after its scheme"));
+        }
+        if !SCHEMES.contains(&scheme) {
+            return Err(unsupported(&format!(
+                "`{scheme}` is not a store Ligase knows; it reads {}",
+                SCHEMES.join(", ")
+            )));
+        }
+
+        if scheme == "file" {
+            return Ok(Self::Local(PathBuf::from(rest)));
+        }
+        Ok(Self::Remote {
+            url: url.to_owned(),
         })
     }
-
-    /// The directory the objects live in.
-    #[must_use]
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
-    /// Where an object with this key lives, whether or not it is there yet.
-    #[must_use]
-    pub fn path_of(&self, key: &ObjectKey) -> PathBuf {
-        let hex = key.hash.to_hex();
-        self.root
-            .join(&hex[..2])
-            .join(format!("{}{}", &hex[2..], key.suffix))
-    }
-
-    /// Move a staged file to its place, read-only, leaving an object already
-    /// there alone.
-    fn install(&self, staged: &Path, key: &ObjectKey) -> Result<(), StoreError> {
-        let path = self.path_of(key);
-        if path.is_file() {
-            return remove(staged);
-        }
-        if let Some(parent) = path.parent() {
-            create_dir(parent)?;
-        }
-        move_file(staged, &path)?;
-        make_read_only(&path)
-    }
 }
 
-impl BlobStore for FsStore {
-    fn has(&self, key: &ObjectKey) -> Result<bool, StoreError> {
-        Ok(self.path_of(key).is_file())
-    }
-
-    fn get(&self, key: &ObjectKey) -> Result<Option<Vec<u8>>, StoreError> {
-        let path = self.path_of(key);
-        match fs::read(&path) {
-            Ok(bytes) => Ok(Some(bytes)),
-            Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(source) => Err(StoreError::Io { path, source }),
-        }
-    }
-
-    fn put(&self, key: &ObjectKey, bytes: &[u8]) -> Result<(), StoreError> {
-        if self.has(key)? {
-            return Ok(());
-        }
-        // Written beside the store and moved in, so a crash mid-write
-        // cannot leave a partial object wearing a whole object's name.
-        let staged = self.root.join(format!(".partial-{key}"));
-        if let Some(parent) = staged.parent() {
-            create_dir(parent)?;
-        }
-        fs::write(&staged, bytes).map_err(|source| StoreError::Io {
-            path: staged.clone(),
-            source,
-        })?;
-        self.install(&staged, key)
-    }
-
-    fn put_file(&self, staged: &Path, suffix: &str) -> Result<ObjectKey, StoreError> {
-        let hash = ContentHash::of_file(staged).map_err(|source| StoreError::Io {
-            path: staged.to_path_buf(),
-            source,
-        })?;
-        let key = ObjectKey::new(hash, suffix);
-        self.install(staged, &key)?;
-        Ok(key)
-    }
-
-    fn put_file_as(&self, staged: &Path, key: &ObjectKey) -> Result<(), StoreError> {
-        let found = ContentHash::of_file(staged).map_err(|source| StoreError::Io {
-            path: staged.to_path_buf(),
-            source,
-        })?;
-        if found != key.hash {
-            return Err(StoreError::Mismatch {
-                expected: key.hash,
-                found,
-                at: staged.to_path_buf(),
-            });
-        }
-        self.install(staged, key)
-    }
-
-    fn local_path(&self, key: &ObjectKey) -> Result<Option<PathBuf>, StoreError> {
-        let path = self.path_of(key);
-        Ok(path.is_file().then_some(path))
-    }
+/// Whether this build can open a bucket at all.
+///
+/// Reported by `ligase store status`, because "the default install has no
+/// object-store dependency" is a promise a user has to be able to check
+/// on the installation in front of them rather than in the release notes.
+#[must_use]
+pub const fn supports_remote() -> bool {
+    cfg!(feature = "remote-store")
 }
 
-fn create_dir(path: &Path) -> Result<(), StoreError> {
-    fs::create_dir_all(path).map_err(|source| StoreError::Io {
-        path: path.to_path_buf(),
-        source,
-    })
-}
-
-fn remove(path: &Path) -> Result<(), StoreError> {
-    fs::remove_file(path).map_err(|source| StoreError::Io {
-        path: path.to_path_buf(),
-        source,
-    })
-}
-
-fn move_file(from: &Path, to: &Path) -> Result<(), StoreError> {
-    match fs::rename(from, to) {
-        Ok(()) => Ok(()),
-        // A rename across filesystems fails; copying is the fallback, and
-        // the only cost is the copy.
-        Err(_) => {
-            fs::copy(from, to).map_err(|source| StoreError::Io {
-                path: to.to_path_buf(),
-                source,
-            })?;
-            remove(from)
-        }
-    }
-}
-
-fn make_read_only(path: &Path) -> Result<(), StoreError> {
-    let metadata = fs::metadata(path).map_err(|source| StoreError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let mut permissions = metadata.permissions();
-    permissions.set_readonly(true);
-    fs::set_permissions(path, permissions).map_err(|source| StoreError::Io {
-        path: path.to_path_buf(),
-        source,
-    })
+/// The store the environment names, if it names one.
+///
+/// Read here rather than threaded through every caller so that one
+/// variable configures every entry point at once, and read *only* here so
+/// that a test can hand [`tiered::TieredStore::open`] a URL directly
+/// without touching a process-wide variable other tests are reading.
+#[must_use]
+pub fn configured() -> Option<String> {
+    std::env::var(STORE_VARIABLE)
+        .ok()
+        .filter(|url| !url.trim().is_empty())
 }
 
 /// Everything after the first dot of a file's name, so `.vcf.gz` survives.

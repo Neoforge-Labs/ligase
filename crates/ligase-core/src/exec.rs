@@ -82,6 +82,7 @@ use crate::graph::{Graph, NodeId, StepSpec};
 use crate::hash::ContentHash;
 use crate::key::{Ingredients, StepKey};
 use crate::prov::{self, InputRecord, Prov, Record, day};
+use crate::store::StoreStats;
 use crate::types::{DataKind, Dataset, Origin, RemoteVerdict};
 
 /// How a step's output is produced.
@@ -236,6 +237,18 @@ pub struct RunReport {
     pub results: Vec<StepResult>,
     /// Every step that did not.
     pub failures: Vec<StepFailure>,
+    /// What the object store did while the run was going on.
+    ///
+    /// Default — all zeroes — for a run with no remote tier, which prints
+    /// nothing: a report must not grow a line for a feature the run did
+    /// not use.
+    pub store: StoreStats,
+    /// The first object the remote served that was not what its name said.
+    ///
+    /// Counted in [`store`](Self::store) as well, but kept in full here,
+    /// because "an object was refused" is the one store event a user has
+    /// to *read* rather than count.
+    pub refused: Option<String>,
 }
 
 impl RunReport {
@@ -1089,6 +1102,22 @@ impl Runner<'_> {
             .semantic(spec.output, &output.path)
             .map_err(|error| error.to_string())?;
 
+        // A hit this machine never computed has no local provenance, which
+        // on a shared store is the normal case rather than an oddity: the
+        // whole point is that somebody else ran it. Take their record
+        // along with their output, or `ligase methods` can say nothing
+        // about a pipeline that completed perfectly.
+        if self
+            .prov
+            .lookup(key)
+            .map_err(|error| error.to_string())?
+            .is_none()
+        {
+            self.prov
+                .adopt(self.cache.objects(), key)
+                .map_err(|error| error.to_string())?;
+        }
+
         Ok(StepResult {
             node,
             step: spec.name.clone(),
@@ -1246,6 +1275,14 @@ impl Runner<'_> {
                 recorded_at: prov::now(),
                 duration_ms: made.duration_ms,
             })
+            .map_err(|error| error.to_string())?;
+
+        // And into the store, beside the output it explains. A colleague
+        // whose run takes this output from a shared bucket takes the
+        // record with it, instead of a result nobody can write up
+        // (`prov::shared`).
+        self.prov
+            .publish(self.cache.objects(), made.key)
             .map_err(|error| error.to_string())
     }
 
@@ -1271,7 +1308,12 @@ impl Runner<'_> {
         // reproducibility tool to print.
         results.sort_by_key(|result| result.node.index());
         failures.sort_by_key(|failure| failure.node.index());
-        RunReport { results, failures }
+        RunReport {
+            results,
+            failures,
+            store: self.cache.objects().stats(),
+            refused: self.cache.objects().rejection(),
+        }
     }
 }
 
@@ -1479,6 +1521,71 @@ fn resolve(
     ))
 }
 
+/// The store's own lines in a run report, if it did anything.
+fn store_lines(report: &RunReport) -> Vec<String> {
+    let store = report.store;
+    if store.quiet() && report.refused.is_none() {
+        return Vec::new();
+    }
+
+    let mut lines = vec![String::new()];
+    if store.fetched > 0 {
+        lines.push(format!(
+            "store     {} from the remote store",
+            plural_count(store.fetched, "object")
+        ));
+    }
+    if store.pushed > 0 {
+        lines.push(format!(
+            "store     {} written through to it",
+            plural_count(store.pushed, "object")
+        ));
+    }
+    if let Some(refused) = &report.refused {
+        lines.push(format!("refused   {refused}"));
+        if store.rejected > 1 {
+            lines.push(format!(
+                "refused   and {} further {}",
+                store.rejected - 1,
+                if store.rejected == 2 {
+                    "object"
+                } else {
+                    "objects"
+                }
+            ));
+        }
+        lines.push("          the steps that produced them have been run again".to_owned());
+    }
+    if store.unreachable > 0 {
+        lines.push(format!(
+            "store     {} to the remote store did not answer, so this run \
+             used the local",
+            plural_count(store.unreachable, "call")
+        ));
+        lines.push(
+            "          store alone. Nothing here is wrong; work that a \
+             colleague had"
+                .to_owned(),
+        );
+        lines.push(
+            "          already done may have been done again. \
+             `ligase store push` sends"
+                .to_owned(),
+        );
+        lines.push("          this run's objects up once it is back.".to_owned());
+    }
+    lines
+}
+
+/// `1 object`, `3 objects`.
+fn plural_count(count: u64, word: &str) -> String {
+    if count == 1 {
+        format!("{count} {word}")
+    } else {
+        format!("{count} {word}s")
+    }
+}
+
 /// One shell word, whatever is in it.
 fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
@@ -1581,6 +1688,16 @@ pub fn render(graph: &Graph, roots: &[NodeId], report: &RunReport) -> String {
             });
         }
     }
+
+    // What the store did. Nothing at all when no remote tier was
+    // configured, because a report must not grow a line for a feature the
+    // run did not use -- but when one was, every one of these is something
+    // a user would otherwise have to infer from how long the run took.
+    //
+    // The `unreachable` line is the important one. A run that recomputed
+    // for an hour because a bucket was briefly away is not *wrong*, and a
+    // user who is not told is misled.
+    lines.extend(store_lines(report));
 
     // What the outputs' canonical forms noticed. Not failures: every one of
     // these steps ran and its result stands. They are here because the fix

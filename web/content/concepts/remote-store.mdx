@@ -1,0 +1,147 @@
+---
+title: "Sharing a cache"
+description: "A local store, and a bucket behind it. One person computes something and everybody else's run finds it done — with every object checked on arrival, because a cache other people can write to is otherwise a way to serve a wrong answer quickly."
+---
+
+# Sharing a cache
+
+Everything Ligase computes goes into a content-addressed store: step
+outputs, canonical forms, and the body of every recorded response. An
+object's name is the hash of its contents, which is why a cache hit is
+trustworthy — the name is a claim, and the claim can be checked.
+
+That property is also what makes the store shareable. If an object's name
+is a statement about its bytes, then it does not matter which machine
+wrote it. A lab can point every machine at one bucket, one person can align
+the cohort, and everybody else's `ligase run` can find the work done.
+
+This is the model Nix uses for its binary cache, and the shape is the same:
+**a local store, always first, with a remote one behind it.** The remote is
+consulted when the local store misses, and written through when the local
+store is written. It is a *substituter* — a place an answer may already
+exist — and never a source of truth.
+
+```bash
+export LIGASE_STORE=s3://our-lab-cache
+ligase run
+```
+
+<Note kind="note">
+  The remote tier is behind a build-time feature, so the default install
+  stays zero-config and acquires no dependency on it. `ligase store status`
+  says which kind of build you have. The [guide](/guide/remote-store)
+  has the installation.
+</Note>
+
+## What a second tier changes is failure, not storage
+
+A local miss used to be an answer. Now it can be a network call, so it can
+be slow, and it can fail. Three rules settle what happens, and between them
+they are the whole design.
+
+### An unreachable remote is a miss, not a failure
+
+A remote holds nothing the engine cannot recompute. So when a bucket does
+not answer — a dropped VPN, an expired token, a region having a bad morning
+— the run falls back to computing, which is always *correct*. Failing the
+run instead would make the engine worse than having no remote at all.
+
+The cost is time, and the one way that cost becomes a bug is a user who is
+not told. So the run report says so:
+
+```
+store     14 calls to the remote store did not answer, so this run used the local
+          store alone. Nothing here is wrong; work that a colleague had
+          already done may have been done again. `ligase store push` sends
+          this run's objects up once it is back.
+```
+
+A run that quietly recomputed for an hour because a bucket was briefly away
+is not a wrong answer. It is a misleading one, which for this project is
+the same category of problem.
+
+### An object that is not what its name says is refused
+
+Every object read from a remote is hashed on arrival and compared with the
+name it was asked for. A mismatch is not a miss: it is a finding, reported
+in the run report in full, and the step that produced the object runs
+again.
+
+This is not ceremony. A store a lab shares is a store other people can
+write to, and a wrong answer served quickly from a cache is worse than no
+cache at all.
+
+### Nothing enters the local tier unverified
+
+The local store is *trusted*: nothing re-hashes an object read from it on
+the hot path, because the engine wrote it. So anything promoted into it
+from a remote has to earn that, and the check happens before the write. A
+corrupt object copied down unverified would be caught once and then never
+again, which is the worst of the available behaviours.
+
+## The index stays here
+
+The store holds objects. The cache's own index — which step key produced
+which output, which locator resolved to which files — is SQLite, and it
+**stays local**. SQLite over object storage is a well-known way to corrupt
+a database.
+
+That leaves a gap, and closing it is most of what this feature is. A clean
+machine pointed at a shared bucket computes exactly the right step key,
+finds the output sitting in the bucket under exactly the right name, and
+has no way to know they belong together. So the rows that make a hit
+possible are published into the store as well — each one a small object
+named for the question it answers. A machine with an empty index learns
+them back, one lookup at a time, as it needs them.
+
+Delete `.ligase/cache.sqlite` and run again: it rebuilds.
+
+Provenance travels the same way, and for a sharper reason. Without it, the
+scenario this whole feature exists for — one person computes, everybody
+else hits the cache — would give every colleague a run that completed
+perfectly and a methods paragraph reading *"`align` is in the cache from a
+run that recorded no provenance, so how it was produced is not known
+here"*, for every step. Right results that nobody can write up are not
+much use to a paper.
+
+## What a shared store is as trustworthy as
+
+Worth being exact about, because content addressing is easy to over-read.
+
+Hashing an object on arrival proves that **the bytes are the bytes their
+name claims**. It proves nothing about the claim *"step K produced object
+O"*, and nothing can, short of running the step: that is what a cache is.
+So an index row published into a bucket is a claim, verified as far as it
+can be — it must restate the key it was found under, or it is refused —
+and trusted beyond that.
+
+The practical reading: **point Ligase at a bucket your lab writes, not at
+one the internet writes.** Someone with write access to your store can make
+a step return some other intact object. They cannot make it return
+corrupted data, and they cannot make an object lie about its own contents.
+
+Nix answers the same question with signatures. Ligase does not have them
+yet, and saying so is better than implying a guarantee that is not there.
+
+## Two consequences worth knowing
+
+**Drift at a pinned source is noticed later.** A pinned remote is checked
+against its digest when it is *fetched*. A warm cache does not re-fetch, so
+it does not notice that the source moved — that has always been true, and a
+shared store makes everyone's cache warm. The first machine to fetch is the
+one that would notice. `ligase run --force`, and `--refresh` for a recorded
+query, are how you ask.
+
+**The local tier grows and does not shrink.** There is no eviction in
+v0.2, deliberately: an LRU whose source of truth is a remote turns a cache
+miss into a network failure mode, and there is no measurement yet to size
+one with. `ligase store gc` is a v0.3 item.
+
+## Where to go next
+
+- [Pointing a lab at a bucket](/guide/remote-store) — the task.
+- [Running, and not running](/concepts/caching) — what a cache hit is.
+- [Recording a live query](/concepts/record-and-replay) — what a thin
+  bundle stops promising.
+- [The store](/project/architecture/store) — the trait, the tiering, and
+  what was deliberately left out.

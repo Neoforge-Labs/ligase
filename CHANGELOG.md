@@ -125,6 +125,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   [D40](https://ligase.neoforgelabs.tech/project/decisions/) has the whole
   argument, including why the verdict stays on the audit's own scale rather
   than becoming a second enum beside it.
+- **A shared cache: a local store with a bucket behind it.** Everything
+  Ligase computes already goes into a content-addressed store, where an
+  object's name is the hash of its contents. That is what makes a cache hit
+  trustworthy, and it is also what makes the store shareable: if a name is
+  a statement about bytes, it does not matter which machine wrote them.
+
+  ```bash
+  export LIGASE_STORE=s3://our-lab-cache
+  ligase run
+  ```
+
+  One person aligns the cohort; everybody else's run finds it done. The
+  model is Nix's binary cache — a local store, always first, and a remote
+  *substituter* behind it, consulted on a miss and written through on a
+  put. `s3://` and every S3-compatible store (MinIO, Cloudflare R2,
+  Backblaze), `gs://`, `az://`, and `file://` for a directory on a shared
+  mount, which needs no special build.
+
+  Configured by `LIGASE_STORE` or a `[store]` table in `ligase.toml`, the
+  environment winning. That table takes a URL and nothing else: a key that
+  looks like a credential is refused by name, because `ligase.toml` is a
+  file people commit and the one place a user would try to put a secret is
+  the one place that has to say no. Everything else comes from the
+  provider's own chain.
+
+  **What a second tier changes is failure, not storage,** and three rules
+  settle it. An unreachable remote is a *miss*, not a failure: it holds
+  nothing the engine cannot recompute, so falling back to computing is
+  always correct — but the run report says so, in as many words, because a
+  run that quietly recomputed for an hour because a bucket was away is a
+  misleading answer even though it is a right one. An object that is not
+  what its name says is *refused*, named in full along with the store that
+  served it, and its step reruns. And nothing enters the trusted local tier
+  unverified, because a corrupt object copied down would be caught once and
+  then never again.
+
+  The index stays local — SQLite over object storage is a known way to
+  corrupt a database — and it is rebuildable, which took more than the
+  design assumed. A step key is a hash of ingredients no object carries, so
+  a clean machine would find every object it needed and still rerun
+  everything. The rows that make a hit possible are therefore published
+  into the store too, including the provenance record: without that, the
+  whole point of the feature — one person computes, everyone else hits the
+  cache — would hand every colleague a run that completed perfectly and a
+  methods paragraph saying "is in the cache from a run that recorded no
+  provenance" for every step.
+
+  Be exact about what this is as trustworthy as. Hashing an object proves
+  its bytes are what its name claims; it proves nothing about the claim
+  *"step K produced object O"*, and nothing can short of running the step.
+  So **a shared store is as trustworthy as write access to it**: point
+  Ligase at a bucket your lab writes. Nix answers the same question with
+  signatures; v0.2 does not have them, and says so rather than implying a
+  guarantee it has not got.
+
+  New: `ligase store status`, which says whether this build can open a
+  bucket at all, which store is configured and where that setting was read
+  from, whether it answers, and how much is here that the remote has not
+  got — exact up to a thousand objects and sampled above, saying which,
+  because a cheap number read as an exact one is its own kind of wrong
+  answer. Plus `ligase store push` and `ligase store pull`.
+
+  The tier is behind a build-time feature and **the default install
+  acquires no dependency on it**, which is asserted rather than documented:
+  a test reads `cargo tree` and fails if `object_store`, `aws-lc-sys`,
+  `tokio`, `reqwest` or `hyper` reaches a default build. The reason it
+  matters is that `object_store`'s AWS stack needs `cmake` at build time
+  and there is no configuration of it that does not. Getting a build that
+  can reach a bucket is
+  `MATURIN_PEP517_ARGS="--features remote-store" pip install --no-binary
+  ligase-bio "ligase-bio[remote-store]"`; `ligase store status` tells you
+  which one you have.
+
+- **`ligase methods --bundle --thin`.** A bundle that names the store
+  instead of carrying the object bodies: small, and not self-contained.
+  What it gives up is the one thing a recorded query's body buys — a
+  reviewer replaying with no network and no API key — so it says so in
+  three places: the bundle's README, a `store.tsv` naming the store, and a
+  warning on the way out. Seeding one reads the bodies from that store, and
+  what it cannot get is reported as a single failure naming the store and
+  every missing hash, before any step runs. A half-replayed run is the
+  plausible-but-wrong result Ligase exists to refuse.
+
 
 - **Recorded queries — the second half of remote inputs, for a source that
   promises nothing.** `lg.remote` rests on a promise: NCBI undertakes that
@@ -1102,6 +1185,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   ``[`Note`]``. A reference-style label containing a code span does not match
   its definition in Python-Markdown, and `mkdocs --strict` does not catch an
   unresolved reference definition. It is an inline link now.
+
+### Fixed
+
+- **Two writers of one object no longer trip over each other.** `FsStore`
+  staged every write of a key at the same path, so two concurrent writers
+  of the same object raced: the loser found its own partial file already
+  renamed into place by the winner and failed with `NotFound` — an error on
+  a put that had in fact succeeded. Content addressing is supposed to make
+  that race benign, and it is, once the writers do not share a staging
+  path. Reachable before the shared store by two fan-out nodes recording
+  the same paginated response.
 
 ## [0.1.0] - 2026-10-20
 

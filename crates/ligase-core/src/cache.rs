@@ -39,7 +39,8 @@ use crate::canon::{self, CANON_VERSION, Canonical, Form, Note};
 use crate::hash::ContentHash;
 use crate::key::{KEY_VERSION, StepKey};
 use crate::remote::request::Method;
-use crate::store::{BlobStore, FsStore, ObjectKey, StoreError, suffix_of as suffix};
+use crate::store::published::{self, REMOTES, STEPS};
+use crate::store::{BlobStore, ObjectKey, StoreError, TieredStore, suffix_of as suffix};
 use crate::types::DataKind;
 
 /// The version of the on-disk layout of the cache directory.
@@ -225,7 +226,7 @@ impl From<StoreError> for CacheError {
 #[derive(Debug)]
 pub struct Cache {
     root: PathBuf,
-    objects: FsStore,
+    objects: TieredStore,
     database: Mutex<Connection>,
     hashed: AtomicU64,
     prefiltered: AtomicU64,
@@ -243,8 +244,23 @@ impl Cache {
     ///
     /// If the directory cannot be created or the database cannot be opened.
     pub fn open(root: &Path) -> Result<Self, CacheError> {
+        Self::open_with(root, crate::store::configured().as_deref())
+    }
+
+    /// The same, with the remote tier named directly.
+    ///
+    /// [`open`](Self::open) reads `LIGASE_STORE`, which is what the CLI
+    /// wants: one variable configures every entry point. This is for a
+    /// caller that has the URL in its hand already — a test, above all,
+    /// which must be able to point at a store without touching a
+    /// process-wide variable every other test is reading.
+    ///
+    /// # Errors
+    ///
+    /// As [`open`](Self::open), and if the store URL cannot be opened.
+    pub fn open_with(root: &Path, store: Option<&str>) -> Result<Self, CacheError> {
         create_dir(root)?;
-        let objects = FsStore::open(&root.join("store"))?;
+        let objects = TieredStore::open(&root.join("store"), store)?;
         create_dir(&root.join("tmp"))?;
 
         let database = Connection::open(root.join("cache.sqlite")).map_err(CacheError::from)?;
@@ -397,6 +413,10 @@ impl Cache {
                 .optional()
         })??;
 
+        let (row, from_store) = match row {
+            Some(row) => (Some(row), false),
+            None => (self.published_remote(locator, kind)?, true),
+        };
         let Some((digest, bytes, files, fetched_at)) = row else {
             return Ok(None);
         };
@@ -408,12 +428,43 @@ impl Cache {
         let Some(bytes) = ContentHash::parse(&bytes) else {
             return Ok(None);
         };
-        Ok(Some(RemoteRow {
+        let row = RemoteRow {
             digest,
             bytes,
             files: decode_remote_files(&files),
             fetched_at,
-        }))
+        };
+        if from_store {
+            self.remember_remote(locator, kind, &row)?;
+        }
+        Ok(Some(row))
+    }
+
+    /// What the store says this locator resolved to, if it says anything.
+    ///
+    /// Without this a clean checkout pointed at a lab's bucket would find
+    /// every object it needed sitting there and download the reads again
+    /// anyway, because nothing would connect `sra:SRR8525904` to the
+    /// objects it produced.
+    fn published_remote(
+        &self,
+        locator: &str,
+        kind: DataKind,
+    ) -> Result<Option<(String, String, String, i64)>, CacheError> {
+        let Some(fields) =
+            published::fetch(&self.objects, REMOTES, &remote_row_key(locator, kind))?
+        else {
+            return Ok(None);
+        };
+        let [digest, bytes, files, fetched_at] = fields.as_slice() else {
+            return Ok(None);
+        };
+        Ok(Some((
+            digest.clone(),
+            bytes.clone(),
+            files.clone(),
+            fetched_at.parse().unwrap_or_default(),
+        )))
     }
 
     /// Record what was fetched for this locator, read as this kind.
@@ -428,6 +479,28 @@ impl Cache {
     ///
     /// If the metadata cannot be written.
     pub fn record_remote(
+        &self,
+        locator: &str,
+        kind: DataKind,
+        row: &RemoteRow,
+    ) -> Result<(), CacheError> {
+        self.remember_remote(locator, kind, row)?;
+        published::publish(
+            &self.objects,
+            REMOTES,
+            &remote_row_key(locator, kind),
+            &[
+                row.digest.to_hex(),
+                row.bytes.to_hex(),
+                encode_remote_files(&row.files),
+                row.fetched_at.to_string(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// The index half of [`record_remote`](Self::record_remote).
+    fn remember_remote(
         &self,
         locator: &str,
         kind: DataKind,
@@ -595,11 +668,68 @@ impl Cache {
     /// The blob tier this cache keeps its objects in.
     ///
     /// Exposed because a recorded remote is written here rather than through
-    /// a step's output, and because M14 replaces what this returns with a
-    /// two-tier store without the cache above it changing.
+    /// a step's output, and because a run report has to be able to say what
+    /// the store did.
     #[must_use]
-    pub fn objects(&self) -> &FsStore {
+    pub fn objects(&self) -> &TieredStore {
         &self.objects
+    }
+
+    /// Every object this index refers to, in no particular order.
+    ///
+    /// What `ligase store pull` fetches, and what makes it a bounded job
+    /// rather than a bucket scan: a store cannot be listed cheaply, and
+    /// the index is the one thing that knows which objects this project's
+    /// runs actually depend on.
+    ///
+    /// Note what this means for a cold machine: an empty index refers to
+    /// nothing, so there is nothing to pull. `ligase run` is what warms a
+    /// cold machine, because the run is what knows the keys it needs. The
+    /// help text says so.
+    ///
+    /// # Errors
+    ///
+    /// If the metadata cannot be read.
+    pub fn referenced_objects(&self) -> Result<Vec<ObjectKey>, CacheError> {
+        let mut keys = Vec::new();
+
+        let steps: Vec<(String, String)> = self.with_database(|database| {
+            let mut statement = database.prepare("SELECT output_hash, suffix FROM steps")?;
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })??;
+        for (hex, suffix) in steps {
+            if let Some(hash) = ContentHash::parse(&hex) {
+                keys.push(ObjectKey::new(hash, &suffix));
+            }
+        }
+
+        let remotes: Vec<String> = self.with_database(|database| {
+            let mut statement = database.prepare("SELECT files FROM remotes")?;
+            statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })??;
+        for files in remotes {
+            keys.extend(decode_remote_files(&files).into_iter().map(|file| file.key));
+        }
+
+        let bodies: Vec<(String, String)> = self.with_database(|database| {
+            let mut statement = database.prepare("SELECT body, suffix FROM records")?;
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })??;
+        for (hex, suffix) in bodies {
+            if let Some(hash) = ContentHash::parse(&hex) {
+                keys.push(ObjectKey::new(hash, &suffix));
+            }
+        }
+
+        keys.sort_unstable();
+        keys.dedup();
+        Ok(keys)
     }
 
     /// Where a step should write while it runs.
@@ -641,6 +771,16 @@ impl Cache {
                 .optional()
         })??;
 
+        // An index miss is not the end of the question. Everything a hit
+        // depends on is published into the store, so a machine whose
+        // `cache.sqlite` has been deleted -- or which never had one, being
+        // a fresh checkout pointed at a lab's bucket -- can learn it back
+        // (D43).
+        let (row, from_store) = match row {
+            Some(row) => (Some(row), false),
+            None => (self.published_entry(key)?, true),
+        };
+
         let Some((hex, suffix, duration_ms, notes)) = row else {
             return Ok(None);
         };
@@ -649,10 +789,28 @@ impl Cache {
             return Ok(None);
         };
 
-        let path = self.object_path(hash, &suffix);
-        if !path.is_file() {
-            self.forget(key)?;
-            return Ok(None);
+        // Through the store rather than off the filesystem, because the
+        // object may be a tier down. `local_path` fetches it, verifies it
+        // against the name it was asked for, and only then installs it.
+        let object = ObjectKey::new(hash, &suffix);
+        let path = match self.objects.local_path(&object) {
+            Ok(Some(path)) => path,
+            // Gone, or refused for a hash mismatch. Either way there is
+            // nothing to serve, so the entry is dropped and the step runs.
+            // A refusal is *not* silent: it is counted and named by the
+            // store, and the run report prints it.
+            Ok(None) | Err(StoreError::Mismatch { .. }) => {
+                self.forget(key)?;
+                return Ok(None);
+            }
+            Err(error) => return Err(error.into()),
+        };
+
+        if from_store {
+            // Learned once, remembered locally. The rebuild is lazy, so a
+            // cold machine pays one store read per step it actually needs
+            // rather than a scan of the whole bucket.
+            self.remember_published(key, &hex, &suffix, duration_ms, &notes)?;
         }
 
         Ok(Some(Entry {
@@ -660,6 +818,58 @@ impl Cache {
             duration_ms: duration_ms.try_into().unwrap_or_default(),
             notes: decode_notes(&notes),
         }))
+    }
+
+    /// The entry the store holds for this key, if it holds one.
+    fn published_entry(
+        &self,
+        key: StepKey,
+    ) -> Result<Option<(String, String, i64, String)>, CacheError> {
+        let Some(fields) = published::fetch(&self.objects, STEPS, &key.to_hex())? else {
+            return Ok(None);
+        };
+        let [hash, suffix, duration, notes] = fields.as_slice() else {
+            return Ok(None);
+        };
+        Ok(Some((
+            hash.clone(),
+            suffix.clone(),
+            duration.parse().unwrap_or_default(),
+            notes.clone(),
+        )))
+    }
+
+    /// Write back into the index what the store taught us.
+    fn remember_published(
+        &self,
+        key: StepKey,
+        hash: &str,
+        suffix: &str,
+        duration_ms: i64,
+        notes: &str,
+    ) -> Result<(), CacheError> {
+        self.with_database(|database| {
+            database.execute(
+                "INSERT OR REPLACE INTO steps
+                     (key, step, output_hash, suffix, tools, duration_ms, created_at, notes)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    key.to_hex(),
+                    // The step's name and its tools are not published:
+                    // they describe how the work was done and nothing a
+                    // hit depends on reads them back. A row rebuilt from
+                    // the store says so rather than inventing them.
+                    "(from the store)",
+                    hash,
+                    suffix,
+                    "",
+                    duration_ms,
+                    now(),
+                    notes,
+                ],
+            )
+        })??;
+        Ok(())
     }
 
     /// Record that a step with this key produced this output.
@@ -694,15 +904,23 @@ impl Cache {
                 ],
             )
         })??;
-        Ok(())
-    }
 
-    /// Where an object with this hash lives.
-    ///
-    /// Fanned out over the first byte of the hash: a flat directory of one
-    /// object per step per sample is a directory no filesystem enjoys.
-    fn object_path(&self, hash: ContentHash, suffix: &str) -> PathBuf {
-        self.objects.path_of(&ObjectKey::new(hash, suffix))
+        // And into the store, so the next machine to compute this key
+        // finds the answer rather than the ingredients (D43). Failing to
+        // publish is not failing the run: the work is done and the row is
+        // local, and `ligase store push` makes it up.
+        published::publish(
+            &self.objects,
+            STEPS,
+            &key.to_hex(),
+            &[
+                output.hash.to_hex(),
+                suffix(&output.path),
+                duration.to_string(),
+                encode_notes(notes),
+            ],
+        )?;
+        Ok(())
     }
 
     fn forget(&self, key: StepKey) -> Result<(), CacheError> {
@@ -915,6 +1133,15 @@ fn decode_remote_files(column: &str) -> Vec<RemoteFile> {
             })
         })
         .collect()
+}
+
+/// What a published `remotes` row is keyed on.
+///
+/// Locator *and* kind, exactly as the index is: the same URL read as two
+/// kinds is two facts, because a digest is over what a file means and what
+/// it means depends on how it is read.
+fn remote_row_key(locator: &str, kind: DataKind) -> String {
+    format!("{locator}\t{}", kind.name())
 }
 
 fn encode_notes(notes: &[Note]) -> String {

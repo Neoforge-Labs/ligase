@@ -5,6 +5,7 @@ where the docstrings and the exception hierarchy live.
 """
 
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import final
 
 class LoadError(Exception):
@@ -159,6 +160,24 @@ def resistance_fingerprint() -> str: ...
 def citation(tool: str) -> str | None: ...
 def canonical_form(kind_name: str, path: str) -> str: ...
 def tool_version(tool: str) -> str: ...
+
+# Whether this build can open a bucket, the store URL, why it did not
+# answer, local objects, local index rows, how many were asked about, how
+# many of those are local only, and whether that last number is exact.
+def store_status(
+    cache: Path | None = None,
+    url: str | None = None,
+) -> tuple[bool, str | None, str | None, int, int, int, int, bool]: ...
+
+# Objects pushed, and objects that would not go.
+def store_push(
+    cache: Path | None = None, url: str | None = None
+) -> tuple[int, int]: ...
+
+# Objects fetched, and objects neither tier holds.
+def store_pull(
+    cache: Path | None = None, url: str | None = None
+) -> tuple[int, int]: ...
 
 # One task: node, code, command, callback, tools, parameters, citations,
 # the name of the parameter that seeds it. Exactly one of the command and
@@ -317,9 +336,10 @@ class Graph:
         tasks: list[Task],
         cache_dir: str,
         callbacks: list[Callback],
-        # Where to write a bundle, a bundle to check against, and files to
-        # carry into the bundle as they are.
-        write_up: tuple[str | None, str | None, list[str]],
+        # Where to write a bundle, a bundle to check against, files to
+        # carry into the bundle as they are, and whether the bundle leaves
+        # the object bodies out.
+        write_up: tuple[str | None, str | None, list[str], bool],
         jobs: int | None = None,
     ) -> tuple[MethodsReport, Bundle | None, Verification | None]: ...
     def __len__(self) -> int: ...

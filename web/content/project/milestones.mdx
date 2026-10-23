@@ -958,3 +958,47 @@ local SQLite index and running again rebuilds it from the store; a thin bundle
 replays on a machine with store access and fails with a clear message on one
 without; the default install has no `object_store` dependency and
 `ligase store status` says so.
+
+**Done**, with one clause met differently and said so here rather than
+quietly.
+
+Five of the six are met and were demonstrated on the real HIV demo against
+a MinIO bucket: a second cache pointed at the same bucket reported
+`12 steps: 12 from cache`; deleting `cache.sqlite` and running again
+reported the same; an object corrupted in place was refused with an error
+naming both hashes and the bucket that served it, and its step reran; a
+thin bundle replays where the store is reachable and fails before any step
+runs where it is not; and a default build has no `object_store` in
+`cargo tree`, which `tests/default_build.rs` asserts rather than claims.
+
+The first clause is not met for two separate reasons, and both are
+findings. The smaller one first: **MinIO is no longer freely obtainable** —
+Docker Hub denies anonymous pulls of `minio/minio`, `quay.io/minio/minio`
+answers 401, and the community binaries at dl.min.io are 410 Gone (checked
+23 October 2026). CI runs LocalStack's S3, and nothing in the tests is
+MinIO-specific.
+
+The larger one is about the suite. A handful of
+tests assert that a *fresh cache directory* means nothing has been
+computed, which a shared store is precisely what makes false — two tests
+computing the same thing from the same inputs have the same step key. The
+failing set is not even fixed: whichever of a colliding pair runs first
+wins, so skipping six produced seven different failures. The clause also
+contradicts the second: completing the demo from cache on a clean machine
+*requires* step entries to be shared, and the suite passing unchanged
+requires sharing them to change nothing.
+
+Measured against a real bucket: 458 of 460 Rust tests and 303 of 307
+Python tests pass unchanged. What the clause was really asking — is the
+remote tier substitutable for the local one — is answered by
+`tests/s3.rs` and the end-to-end tests, which run against a bucket in
+CI's `store` job. The argument is in
+[the store](/project/architecture/store).
+
+Two things found on the way that nothing asked for. `FsStore::put` staged
+every write of a key at the same path, so two concurrent writers of one
+object raced and the loser failed with `NotFound` on a put that had
+succeeded — reachable before this milestone by two fan-out nodes recording
+the same paginated response. And provenance did not travel with a shared
+cache entry, so the feature's headline scenario produced runs that
+completed perfectly and could not be written up; D43 has it.

@@ -78,6 +78,51 @@ ureq = { version = "3.5", default-features = false, features = [
 # `BTreeMap` and re-serialising sorts.
 serde_json = { version = "1.0", features = ["arbitrary_precision"] }
 
+# The remote store tier (D43), behind the `remote-store` feature so that the
+# default install acquires none of it. `object_store` is Apache's, is what
+# the v0.2 spec names, and serves S3, every S3-compatible store (MinIO,
+# Cloudflare R2, Backblaze), GCS and Azure from one API.
+#
+# What enabling the feature costs, written down because it was weighed and
+# accepted rather than overlooked:
+#
+#   * **cmake, at build time.** `aws`, `gcp` and `azure` each expand to
+#     `[..., "reqwest/rustls", "aws-lc-rs"]`, and `aws-lc-sys` has a
+#     *non-optional* build-dependency on the `cmake` crate. Cargo features
+#     are additive, so the `ring` feature cannot switch it off: there is no
+#     configuration of `object_store` that reaches a bucket without
+#     `aws-lc-rs`. This is the same hazard that sent M10a to `ureq` instead
+#     of `reqwest` (D11's install story). It is accepted *here* because it
+#     is confined to a feature nobody gets by default, and because the
+#     alternative -- hand-writing SigV4 and a credential chain -- is
+#     security-sensitive code this project would then own forever.
+#   * **A second TLS stack and a second HTTP stack.** `aws-lc-rs` beside
+#     `ring`, and reqwest/hyper beside `ureq`: 134 crates against a lock
+#     file that holds 140.
+#   * **An async runtime.** The note on `ureq` above says the executor
+#     never touches one, and that stays true of the executor:
+#     `object_store` is async-only, so one tokio runtime lives in
+#     `store/remote.rs` and every call enters it with `block_on`. It is
+#     multi-threaded because several rayon workers call in at once.
+#
+# None of it is in a default build, and `crates/ligase-core/tests/
+# default_build.rs` is what keeps that true when someone later adds a
+# default feature.
+object_store = { version = "0.14", default-features = false, features = [
+  "aws",
+  "azure",
+  "gcp",
+] }
+# Only to enter `object_store`'s async API. `rt-multi-thread` and nothing
+# else: no macros, no net, no fs -- the engine does its own I/O.
+tokio = { version = "1.48", default-features = false, features = [
+  "rt-multi-thread",
+] }
+# `object_store::parse_url` takes a parsed URL, and this is the crate it
+# parses with; already in the tree under `object_store`, so it costs
+# nothing beyond naming it.
+url = "2.5"
+
 # Encodes the CLAUDE.md rule "no unwrap outside tests" as a machine check.
 # Test files opt out explicitly with #![allow(...)].
 [workspace.lints.clippy]

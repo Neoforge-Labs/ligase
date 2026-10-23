@@ -180,7 +180,7 @@ type PyMethods = (
 /// What to do besides describing the run, as Python gives it: a directory
 /// to write a bundle into, a bundle to check against, and files to carry
 /// into the bundle as they are.
-type PyWriteUp = (Option<PathBuf>, Option<PathBuf>, Vec<PathBuf>);
+type PyWriteUp = (Option<PathBuf>, Option<PathBuf>, Vec<PathBuf>, bool);
 
 /// A bundle that was written: where it is, what is in it, how many steps it
 /// accounts for, how many it could not.
@@ -1492,7 +1492,7 @@ impl PyGraph {
         write_up: PyWriteUp,
         jobs: Option<usize>,
     ) -> PyResult<(PyMethods, Option<PyBundle>, Option<PyVerification>)> {
-        let (bundle, verify, include) = &write_up;
+        let (bundle, verify, include, thin) = &write_up;
         let roots = nodes(&roots);
         let tasks = recipes(tasks)?;
 
@@ -1551,6 +1551,7 @@ impl PyGraph {
                         // a reviewer with no network and no API key can
                         // replay the run (D39).
                         queries: Some(&cache),
+                        thin: *thin,
                     },
                 )
                 .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
@@ -1700,6 +1701,106 @@ fn nodes(indices: &[usize]) -> Vec<NodeId> {
     indices.iter().copied().map(NodeId::from_index).collect()
 }
 
+/// How many objects `ligase store status` will ask the remote about.
+///
+/// Above this it samples and says so. One `has` is one round trip, so an
+/// exact answer on a lab-sized store costs minutes, and a number a user
+/// reads as exact when it is not is its own kind of wrong answer.
+const SURVEY_BOUND: usize = 1000;
+
+/// What `ligase store status` reports, in order:
+/// whether this build can open a bucket, the store URL, why the store did
+/// not answer, local objects, local index rows, how many were asked about,
+/// how many of those are local only, and whether that last number is
+/// exact.
+type StatusReport = (
+    bool,
+    Option<String>,
+    Option<String>,
+    usize,
+    usize,
+    usize,
+    usize,
+    bool,
+);
+
+/// What is configured, what answers, and how much is here but not there.
+///
+/// Returns `(supported, url, unreachable, objects, rows, checked,
+/// local_only, exact)`. A tuple rather than a class because the CLI is its
+/// only caller and formats every field itself.
+#[pyfunction]
+#[pyo3(signature = (cache=None, url=None))]
+fn store_status(cache: Option<PathBuf>, url: Option<String>) -> PyResult<StatusReport> {
+    let root = cache.unwrap_or_else(|| PathBuf::from(".ligase"));
+    let store = ligase::store::TieredStore::open(&root.join("store"), url.as_deref())
+        .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+
+    let unreachable = match store.reachable() {
+        Some(Err(why)) => Some(why),
+        Some(Ok(())) | None => None,
+    };
+    let survey = store
+        .survey(SURVEY_BOUND)
+        .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+
+    Ok((
+        ligase::store::supports_remote(),
+        store.remote_url().map(ToOwned::to_owned),
+        unreachable,
+        survey.objects,
+        survey.rows,
+        survey.checked,
+        survey.local_only,
+        survey.exact,
+    ))
+}
+
+/// Push everything in the local tier that the remote has not got.
+///
+/// Returns `(pushed, failed)`. A single object that will not upload is
+/// counted rather than fatal: stopping half way through a lab's cache
+/// helps nobody, and the count is what tells a user to look.
+#[pyfunction]
+#[pyo3(signature = (cache=None, url=None))]
+fn store_push(cache: Option<PathBuf>, url: Option<String>) -> PyResult<(usize, usize)> {
+    let root = cache.unwrap_or_else(|| PathBuf::from(".ligase"));
+    let store = ligase::store::TieredStore::open(&root.join("store"), url.as_deref())
+        .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+    store
+        .push_all()
+        .map_err(|error| PyRuntimeError::new_err(error.to_string()))
+}
+
+/// Fetch every object this index refers to that the local tier lacks.
+///
+/// Returns `(fetched, missing)`. `missing` is an object the remote does
+/// not have either, which is not an error: it means a step will run.
+#[pyfunction]
+#[pyo3(signature = (cache=None, url=None))]
+fn store_pull(cache: Option<PathBuf>, url: Option<String>) -> PyResult<(usize, usize)> {
+    use ligase::store::BlobStore as _;
+
+    let root = cache.unwrap_or_else(|| PathBuf::from(".ligase"));
+    let cache = Cache::open_with(&root, url.as_deref())
+        .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+    let wanted = cache
+        .referenced_objects()
+        .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+
+    let mut missing = 0;
+    for key in &wanted {
+        match cache.objects().local_path(key) {
+            Ok(Some(_)) => {}
+            // Gone from both tiers, or refused for a hash mismatch. Both
+            // mean a step runs, and the mismatch is counted and named by
+            // the store.
+            Ok(None) | Err(_) => missing += 1,
+        }
+    }
+    Ok((cache.objects().stats().fetched as usize, missing))
+}
+
 /// Version of the compiled core engine.
 #[pyfunction]
 fn version() -> &'static str {
@@ -1732,6 +1833,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(citation, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_form, m)?)?;
     m.add_function(wrap_pyfunction!(tool_version, m)?)?;
+    m.add_function(wrap_pyfunction!(store_status, m)?)?;
+    m.add_function(wrap_pyfunction!(store_push, m)?)?;
+    m.add_function(wrap_pyfunction!(store_pull, m)?)?;
     m.add_class::<PyDataset>()?;
     m.add_class::<PyGraph>()?;
     m.add("LoadError", m.py().get_type::<LoadError>())?;

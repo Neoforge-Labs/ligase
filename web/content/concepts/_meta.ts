@@ -7,6 +7,10 @@ import type { MetaRecord } from 'nextra'
  * Stochastic steps come after the two remote pages because the argument is
  * the same one a third time -- what, exactly, can be promised -- and the
  * page leans on the audit vocabulary that semantic hashing introduces.
+ *
+ * Sharing a cache comes last of the four, because it is the same
+ * content-addressing idea turned outwards: the page assumes you know what a
+ * cache hit is and what a recorded body is for.
  */
 const meta: MetaRecord = {
   'types-and-dimensions': 'Types and dimensions',
@@ -19,6 +23,7 @@ const meta: MetaRecord = {
   remotes: 'Where the data came from',
   'record-and-replay': 'Recording a live answer',
   'stochastic-steps': 'Steps that draw on randomness',
+  'remote-store': 'Sharing a cache',
   notes: 'What a result rests on',
   'resistance-interpretation': 'Resistance interpretation',
 }

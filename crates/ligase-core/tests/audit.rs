@@ -451,6 +451,13 @@ fn objects(cache: &Cache) -> usize {
                     .map(|entry| {
                         if entry.path().is_dir() {
                             count(&entry.path())
+                        } else if entry.path().extension().is_some_and(|ext| ext == "row") {
+                            // A published row is not an object: it is the
+                            // index entry a cold machine reads to find one
+                            // (M14, D43). Counting it here would make this
+                            // helper measure files rather than what its
+                            // name says.
+                            0
                         } else {
                             1
                         }

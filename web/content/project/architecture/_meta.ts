@@ -17,6 +17,7 @@ const meta: MetaRecord = {
   'step-library': 'Step library',
   execution: 'Execution',
   cache: 'Cache',
+  store: 'Store',
   audit: 'Audit',
   canonicalisation: 'Canonicalisation',
   conversions: 'Conversions',

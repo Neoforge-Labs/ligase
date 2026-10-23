@@ -15,6 +15,14 @@ repository.workspace = true
 name = "_core"
 crate-type = ["cdylib"]
 
+[features]
+# Forwarded so that the wheel can be built with the remote tier in it:
+#   MATURIN_PEP517_ARGS="--features remote-store" pip install -e .
+# A Python extra cannot reach a cargo feature, so this is how
+# `ligase-bio[remote-store]` is actually obtained. The extra itself is a
+# marker and a place to hang the documentation.
+remote-store = ["ligase/remote-store"]
+
 [dependencies]
 ligase = { workspace = true }
 pyo3 = { workspace = true, features = ["extension-module", "abi3-py311"] }
