@@ -675,6 +675,63 @@ impl Cache {
         &self.objects
     }
 
+    /// Every object this index refers to, in no particular order.
+    ///
+    /// What `ligase store pull` fetches, and what makes it a bounded job
+    /// rather than a bucket scan: a store cannot be listed cheaply, and
+    /// the index is the one thing that knows which objects this project's
+    /// runs actually depend on.
+    ///
+    /// Note what this means for a cold machine: an empty index refers to
+    /// nothing, so there is nothing to pull. `ligase run` is what warms a
+    /// cold machine, because the run is what knows the keys it needs. The
+    /// help text says so.
+    ///
+    /// # Errors
+    ///
+    /// If the metadata cannot be read.
+    pub fn referenced_objects(&self) -> Result<Vec<ObjectKey>, CacheError> {
+        let mut keys = Vec::new();
+
+        let steps: Vec<(String, String)> = self.with_database(|database| {
+            let mut statement = database.prepare("SELECT output_hash, suffix FROM steps")?;
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })??;
+        for (hex, suffix) in steps {
+            if let Some(hash) = ContentHash::parse(&hex) {
+                keys.push(ObjectKey::new(hash, &suffix));
+            }
+        }
+
+        let remotes: Vec<String> = self.with_database(|database| {
+            let mut statement = database.prepare("SELECT files FROM remotes")?;
+            statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })??;
+        for files in remotes {
+            keys.extend(decode_remote_files(&files).into_iter().map(|file| file.key));
+        }
+
+        let bodies: Vec<(String, String)> = self.with_database(|database| {
+            let mut statement = database.prepare("SELECT body, suffix FROM records")?;
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })??;
+        for (hex, suffix) in bodies {
+            if let Some(hash) = ContentHash::parse(&hex) {
+                keys.push(ObjectKey::new(hash, &suffix));
+            }
+        }
+
+        keys.sort_unstable();
+        keys.dedup();
+        Ok(keys)
+    }
+
     /// Where a step should write while it runs.
     ///
     /// Inside the cache directory, so moving the finished file into the

@@ -5,6 +5,7 @@ where the docstrings and the exception hierarchy live.
 """
 
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import final
 
 class LoadError(Exception):
@@ -156,6 +157,24 @@ def interpret_resistance(
 def resistance_algorithms() -> list[str]: ...
 def default_resistance_algorithm() -> str: ...
 def resistance_fingerprint() -> str: ...
+
+# Whether this build can open a bucket, the store URL, why it did not
+# answer, local objects, local index rows, how many were asked about, how
+# many of those are local only, and whether that last number is exact.
+def store_status(
+    cache: Path | None = None,
+    url: str | None = None,
+) -> tuple[bool, str | None, str | None, int, int, int, int, bool]: ...
+
+# Objects pushed, and objects that would not go.
+def store_push(
+    cache: Path | None = None, url: str | None = None
+) -> tuple[int, int]: ...
+
+# Objects fetched, and objects neither tier holds.
+def store_pull(
+    cache: Path | None = None, url: str | None = None
+) -> tuple[int, int]: ...
 
 # One task: node, code, command, callback, tools, parameters, citations.
 # Exactly one of the command and the callback is set.

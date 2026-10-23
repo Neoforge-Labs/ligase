@@ -319,6 +319,99 @@ impl TieredStore {
     }
 }
 
+/// What `ligase store status` found.
+///
+/// The `local_only` count is a diff between two stores, which on a large
+/// bucket is not free, so it carries [`exact`](Survey::exact) beside it.
+/// A cheap number read as an exact one is its own kind of wrong answer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Survey {
+    /// Objects in the local tier.
+    pub objects: usize,
+    /// Published index rows in the local tier.
+    pub rows: usize,
+    /// How many of them were actually asked about.
+    pub checked: usize,
+    /// How many of those the remote does not hold.
+    pub local_only: usize,
+    /// Whether `local_only` is the whole truth or a sample of it.
+    pub exact: bool,
+}
+
+impl TieredStore {
+    /// Count what is here, and how much of it the remote has not got.
+    ///
+    /// One `has` per object, which is one round trip per object, so the
+    /// walk stops after `bound` of them and says so. There is no cheaper
+    /// honest answer: a bucket does not keep a count, and listing one to
+    /// get it is the same work with a worse failure mode.
+    ///
+    /// # Errors
+    ///
+    /// If the local tier cannot be walked.
+    pub fn survey(&self, bound: usize) -> Result<Survey, StoreError> {
+        let held = self.local.keys()?;
+        let mut survey = Survey {
+            objects: held
+                .iter()
+                .filter(|key| key.suffix != super::ROW_SUFFIX)
+                .count(),
+            rows: held
+                .iter()
+                .filter(|key| key.suffix == super::ROW_SUFFIX)
+                .count(),
+            ..Survey::default()
+        };
+        survey.exact = held.len() <= bound;
+
+        let Some(remote) = self.remote.as_ref() else {
+            // Everything is local only, exactly and for free.
+            survey.checked = held.len();
+            survey.local_only = held.len();
+            survey.exact = true;
+            return Ok(survey);
+        };
+
+        for key in held.iter().take(bound) {
+            match remote.has(key) {
+                Ok(true) => survey.checked += 1,
+                Ok(false) => {
+                    survey.checked += 1;
+                    survey.local_only += 1;
+                }
+                Err(_) => {
+                    self.counters.unreachable.fetch_add(1, Ordering::Relaxed);
+                    survey.exact = false;
+                }
+            }
+        }
+        Ok(survey)
+    }
+
+    /// Push everything in the local tier that the remote has not got.
+    ///
+    /// Rows as well as objects: an object the next machine cannot find is
+    /// an object it recomputes.
+    ///
+    /// # Errors
+    ///
+    /// If the local tier cannot be walked. A single object that will not
+    /// upload is counted rather than fatal, because stopping half way
+    /// through a lab's cache helps nobody.
+    pub fn push_all(&self) -> Result<(usize, usize), StoreError> {
+        let before = self.stats();
+        let held = self.local.keys()?;
+        for key in &held {
+            self.push(key, None, Some(&self.local.path_of(key)));
+        }
+        let after = self.stats();
+        Ok((
+            (after.pushed - before.pushed) as usize,
+            (after.unreachable - before.unreachable) as usize,
+        ))
+    }
+}
+
 impl BlobStore for TieredStore {
     fn has(&self, key: &ObjectKey) -> Result<bool, StoreError> {
         if self.local.has(key)? {

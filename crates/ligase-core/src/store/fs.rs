@@ -47,6 +47,48 @@ impl FsStore {
             .join(format!("{}{}", &hex[2..], key.suffix))
     }
 
+    /// Every key this store holds.
+    ///
+    /// For `ligase store status` and `ligase store push`. Two levels deep,
+    /// which is the whole of the layout, and a name that cannot be read
+    /// back as a key is skipped rather than guessed at — a partial file
+    /// from an interrupted write is debris, not an object.
+    ///
+    /// # Errors
+    ///
+    /// If the store directory cannot be read.
+    pub fn keys(&self) -> Result<Vec<ObjectKey>, StoreError> {
+        let mut keys = Vec::new();
+        for shard in read_dir(&self.root)? {
+            let Some(prefix) = shard
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+            else {
+                continue;
+            };
+            if prefix.len() != 2 || !shard.is_dir() {
+                continue;
+            }
+            for object in read_dir(&shard)? {
+                let Some(name) = object
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                else {
+                    continue;
+                };
+                let (rest, suffix) = match name.find('.') {
+                    Some(at) => (&name[..at], &name[at..]),
+                    None => (name.as_str(), ""),
+                };
+                if let Some(hash) = ContentHash::parse(&format!("{prefix}{rest}")) {
+                    keys.push(ObjectKey::new(hash, suffix));
+                }
+            }
+        }
+        keys.sort_unstable();
+        Ok(keys)
+    }
+
     /// Move a staged file to its place, read-only, leaving an object already
     /// there alone.
     fn install(&self, staged: &Path, key: &ObjectKey) -> Result<(), StoreError> {
@@ -145,6 +187,18 @@ fn writer() -> String {
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     )
+}
+
+/// The entries of a directory, or none at all if it is not there.
+fn read_dir(path: &Path) -> Result<Vec<PathBuf>, StoreError> {
+    match fs::read_dir(path) {
+        Ok(entries) => Ok(entries.filter_map(Result::ok).map(|e| e.path()).collect()),
+        Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(source) => Err(StoreError::Io {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
 }
 
 fn create_dir(path: &Path) -> Result<(), StoreError> {

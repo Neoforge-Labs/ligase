@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import sys
 from pathlib import Path
 from types import MappingProxyType
@@ -49,6 +50,7 @@ from typing import TYPE_CHECKING
 from . import (
     _core,
     alignment,
+    config,
     dimension_errors,
     entity_set,
     intervals,
@@ -112,7 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     from this, which is what stops that page drifting from `--help`.
 
     Returns:
-        The parser, with its four subcommands attached.
+        The parser, with every subcommand attached.
     """
     parser = argparse.ArgumentParser(
         prog="ligase",
@@ -308,7 +310,88 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"where to keep the cache (default: ./{CACHE_DIR})",
     )
 
+    store = commands.add_parser(
+        "store",
+        help="say what the object store holds, and move objects to or from it",
+        description=(
+            "Ligase keeps step outputs, canonical forms and recorded "
+            "response bodies in a content-addressed store. A local store is "
+            "always the first tier; a second one -- a bucket, or a directory "
+            "on a shared mount -- can sit behind it, consulted on a miss and "
+            "written through on a put, so a lab computes something once "
+            "between them. Name it with LIGASE_STORE or a [store] table in "
+            "ligase.toml."
+        ),
+    )
+    store_commands = store.add_subparsers(dest="store_command", required=True)
+
+    store_status = store_commands.add_parser(
+        "status",
+        help="what is configured, whether it answers, and how much is local only",
+        description=(
+            "Print the store this project is configured to use, where that "
+            "setting was read from, whether this build of Ligase can open it "
+            "at all, and how much the local tier holds that the remote does "
+            "not. The last number is a difference between two stores, so it "
+            "is exact up to a bound and sampled above it; the output says "
+            "which it is."
+        ),
+    )
+    store_status.add_argument(
+        "--cache",
+        type=Path,
+        metavar="DIR",
+        help=f"the cache to report on (default: ./{CACHE_DIR})",
+    )
+
+    store_push = store_commands.add_parser(
+        "push",
+        help="upload everything the remote store has not got",
+        description=(
+            "Write every object and index row in the local tier that the "
+            "remote does not hold. A run writes through as it goes, so this "
+            "is for making up a push that did not happen -- a run with the "
+            "store unreachable, or a store configured after the fact."
+        ),
+    )
+    store_push.add_argument(
+        "--cache",
+        type=Path,
+        metavar="DIR",
+        help=f"the cache to push from (default: ./{CACHE_DIR})",
+    )
+
+    store_pull = store_commands.add_parser(
+        "pull",
+        help="download every object this cache's index refers to",
+        description=(
+            "Fetch what the local index refers to and the local tier lacks, "
+            "verifying each object against the name it was asked for. This "
+            "moves what THIS cache already knows about, so on a machine with "
+            "no index yet there is nothing to pull: use `ligase run`, which "
+            "is what works out which objects the pipeline needs."
+        ),
+    )
+    store_pull.add_argument(
+        "--cache",
+        type=Path,
+        metavar="DIR",
+        help=f"the cache to pull into (default: ./{CACHE_DIR})",
+    )
+
     return parser
+
+
+def _near(pipeline: Path | None) -> Path:
+    """Where to start looking for a `ligase.toml`.
+
+    The pipeline's own directory, so a repository holding several pipelines
+    can put one file at its root; the working directory when there is no
+    pipeline, which is every `ligase store` invocation.
+    """
+    if pipeline is None:
+        return Path.cwd()
+    return pipeline.resolve().parent
 
 
 def _mode_of(arguments: argparse.Namespace) -> str | None:
@@ -348,6 +431,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         mode=_mode_of(arguments),
     )
 
+    # The store is read from the environment by the engine itself, so one
+    # setting reaches every entry point without being threaded through any
+    # of them. A `ligase.toml` therefore works by supplying that variable
+    # when it is not already set -- which is also exactly the precedence
+    # the file documents, the environment winning.
+    try:
+        configured = config.store(_near(getattr(arguments, "pipeline", None)))
+    except config.ConfigError as raised:
+        return _cannot(str(raised))
+    if configured is not None and configured.source != config.STORE_VARIABLE:
+        os.environ[config.STORE_VARIABLE] = configured.url
+
     # Also before the import, and for the same reason: a bundle's recorded
     # responses have to be in the store before the pipeline declares the
     # queries that replay them. This is what lets a reviewer check a bundle
@@ -363,6 +458,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             # about seeding.
             print(f"could not read the bundle's records: {raised}", file=sys.stderr)
 
+    if arguments.command == "store":
+        return _store(arguments.store_command, arguments.cache, configured)
     if arguments.command == "inspect":
         return _inspect(arguments.files)
     if arguments.command == "run":
@@ -454,6 +551,130 @@ def _read(path: Path) -> Dataset | None:
         except Exception as error:
             _report(f"{path} could not be read: {error}")
     return None
+
+
+def _store(command: str, cache: Path | None, configured: config.Store | None) -> int:
+    """Report on the store, or move objects to or from it.
+
+    `configured` is resolved by `main` before anything else, because `main`
+    also puts it in the environment for the engine to read -- and asking
+    again afterwards would find the variable it had just set and report
+    every setting as coming from the environment.
+    """
+    url = configured.url if configured else None
+
+    if command == "push":
+        return _store_push(cache, url)
+    if command == "pull":
+        return _store_pull(cache, url)
+    return _store_status(cache, configured)
+
+
+def _store_status(cache: Path | None, configured: config.Store | None) -> int:
+    """What is configured, what answers, and how much is here but not there."""
+    url = configured.url if configured else None
+    try:
+        (
+            supported,
+            opened,
+            unreachable,
+            objects,
+            rows,
+            checked,
+            local_only,
+            exact,
+        ) = _core.store_status(cache, url)
+    except RuntimeError as raised:
+        # An unopenable store is the thing `status` exists to report, so it
+        # is printed rather than raised -- including "this build has no
+        # remote-store support", which is the whole of the question for
+        # someone who installed a wheel.
+        _report(str(raised))
+        return 1
+
+    print(f"remote-store support   {'yes' if supported else 'no'}")
+    if not supported:
+        print(
+            "                       this build opens `file://` stores only. "
+            "For a bucket, install\n"
+            "                       `ligase-bio[remote-store]` from source, "
+            "or build with\n"
+            "                       `--features remote-store`."
+        )
+    if configured is None:
+        print("store                  none configured")
+        print(
+            f"                       set {config.STORE_VARIABLE}, or a "
+            f"[store] url in {config.CONFIG_FILE}"
+        )
+    else:
+        print(f"store                  {configured.url}")
+        print(f"                       from {configured.source}")
+    if opened is not None:
+        print(
+            f"reachable              {'no -- ' + unreachable if unreachable else 'yes'}"
+        )
+
+    print(f"local objects          {objects}")
+    print(f"local index rows       {rows}")
+    if opened is None:
+        print("local only             all of them: there is no remote tier")
+        return 0
+
+    how = "exact" if exact else f"sampled over {checked} of {objects + rows}"
+    print(f"local only             {local_only} ({how})")
+    return 0
+
+
+def _store_push(cache: Path | None, url: str | None) -> int:
+    """Upload everything the remote has not got."""
+    if url is None:
+        return _cannot(
+            f"no store is configured, so there is nowhere to push. Set "
+            f"{config.STORE_VARIABLE}, or a [store] url in "
+            f"{config.CONFIG_FILE}."
+        )
+    try:
+        pushed, failed = _core.store_push(cache, url)
+    except RuntimeError as raised:
+        return _cannot(str(raised))
+
+    print(f"pushed {_plural(pushed, 'object')}.")
+    if failed:
+        _report(
+            f"{_plural(failed, 'object')} could not be written. The store may "
+            f"be unreachable; nothing here is lost, and `ligase store push` "
+            f"can be run again."
+        )
+        return 1
+    return 0
+
+
+def _store_pull(cache: Path | None, url: str | None) -> int:
+    """Fetch what this index refers to and the local tier lacks."""
+    if url is None:
+        return _cannot(
+            f"no store is configured, so there is nowhere to pull from. Set "
+            f"{config.STORE_VARIABLE}, or a [store] url in "
+            f"{config.CONFIG_FILE}."
+        )
+    try:
+        fetched, missing = _core.store_pull(cache, url)
+    except RuntimeError as raised:
+        return _cannot(str(raised))
+
+    print(f"fetched {_plural(fetched, 'object')}.")
+    if missing:
+        # Not a failure: an object neither tier holds is a step that will
+        # run, which is the ordinary answer to a cold cache.
+        print(
+            f"{_plural(missing, 'object')} is not in either tier, so the "
+            f"steps that produced them will run."
+            if missing == 1
+            else f"{_plural(missing, 'object')} are not in either tier, so "
+            f"the steps that produced them will run."
+        )
+    return 0
 
 
 def _inspect(paths: Sequence[Path]) -> int:

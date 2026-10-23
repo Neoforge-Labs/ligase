@@ -44,7 +44,7 @@ mod remote;
 mod tiered;
 
 pub use fs::FsStore;
-pub use tiered::{StoreStats, TieredStore};
+pub use tiered::{StoreStats, Survey, TieredStore};
 
 /// An object's name: the hash of its contents, and the extension it is read
 /// under.
@@ -413,6 +413,16 @@ impl Backend {
             url: url.to_owned(),
         })
     }
+}
+
+/// Whether this build can open a bucket at all.
+///
+/// Reported by `ligase store status`, because "the default install has no
+/// object-store dependency" is a promise a user has to be able to check
+/// on the installation in front of them rather than in the release notes.
+#[must_use]
+pub const fn supports_remote() -> bool {
+    cfg!(feature = "remote-store")
 }
 
 /// The store the environment names, if it names one.
