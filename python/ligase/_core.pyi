@@ -318,9 +318,10 @@ class Graph:
         tasks: list[Task],
         cache_dir: str,
         callbacks: list[Callback],
-        # Where to write a bundle, a bundle to check against, and files to
-        # carry into the bundle as they are.
-        write_up: tuple[str | None, str | None, list[str]],
+        # Where to write a bundle, a bundle to check against, files to
+        # carry into the bundle as they are, and whether the bundle leaves
+        # the object bodies out.
+        write_up: tuple[str | None, str | None, list[str], bool],
         jobs: int | None = None,
     ) -> tuple[MethodsReport, Bundle | None, Verification | None]: ...
     def __len__(self) -> int: ...

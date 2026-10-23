@@ -634,6 +634,7 @@ class Pipeline:
         self,
         *,
         bundle: str | Path | None = None,
+        thin: bool = False,
         verify: str | Path | None = None,
         include: Sequence[str | Path] = (),
         jobs: int | None = None,
@@ -655,6 +656,13 @@ class Pipeline:
 
         Args:
             bundle: Write a reproducibility bundle into this directory.
+            thin: Leave the object bodies out of the bundle and name the
+                store they are in. Smaller, and not self-contained: a thin
+                bundle needs access to that store, including for the
+                recorded query responses that a fat one carries so a
+                reviewer can replay with no network and no API key. For a
+                collaborator who can already reach the lab's store; write a
+                fat one for a reviewer or an archive.
             verify: Check the bundle in this directory against what this
                 machine just produced, and report where they differ.
             include: Files to copy into the bundle as they are, such as the
@@ -687,6 +695,7 @@ class Pipeline:
                 None if bundle is None else str(bundle),
                 None if verify is None else str(verify),
                 [str(path) for path in include],
+                thin,
             ),
             jobs,
         )

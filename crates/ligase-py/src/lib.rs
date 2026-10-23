@@ -171,7 +171,7 @@ type PyMethods = (
 /// What to do besides describing the run, as Python gives it: a directory
 /// to write a bundle into, a bundle to check against, and files to carry
 /// into the bundle as they are.
-type PyWriteUp = (Option<PathBuf>, Option<PathBuf>, Vec<PathBuf>);
+type PyWriteUp = (Option<PathBuf>, Option<PathBuf>, Vec<PathBuf>, bool);
 
 /// A bundle that was written: where it is, what is in it, how many steps it
 /// accounts for, how many it could not.
@@ -1421,7 +1421,7 @@ impl PyGraph {
         write_up: PyWriteUp,
         jobs: Option<usize>,
     ) -> PyResult<(PyMethods, Option<PyBundle>, Option<PyVerification>)> {
-        let (bundle, verify, include) = &write_up;
+        let (bundle, verify, include, thin) = &write_up;
         let roots = nodes(&roots);
         let tasks = recipes(tasks)?;
 
@@ -1480,6 +1480,7 @@ impl PyGraph {
                         // a reviewer with no network and no API key can
                         // replay the run (D39).
                         queries: Some(&cache),
+                        thin: *thin,
                     },
                 )
                 .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;

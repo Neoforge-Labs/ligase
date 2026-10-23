@@ -291,6 +291,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="write a reproducibility bundle into this directory",
     )
     methods.add_argument(
+        "--thin",
+        action="store_true",
+        help=(
+            "leave the object bodies out of the bundle and name the store "
+            "they are in; smaller, and only readable where that store is"
+        ),
+    )
+    methods.add_argument(
         "--verify",
         type=Path,
         metavar="DIR",
@@ -467,9 +475,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.pipeline, arguments.jobs, arguments.force, arguments.cache
         )
     if arguments.command == "methods":
+        if arguments.thin and arguments.bundle is None:
+            return _cannot("`--thin` describes a bundle, so it needs `--bundle`")
         return _methods(
             arguments.pipeline,
             arguments.bundle,
+            arguments.thin,
             arguments.verify,
             arguments.jobs,
             arguments.cache,
@@ -853,6 +864,7 @@ def _audit(
 def _methods(
     path: Path,
     bundle: Path | None,
+    thin: bool,
     verify: Path | None,
     jobs: int | None,
     cache: Path | None,
@@ -869,6 +881,7 @@ def _methods(
         try:
             methods = pipeline.methods(
                 bundle=bundle,
+                thin=thin,
                 verify=verify,
                 # The pipeline file goes into the bundle, so a bundle holds
                 # the pipeline that produced it and not only its steps.
@@ -897,6 +910,8 @@ def _methods(
             print()
             files = len(methods.bundle.files)
             print(f"wrote {files} {_plural(files, 'file')} to {methods.bundle.root}")
+            if thin:
+                _thin_notice("records.tsv" in methods.bundle.files)
 
         if methods.verification is not None:
             print()
@@ -909,6 +924,28 @@ def _methods(
         found += len(methods.gaps)
 
     return FOUND_ERRORS if found else 0
+
+
+def _thin_notice(has_records: bool) -> None:
+    """Say what a thin bundle has stopped promising.
+
+    Loudly, and on the way out rather than in the README alone, because the
+    guarantee being traded away is one the person writing the bundle may be
+    relying on without having thought about it: a fat bundle replays with no
+    network and no API key, and this one does not.
+    """
+    _report(
+        "this is a thin bundle: it names the store rather than carrying the "
+        "object bodies, so it can only be checked where that store can be "
+        "reached."
+    )
+    if has_records:
+        _report(
+            "that includes the recorded query responses. A fat bundle "
+            "carries them, which is what lets a reviewer replay the run "
+            "with no network and no API key; this one does not. Write a "
+            "fat bundle for a reviewer, a referee or an archive."
+        )
 
 
 def _pipelines(path: Path) -> list[Pipeline] | int:

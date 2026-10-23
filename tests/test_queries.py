@@ -579,3 +579,108 @@ def test_an_unknown_kind_says_which_kinds_there_are(server: Server) -> None:
 
     with pytest.raises(ValueError, match="not a kind of data Ligase knows"):
         lg.query(server.url("/genes"), kind=Genome)
+
+
+# ------------------------------------------------------------ thin bundles --
+
+
+def test_a_thin_bundle_carries_no_bodies_and_names_the_store(
+    server: Server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M14: what `--thin` leaves out, and what it says about it."""
+    server.serve("/genes", GENES)
+    url = server.url("/genes")
+    bucket = tmp_path / "bucket"
+    bucket.mkdir()
+    monkeypatch.setenv("LIGASE_STORE", f"file://{bucket}")
+
+    @lg.step
+    def rank(genes: lg.EntitySet) -> lg.RankedList:
+        """Turn a scored gene list into a ranking."""
+        return lg.sh("cp {genes} {out}")
+
+    recorded_store = tmp_path / "recorded"
+    lg.remotes.configure(cache=recorded_store)
+    bundle = tmp_path / "bundle"
+    written = lg.Pipeline(rank(ask(url))).methods(
+        cache=recorded_store, bundle=bundle, thin=True
+    )
+
+    assert written.bundle is not None
+    assert (bundle / "records.tsv").is_file(), "the record is still named"
+    assert not (bundle / "records").exists(), "its body is not carried"
+
+    store = (bundle / "store.tsv").read_text()
+    assert str(bucket) in store, store
+
+    # And the README says what has stopped being promised, because the
+    # paragraph above it has just promised the opposite.
+    readme = (bundle / "README.md").read_text()
+    assert "thin bundle" in readme
+    assert "no network and no API key" in readme
+    assert "does not make that promise" in readme
+
+
+def test_a_thin_bundle_replays_where_the_store_can_be_reached(
+    server: Server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server.serve("/genes", GENES)
+    url = server.url("/genes")
+    bucket = tmp_path / "bucket"
+    bucket.mkdir()
+    monkeypatch.setenv("LIGASE_STORE", f"file://{bucket}")
+
+    @lg.step
+    def rank(genes: lg.EntitySet) -> lg.RankedList:
+        """Turn a scored gene list into a ranking."""
+        return lg.sh("cp {genes} {out}")
+
+    recorded_store = tmp_path / "recorded"
+    lg.remotes.configure(cache=recorded_store)
+    bundle = tmp_path / "bundle"
+    lg.Pipeline(rank(ask(url))).methods(cache=recorded_store, bundle=bundle, thin=True)
+    expected = digest_of(ask(url))
+
+    # A collaborator: the source is gone, the bundle has no bodies, and the
+    # store is reachable. That is the case `--thin` exists for.
+    server.stop()
+    clean = tmp_path / "clean"
+    lg.remotes.configure(cache=clean, mode="replay")
+
+    assert lg.remotes.seed(bundle, cache=clean) == 1
+    assert digest_of(ask(url)) == expected
+
+
+def test_a_thin_bundle_without_the_store_fails_before_any_step_runs(
+    server: Server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server.serve("/genes", GENES)
+    url = server.url("/genes")
+    bucket = tmp_path / "bucket"
+    bucket.mkdir()
+    monkeypatch.setenv("LIGASE_STORE", f"file://{bucket}")
+
+    @lg.step
+    def rank(genes: lg.EntitySet) -> lg.RankedList:
+        """Turn a scored gene list into a ranking."""
+        return lg.sh("cp {genes} {out}")
+
+    recorded_store = tmp_path / "recorded"
+    lg.remotes.configure(cache=recorded_store)
+    bundle = tmp_path / "bundle"
+    lg.Pipeline(rank(ask(url))).methods(cache=recorded_store, bundle=bundle, thin=True)
+
+    # The store is now out of reach, which for a thin bundle is fatal and
+    # has to say so rather than replaying some queries and not others.
+    server.stop()
+    monkeypatch.setenv("LIGASE_STORE", f"file://{tmp_path / 'nowhere'}")
+    clean = tmp_path / "clean"
+    lg.remotes.configure(cache=clean, mode="replay")
+
+    with pytest.raises(lg.RemoteError) as raised:
+        lg.remotes.seed(bundle, cache=clean)
+
+    message = str(raised.value)
+    assert "thin bundle" in message, message
+    assert str(bucket) in message, "it names the store it was told about"
+    assert "--thin" in message, "and how to get a bundle that does not need it"

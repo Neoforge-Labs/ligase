@@ -308,6 +308,7 @@ fn a_bundle_records_what_was_noticed_and_warns_in_its_readme() {
             methods: &methods,
             include: &[],
             queries: None,
+            thin: false,
         },
     )
     .unwrap();
@@ -340,6 +341,7 @@ fn a_bundle_with_nothing_wrong_still_has_the_file_and_no_warning() {
             methods: &methods,
             include: &[],
             queries: None,
+            thin: false,
         },
     )
     .unwrap();
@@ -371,6 +373,7 @@ fn verifying_a_bundle_reports_an_output_that_will_not_travel() {
             methods: &methods,
             include: &[],
             queries: None,
+            thin: false,
         },
     )
     .unwrap();
@@ -413,6 +416,7 @@ fn verifying_an_ordinary_bundle_says_nothing_about_notes() {
             methods: &methods,
             include: &[],
             queries: None,
+            thin: false,
         },
     )
     .unwrap();
@@ -521,6 +525,7 @@ fn provenance_and_a_bundle_keep_what_a_body_noticed() {
             methods: &methods,
             include: &[],
             queries: None,
+            thin: false,
         },
     )
     .unwrap();
@@ -553,6 +558,7 @@ fn a_hedge_is_not_an_excuse_for_a_hash_that_moved() {
             methods: &methods,
             include: &[],
             queries: None,
+            thin: false,
         },
     )
     .unwrap();
