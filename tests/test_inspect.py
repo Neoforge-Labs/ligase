@@ -134,6 +134,18 @@ def test_an_extension_the_loaders_do_not_know_says_which_are_known(
     assert ".tsv" in captured.err
 
 
+def test_a_directory_is_told_apart_from_a_missing_file(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # `ligase inspect refs/` is an easy slip, and "no such file" about a
+    # directory that is plainly there is the kind of answer that makes a
+    # reader distrust everything else the tool says.
+    code = main(["inspect", str(Path(fixture("tiny_bare.fasta")).parent)])
+
+    assert code == 2
+    assert "is a directory" in capsys.readouterr().err
+
+
 def test_one_unreadable_file_withholds_the_verdict_on_the_others(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

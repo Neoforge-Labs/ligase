@@ -347,6 +347,37 @@ def _names(paths: Sequence[Path]) -> list[str]:
     return distinct
 
 
+def _read(path: Path) -> Dataset | None:
+    """Load one file for `inspect`, or say on stderr why it could not be.
+
+    Returns None rather than raising. A file that will not open or will not
+    parse is a fact about the file, and reporting it as a traceback would
+    make it look like a fault in the tool that went to look.
+    """
+    if not path.exists():
+        _report(f"no such file: {path}")
+    elif path.is_dir():
+        _report(f"{path} is a directory; name the files in it")
+    elif not path.is_file():
+        _report(f"{path} is not a file")
+    elif (loader := LOADERS.get(_suffix(path))) is None:
+        # Naming what *is* read turns a refusal into an answer. The suffix
+        # is quoted where there is one, since "nothing reads ``" would be a
+        # riddle for a file called `README`.
+        known = ", ".join(sorted(LOADERS))
+        reads = f"`{_suffix(path)}` files" if _suffix(path) else "a file named that"
+        _report(
+            f"{path}: nothing here reads {reads}; the extensions this knows "
+            f"are {known} (each also with .gz)"
+        )
+    else:
+        try:
+            return loader(str(path))
+        except Exception as error:
+            _report(f"{path} could not be read: {error}")
+    return None
+
+
 def _inspect(paths: Sequence[Path]) -> int:
     """Describe each file, then compare them as a step's inputs are compared.
 
@@ -360,26 +391,11 @@ def _inspect(paths: Sequence[Path]) -> int:
     unreadable: list[Path] = []
 
     for name, path in zip(_names(paths), paths, strict=True):
-        loader = LOADERS.get(_suffix(path))
-        if not path.is_file():
-            _report(f"no such file: {path}")
-            unreadable.append(path)
-        elif loader is None:
-            known = ", ".join(sorted(LOADERS))
-            _report(
-                f"{path}: nothing here reads `{_suffix(path) or path.name}`; "
-                f"the extensions this knows are {known} (each also with .gz)"
-            )
+        data = _read(path)
+        if data is None:
             unreadable.append(path)
         else:
-            try:
-                loaded.append((name, loader(str(path))))
-            # Whatever the loader could not do with the file, in its own
-            # words. A file that will not parse is a fact about the file,
-            # not a crash in the tool that looked at it.
-            except Exception as error:
-                _report(f"{path} could not be read: {error}")
-                unreadable.append(path)
+            loaded.append((name, data))
 
     for name, data in loaded:
         print(data._core.describe(name))
@@ -391,8 +407,12 @@ def _inspect(paths: Sequence[Path]) -> int:
     # all of them, so there is no verdict at all.
     if unreadable:
         print(
-            f"not comparing: {len(unreadable)} of {files} could not be read, "
-            "and a file nobody could read has no verdict."
+            f"nothing to inspect: {files} could not be read."
+            if len(unreadable) == len(paths)
+            else (
+                f"not comparing: {len(unreadable)} of {files} could not be "
+                "read, and a file nobody could read has no verdict."
+            )
         )
         return COULD_NOT_CHECK
 
