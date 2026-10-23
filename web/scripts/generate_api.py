@@ -69,6 +69,7 @@ GROUPS: tuple[Group, ...] = (
             "variants",
             "intervals",
             "entity_set",
+            "ranked_list",
         ),
     ),
     Group(
@@ -115,6 +116,7 @@ GROUPS: tuple[Group, ...] = (
             "Variants",
             "Intervals",
             "EntitySet",
+            "RankedList",
             "Contig",
             "DimensionValue",
             "StepOutput",

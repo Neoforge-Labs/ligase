@@ -10,6 +10,8 @@ mod alignment;
 mod entity_set;
 mod fasta;
 mod intervals;
+mod named_list;
+mod ranked_list;
 mod reads;
 mod table;
 mod variants;
@@ -28,6 +30,7 @@ pub use alignment::alignment;
 pub use entity_set::entity_set;
 pub use fasta::reference;
 pub use intervals::{IntervalFormat, intervals};
+pub use ranked_list::ranked_list;
 pub use reads::{reads, samples};
 pub use variants::variants;
 
@@ -62,23 +65,25 @@ pub struct Declared {
     pub frame: Option<(String, u64)>,
     /// The release of the reference, e.g. `GRCh38.p14`.
     ///
-    /// A reference and a gene list each carry one; the other loaders ignore
-    /// it. A blank release declares nothing and is treated as not declared.
+    /// A reference and either kind of named list carry one; the other
+    /// loaders ignore it. A blank release declares nothing and is treated
+    /// as not declared.
     pub release: Option<String>,
     /// Which identifier space a set of entities is named in, e.g.
     /// `HGNC symbol`.
     ///
-    /// Only the entity-set loader reads it. Left unset, the loader reads
-    /// the space off the identifiers themselves where they agree
-    /// unambiguously; a blank declares nothing and is treated as not
-    /// declared. It is deliberately not checked against the engine's
-    /// catalogue of known spaces, because a curated list's own spelling is
-    /// a space too — see `load::entity_set`.
+    /// Read by the two loaders of named lists, `entity_set` and
+    /// `ranked_list`. Left unset, the loader reads the space off the
+    /// identifiers themselves where they agree unambiguously; a blank
+    /// declares nothing and is treated as not declared. It is deliberately
+    /// not checked against the engine's catalogue of known spaces, because
+    /// a curated list's own spelling is a space too — see
+    /// `load::named_list`.
     pub identifier_namespace: Option<String>,
     /// What the data is about when that is one named thing: a disease, a
     /// cell line, a cohort.
     ///
-    /// Only the entity-set loader reads it. A blank declares nothing.
+    /// Read by the two loaders of named lists. A blank declares nothing.
     pub subject: Option<String>,
 }
 
@@ -99,7 +104,8 @@ pub(crate) fn organism(declared: &Declared, reason: &'static str) -> Dim<Organis
 
 /// The release dimension of a reference, from what the user declared.
 ///
-/// Only the FASTA loader calls this, because only a reference has a release.
+/// Called by the loaders of the kinds that have a release: a reference, a
+/// gene list and a ranked list.
 /// A blank release is a gap for the same reason an empty organism list is:
 /// a blank that equals another blank is a false agreement. `reason` is the
 /// caller's, as with [`organism`], so this module names no file format.

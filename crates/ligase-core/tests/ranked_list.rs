@@ -452,14 +452,8 @@ fn each_axis_a_ranked_list_claims_compares_its_own_field() {
         let errors = check_step(
             "score",
             &[
-                bind(
-                    "a",
-                    named_list_with(DataKind::RankedList, dimension, left),
-                ),
-                bind(
-                    "b",
-                    named_list_with(DataKind::RankedList, dimension, right),
-                ),
+                bind("a", named_list_with(DataKind::RankedList, dimension, left)),
+                bind("b", named_list_with(DataKind::RankedList, dimension, right)),
             ],
         );
         let found: Vec<_> = errors
@@ -642,12 +636,8 @@ fn the_identifier_column_of_a_ranking_can_be_named() {
 
 #[test]
 fn a_ranking_with_no_such_column_says_which_columns_it_has() {
-    let error = load::ranked_list(
-        &fixture("ranked_degs.tsv"),
-        Some("gene"),
-        &declared_human(),
-    )
-    .unwrap_err();
+    let error = load::ranked_list(&fixture("ranked_degs.tsv"), Some("gene"), &declared_human())
+        .unwrap_err();
     let said = error.to_string();
     assert!(said.contains("gene"), "{said}");
     assert!(said.contains("score"), "{said}");

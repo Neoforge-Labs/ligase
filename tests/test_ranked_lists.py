@@ -90,9 +90,7 @@ def test_a_ranked_list_says_what_it_is_in_its_repr() -> None:
 
 
 def test_the_loader_says_which_ranks_a_spreadsheet_ate() -> None:
-    listed = lg.ranked_list(
-        fixture("ranked_excel_dates.tsv"), organism="Homo sapiens"
-    )
+    listed = lg.ranked_list(fixture("ranked_excel_dates.tsv"), organism="Homo sapiens")
     said = " ".join(listed.notes)
     assert "2-Sep" in said
     assert "1-Mar" in said

@@ -26,11 +26,19 @@ pub enum DataKind {
     ResistanceReport,
     /// A set of genes or proteins, named in one identifier space (TSV).
     EntitySet,
+    /// The same, ranked: the row order is the result (TSV).
+    ///
+    /// Separate from [`Self::EntitySet`] for one reason, and it is the
+    /// reason the kind exists: a ranking's canonical form keeps its order
+    /// where a set's discards it (D41). Everything else about the two is
+    /// the same, dimensions included, so a change to either that is not
+    /// about order belongs to both.
+    RankedList,
 }
 
 impl DataKind {
     /// Every kind, so the Python layer can enumerate them.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Reads,
         Self::Reference,
         Self::Alignment,
@@ -38,6 +46,7 @@ impl DataKind {
         Self::Intervals,
         Self::ResistanceReport,
         Self::EntitySet,
+        Self::RankedList,
     ];
 
     /// The name used in messages and in the Python API.
@@ -51,6 +60,7 @@ impl DataKind {
             Self::Intervals => "Intervals",
             Self::ResistanceReport => "ResistanceReport",
             Self::EntitySet => "EntitySet",
+            Self::RankedList => "RankedList",
         }
     }
 
@@ -122,8 +132,8 @@ impl DataKind {
             (Self::ResistanceReport, Dimension::SampleSet) => true,
             (Self::ResistanceReport, _) => false,
 
-            // The first kind here that holds no sequence, and the place
-            // this table earns the warning above it. A gene list has no
+            // The kinds here that hold no sequence, and the place this
+            // table earns the warning above it. A gene list has no
             // coordinate system, no contigs, no read pairing and no
             // quality scores -- not as gaps to be filled in, but because
             // a list of gene names has no such properties to have. What
@@ -131,11 +141,16 @@ impl DataKind {
             // dimension it was admitted for (D35), the organism those
             // genes belong to, what the list is about, and the release of
             // whatever named them.
+            // A ranked list is here beside the set rather than below it
+            // because the two answer this question identically: they differ
+            // in their canonical form and in nothing else (D41). Were one
+            // given an axis the other lacked, the difference would have
+            // spread past the one place it is meant to live.
             (
-                Self::EntitySet,
+                Self::EntitySet | Self::RankedList,
                 Dimension::IdentifierNamespace | Dimension::Subject | Dimension::Release,
             ) => true,
-            (Self::EntitySet, _) => false,
+            (Self::EntitySet | Self::RankedList, _) => false,
         }
     }
 }
