@@ -1215,3 +1215,94 @@ or `SEPT2` and the engine will not guess which gene was meant.
 The other corruption, a symbol turned into a date *serial* such as `42615`, is
 deliberately not detected: it is indistinguishable from an Entrez gene ID, and
 a rule that flagged it would report real identifiers as mistakes.
+
+## D41 — In a ranked list, rank order is the result
+
+Every canonical form in Ligase sorts its records, and the reason is stated
+once, in [D14](#d14--contig-order-is-compared-only-between-sequence-dictionaries):
+the order records came off whatever produced them is not a fact about the
+biology. `canon/report.rs` sorts a resistance report's rows because a report
+is a *set of findings*. Alignment records, variant records, intervals, reads
+and a gene list's rows all sort for the same reason.
+
+A ranked list is the one kind where the rule runs the other way, and it is
+the only one.
+
+A ranking of differentially expressed genes, of predicted drug targets, of
+candidate compounds, is an answer to the question *which of these matters
+most*. Rank is simply the row position; there is nothing else for it to be.
+So the same twelve genes in two orders are two different answers, and a
+canonical form that sorted them would declare the two answers identical.
+Downstream, a cache keyed on that form would serve one when the pipeline
+asked for the other, and would do it in silence — which is the single failure
+mode semantic hashing exists to be incapable of.
+
+So **a `RankedList`'s canonical form preserves order**, which makes it the
+exact inverse of its own unranked sibling over the very same bytes.
+
+### The rule the code has to carry
+
+This decision is unusual in that it is mostly a decision about *reading* the
+code. Every other canonicaliser in the module sorts; this one does not; and
+the two calls that make the difference —
+[`Digest::record` and `Digest::ordered_record`](/project/architecture/canonicalisation/#the-digest)
+— take the same arguments and differ by one word. A later contributor
+tidying the module for consistency would make the change in one line, it
+would compile, and every test but one would still pass.
+
+Two things are therefore required rather than merely encouraged.
+`canon/ranked_list.rs` **says in a comment why it does not sort**, at the top
+of the module where it cannot be missed. And the test that pins it asserts
+the contrast rather than the bare fact: `the_order_of_a_ranked_list_is_its_result`
+hashes the *same two files* as a ranking and as a set, and asserts that the
+ranking disagrees and the set agrees — because a reader finding only an
+`assert_ne!` between two orderings would reasonably take it for a bug and
+"fix" the code to match.
+
+### What the two kinds share, and what they must not
+
+A `RankedList` and an [`EntitySet`](#d38--identifier-namespaces-never-coerce)
+carry **identical** dimensions: `organism`, `identifier_namespace`, `subject`
+and `release`. They share their loader, because reading a TSV, finding the
+identifier column, inferring the space off the identifiers and noticing a
+symbol a spreadsheet has turned into a date is the same work with the same
+subtleties for both. They do not share their canonical form, because that is
+the one place they are not the same, and sharing it would mean expressing the
+difference as a flag somewhere else.
+
+That the difference is confined to one function is itself asserted, by a test
+over every dimension. If the two kinds ever diverge on an axis, that is where
+it surfaces — and it would mean the distinction had leaked out of the one
+place it is meant to live.
+
+### The cost, accepted
+
+Keeping order makes the cache stricter than a scientist would. A tool that
+re-emits a ranking having broken a tie the other way produces a file Ligase
+calls different and a reader would call the same, and everything below it
+reruns. There is no tolerance to loosen that with either: a `score` column is
+compared exactly, because no drift has been measured for one and a guessed
+tolerance would be baked into every cache key.
+
+This is the project's standing bias applied where it costs something: a cache
+that is too cold costs time, and a cache that is too warm is wrong. The
+measurement that would justify a tolerance is `ligase audit`'s, and until it
+has been taken the exact comparison stands.
+
+### Two consequences worth stating
+
+A file cannot say whether its own order is meaningful — that is a fact about
+what the file is *for*, and it lives in the annotation of the step that
+consumes it. So `ligase inspect`, which has no pipeline to read an annotation
+from, reads a `.tsv` as the weaker claim: an `EntitySet`. Everything it
+reports is identical for both kinds, so nothing is lost; guessing the
+stronger one would have the command assert something about a user's data that
+the data does not support.
+
+And a ranking mapped across identifier spaces comes out **shorter**, so its
+ranks close up: if the top-ranked identifier had no mapping, the second
+becomes first. That follows from D38's refusal to carry an unmapped name into
+a space it is not in, and it is visible rather than silent, because every
+identifier that did not cross is named and counted in the run report, in
+provenance, in a bundle and in the methods paragraph
+([D26](#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).

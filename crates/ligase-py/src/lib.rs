@@ -730,6 +730,31 @@ fn load_entity_set(
         .map_err(to_py)
 }
 
+/// Load a ranked list from a TSV with a header, highest rank first.
+#[pyfunction]
+#[pyo3(signature = (path, id_column=None, organism=None, identifier_namespace=None, subject=None, release=None))]
+fn load_ranked_list(
+    path: PathBuf,
+    id_column: Option<&str>,
+    organism: Option<Organisms>,
+    identifier_namespace: Option<String>,
+    subject: Option<String>,
+    release: Option<String>,
+) -> PyResult<PyDataset> {
+    let declared = Declared {
+        organism: organisms(organism)?,
+        build: None,
+        frame: None,
+        samples: None,
+        release: declared_label("release", release)?,
+        identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
+        subject: declared_label("subject", subject)?,
+    };
+    load::ranked_list(&path, id_column, &declared)
+        .map(|inner| PyDataset { inner })
+        .map_err(to_py)
+}
+
 #[pyfunction]
 #[pyo3(signature = (paths, paired, organism=None))]
 fn load_samples(
@@ -1287,6 +1312,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(load_reference, m)?)?;
     m.add_function(wrap_pyfunction!(load_entity_set, m)?)?;
+    m.add_function(wrap_pyfunction!(load_ranked_list, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_axis, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_target_parameter, m)?)?;
     m.add_function(wrap_pyfunction!(map_identifiers, m)?)?;

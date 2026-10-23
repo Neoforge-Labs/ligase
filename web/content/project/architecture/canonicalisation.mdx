@@ -55,12 +55,24 @@ replacement for it.
 ## The digest
 
 `canon::Digest` is the only thing that writes bytes into the hash, and it
-offers two ways to do it.
+offers three ways to do it.
 
 - `field(label, value)` — written immediately, in order. For anything whose
   position means something.
 - `record(parts)` — hashed to 32 bytes now, collected, and **sorted** at the
   end. For anything whose position does not.
+- `ordered_record(parts)` — hashed to 32 bytes the same way and then written
+  straight in, where its position is fixed. For the one kind whose record
+  order *is* its result.
+
+The third exists as a method rather than as an argument to the second, and
+that is deliberate. `record` and `ordered_record` take the same arguments and
+mean opposite things, so a canonicaliser reaching for the wrong one would
+compile, pass its own tests for every property except the one that matters,
+and quietly turn a ranking into a set. Naming the choice at the call site is
+what makes that a visible mistake. It is the same reasoning as D41's
+requirement that the module say in a comment why it does not sort: the hazard
+here is not a hard decision, it is an easy one made by habit.
 
 Everything is length-prefixed, so a field `x` = `yz` cannot produce the same
 stream as `xy` = `z`. The domain, the rules' version, the `DataKind` and
@@ -83,6 +95,8 @@ an XOR would lose.
 | `Variants` | `##contig`, samples | records | see below |
 | `Intervals` | — | records | `track`, `browser`, `#` |
 | `ResistanceReport` | the header row | the rows below it | trailing blanks |
+| `EntitySet` | the header row | the rows below it | — |
+| `RankedList` | the header row **and the rows below it** | — | — |
 
 The split is not a new judgement. It is
 [D14](/project/decisions/#d14--contig-order-is-compared-only-between-sequence-dictionaries),
@@ -174,6 +188,67 @@ typed by column count and a BED in the wild has whichever columns its author
 felt like writing. The resistance report is ours: the header row kept as a
 row, the rows below it sorted, and a row whose column count disagrees with
 the header is a parse failure rather than something to hash.
+
+### Named lists: the one pair that disagrees on purpose
+
+`canon::entity_set` and `canon::ranked_list` do the same work in opposite
+directions over the same bytes, and they are deliberately two functions.
+
+An `EntitySet` is a set of entities, so its rows go in as `record`s and sort.
+A `RankedList` is a ranking, so its rows go in as `ordered_record`s and do
+not — because rank is the row position and the position is the output
+([D41](/project/decisions/#d41--in-a-ranked-list-rank-order-is-the-result)).
+The `DataKind` is hashed into the stream before either runs, so reading one
+file both ways gives two hashes rather than one: a step annotated to return a
+ranking can never be served the cached output of one annotated to return a
+set, which would be the same bytes under a weaker promise.
+
+**What is shared, and what is not.** The *loader* is shared
+(`load::named_list`), because reading a TSV, finding the identifier column,
+inferring the namespace and noticing a symbol a spreadsheet ate is the same
+work with the same subtleties for both kinds — including the distinction
+between "declare `identifier_namespace`" and "re-export this file", which are
+opposite pieces of advice and took M8 a correction to get right. Copying that
+into a second file would have copied the part that is hard. The
+*canonicaliser* is not shared, because it is the one place the two kinds are
+not the same, and sharing it would mean expressing the difference as a flag
+somewhere else. The two kinds apply identical dimensions, which a test pins
+(`a_ranked_list_and_a_gene_list_apply_exactly_the_same_dimensions`): if the
+difference ever spreads past canonicalisation, that is where it shows.
+
+**The trade-off, stated.** Keeping order makes the cache stricter, and a
+stricter cache costs time it does not have to. A ranking re-emitted by a tool
+that broke a tie the other way reruns everything below it, even though a
+scientist would call the two rankings the same. That cost is accepted on the
+project's standing bias: a cache that is too cold costs time, and one that is
+too warm is wrong. There is no tolerance to loosen it with, either — a
+`score` column is compared exactly, because no drift has been measured and a
+guessed tolerance would be baked into every cache key.
+
+**Why `ligase inspect` reads a `.tsv` as the weaker claim.** The command's
+`LOADERS` table maps `.tsv` to `entity_set`, and leaves it there. A file
+cannot say whether its row order is meaningful: that is a fact about what the
+file is *for*, which lives in the step annotation that consumes it, and
+`inspect` has no pipeline to read one from. Guessing `RankedList` would have
+`inspect` assert something about a user's data that nothing in the data
+supports. Everything `inspect` actually reports — the four dimensions, their
+sources, the notes — is identical for both kinds, so the weaker reading loses
+nothing it could have shown.
+
+**What mapping a ranking across identifier spaces does to its ranks.**
+`map_identifiers` is registered for both kinds (`convert::Conversion::ALL`),
+because `graph::propagate` guards the axis override on `converts(output)` and
+a ranking left out of that list would carry the *input's* namespace onto an
+output that had crossed. It writes rows in input order, so a mapped ranking is
+still ranked — but the identifiers that did not cross are left out, so the
+ranks **close up**: if the top-ranked identifier had no mapping, the
+second-ranked one becomes first. That is the honest consequence of D38's
+refusal to carry an unmapped name into a space it is not in, and it is
+visible rather than silent, because every identifier that did not cross is
+named and counted in the run report, in provenance, in a bundle and in the
+methods paragraph (D26). The shipped `lg.map_identifiers` library step is
+typed for an `EntitySet`; a ranking crosses through a step of the user's own
+declaring `conversion="map_identifiers"`.
 
 ## Tolerance
 

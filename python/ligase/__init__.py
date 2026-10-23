@@ -57,6 +57,7 @@ from .types import (
     DimensionValue,
     EntitySet,
     Intervals,
+    RankedList,
     Reads,
     Reference,
     ResistanceReport,
@@ -85,6 +86,7 @@ __all__ = [
     "MethodsGap",
     "PinnedReference",
     "Pipeline",
+    "RankedList",
     "Reads",
     "Reference",
     "ReferenceFrameError",
@@ -116,6 +118,7 @@ __all__ = [
     "hivdb",
     "intervals",
     "map_identifiers",
+    "ranked_list",
     "reads",
     "reference",
     "samples",
@@ -414,6 +417,76 @@ def entity_set(
     """
     return EntitySet(
         _core.load_entity_set(
+            path, id_column, organism, identifier_namespace, subject, release
+        )
+    )
+
+
+def ranked_list(
+    path: str,
+    *,
+    id_column: str = "id",
+    organism: str | Sequence[str] | None = None,
+    identifier_namespace: str | None = None,
+    subject: str | None = None,
+    release: str | None = None,
+) -> RankedList:
+    """Load a ranked list from a TSV with a header, highest rank first.
+
+    An `entity_set` and one more thing: the row order is the result. Rank is
+    the row position, so a ranking reordered is a different ranking and has
+    a different semantic hash -- where every other type in Ligase, this
+    one's own unranked sibling included, treats record order as saying
+    nothing. Ranked differentially-expressed genes, ranked drug targets and
+    a leaderboard of candidates are all this type.
+
+    Args:
+        path: The TSV, optionally gzipped. It must have a header row, and
+            its rows must be in rank order: best first.
+        id_column: The column holding the identifiers. Every other column is
+            an attribute, carried without being read -- a `score`, a `rank`,
+            an adjusted p-value. A ranked table often has a rank column of
+            its own, so this is more often worth naming than for a gene
+            list.
+        organism: The organism these entities belong to. A ranked list does
+            not record it. Give a list for data about more than one
+            organism.
+        identifier_namespace: Which space the identifiers are in, such as
+            `HGNC symbol` or `Ensembl gene` -- or whatever an in-house list
+            calls its own spelling. Left out, it is read off the identifiers
+            themselves where every one of them matches a single known
+            pattern, exactly as for `entity_set`.
+        subject: What the ranking is of when that is one named thing: a
+            disease, a cell line, a cohort. Compared by equality.
+        release: Which release named these entities, such as
+            `HGNC 2026-09`. Compared by equality, so a ranking named by one
+            release will not score against a list named by another -- which
+            is the point, because a symbol can mean different genes in two
+            releases.
+
+    Returns:
+        The loaded ranking. Anything the loader noticed about the
+        identifiers -- a symbol a spreadsheet has turned into a date, say --
+        is on `notes`.
+
+    Raises:
+        ValueError: If `organism` names no organism (an empty list, or only
+            blank names), or if `identifier_namespace`, `subject` or
+            `release` is blank.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
+        LoadError: If the file cannot be read, has no header row, has no
+            column named `id_column`, or holds a row its header cannot
+            account for.
+
+    Note:
+        A `score` column is compared **exactly**. No numeric tolerance is
+        declared for one, because none has been measured: a tolerance
+        guessed at would be baked into every cache key, and a cache that is
+        too cold costs time while one that is too warm is wrong.
+    """
+    return RankedList(
+        _core.load_ranked_list(
             path, id_column, organism, identifier_namespace, subject, release
         )
     )

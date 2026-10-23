@@ -59,6 +59,14 @@ def load_entity_set(
     subject: str | None = None,
     release: str | None = None,
 ) -> Dataset: ...
+def load_ranked_list(
+    path: str,
+    id_column: str | None = None,
+    organism: str | Sequence[str] | None = None,
+    identifier_namespace: str | None = None,
+    subject: str | None = None,
+    release: str | None = None,
+) -> Dataset: ...
 def load_alignment(
     path: str,
     organism: str | Sequence[str] | None = None,
