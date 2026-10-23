@@ -155,19 +155,34 @@ jobs:
         env:
           LIGASE_DEMO_REQUIRED: "1"
 
-  # The remote store tier (M14, D43), against a real S3 implementation.
+  # The remote store tier (M14, D43), against a real S3 server.
   #
   # The only job that compiles the `remote-store` feature, and the only one
   # that needs cmake: `object_store`'s AWS stack pulls `aws-lc-sys`, whose
   # build script shells out to it. That is the cost of the feature, it is
   # confined to here and to anyone who asks for it, and
   # `crates/ligase-core/tests/default_build.rs` keeps it out of a default
-  # build. Expect eight to twelve minutes cold, four to six with the cargo
-  # cache warm.
+  # build. Expect eight to twelve minutes cold and four to six with the
+  # cargo cache warm, plus about a minute for the S3 server's image.
   #
-  # Every setting MinIO needs is a *provider* variable -- AWS_ACCESS_KEY_ID,
-  # AWS_ENDPOINT_URL and the rest. Ligase is configured by one name,
-  # LIGASE_STORE, and reads no credential of its own (D43).
+  # Every setting the server needs is a *provider* variable --
+  # AWS_ACCESS_KEY_ID, AWS_ENDPOINT_URL and the rest. Ligase is configured
+  # by one name, LIGASE_STORE, and reads no credential of its own (D43).
+  #
+  # ## Not MinIO, and not by choice
+  #
+  # M14's done-when names "a MinIO container". MinIO is no longer freely
+  # obtainable: `docker.io/minio/minio` denies anonymous pulls,
+  # `quay.io/minio/minio` answers 401, and the community binaries at
+  # dl.min.io are 410 Gone. Checked all three on 23 October 2026.
+  #
+  # So this runs LocalStack's S3 instead. Nothing in `tests/s3.rs` is
+  # MinIO-specific -- they name only the protocol -- and the point of the
+  # job is that the backend talks to something that really speaks S3
+  # rather than to a filesystem. LocalStack's community image carries a
+  # notice about unifying its images, so if this stops resolving, any
+  # S3-speaking server will do: set the endpoint and the bucket and
+  # nothing else changes.
   #
   # ## What is run here, and what is not
   #
@@ -182,7 +197,7 @@ jobs:
   # and seven different ones once those six were skipped.
   #
   # The clause's real question -- is the remote tier substitutable for the
-  # local one -- is answered instead by `tests/minio.rs` and the end-to-end
+  # local one -- is answered instead by `tests/s3.rs` and the end-to-end
   # tests in `tests/test_store_cli.py`, which run against this bucket and
   # cover the round trip, a 404, an object corrupted in place, the
   # multipart path, eight machines writing one object, and a second machine
@@ -192,13 +207,13 @@ jobs:
   #
   # `web/content/project/architecture/store.mdx` has the whole argument.
   store:
-    name: store (MinIO, remote-store feature)
+    name: store (S3, remote-store feature)
     runs-on: ubuntu-24.04
     env:
       AWS_ACCESS_KEY_ID: ligaseci
       AWS_SECRET_ACCESS_KEY: ligaseci-secret
       AWS_REGION: us-east-1
-      AWS_ENDPOINT_URL: http://127.0.0.1:9000
+      AWS_ENDPOINT_URL: http://127.0.0.1:4566
       # `object_store` refuses a plaintext endpoint without this, which is
       # the right default everywhere except a container on localhost.
       AWS_ALLOW_HTTP: "true"
@@ -216,21 +231,22 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
 
-      # By hand rather than as a `services:` container: MinIO needs a
-      # command (`server /data`) and `services:` cannot set one.
-      - name: start MinIO
+      # Started by hand rather than as a `services:` container so that the
+      # readiness check can be the service's own health endpoint rather
+      # than a port being open: S3 answering is what the next step needs,
+      # and a listening socket is not that.
+      - name: start an S3 server
         run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER="$AWS_ACCESS_KEY_ID" \
-            -e MINIO_ROOT_PASSWORD="$AWS_SECRET_ACCESS_KEY" \
-            minio/minio server /data
+          docker run -d --name s3 -p 4566:4566 -e SERVICES=s3 \
+            localstack/localstack:4
           for _ in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:9000/minio/health/live >/dev/null; then
-              echo "minio is up"; exit 0
+            if curl -sf http://127.0.0.1:4566/_localstack/health 2>/dev/null \
+               | grep -q '"s3"'; then
+              echo "s3 is up"; exit 0
             fi
-            sleep 2
+            sleep 3
           done
-          echo "minio did not come up"; docker logs minio; exit 1
+          echo "the S3 server did not come up"; docker logs s3; exit 1
 
       - name: create the bucket
         run: aws --endpoint-url "$AWS_ENDPOINT_URL" s3 mb s3://ligase-ci
@@ -240,7 +256,7 @@ jobs:
       - name: cargo clippy (remote-store)
         run: cargo clippy -p ligase --all-targets --features remote-store -- -D warnings
 
-      - name: cargo test (remote-store, against MinIO)
+      - name: cargo test (remote-store, against S3)
         run: cargo test --workspace --features ligase/remote-store
 
       # A Python extra cannot enable a cargo feature, so the wheel is built

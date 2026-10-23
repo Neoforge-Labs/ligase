@@ -13,6 +13,7 @@ try to put a secret is the one place that has to refuse it.
 from __future__ import annotations
 
 import os
+import uuid
 from pathlib import Path
 
 import pytest
@@ -268,6 +269,19 @@ needs_a_bucket = pytest.mark.skipif(
 )
 
 
+def fresh_prefix(name: str) -> str:
+    """A corner of the bucket nothing has written to.
+
+    These tests turn on a cache *miss* on the first run, so a prefix some
+    earlier run has already filled makes the first machine a second one.
+    CI's bucket happens to be new each time, which is exactly the sort of
+    assumption that holds until someone reuses a bucket -- and the whole
+    point of the milestone is that a content-addressed store does not care
+    which machine wrote it.
+    """
+    return f"{TEST_STORE.rstrip('/')}/{name}-{uuid.uuid4().hex}"
+
+
 @needs_a_bucket
 def test_a_second_machine_runs_nothing(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
@@ -279,7 +293,7 @@ def test_a_second_machine_runs_nothing(
     to be real files on the second machine, because the step below one is
     handed a path.
     """
-    monkeypatch.setenv(config.STORE_VARIABLE, f"{TEST_STORE}/two-machines")
+    monkeypatch.setenv(config.STORE_VARIABLE, fresh_prefix("two-machines"))
     path = write_pipeline(tmp_path)
 
     assert main(["run", str(path), "--cache", str(tmp_path / "first")]) == 0
@@ -303,7 +317,7 @@ def test_a_second_machine_can_write_up_what_it_did_not_run(
     else hits the cache -- produces a methods paragraph that says "is in
     the cache from a run that recorded no provenance" for every step.
     """
-    monkeypatch.setenv(config.STORE_VARIABLE, f"{TEST_STORE}/write-up")
+    monkeypatch.setenv(config.STORE_VARIABLE, fresh_prefix("write-up"))
     path = write_pipeline(tmp_path)
 
     assert main(["run", str(path), "--cache", str(tmp_path / "first")]) == 0
@@ -312,4 +326,4 @@ def test_a_second_machine_can_write_up_what_it_did_not_run(
     assert main(["methods", str(path), "--cache", str(tmp_path / "second")]) == 0
     out = capsys.readouterr().out
     assert "recorded no provenance" not in out, out
-    assert "wc" in out, "the tool it was produced with is named: " + out
+    assert "awk" in out, "the tool it was produced with is named: " + out

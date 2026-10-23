@@ -210,12 +210,19 @@ the remote: promotion, write-through, corruption, an unreachable remote, and
 the race. It runs in every build, because the tier logic is
 backend-independent and a fake is the right tool for it.
 
-`tests/minio.rs` covers the backend against a real S3 implementation, and
-only when `LIGASE_TEST_STORE` names a bucket: the round trip, a 404 that has
-to be a miss, an object corrupted in place, the multipart path, eight
-threads writing one object, and a second machine completing a pipeline with
-nothing of its own. Each test works under its own prefix, because two tests
-sharing a content-addressed namespace are two tests sharing their answers.
+`tests/s3.rs` covers the backend against a real S3 server, and only when
+`LIGASE_TEST_STORE` names a bucket: the round trip, a 404 that has to be a
+miss, an object corrupted in place, the multipart path, eight threads
+writing one object, and a second machine completing a pipeline with nothing
+of its own. Each test works under its own prefix, because two tests sharing
+a content-addressed namespace are two tests sharing their answers.
+
+Not MinIO, which the spec named and which is no longer freely obtainable:
+`docker.io/minio/minio` denies anonymous pulls, `quay.io/minio/minio`
+answers 401, and the community binaries at dl.min.io are 410 Gone — all
+three checked on 23 October 2026. CI runs LocalStack's S3 instead. Nothing
+in the tests is MinIO-specific; they name only the protocol, so any
+S3-speaking server will do.
 
 ### Why the whole suite is not run against the bucket
 

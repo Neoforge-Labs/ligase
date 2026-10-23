@@ -1,4 +1,4 @@
-//! M14: the `object_store` backend, against a real S3 implementation.
+//! M14: the `object_store` backend, against a real S3 server.
 //!
 //! Everything about *tiering* is in `tiered.rs`, where the remote is a
 //! second directory and the tests run in every build. This file is about
@@ -7,9 +7,14 @@
 //! for one would answer wrongly and convincingly.
 //!
 //! It runs only with the `remote-store` feature **and** `LIGASE_TEST_STORE`
-//! naming a bucket; CI's `store` job sets both against a MinIO container.
-//! Nothing here runs otherwise, because a test that silently does not is
-//! better than one that silently tests a directory.
+//! naming a bucket; CI's `store` job sets both against an S3 server in a
+//! container. Nothing here runs otherwise, because a test that silently
+//! does not is better than one that silently tests a directory.
+//!
+//! Nothing here is MinIO-specific, which is just as well: the spec asked
+//! for MinIO and MinIO is no longer freely obtainable (see the `store` job
+//! in `.github/workflows/ci.yml`). Any server that speaks S3 will do, and
+//! the tests name only the protocol.
 //!
 //! Each test works under its own prefix. That is not a dodge of the
 //! substitutability question — the rest of the suite answers that, by
