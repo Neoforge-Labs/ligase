@@ -39,8 +39,11 @@ use std::path::{Path, PathBuf};
 use crate::hash::ContentHash;
 
 mod fs;
+mod remote;
+mod tiered;
 
 pub use fs::FsStore;
+pub use tiered::{StoreStats, TieredStore};
 
 /// An object's name: the hash of its contents, and the extension it is read
 /// under.
@@ -222,6 +225,28 @@ pub trait BlobStore {
     /// [`StoreError::Mismatch`] if the file is not what the key claims, or
     /// an I/O failure.
     fn put_file_as(&self, staged: &Path, key: &ObjectKey) -> Result<(), StoreError>;
+
+    /// Hold a file that is already in a store, under a key already known.
+    ///
+    /// For a tier writing through to the one below it: the object has been
+    /// installed and hashed, and what is left is to copy it without
+    /// reading it into memory. The default does read it into memory, which
+    /// is right for a filesystem and wrong for a forty-gigabyte upload, so
+    /// a backend that can stream overrides this.
+    ///
+    /// Unlike [`put_file`](BlobStore::put_file), the source is **left
+    /// where it is**: it belongs to the tier above.
+    ///
+    /// # Errors
+    ///
+    /// If the file cannot be read or the object cannot be written.
+    fn put_from_path(&self, key: &ObjectKey, from: &Path) -> Result<(), StoreError> {
+        let bytes = std::fs::read(from).map_err(|source| StoreError::Io {
+            path: from.to_path_buf(),
+            source,
+        })?;
+        self.put(key, &bytes)
+    }
 
     /// Where this object sits on this filesystem, if it sits on one.
     ///

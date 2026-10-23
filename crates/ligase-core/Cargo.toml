@@ -14,10 +14,18 @@ readme = "../../README.md"
 [lints]
 workspace = true
 
+[features]
+# The remote store tier (D43). Off by default: a user who wants none of this
+# must not acquire a dependency on it, which is D6's zero-config install.
+remote-store = ["dep:object_store", "dep:tokio", "dep:url"]
+
 [dependencies]
 blake3 = { workspace = true }
 flate2 = { workspace = true }
 md-5 = { workspace = true }
+object_store = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
 # No "fasta": FASTA is scanned by hand so a three-gigabase reference can be
 # checksummed without being held in memory.
 noodles = { workspace = true, features = [
