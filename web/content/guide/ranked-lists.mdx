@@ -194,10 +194,62 @@ $ ligase audit score
 
 See [checking that a step repeats](/guide/semantic-hashing/#auditing-a-step).
 
+## Mapping a ranking into another identifier space
+
+A ranking crosses identifier spaces with `lg.map_ranked_identifiers`, which
+is `lg.map_identifiers` with one difference that matters:
+
+```python
+ensembl = lg.map_ranked_identifiers(
+    ranked,
+    table=lg.entity_set(
+        "hgnc_to_ensembl.tsv",
+        organism="Homo sapiens",
+        identifier_namespace="HGNC symbol",
+        release="HGNC 2026-09",
+    ),
+    column="ensembl_gene_id",
+    to="Ensembl gene",
+)
+```
+
+Everything [crossing identifier spaces](/guide/mapping-identifiers/) says
+applies: the table is typed so its contents join the cache key and its own
+space is checked against the ranking's, and an identifier that does not cross
+is named rather than dropped in silence or carried into a space it is not in.
+
+The difference is what happens to the rows that **do** cross. A set that
+loses members is still an honest set of what remains. A ranking that loses
+rows is not simply shorter — rank is the row position, so every row below a
+dropped one moves up. If the top-ranked identifier had no mapping, the second
+is now first.
+
+The output is a perfectly well-formed ranking with ranks 1..n and nothing in
+the file to show that n is smaller than it was, so the step says it:
+
+```
+noticed  the ranks were renumbered by the mapping: rank 1 of this ranking
+         was rank 2 of the list that was mapped, and every rank below a
+         dropped row has moved up by as many rows as were dropped above it
+```
+
+<Note kind="caution">
+**Take any cut-off before mapping, not after.** The top ten of a mapped
+ranking is the top ten of what crossed, which is not the mapping of the top
+ten. That is the one way this bites, and it is why the step says something
+about the rows it kept rather than only about the ones it lost.
+</Note>
+
+There is a separate step for this rather than an argument to
+`lg.map_identifiers` because `@lg.step` reads the output kind off the return
+annotation, once, when the step is decorated — so one function cannot produce
+both an `EntitySet` and a `RankedList`.
+
 ## What to reach for
 
 | You have | Load it as |
 |---|---|
 | A ranking: DEGs by score, targets by predicted affinity, a leaderboard | `lg.ranked_list` |
 | A set: pathway membership, a curated panel, GWAS hits, a truth set | `lg.entity_set` |
-| A ranking you want to compare across identifier spaces | `lg.ranked_list`, then `lg.map_identifiers` on the set |
+| A ranking you want in another identifier space | `lg.ranked_list`, then `lg.map_ranked_identifiers` |
+| A set you want in another identifier space | `lg.entity_set`, then `lg.map_identifiers` |

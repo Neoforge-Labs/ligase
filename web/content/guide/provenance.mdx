@@ -30,15 +30,20 @@ Analyses were run with Ligase 0.1.0 on macos-aarch64.
 
 `align` ran on 4 samples (SRR8525904, SRR8525908, SRR8525920, SRR8525942)
 with minimap2 2.31-r1302 and samtools 1.24, as `minimap2 -t {threads} -ax sr
-{ref} {reads.r1} {reads.r2} | samtools sort -@ {threads} -o {out}`, with
-threads = 4, against the HXB2 reference (K03455.1, 9719 bp, MD5
-c66838498aab02f786a6ec2f2d62cdc1).
+{ref} {reads.r1} {reads.r2} > {out}.sam && samtools addreplacerg -r
+ID:{sample_id} -r SM:{sample_id} -u -o {out}.rg.bam {out}.sam && samtools
+sort -@ {threads} -o {out} {out}.rg.bam && rm -f {out}.sam {out}.rg.bam`,
+with threads = 4, and with sample_id naming the sample, against the HXB2
+reference (K03455.1, 9719 bp, MD5 c66838498aab02f786a6ec2f2d62cdc1).
 
-`call` ran on 4 samples (SRR8525904, SRR8525908, SRR8525920, SRR8525942)
-with bcftools 1.24, as `bcftools mpileup -a AD -f {ref} {aln} | bcftools
-call -mv --ploidy 1 -Oz | bcftools view -i '(AD[0:1])/(AD[0:0]+AD[0:1]) >=
-{min_freq}' -Oz -o {out}`, with min_freq = 0.01, against the HXB2 reference
-(K03455.1, 9719 bp, MD5 c66838498aab02f786a6ec2f2d62cdc1).
+`mpileup_call` ran on 4 samples (SRR8525904, SRR8525908, SRR8525920,
+SRR8525942) with bcftools 1.24, as `ln -sf "$(cd "$(dirname {ref})" &&
+pwd)/$(basename {ref})" {out}.ref.fasta && bcftools mpileup -a AD -f
+{out}.ref.fasta -o {out}.pileup.vcf {aln} && bcftools view -i
+'(AD[0:1])/(AD[0:0]+AD[0:1]) >= {min_freq}' -Oz -o {out} {out}.pileup.vcf &&
+rm -f {out}.ref.fasta {out}.ref.fasta.fai {out}.pileup.vcf`, with
+min_freq = 0.01, against the HXB2 reference (K03455.1, 9719 bp, MD5
+c66838498aab02f786a6ec2f2d62cdc1).
 
 `resistance` ran on 4 samples (SRR8525904, SRR8525908, SRR8525920,
 SRR8525942), by a function in the pipeline itself.
@@ -165,7 +170,7 @@ $ ligase methods examples/hiv-resistance/pipeline.py --verify paper/bundle
 ...
 identical        `align` (SRR8525904)
     the same key, the same result   43c4c32bbd53
-identical        `call` (SRR8525904)
+identical        `mpileup_call` (SRR8525904)
     the same key, the same result   79224f737eeb
 ...
 
@@ -188,7 +193,7 @@ claim a bundle exists to let someone make.
 When something really moved:
 
 ```text
-differs          `call` (SRR8525904)
+differs          `mpileup_call` (SRR8525904)
     expected 79224f737eeb and got 4b1c90ea2277
 
 1 of 12 inputs are not the ones this bundle was built from:

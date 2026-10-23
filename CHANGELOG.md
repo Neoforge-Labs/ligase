@@ -9,6 +9,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`ligase.steps` — four steps with an entrance exam, and the reference demo
+  rewritten on them.** `examples/hiv-resistance/pipeline.py` no longer
+  contains a single shell command of its own. Alignment and variant calling
+  come from the library and the pipeline reads
+
+  ```python
+  aligned = minimap2.align(sample, hxb2, sample_id=run, threads=threads)
+  called = bcftools.mpileup_call(aligned, hxb2, min_freq=min_freq)
+  ```
+
+  which is what it means. The twelve-line incantation that gets a read group
+  onto a BAM has not gone anywhere; it has moved into the step that owns it,
+  with the reasoning that made it those three programs.
+
+  `ligase.steps` is curated and not convenient, which is
+  [D42](https://ligase.neoforgelabs.tech/project/decisions/): a step is
+  admitted only once it declares its tool's version capture, its citation, the
+  dimensions of its output and how that output canonicalises. **A step that
+  cannot say what it produces is not a library step.** The declarations are
+  held as data in `ligase.steps.LIBRARY` so that one test iterates them, and
+  the half needing no tool installed runs everywhere — a criterion that only
+  fails in CI is a criterion nobody is held to while writing the step.
+
+  Four steps: `minimap2.align`, `bwa.mem`, `samtools.sort` and
+  `bcftools.mpileup_call`. The two aligners are deliberately interchangeable
+  in a pipeline and never in provenance: swapping one for the other is a
+  different cache key and a different reference, which falls out of `tool=`
+  rather than being arranged, and is tested.
+
+  Two candidates from the spec's own table were **refused**, which is what an
+  admission criterion is for. `samtools index` produces an index, which is not
+  a dataset: it brings no dimension, so it earns no kind, and declared
+  `Alignment → Alignment` its output would have a BAI's bytes standing in for
+  an alignment's meaning, silently, because a file that does not parse as its
+  kind falls back to `Form::Raw`. And no step can trim paired reads at all: a
+  step's output is exactly one file and paired reads are two. Both are one
+  missing engine feature, named as a gap on the
+  [architecture page](https://ligase.neoforgelabs.tech/project/architecture/step-library/)
+  rather than papered over.
+
+- **`lg.map_ranked_identifiers`, and the note a mapped ranking needs.** M12
+  registered the identifier conversion for `RankedList` as well as
+  `EntitySet`, leaving the registry advertising an edge no shipped step
+  crossed. It crosses now.
+
+  A second step rather than an argument, because `@lg.step` reads the output
+  kind off the return annotation once and one function cannot produce both
+  kinds. The mapping itself already wrote survivors in input order, so rank
+  order survives for free. What needed deciding was the half that is about
+  the rows which *did* cross: rank is the row position, so dropping a row
+  renumbers every row beneath it, and the output is a well-formed ranking
+  with ranks 1..n and nothing in it to show that n is smaller than it was.
+  So there is a new `ranks-renumbered` note carrying what rank the output's
+  first row held in the input — the only note in the engine about what a
+  conversion *kept*. Its practical reading: take a cut-off before mapping,
+  not after, because the top ten of a mapped ranking is the top ten of what
+  crossed.
+
 - **Recorded queries — the second half of remote inputs, for a source that
   promises nothing.** `lg.remote` rests on a promise: NCBI undertakes that
   `K03455.1` will mean the same sequence next Tuesday, so a digest is how you
@@ -840,6 +898,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   last time before `docs/` was deleted, and there is nothing left to port.
 
 ### Fixed
+
+- **A tool that does not understand `--version` had its complaint recorded as
+  its version — and the cache key therefore never moved when the tool did.**
+  `exec::tool_version` ran `<tool> --version`, read stdout, fell back to
+  stderr and **ignored the exit status**. `bwa` prints
+  `[main] unrecognized command '--version'` and exits non-zero, so that
+  sentence was bwa's recorded version, in provenance, in the methods
+  paragraph and in the cache key. It is the same sentence for every bwa ever
+  released, so upgrading the aligner moved no key at all and every alignment
+  computed by the old one would have been served for the new. Preventing
+  exactly that is the only thing `tool=` promises.
+
+  There is now a version-probe table — arguments, whether a non-zero exit is
+  expected, which line holds the version — and a probe that fails
+  unexpectedly, or stops finding its line, is an error naming what to do. The
+  suite's own stand-in tool changed from `wc` to `awk` for the same reason:
+  `wc --version` is a BSD error message.
+
+- **`bcftools mpileup -f` left a `.fai` inside the content-addressed store.**
+  It writes an index beside the path it is handed, and in a run that path is
+  an object whose name is the hash of its own bytes. An unaddressed file in an
+  addressed store is a lie about what the store is, it would not travel with
+  the object when the store gains a blob tier, and on a read-only or remote
+  store it is not untidy but a failure. The library step indexes a symlink in
+  a directory of its own, and `bwa index -p` likewise.
+
+- **Every step the package exports was published in the API reference as a
+  `repr()` line with its documentation dropped.** `@lg.step` replaces a
+  function with a `Step` *instance*, which is neither a class nor a routine,
+  so `generate_api.py` fell through to its plain-value branch — and the branch
+  that fails the build on a missing docstring was never reached.
+  `lg.map_identifiers` had been published as
+  `map_identifiers: Step = <Step map_identifiers -> EntitySet>` since it was
+  added. The generator now documents the function the decorator read, and its
+  coverage contract walks nested submodules so that `steps.minimap2.align` —
+  the name a reader actually calls — has to be grouped and documented rather
+  than hidden behind `steps.minimap2`.
 
 - **Documentation: fifteen false claims about what the engine is.** Nothing
   checks a hand-written sentence that counts things, and five milestones

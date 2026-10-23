@@ -39,6 +39,16 @@ def call(aln: Alignment, ref: Reference, min_freq: float = 0.01) -> Variants:
     return lg.sh("bcftools mpileup -f {ref} {aln} | bcftools call -mv -Oz -o {out}")
 ```
 
+<Note kind="tip">
+Those two are written out here because this page is about `@lg.step`. You do
+not have to write them: `ligase.steps` already ships an aligner and a caller,
+and theirs are better — the one above drops the read group, so the calls
+below it name their sample after a cache path. See
+[steps you do not have to write](/guide/steps/minimap2/), and
+[what a curated step is](/concepts/step-library/) for what the project had to
+say about a step before shipping it.
+</Note>
+
 The annotations are not documentation. They are the only description of the
 step that Ligase ever reads, because it never runs the body while building a
 graph:

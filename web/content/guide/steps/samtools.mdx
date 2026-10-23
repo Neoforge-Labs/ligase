@@ -1,0 +1,94 @@
+---
+title: "Sorting an alignment"
+description: "ligase.steps.samtools.sort: coordinate order for an alignment that came from elsewhere, why it never costs you the pipeline below it, and why samtools index is not here."
+---
+
+# Sorting an alignment
+
+<Lede>
+For a BAM somebody sent you. Both aligners in this library sort what they
+produce, so this step is for an alignment that arrived from outside — and
+inserting it reruns the sort and nothing underneath.
+</Lede>
+
+## Use it
+
+```python
+import ligase as lg
+from ligase.steps import samtools
+
+theirs = lg.alignment("incoming/sample.bam", organism="HIV-1", build="HXB2")
+sorted_bam = samtools.sort(theirs, threads=8)
+```
+
+Nearly everything downstream wants coordinate order. `bcftools mpileup` does,
+and so does any form of indexing.
+
+## Sorting changes the bytes and not the meaning
+
+This is the engine's claim rather than the step's, and it is worth being
+clear about because it is the reason a sort is cheap.
+
+An alignment's [canonical form](/concepts/semantic-hashing/) sorts its
+records before hashing, because the order records sit in a file is not what
+the file is *about*. So a sorted alignment and its unsorted original have the
+same canonical hash — and a step's key is built from its inputs' canonical
+hashes.
+
+Put a sort into a pipeline that did not have one and the run report says:
+
+```
+ran       `sort`
+skipped   `downstream`
+```
+
+`skipped` rather than `cached`, and the difference is the point. `cached`
+means nothing above it moved. `skipped` means something above it *did* and
+produced the same thing anyway, which is [early
+cutoff](/concepts/caching/). The sort costs you one step's work, once.
+
+<Note kind="note">
+A reader meeting `canon/alignment.rs` might reasonably think an aligner's
+output order was being thrown away by accident. It is not: it is D14, the
+same line the dimension checker draws. A sequence dictionary's contig order
+is semantic and a record's position in the file is not.
+</Note>
+
+## Why `samtools index` is not in this library
+
+Because it cannot say what it produces, and [D42](/project/decisions/) admits
+nothing that cannot.
+
+`samtools index` writes a `.bai` beside its input. Declared
+`Alignment → Alignment` that would be false twice over: the output file is an
+index rather than an alignment, and the engine would not catch it. A file
+that does not parse as the kind it was read as has its *bytes* hashed
+instead, tagged as such — the conservative fallback, and a silent one — so a
+BAM index's bytes would stand in for an alignment's meaning, and every step
+below would accept it as an alignment.
+
+Nor is the answer a new kind. An index brings no dimension, and under
+[the scope rule](/project/decisions/) a kind that brings no dimension does
+not earn a place in Ligase. What an index actually wants is to travel
+*beside* the alignment it indexes — and a step's output is one file, so there
+is nowhere for it to travel.
+
+That is an engine gap and it is written down as one on the
+[architecture page](/project/architecture/step-library/), rather than shipped
+as a step with a false type on it. In the meantime, indexing belongs inside
+whichever step needs an index, which is what
+[the bcftools step](/guide/steps/bcftools/) does with the reference's `.fai`.
+
+## What it declares
+
+| | |
+|---|---|
+| In → out | `Alignment` → `Alignment` |
+| Tools | `samtools` |
+| Cited as | Danecek P *et al.* (2021) *GigaScience* 10(2):giab008 |
+| Output canonicalises as | an alignment: records sorted, `@PG` stripped |
+
+## See also
+
+- [What a curated step is](/concepts/step-library/)
+- [Running, and not running](/concepts/caching/) — what `skipped` means

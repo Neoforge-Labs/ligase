@@ -1,0 +1,221 @@
+---
+title: "Step library"
+description: "How python/ligase/steps is put together, the registry that makes D42 checkable, the three accessors it needed from the engine, and the one missing feature behind both of its exclusions."
+---
+
+# Step library
+
+`python/ligase/steps/` is one module per tool, each holding
+`@lg.step`-decorated functions and nothing else. No mechanism was invented
+for it: a library step is an ordinary step whose declarations have been
+checked, and everything interesting here is about the checking.
+
+```
+python/ligase/steps/
+  __init__.py      the registry, and what D42 asks of an entry
+  minimap2.py      align
+  bwa.py           mem
+  samtools.py      sort
+  bcftools.py      mpileup_call
+```
+
+## Why there is a registry
+
+[D42](/project/decisions/)'s four declarations are properties of a `Step`
+object — its `tools`, its `output` kind, its signature — plus two things a
+`Step` does not know: which canonical form its output takes, and where its
+guide page is. `LIBRARY` is a tuple of `LibraryStep` records carrying all of
+it.
+
+The reason it is data rather than prose is that one parametrised test can
+then iterate it. An admission criterion nothing checks is a comment, and a
+criterion checked only where the tools happen to be installed is a comment
+on most machines. So the criteria split in two:
+
+- **Checked everywhere**, from the registry alone: every step names a tool,
+  every tool resolves a citation, the output kind is one the engine has,
+  the docstring is real prose, and the guide page exists and is in its
+  `_meta.ts`.
+- **Checked where the tools are**, by running each step on fixtures: the
+  output loads as the kind the step declares, carries the dimensions it
+  should, hashes as a canonical form rather than as bytes, and each tool
+  reports a version with a number in it.
+
+`.github/demo-tools.yml` installs all four tools so the second half is real
+in CI rather than politely skipped.
+
+## The three accessors it needed
+
+D42 names four declarations and the engine had no way to check three of
+them from Python. So `crates/ligase-py/src/lib.rs` gained three read-only
+private bindings, and they are private on purpose — they are how the tests
+hold the criteria, not API.
+
+| Binding | The clause it checks |
+|---|---|
+| `_core.tool_version(tool)` | the version capture is real |
+| `_core.citation(tool)` | the citation resolves |
+| `_core.canonical_form(kind, path)` | the output parses as its kind |
+
+The third is the one worth having beyond this milestone. `canon::hash` falls
+back to `Form::Raw` for a file that does not parse as the kind it was read
+as, which is the right fallback and a silent one; being able to ask is how a
+step's output is held to what the step said about it.
+
+## Fixtures a real aligner will take
+
+The suite's existing fixtures are 20 bp contigs and 10 bp reads, and no
+amount of care makes an aligner work on them: minimap2's `sr` preset finds no
+minimizer in twenty bases and `bwa mem` no seed. So
+`crates/ligase-core/tests/fixtures/generate.py` gained a 2 kb single-contig
+reference, 100 bp read pairs tiling it at about elevenfold depth, and one
+deliberately out-of-order SAM for the sort step.
+
+The sequence comes from a linear congruential generator with a fixed seed,
+and is deliberately not biological. What these fixtures have to be is long
+enough to index, varied enough to align uniquely, and identical on every
+machine for ever; a real virus would be none of the first two by accident and
+the third only by luck. The reads carry one substitution at position 1001, so
+`bcftools mpileup` has exactly one thing to find and a second call is a call
+it invented.
+
+## Each step is a script, not a pipeline
+
+Every step whose body runs more than one program writes a file between
+stages, under `set -e`, in a temporary directory it removes on exit. That
+looks like a step backwards from the one-line pipelines the demo used to
+have, and it is not.
+
+The engine runs a recipe as `sh -c <command>`, and **`sh -c 'a | b'` reports
+only `b`'s status**. So a dead aligner left `samtools sort` to write a
+perfectly valid, empty BAM, and the step *succeeded*. Downstream that reads
+as a sample with no variants, which for the reference demo reads as a patient
+susceptible to everything. POSIX `sh` has no `pipefail` to reach for — dash
+does not support it — so the fix is to stop relying on the pipeline's status
+at all.
+
+The cost is an intermediate file per stage. `samtools sort` buffers to disk
+anyway, so for the alignment steps it is close to free.
+
+## What the steps keep out of the store
+
+Two tools want to write beside a path they were handed, and in a run that
+path is an object in the content-addressed store, where every name is the
+hash of its own bytes.
+
+- `bcftools mpileup -f ref.fasta` writes `ref.fasta.fai` if there is none.
+  The step hands it a symlink in its own directory instead, so the index
+  lands next to the link.
+- `bwa mem` needs five index files. `bwa index -p` puts them at a prefix of
+  the step's choosing, which is the step's temporary directory.
+
+This is not tidiness. An unaddressed file in an addressed store is a lie
+about what the store is, it would not travel with the object when M14 makes
+the store a blob tier, and on a store that is read-only or remote the write
+is not untidy — it is a failure.
+
+## The two things that could not be admitted
+
+Both of §5.5's rejected rows come back to one missing engine feature, and it
+is worth stating as one thing rather than as two disappointments.
+
+> **A step's output is exactly one file.** `exec.rs` stages one path from
+> `output_suffix(kind)`, `cache::store` takes one path, and the run fails if
+> that path was not written.
+
+**`samtools index`** wants to produce a BAM *and* its index — or, taken the
+other way, to produce something that is not a dataset at all. An index brings
+no dimension, so under [D35](/project/decisions/) it earns no kind; and
+declared `Alignment → Alignment`, its output would be a BAI whose bytes the
+engine hashes as an alignment's meaning, because a file that does not parse
+as its kind falls back to `Form::Raw` without complaint. Everything
+downstream would then accept an index as an alignment.
+
+**Paired-end trimming** — `fastp`, and every read trimmer — wants to produce
+two FASTQs. `load/reads.rs` infers `Pairing::Paired` only from two files and
+refuses a lone mate outright, so there is no honest single-file output: one
+mate inherits `pairing = paired-end` from the input and is a false dimension
+propagated by the graph; an interleaved FASTQ loads as `Pairing::Single`,
+which is the same falsehood with extra steps, and `Pairing` has no third
+value.
+
+A third symptom of the same gap, from the other side: `minimap2.align` and
+`bwa.mem` are paired-end only, and nothing in their signatures says so.
+`Reads` is one kind covering two shapes, and a step can *declare* what it
+writes — `coordinates=` exists for exactly that — but cannot *require* a
+value of an input's dimension. So the requirement is enforced by the command
+failing to fill `{reads.r2}`, with a clear message, before any compute. That
+is tolerable and it is not the same as being typed.
+
+### What closing it would look like
+
+A step that may produce several files: a `{out.r1}`/`{out.r2}` family of
+placeholders, a `store` that takes a set, and a `Dataset` built from more
+than one stored object — which the loader side already models, since
+`Dataset` has `path` *and* `mates`. It is a change to `exec.rs`,
+`cache.rs`, `graph.rs` and the task shape, and it unlocks three things at
+once: read trimming, indexes as first-class sidecars, and any step that
+splits.
+
+It is not M13's, and shipping a step with a false type on it to avoid saying
+so would have been the worse trade.
+
+## The ranking that can now cross
+
+M12 registered `map_identifiers` for `RankedList` as well as `EntitySet`, so
+the conversion registry advertised an edge no shipped step crossed. It
+crosses now, through `lg.map_ranked_identifiers`.
+
+It is a second step rather than an argument because `@lg.step` reads the
+output kind off the return annotation, once, at decoration: one function
+cannot produce both kinds. The mapping itself is the same Rust, which already
+streams the input and writes survivors in input order — so rank order
+survives for free.
+
+What needed deciding was presentation, and the decision is in
+[D42](/project/decisions/)'s neighbourhood rather than in it: the output is a
+well-formed ranking of what crossed, with ranks 1..n and nothing in the file
+to show that n is smaller than it was. So the step says it, with a
+`ranks-renumbered` [note](/concepts/notes/) carrying what rank the output's
+first row held in the input.
+
+That number is worked out from the three files rather than from the mapping's
+own notes, and the reason is a trap: the named identifiers are **capped** for
+a long list, so counting them would give a number that was too small. A note
+with a wrong number in it is worse than no note. The output's identifiers are
+in the target space, so the leader is found by asking the table which of the
+input's identifiers it sent there — exactly one can have, because two input
+identifiers reaching one target is a collision and collisions are left out.
+
+## What this milestone changed in the engine
+
+Three things, none of them for the library's convenience.
+
+**`exec::tool_version` ignored the exit status.** A tool that did not
+understand `--version` had its complaint recorded as its version — and since
+the complaint is the same for every release, the cache key did not move when
+the tool did. `bwa` is the tool that does this, and `tool=`'s only promise is
+the one it was breaking. There is now a probe table (arguments, whether
+failure is expected, which line holds the version), and a probe that fails
+unexpectedly or loses its marker line is an error.
+
+**`cite.rs` grew `bwa`,** and its doc comment grew the reason the table has
+two kinds of entry in it: the reference pipeline's tools, and the library's.
+
+**`note.rs` grew `ranks-renumbered`,** which is the only note about the rows
+a conversion *kept* rather than the ones it lost.
+
+## What it did not change
+
+`@lg.step` — M11 is extending it in parallel, and nothing here needed it
+widened. No new dependency. And one defect was found and deliberately left:
+`python/ligase/graph.py` serialises a plain parameter with `repr()`, so a
+string parameter reaches the shell with Python's quotes around it and the
+read groups this library writes say `SM:'SRR8525904'`. It is reproducible, and
+the science is unaffected because Ligase takes sample identity from the
+declared dimension rather than from the file — but it is false, and it is
+hashed. The fix needs a parameter to travel as two forms, the one that goes
+in the key and the one that goes in the command, across the Python layer, the
+bindings and `exec.rs`; `str()` is not it, because it would make `f(1)` and
+`f("1")` share a key. It is recorded as a strict `xfail`, so the day it is
+fixed the workaround cannot be left behind.

@@ -12,6 +12,11 @@ import type { MetaRecord } from 'nextra'
  * Several pages are titled after the task rather than the mechanism that
  * serves it.
  *
+ * The step library sits immediately after building a pipeline, because it is
+ * what most of a first pipeline is made of: a reader who has just met
+ * `@lg.step` should find out that the four commonest steps are already
+ * written before being shown how to write one.
+ *
  * Ranked lists sit after crossing identifier spaces because the page assumes
  * it: a ranking is a gene list that remembers its order, and the two
  * refusals it meets are the ones that page introduces.
@@ -23,6 +28,7 @@ import type { MetaRecord } from 'nextra'
 const meta: MetaRecord = {
   'inspecting-files': 'Inspecting files you have',
   'building-a-pipeline': 'Building a pipeline',
+  steps: { title: 'Steps you do not have to write' },
   'declaring-dimensions': 'Declaring dimensions',
   'running-a-pipeline': 'Running a pipeline',
   provenance: 'Writing up a pipeline',

@@ -1,0 +1,92 @@
+---
+title: "Calling what the reads show"
+description: "ligase.steps.bcftools.mpileup_call: allele depths rather than a consensus caller, the threshold that is exposed because it changes the answer, and the index it does not leave in the store."
+---
+
+# Calling what the reads show
+
+<Lede>
+A pileup and a threshold, not `bcftools call`. The difference is one real
+sample's worth of clinical answer, and this page is the measurement.
+</Lede>
+
+## Use it
+
+```python
+import ligase as lg
+from ligase.steps import bcftools
+
+called = bcftools.mpileup_call(aligned, hxb2, min_freq=0.01)
+```
+
+`min_freq` is the least fraction of the reads at a position that an allele
+must reach to be reported. It is a typed, hashed parameter, so changing it
+reruns exactly the steps it could have changed.
+
+## Why there is no caller in it
+
+`bcftools call -mv` is a **consensus** caller. It asks what the sample's
+genotype is — and a frequency threshold below one half rarely removes
+anything from its output, because an allele the majority does not carry is
+not a call it makes in the first place.
+
+For anything where the minority population *is* the question — drug
+resistance, subclonal variants, a mixed infection — that is the wrong
+question. The [reference demo](/project/golden-example/) is where the cost
+was measured.
+
+On one real sample the reads at a resistance position were 238 reference and
+192 alternate. That is a 45% mutation and clinically it is the whole answer,
+and `bcftools call -mv` emitted no record for it at all: the majority allele
+agreed with the reference, so there was no variant to call. The pipeline
+reported the sample susceptible to all twenty-seven drugs.
+
+It was *right*, given that input. It matched the published
+majority-consensus report for the same sample exactly. And the published 5%
+report for that sample read high-level resistance to four drugs in one class.
+
+A pipeline whose answer flips between "fully susceptible" and "resistant to
+most of a class" on a threshold it never exposed is not doing what it says it
+does. So the threshold is exposed, applied to the pileup's own allele depths,
+and means what its name says.
+
+## What `min_freq` does not decide
+
+`min_freq` is about what the reads *show*. What counts as present for the
+purpose of acting on it is a separate question with a separate parameter,
+wherever the interpretation happens — `mixture`, for
+[resistance interpretation](/guide/resistance-interpretation/). Conflating
+the two is how a threshold ends up unexposed in the first place.
+
+And a position this step reports nothing about is ambiguous between agreeing
+with the reference and nothing having aligned there. Those have opposite
+meanings and a VCF cannot tell them apart, so whatever reads these calls
+needs the alignment as well — which is why `lg.hivdb.interpret` takes one.
+
+## The index it does not leave behind
+
+`bcftools mpileup -f` needs a `.fai` for the reference and writes one beside
+the path it was handed if there is none. In a Ligase run that path is an
+object in the content-addressed store, where every name is the hash of its
+own bytes — so writing an index there puts an unaddressed file into an
+addressed store, and on a store that is read-only or remote it does not write
+anything at all, it fails.
+
+So the step indexes a link in a directory of its own, and throws both away.
+Nothing is left beside the reference.
+
+## What it declares
+
+| | |
+|---|---|
+| In → out | `Alignment`, `Reference` → `Variants` |
+| Tools | `bcftools` |
+| Cited as | Danecek P *et al.* (2021) *GigaScience* 10(2):giab008 |
+| Output canonicalises as | variant calls: records sorted, volatile headers stripped |
+
+## See also
+
+- [Aligning with minimap2](/guide/steps/minimap2/) — what usually comes
+  before.
+- [Interpreting resistance](/guide/resistance-interpretation/) — what comes
+  after, in the demo.

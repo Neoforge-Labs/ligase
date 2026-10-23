@@ -63,7 +63,7 @@ ran       `align` (sample SRR8525904)   3.3s
 ran       `align` (sample SRR8525908)   6.9s
 ran       `align` (sample SRR8525920)   3.7s
 ran       `align` (sample SRR8525942)   6.0s
-skipped   `call` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+skipped   `mpileup_call` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
 skipped   `resistance` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
 
 12 steps: 4 ran, 8 skipped.
@@ -174,7 +174,7 @@ called:
 
 ```console
 $ ligase audit allign examples/hiv-resistance/pipeline.py
-ligase: no step named `allign` in examples/hiv-resistance/pipeline.py; it has `align`, `call`, `resistance`
+ligase: no step named `allign` in examples/hiv-resistance/pipeline.py; it has `align`, `mpileup_call`, `resistance`
 ```
 
 ## Making your own step reproducible
