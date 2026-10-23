@@ -71,6 +71,7 @@ GROUPS: tuple[Group, ...] = (
             "entity_set",
             "ranked_list",
             "remote",
+            "query",
         ),
     ),
     Group(

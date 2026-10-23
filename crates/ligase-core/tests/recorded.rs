@@ -24,10 +24,10 @@ use ligase::types::{DataKind, RemoteVerdict};
 use tempfile::TempDir;
 
 /// A gene list, as a TSV query endpoint would answer with one.
-const GENES: &[u8] = b"gene\tscore\nTP53\t0.91\nBRCA1\t0.72\n";
+const GENES: &[u8] = b"id\tscore\nTP53\t0.91\nBRCA1\t0.72\n";
 
 /// The same endpoint after the source changed its mind.
-const GENES_CHANGED: &[u8] = b"gene\tscore\nTP53\t0.91\nBRCA1\t0.55\n";
+const GENES_CHANGED: &[u8] = b"id\tscore\nTP53\t0.91\nBRCA1\t0.55\n";
 
 fn setup() -> (TempDir, Cache, MockServer) {
     let dir = tempfile::tempdir().unwrap();
@@ -303,8 +303,8 @@ fn an_error_page_passes_the_kind_check_for_an_entity_set_and_this_is_why() {
 #[test]
 fn paginated_calls_are_records_keyed_by_request_not_by_sequence() {
     let (_dir, cache, server) = setup();
-    server.on("/genes?page=1", b"gene\tscore\nTP53\t0.91\n");
-    server.on("/genes?page=2", b"gene\tscore\nBRCA1\t0.72\n");
+    server.on("/genes?page=1", b"id\tscore\nTP53\t0.91\n");
+    server.on("/genes?page=2", b"id\tscore\nBRCA1\t0.72\n");
     let network = Network::new(quick());
     let one = server.url("/genes?page=1");
     let two = server.url("/genes?page=2");
@@ -464,7 +464,7 @@ fn a_refresh_inside_the_same_second_still_writes_beside() {
         vec![
             Reply::ok(GENES),
             Reply::ok(GENES_CHANGED),
-            Reply::ok(b"gene\tscore\nTP53\t0.10\n" as &[u8]),
+            Reply::ok(b"id\tscore\nTP53\t0.10\n" as &[u8]),
         ],
     );
     let network = Network::new(quick());

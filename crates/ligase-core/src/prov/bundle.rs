@@ -43,9 +43,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use super::{Methods, Noticed, Prov, ProvError, Record, day};
+use crate::cache::{Cache, QueryRecord};
 use crate::exec::RunReport;
 use crate::graph::{Graph, NodeId};
 use crate::hash::ContentHash;
+use crate::remote::request::Method;
+use crate::store::{BlobStore, ObjectKey};
+use crate::types::DataKind;
 
 /// The hash the manifest uses, named in the manifest itself.
 const MANIFEST_HASH: &str = "blake3";
@@ -64,6 +68,18 @@ pub struct Request<'a> {
     pub methods: &'a Methods,
     /// Files to copy in as they are, such as the pipeline itself.
     pub include: &'a [PathBuf],
+    /// Where the recorded responses are, when the run had any.
+    ///
+    /// The cache rather than the rows alone, because a bundle carries a
+    /// recorded query's **body** and not merely its digest — that is the
+    /// whole of what makes a recorded query reproducible (D39) — so writing
+    /// one needs the record index and the blob tier together, which is what
+    /// a cache is.
+    ///
+    /// `None` writes no `records.tsv`, which is right for a run that made
+    /// no query: a bundle should not carry an empty table explaining a
+    /// feature the run did not use.
+    pub queries: Option<&'a Cache>,
 }
 
 /// What a bundle turned out to hold.
@@ -525,6 +541,62 @@ pub fn write(into: &Path, request: &Request<'_>) -> Result<Summary, BundleError>
     }
     put(into, "remotes.tsv", &remotes.finish())?;
 
+    // ---- and, for a recorded query, the answer itself
+    //
+    // Not the digest: the body. That is the whole of what makes a recorded
+    // query reproducible, because its source promises nothing about what it
+    // will answer next -- so the bundle *is* the source, and a reviewer
+    // with no network and no API key replays from it (D39).
+    //
+    // The bodies are named by their own hashes, so the table and the files
+    // need no agreement about naming, and two records of identical bytes
+    // cost one file.
+    if let Some(cache) = request.queries {
+        let held = cache.all_query_records().map_err(|error| BundleError::Io {
+            path: into.to_path_buf(),
+            source: io::Error::other(error.to_string()),
+        })?;
+        if !held.is_empty() {
+            create_dir(&into.join("records"))?;
+            let mut records = Table::new(&[
+                "request", "revision", "recorded", "locator", "kind", "method", "url", "status",
+                "body", "digest",
+            ]);
+            for record in &held {
+                records.row(&[
+                    &record.request.to_hex(),
+                    &record.revision.to_string(),
+                    &day(record.recorded_at),
+                    &record.locator,
+                    record.kind.name(),
+                    record.method.name(),
+                    &record.url,
+                    &record.status.to_string(),
+                    &record.body.to_string(),
+                    &record.digest.to_hex(),
+                ]);
+                // Verified on the way out, not merely copied: a bundle that
+                // carried a corrupted body would be a bundle that
+                // reproduces the wrong answer and says it reproduced.
+                let body =
+                    cache
+                        .objects()
+                        .checked_get(&record.body)
+                        .map_err(|error| BundleError::Io {
+                            path: into.to_path_buf(),
+                            source: io::Error::other(error.to_string()),
+                        })?;
+                let Some(body) = body else { continue };
+                let name = format!("records/{}", record.body);
+                fs::write(into.join(&name), &body).map_err(|error| BundleError::Io {
+                    path: into.join(&name),
+                    source: error,
+                })?;
+            }
+            put(into, "records.tsv", &records.finish())?;
+        }
+    }
+
     // ---- what it was run with
     let mut environment = Table::new(&["name", "value"]);
     environment.row(&["ligase", &request.methods.engine]);
@@ -689,6 +761,113 @@ pub fn verify(
     Ok(verification)
 }
 
+/// Put a bundle's recorded responses into a cache, so the run replays.
+///
+/// The precise sense in which "a bundle cannot fetch its own data" is
+/// retired: for a recorded query the bundle **is** the source, so a
+/// reviewer on a clean machine with no network and no API key seeds a cache
+/// from the bundle and the pipeline replays. A pinned remote is unaffected
+/// and deliberately so — it is named rather than carried, because anyone
+/// can obtain it from the source and check it against its digest.
+///
+/// Idempotent: a record already held is left as it is, since objects are
+/// written once and a request's revisions are what they are. Returns how
+/// many records were added.
+///
+/// A bundle with no `records.tsv` adds nothing and is not an error: most
+/// runs make no query.
+///
+/// # Errors
+///
+/// If the bundle cannot be read, or the cache cannot be written.
+pub fn seed(bundle: &Path, cache: &Cache) -> Result<usize, BundleError> {
+    if !bundle.join("records.tsv").is_file() {
+        return Ok(0);
+    }
+
+    let mut added = 0;
+    for row in read_table(bundle, "records.tsv", 10)? {
+        let (request, revision, locator, kind, method, url, status, body, digest) = (
+            &row[0], &row[1], &row[3], &row[4], &row[5], &row[6], &row[7], &row[8], &row[9],
+        );
+        let request = parse_hash(bundle, "records.tsv", request)?;
+
+        // A body whose file is missing is a damaged bundle, and the
+        // manifest is what reports that. Here it is simply not seeded: a
+        // record whose body cannot be served is worse than no record,
+        // because `--replay` would succeed and then fail on the read.
+        let Some(key) = parse_key(body) else { continue };
+        let Ok(bytes) = fs::read(bundle.join("records").join(body)) else {
+            continue;
+        };
+
+        let record = QueryRecord {
+            request,
+            // Assigned by the cache, which keeps revisions contiguous in
+            // the cache being seeded rather than carrying over numbering
+            // from the one the bundle was written from.
+            revision: revision.parse().unwrap_or(0),
+            recorded_at: crate::prov::now(),
+            locator: locator.clone(),
+            kind: match DataKind::ALL
+                .iter()
+                .copied()
+                .find(|known| known.name() == kind)
+            {
+                Some(kind) => kind,
+                None => continue,
+            },
+            method: match Method::parse(method) {
+                Some(method) => method,
+                None => continue,
+            },
+            url: url.clone(),
+            status: status.parse().unwrap_or(200),
+            body: key.clone(),
+            digest: parse_hash(bundle, "records.tsv", digest)?,
+            notes: Vec::new(),
+        };
+
+        // The body first: a row whose object is not there yet would be a
+        // row a concurrent replay could find and fail on.
+        cache
+            .objects()
+            .put(&key, &bytes)
+            .map_err(|error| BundleError::Io {
+                path: bundle.to_path_buf(),
+                source: io::Error::other(error.to_string()),
+            })?;
+
+        let held = cache
+            .query_records(request)
+            .map_err(|error| BundleError::Io {
+                path: bundle.to_path_buf(),
+                source: io::Error::other(error.to_string()),
+            })?;
+        if held.iter().any(|existing| existing.body == key) {
+            continue;
+        }
+        cache
+            .record_query(&record)
+            .map_err(|error| BundleError::Io {
+                path: bundle.to_path_buf(),
+                source: io::Error::other(error.to_string()),
+            })?;
+        added += 1;
+    }
+    Ok(added)
+}
+
+/// An object key as [`ObjectKey::to_string`] writes it: 64 hex characters
+/// and then whatever extension the object is read under.
+fn parse_key(text: &str) -> Option<ObjectKey> {
+    if text.len() < 64 {
+        return None;
+    }
+    let (hash, suffix) = text.split_at(64);
+    Some(ObjectKey::new(ContentHash::parse(hash)?, suffix))
+}
+
 /// What a bundle says about itself.
 fn readme(methods: &Methods) -> String {
     let mut out = String::from(
@@ -706,20 +885,29 @@ fn readme(methods: &Methods) -> String {
          | `notes.tsv` | What canonicalising an output noticed. Usually empty. |\n\
          | `references.tsv` | Every reference, by accession and checksum. |\n\
          | `remotes.tsv` | Every remote input, by locator and digest. |\n\
+         | `records.tsv` | Every recorded query, with its response body in `records/`. |\n\
          | `environment.tsv` | The engine, the platform and every tool's version. |\n\
          | `steps/` | The source of every step. |\n\
          | `pipeline/` | The pipeline file itself, where one was given. |\n\
          | `MANIFEST` | Every file above, hashed, so damage is visible. |\n\n\
          ## What is not here\n\n\
-         The data. Sequencing runs are gigabytes and a bundle is meant to be\n\
-         readable, so inputs are *named* rather than carried: every one by\n\
-         content hash, every reference by accession and checksum, and every\n\
-         remote by locator. Fetch them by those identifiers; nothing else\n\
-         will satisfy the check.\n\n\
+         Most of the data. Sequencing runs are gigabytes and a bundle is\n\
+         meant to be readable, so inputs are *named* rather than carried:\n\
+         every one by content hash, every reference by accession and\n\
+         checksum, and every pinned remote by locator. Fetch them by those\n\
+         identifiers; nothing else will satisfy the check.\n\n\
+         The one exception is the one that has to be: a recorded query's\n\
+         response, which no one could fetch again, and which is therefore\n\
+         carried. See `records/` below.\n\n\
          A remote in `remotes.tsv` is *pinned*, which means the source\n\
          promises the same bytes forever: `ligase run` on the pipeline in\n\
          `pipeline/` obtains it and checks it against the digest recorded\n\
          here before any step runs.\n\n\
+         A *recorded query* is the other case, and its data **is** here. A\n\
+         live source promises nothing about what it will answer next, so\n\
+         the response bodies themselves are in `records/`, named by their\n\
+         own hashes and listed in `records.tsv`. Verifying this bundle\n\
+         replays from them: no network, and no API key.\n\n\
          ## How to check it\n\n\
          With the data in place and the pipeline to hand:\n\n\
          ```\n\

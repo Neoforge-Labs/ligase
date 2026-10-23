@@ -235,7 +235,11 @@ class Verification:
         """The inputs that are not the ones the bundle was built from.
 
         Worth reading before any `differs` verdict: a changed input explains
-        a changed output, and a bundle cannot fetch its own data.
+        a changed output, and most of a bundle's inputs are named rather
+        than carried -- a local file by content hash, a pinned remote by
+        locator and digest -- so they are the ones that can have moved. A
+        recorded query cannot appear here, because its response body
+        travels in the bundle and is replayed from it.
         """
         return [check for check in self.inputs if check.presence != SAME]
 

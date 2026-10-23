@@ -70,6 +70,21 @@ def resolve_remote(
     namespace: str | None = None,
     subject: str | None = None,
 ) -> Dataset: ...
+def resolve_query(
+    locator: str,
+    kind: str,
+    mode: str,
+    cache: str | None = None,
+    auth_env: str | None = None,
+    organism: str | Sequence[str] | None = None,
+    build: str | None = None,
+    frame: tuple[str, int] | None = None,
+    release: str | None = None,
+    samples: list[str] | None = None,
+    namespace: str | None = None,
+    subject: str | None = None,
+) -> Dataset: ...
+def seed_records(bundle: str, cache: str | None = None) -> int: ...
 def load_entity_set(
     path: str,
     id_column: str | None = None,

@@ -31,6 +31,8 @@ use ligase::prov::{self, Prov};
 use ligase::remote::Locator;
 use ligase::remote::fetch::{Network, Offline, Policy, Transport};
 use ligase::remote::pinned;
+use ligase::remote::recorded::{self, MAX_RECORDED_BYTES, Mode};
+use ligase::remote::request::Auth;
 use ligase::types::{DataKind, Dataset};
 
 /// One contig as Python sees it: name, length, checksum.
@@ -625,6 +627,169 @@ fn declared_label(name: &str, value: Option<String>) -> PyResult<Option<String>>
     }
 }
 
+/// Resolve a recorded query, and load its body as `kind`.
+///
+/// A query's source promises nothing, so what makes this reproducible is
+/// that the canonicalised response body is in the content-addressed store.
+/// `mode` is the per-run setting -- `auto`, `replay` or `refresh` -- and a
+/// `replay` with no record is an error here, while the pipeline is still
+/// being read, which is what makes "it fails before any step runs" true
+/// rather than merely intended.
+///
+/// `auth_env` names an environment variable holding a bearer token. The
+/// name rather than the value, because a bundle carries the pipeline file
+/// and a token written in the pipeline would travel in every bundle.
+#[pyfunction]
+#[pyo3(signature = (locator, kind, mode, cache=None, auth_env=None, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None))]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "every declarable dimension, plus the three a query needs; \
+              the Python surface names them and nothing calls this twice"
+)]
+fn resolve_query(
+    locator: &str,
+    kind: &str,
+    mode: &str,
+    cache: Option<PathBuf>,
+    auth_env: Option<&str>,
+    organism: Option<Organisms>,
+    build: Option<String>,
+    frame: Option<(String, u64)>,
+    release: Option<String>,
+    samples: Option<Vec<String>>,
+    namespace: Option<String>,
+    subject: Option<String>,
+) -> PyResult<PyDataset> {
+    let parsed =
+        Locator::parse(locator).map_err(|error| RemoteError::new_err(error.to_string()))?;
+    let wanted = kind_named(kind)?;
+    let mode = match mode {
+        "auto" => Mode::Auto,
+        "replay" => Mode::Replay,
+        "refresh" => Mode::Refresh,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "`{other}` is not a mode. The modes are auto, replay and refresh"
+            )));
+        }
+    };
+
+    // Read here rather than carried from Python, so the token is in one
+    // process for one call and never in a default argument, a repr or a
+    // traceback.
+    let auth = match auth_env {
+        None => None,
+        Some(name) => {
+            let token = std::env::var(name).map_err(|_| {
+                RemoteError::new_err(format!(
+                    "`{locator}` is to be authenticated from the environment \
+                     variable `{name}`, and that variable is not set. Set it, \
+                     or drop `auth_env=` if the query needs no token -- an \
+                     unauthenticated request would be answered with a 401, or \
+                     worse with a smaller public subset of the data recorded \
+                     as though it were the answer"
+                ))
+            })?;
+            Some(Auth::bearer(&token))
+        }
+    };
+
+    let root = cache.unwrap_or_else(|| PathBuf::from(".ligase"));
+    let cache = Cache::open(&root).map_err(|error| RemoteError::new_err(error.to_string()))?;
+
+    // Capped at the recorded limit, so an answer too large to record is
+    // refused without being read to its end.
+    let network = Network::new(Policy {
+        max_bytes: MAX_RECORDED_BYTES,
+        ..Policy::default()
+    });
+    // `replay` must not be able to reach the network at all: a mode that
+    // merely declined to use it would still deadlock a mock, and would rest
+    // the guarantee on a branch rather than on there being nothing to
+    // branch to.
+    let transport: &dyn Transport = if mode == Mode::Replay {
+        &Offline
+    } else {
+        &network
+    };
+    let resolved = Python::attach(|py| {
+        py.detach(|| recorded::resolve(&parsed, wanted, auth, mode, &cache, transport))
+    })
+    .map_err(|error| RemoteError::new_err(error.to_string()))?;
+
+    let declared = Declared {
+        organism: organisms(organism)?,
+        build,
+        frame,
+        samples,
+        release: declared_label("release", release)?,
+        identifier_namespace: declared_label("namespace", namespace)?,
+        subject: declared_label("subject", subject)?,
+    };
+
+    // Loaded from the store exactly as a local file is, so a recorded
+    // query's dimensions are inferred by the same code and cannot disagree
+    // with it.
+    let primary = resolved.path.as_path();
+    let loaded = match wanted {
+        DataKind::Reference => load::reference(primary, &declared),
+        DataKind::Alignment => load::alignment(primary, &declared),
+        DataKind::Variants => load::variants(primary, &declared),
+        DataKind::Intervals => load::intervals(primary, None, &declared),
+        DataKind::EntitySet => load::entity_set(primary, None, &declared),
+        DataKind::RankedList => load::ranked_list(primary, None, &declared),
+        DataKind::Reads => load::reads(primary, None, &declared),
+        DataKind::ResistanceReport => {
+            return Err(PyValueError::new_err(
+                "a resistance report is something Ligase produces, not \
+                 something to query for",
+            ));
+        }
+    }
+    .map_err(to_py)?;
+
+    let mut inner = loaded.with_origin(resolved.origin());
+    if !resolved.notes.is_empty() {
+        let mut notes = inner.notes().to_vec();
+        notes.extend(resolved.notes.iter().cloned());
+        inner = inner.with_notes(notes);
+    }
+    Ok(PyDataset { inner })
+}
+
+/// Put a bundle's recorded responses into a cache, so the run replays.
+///
+/// Called before the pipeline is imported, because that is when a query
+/// resolves. Returns how many records were added.
+#[pyfunction]
+#[pyo3(signature = (bundle, cache=None))]
+fn seed_records(bundle: PathBuf, cache: Option<PathBuf>) -> PyResult<usize> {
+    let root = cache.unwrap_or_else(|| PathBuf::from(".ligase"));
+    let cache = Cache::open(&root).map_err(|error| RemoteError::new_err(error.to_string()))?;
+    prov::bundle::seed(&bundle, &cache).map_err(|error| RemoteError::new_err(error.to_string()))
+}
+
+/// The kind this name stands for, or an error naming the kinds there are.
+///
+/// One place rather than two, so `lg.remote` and `lg.query` cannot come to
+/// disagree about what a kind is called.
+fn kind_named(kind: &str) -> PyResult<DataKind> {
+    DataKind::ALL
+        .iter()
+        .copied()
+        .find(|known| known.name() == kind)
+        .ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "`{kind}` is not a kind of data Ligase knows. The kinds are {}",
+                DataKind::ALL
+                    .iter()
+                    .map(|known| known.name())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })
+}
+
 /// Resolve a pinned remote, and load what arrives as `kind`.
 ///
 /// The digest is over what the file *means*, so a source that reflows a
@@ -654,20 +819,7 @@ fn resolve_remote(
 ) -> PyResult<PyDataset> {
     let parsed =
         Locator::parse(locator).map_err(|error| RemoteError::new_err(error.to_string()))?;
-    let wanted = DataKind::ALL
-        .iter()
-        .copied()
-        .find(|known| known.name() == kind)
-        .ok_or_else(|| {
-            PyValueError::new_err(format!(
-                "`{kind}` is not a kind of data Ligase knows. The kinds are {}",
-                DataKind::ALL
-                    .iter()
-                    .map(|known| known.name())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ))
-        })?;
+    let wanted = kind_named(kind)?;
     let declared_digest = match digest {
         Some(text) => Some(ContentHash::parse(text.trim()).ok_or_else(|| {
             PyValueError::new_err(format!(
@@ -1324,6 +1476,10 @@ impl PyGraph {
                         prov: &prov,
                         methods: &methods,
                         include,
+                        // A recorded query's body travels in the bundle, so
+                        // a reviewer with no network and no API key can
+                        // replay the run (D39).
+                        queries: Some(&cache),
                     },
                 )
                 .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
@@ -1483,6 +1639,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(load_reference, m)?)?;
     m.add_function(wrap_pyfunction!(resolve_remote, m)?)?;
+    m.add_function(wrap_pyfunction!(resolve_query, m)?)?;
+    m.add_function(wrap_pyfunction!(seed_records, m)?)?;
     m.add_function(wrap_pyfunction!(load_entity_set, m)?)?;
     m.add_function(wrap_pyfunction!(load_ranked_list, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_axis, m)?)?;

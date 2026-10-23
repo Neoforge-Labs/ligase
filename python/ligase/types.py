@@ -69,9 +69,9 @@ class DimensionValue:
 class RemoteOrigin:
     """Where a dataset was fetched from.
 
-    On `dataset.origin` for anything `lg.remote` produced, and `None` for a
-    file somebody already had. `digest` is the value to write into
-    `lg.remote(digest=...)` to make every later run a checked one.
+    On `dataset.origin` for anything `lg.remote` or `lg.query` produced, and
+    `None` for a file somebody already had. `digest` is the value to write
+    into `lg.remote(digest=...)` to make every later run a checked one.
 
     Attributes:
         locator: What the pipeline asked for, e.g. `ncbi:K03455.1`. Not the
@@ -80,10 +80,19 @@ class RemoteOrigin:
             is compared against.
         bytes: The digest of their bytes. It can move while `digest` does
             not: a source that reflows a FASTA has changed no biology.
-        fetched_at: When they were fetched, as seconds since the epoch.
-        verdict: What this input's reproducibility rests on. `pinned` means
-            the source promises the same bytes forever, so anyone can
-            obtain this input and check it.
+        fetched_at: When they were obtained, as seconds since the epoch.
+            For a replayed query this is when the **record** was made, not
+            when this run read it back: what a reader wants to know is when
+            the answer was obtained.
+        verdict: What this input's reproducibility rests on, and the three
+            are different claims rather than a scale. `pinned` means the
+            source promises the same bytes forever, so anyone can obtain
+            this input and check it. `replayed` means it came out of a
+            record with no network touched -- the same bytes forever from
+            the *record*, which is what a query can promise and all it can.
+            `live` means this run asked a source that promises nothing, and
+            it is the record written here that makes the next run
+            repeatable.
     """
 
     locator: str

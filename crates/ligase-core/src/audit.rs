@@ -47,7 +47,7 @@ use crate::exec::{self, Host, Options, StepFailure, Stores, Task, output_suffix}
 use crate::graph::{Graph, NodeId};
 use crate::hash::ContentHash;
 use crate::prov::day;
-use crate::types::{Dataset, Origin};
+use crate::types::{Dataset, Origin, RemoteVerdict};
 
 /// Which nodes an audit is about.
 ///
@@ -241,8 +241,17 @@ impl AuditReport {
                 remote.verdict.to_string(),
                 remote.locator
             ));
+            // What the date *means* differs by verdict, so the word in
+            // front of it does too. A replayed query was not fetched on
+            // this run, and saying "fetched" of it would be the one thing
+            // this report exists not to do.
+            let what = match remote.verdict {
+                RemoteVerdict::Pinned => "fetched",
+                RemoteVerdict::Replayed => "from record of",
+                RemoteVerdict::Live => "answered",
+            };
             lines.push(format!(
-                "    fetched {}            {}",
+                "    {what} {}            {}",
                 day(remote.fetched_at),
                 short(remote.digest)
             ));
