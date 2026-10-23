@@ -38,6 +38,24 @@ dev = [
   "pytest>=8",
   "ruff>=0.6",
 ]
+# The remote store tier (D43). This extra adds no Python package, because
+# there is none to add: the backend is Rust, behind the `remote-store`
+# cargo feature, and **a Python extra cannot reach a cargo feature**. A
+# published wheel is compiled one way or the other, so asking for the
+# extra alone does not change the wheel you already have.
+#
+# What it is for is to be the documented name of the thing, and the place
+# this note lives. To get a build with the tier in it:
+#
+#   MATURIN_PEP517_ARGS="--features remote-store" \
+#     pip install --no-binary ligase-bio "ligase-bio[remote-store]"
+#
+# `ligase store status` says which build you have, so the question is
+# answerable on the installation in front of you rather than from the
+# release notes. The alternative -- compiling it into every published
+# wheel -- was rejected: `object_store`'s AWS stack needs cmake at build
+# time, and the default install must not (D6, D11).
+remote-store = []
 docs = [
   # marimo authors and runs the example notebooks. Their pages are generated
   # from real runs rather than embedded as browser-executed islands, because

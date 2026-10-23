@@ -237,3 +237,65 @@ def test_a_broken_toml_is_reported_rather_than_ignored(tmp_path: Path) -> None:
 
     with pytest.raises(config.ConfigError):
         config.store(tmp_path)
+
+
+# ------------------------------------------------- two machines, one bucket --
+
+#: A bucket to run the end-to-end check against, set by CI's `store` job.
+#:
+#: These skip rather than fall back to a directory. A `file://` store
+#: already has its own tests; the point of these is the real backend, and a
+#: test that silently checks something else is worse than one that says it
+#: did not run.
+TEST_STORE = os.environ.get("LIGASE_TEST_STORE", "").strip()
+
+needs_a_bucket = pytest.mark.skipif(
+    not TEST_STORE, reason="LIGASE_TEST_STORE names no bucket"
+)
+
+
+@needs_a_bucket
+def test_a_second_machine_runs_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The done-when clause, as a user would meet it.
+
+    One machine computes a pipeline; a second, with nothing of its own but
+    the same bucket, completes it without running a step. The outputs have
+    to be real files on the second machine, because the step below one is
+    handed a path.
+    """
+    monkeypatch.setenv(config.STORE_VARIABLE, f"{TEST_STORE}/two-machines")
+    path = write_pipeline(tmp_path)
+
+    assert main(["run", str(path), "--cache", str(tmp_path / "first")]) == 0
+    first = capsys.readouterr().out
+    assert "1 ran" in first, first
+
+    assert main(["run", str(path), "--cache", str(tmp_path / "second")]) == 0
+    second = capsys.readouterr().out
+    assert "1 ran" not in second, second
+    assert "from cache" in second, second
+    assert "from the remote store" in second, "and the report says where it came from"
+
+
+@needs_a_bucket
+def test_a_second_machine_can_write_up_what_it_did_not_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Provenance travels with the entry, or the results cannot be reported.
+
+    Without this the headline scenario -- one person computes, everybody
+    else hits the cache -- produces a methods paragraph that says "is in
+    the cache from a run that recorded no provenance" for every step.
+    """
+    monkeypatch.setenv(config.STORE_VARIABLE, f"{TEST_STORE}/write-up")
+    path = write_pipeline(tmp_path)
+
+    assert main(["run", str(path), "--cache", str(tmp_path / "first")]) == 0
+    capsys.readouterr()
+
+    assert main(["methods", str(path), "--cache", str(tmp_path / "second")]) == 0
+    out = capsys.readouterr().out
+    assert "recorded no provenance" not in out, out
+    assert "wc" in out, "the tool it was produced with is named: " + out

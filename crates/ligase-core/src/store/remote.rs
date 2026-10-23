@@ -73,9 +73,21 @@ mod enabled {
     ///
     /// Credentials, endpoint and region come from the provider's own
     /// environment — `AWS_ACCESS_KEY_ID`, `AWS_ENDPOINT_URL`,
-    /// `GOOGLE_SERVICE_ACCOUNT`, `AZURE_STORAGE_ACCOUNT_NAME` and the rest
-    /// — never from Ligase's configuration (D43). A user whose
-    /// `aws s3 ls` works has this working.
+    /// `GOOGLE_SERVICE_ACCOUNT`, `AZURE_STORAGE_ACCOUNT_NAME` and the
+    /// rest — never from Ligase's configuration (D43).
+    ///
+    /// Note `parse_url_opts` with [`std::env::vars`] rather than the
+    /// plainer `parse_url`: `parse_url` builds a client from the URL
+    /// **and nothing else**, so a correctly configured machine would have
+    /// been told its credentials were missing. Every variable is offered
+    /// and the builder keeps the ones it recognises.
+    ///
+    /// What that chain covers, exactly, because D43 claims three things
+    /// and this crate provides two of them: the environment, and an
+    /// instance, ECS-task or EKS-pod role by metadata. It does **not**
+    /// read `~/.aws/credentials`, so a named profile has to be exported
+    /// into the environment first — `aws configure export-credentials
+    /// --format env` does it. The guide says so.
     ///
     /// # Errors
     ///
@@ -88,8 +100,16 @@ mod enabled {
         };
 
         let parsed = url::Url::parse(url).map_err(|error| unsupported(error.to_string()))?;
-        let (store, prefix) = object_store::parse_url(&parsed)
-            .map_err(|error| unsupported(format!("{error}. Credentials and endpoint come from the provider's own environment; Ligase reads none of its own")))?;
+        let (store, prefix) =
+            object_store::parse_url_opts(&parsed, std::env::vars()).map_err(|error| {
+                unsupported(format!(
+                    "{error}. Credentials and endpoint come from the \
+                     provider's own environment; Ligase reads none of its \
+                     own. A named AWS profile is not read from \
+                     ~/.aws/credentials: export it first with \
+                     `aws configure export-credentials --format env`"
+                ))
+            })?;
 
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
