@@ -59,6 +59,25 @@ ureq = { version = "3.5", default-features = false, features = [
   "gzip",
 ] }
 
+# Canonicalising a recorded response body (D39). The engine needs no JSON
+# anywhere else -- its one structured store is SQLite (D6) and a bundle is
+# flat TSV -- but a record's body has to be canonicalised before it is
+# hashed, and "two responses meaning the same thing hash the same" is a
+# claim about JSON structure rather than about bytes.
+#
+# It costs two crates: `serde`, `itoa` and `memchr` are already in the tree,
+# so only `serde_json` and `ryu` are new. Pure Rust, no build tool, so
+# nothing here touches the install story D11 is about.
+#
+# `arbitrary_precision` keeps every number as the text the server sent
+# rather than round-tripping it through an f64. A canonicaliser must never
+# silently change a number: without it a twenty-digit accession in a
+# response body would be rounded on its way into the store, and the stored
+# body would differ from the answer in a way nothing reports. Key sorting
+# needs no feature at all -- with `preserve_order` off, a map is a
+# `BTreeMap` and re-serialising sorts.
+serde_json = { version = "1.0", features = ["arbitrary_precision"] }
+
 # Encodes the CLAUDE.md rule "no unwrap outside tests" as a machine check.
 # Test files opt out explicitly with #![allow(...)].
 [workspace.lints.clippy]

@@ -140,7 +140,7 @@ serde_json = { version = "1.0", features = ["arbitrary_precision"] }
 ```
 
 **Cost, measured against this workspace's tree rather than from memory:** it
-adds exactly **two crates**, `serde_json` and `ryu`. `serde`, `itoa` and
+adds exactly **two crates**, `serde_json` and `zmij`. `serde`, `itoa` and
 `memchr` are already in the lock file. Pure Rust, no build-tool requirement,
 so **D11 is untouched** — unlike the `cmake` that `reqwest` would have
 brought.

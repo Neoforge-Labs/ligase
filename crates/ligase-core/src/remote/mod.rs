@@ -31,9 +31,17 @@
 //! remote: a store hit whose digest satisfies the declaration needs no
 //! network at all, and a digest that does not match is refused before
 //! anything downstream has run.
+//!
+//! [`request`] says which record a query is — the canonical request, so that
+//! paginated calls are keyed by what was asked rather than by the order it
+//! was asked in — and [`response`] says what a recorded answer means, so
+//! that two answers meaning the same thing are one answer.
 
 pub mod fetch;
 pub mod locator;
 pub mod pinned;
+pub mod request;
+pub mod response;
 
 pub use locator::{Locator, LocatorError, SCHEMES, Scheme};
+pub use request::{Auth, CanonicalRequest, Method, Request};
