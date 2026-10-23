@@ -15,6 +15,10 @@ import type { MetaRecord } from 'nextra'
  * Ranked lists sit after crossing identifier spaces because the page assumes
  * it: a ranking is a gene list that remembers its order, and the two
  * refusals it meets are the ones that page introduces.
+ *
+ * The two remote pages come after them and in that order, because a pinned
+ * remote is the simpler promise and a recorded query is explained by
+ * contrast with it.
  */
 const meta: MetaRecord = {
   'inspecting-files': 'Inspecting files you have',
@@ -24,6 +28,8 @@ const meta: MetaRecord = {
   provenance: 'Writing up a pipeline',
   'mapping-identifiers': 'Crossing identifier spaces',
   'ranked-lists': 'Comparing ranked lists',
+  remotes: 'Fetching your inputs',
+  'recorded-queries': 'Recording a live query',
   'semantic-hashing': 'Checking that a step repeats',
   notes: 'Fixing a noticed line',
   'resistance-interpretation': 'Interpreting resistance',

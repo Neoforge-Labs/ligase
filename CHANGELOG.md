@@ -9,6 +9,132 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Recorded queries — the second half of remote inputs, for a source that
+  promises nothing.** `lg.remote` rests on a promise: NCBI undertakes that
+  `K03455.1` will mean the same sequence next Tuesday, so a digest is how you
+  hold it to that. Most of what a modern pipeline wants comes with no such
+  promise — Open Targets will answer differently next quarter, because it is
+  supposed to — and asking such a source for a pin is asking for a promise it
+  would be wrong to make.
+
+  ```python
+  targets = lg.query(
+      "https://api.example.org/v4/targets?gene=EGFR&format=tsv",
+      kind=lg.types.EntitySet,
+      organism="Homo sapiens",
+      auth_env="OPENTARGETS_TOKEN",
+  )
+  ```
+
+  So a `RecordedQuery` makes a different claim, and the two are kept apart
+  because conflating them is the mistake
+  [D39](https://ligase.neoforgelabs.tech/project/decisions/) exists to
+  prevent. A pinned remote promises *source* reproducibility: the same bytes
+  forever from the source, obtainable by anyone, anywhere. A recorded query
+  cannot promise that and does not try. It promises *record*
+  reproducibility — the same bytes forever from the record, for anyone
+  holding the bundle — and that turns out to be enough, because the question
+  a reviewer asks is "did this analysis produce these numbers?" rather than
+  "does the world still look like this?".
+
+  The whole mechanism is one sentence: **the canonicalised response body goes
+  into the content-addressed store, not merely its digest.** The body is then
+  an input like any other, with a content hash in every cache key below it,
+  so everything downstream is deterministic by construction rather than by
+  anybody's discipline.
+
+- **Three modes, set per run rather than per step.** The default replays a
+  record that exists and records one that does not; `ligase run --replay`
+  serves every query from its record and reaches no network; `--refresh` asks
+  every source again and reports the drift. The run report always says which
+  of the three each query did, because "it worked" and "it worked without
+  asking anybody" are different statements and only one of them is about
+  reproducibility.
+
+  Per run and not per step is deliberate. A run that replayed some of its
+  queries and quietly fetched the rest would be a plausible-looking result
+  that nobody could repeat, so **in replay mode a query with no record is an
+  error** — before any step runs, because a query resolves while the pipeline
+  file is still being read. The two flags are mutually exclusive: one says
+  never ask the source and the other says always ask it.
+
+- **A refresh writes a new dated record beside the old one.** It never
+  replaces what it refreshes, so every earlier run stays replayable. A
+  surveillance pipeline refreshing weekly is not reproducing one run — it is
+  a series of runs, each with its own record, and this quarter's refresh must
+  not quietly destroy last quarter's evidence. The `records` table is keyed on
+  `(request, revision)` rather than on a timestamp, because two refreshes
+  inside the same second must still be two records and a clock is the wrong
+  thing to rest "never overwrite" on. A refresh that finds the same bytes
+  writes nothing new.
+
+- **A record is identified by the canonical request**, not by the order it was
+  asked in: method, URL with its query parameters sorted, request body. A step
+  making twenty paginated calls writes twenty records and finds them all again
+  next time whatever order it issues them in, and two URLs differing only in
+  parameter order are one record. The URL that goes on the wire is the one you
+  wrote — sorting decides which record this is and never decides what to ask,
+  because a server may care about the order.
+
+- **Recorded bodies travel in the reproducibility bundle**, in `records/` and
+  listed in `records.tsv`, and `ligase methods --verify` seeds them into the
+  reviewer's store before the pipeline is read. A reviewer on a clean machine
+  with no network and no API key replays the whole run. This retires the
+  limitation `python/ligase/provenance.py` used to record, that "a bundle
+  cannot fetch its own data": for a recorded query the bundle *is* the source.
+  A pinned remote is still named rather than carried, because anyone can
+  obtain it and check it against its digest.
+
+- **A bundle never carries a secret, structurally.** `auth_env=` names an
+  environment variable rather than taking a token, because a bundle copies the
+  pipeline file and a literal token would travel in every bundle you shared.
+  Nothing the engine stores has a field for a request header — not the record,
+  not the bundle — so an `Authorization` header is not *stripped* before
+  storage; it is never representable in anything that is stored, which is the
+  only version of the guarantee a field added later cannot quietly undo. The
+  test asserts over every file in the store and the bundle rather than over a
+  list of header names.
+
+- **The `replayed` and `live` audit verdicts**, beside `pinned` and in the
+  same enum, reported in their own block rather than folded into the
+  step verdicts. They are three different claims rather than a scale: a
+  replayed query is not a worse pinned remote, and a pipeline's verdict should
+  not degrade for using a live source. The run that writes a record is *live*,
+  which is the honest word for it, and every later run is *replayed*.
+
+### Changed
+
+- **A recorded response is canonicalised before it is hashed**, like every
+  other kind: JSON keys sorted at every depth, arrays left alone because there
+  order is the answer, and a body that is not JSON standing in for itself
+  (D21). A server's own bookkeeping — a `requestId`, a `generatedAt`, a
+  `took` — is dropped on D22's `@PG`-line precedent, from **the top level
+  only**: inside a data record the same key is what the record says, and
+  dropping it recursively would silently delete a time series (D26). Each drop
+  is a note, in case the key was yours after all.
+
+- **A response over 32 MiB is refused**, with the refusal saying to pin it as
+  a release instead. An answer that large is a dataset rather than a query
+  result, and a dataset has a version. A pinned remote's own limit stays
+  generous, because an SRA run is legitimately gigabytes.
+
+- `Transport::get(url, into)` is now `Transport::fetch(&Request, into)`, so a
+  query can be authenticated. One method taking one type rather than two,
+  because a second method would have a default implementation that quietly
+  dropped the authentication.
+
+- One new runtime dependency, `serde_json` with `arbitrary_precision`, which
+  costs exactly two crates in this workspace's tree and no build tool at all.
+  Its default map is a `BTreeMap`, so key sorting is the library's own
+  behaviour; `arbitrary_precision` keeps every number as the text the server
+  sent, so a twenty-digit identifier is stored exact rather than rounded
+  through a double on its way in.
+
+- `web/content/guide/remotes.mdx` is listed in its `_meta.ts`, which M10a
+  omitted: the page built and was linked, so the gate passed, but Nextra
+  appended it unlisted with a default title instead of showing it in its
+  intended place.
+
 - **A `RankedList` type — the ranked table, where the order is the result.**
   A ranking of differentially expressed genes, of predicted drug targets, of
   candidate compounds, answers the question *which of these matters most*,

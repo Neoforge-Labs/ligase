@@ -1,0 +1,190 @@
+---
+title: "Recording a live query"
+description: "Ask an API once, record the answer, and replay every later run from the record — with no network and no API key."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# Recording a live query
+
+**What you will do:** ask a live API for a gene list, watch the second run
+answer from the record with the network unplugged, and hand a reviewer a
+bundle they can replay without your API key.
+
+**Before you start:** a pipeline that runs. See
+[building a pipeline](/guide/building-a-pipeline/). For data a source
+*promises* not to change — an SRA run, an NCBI accession — you want
+[`lg.remote`](/guide/remotes/) instead.
+
+## Ask for it once
+
+```python
+import ligase as lg
+
+targets = lg.query(
+    "https://api.example.org/v4/targets?gene=EGFR&format=tsv",
+    kind=lg.types.EntitySet,
+    organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
+)
+```
+
+That is an input like any other: its dimensions are read from the answer that
+arrived, its content hash is in every cache key below it, and it will not
+connect to a step expecting Ensembl identifiers.
+
+`kind=` is required and is not guessed. It decides how the answer is read and
+therefore what its digest is over — and an answer that will not read as that
+kind is refused rather than stored, because an API asked for something it
+does not have replies with an error page and a `200`.
+
+Declaring `identifier_namespace=` is worth the keystrokes here even where you
+would skip it for a local file. An API's own namespace is rarely the one the
+rest of your pipeline uses, and that mismatch is the thing the engine can
+only catch if it is told.
+
+## Run it twice
+
+```bash
+ligase run pipeline.py
+```
+
+The first run asks the source, canonicalises the answer and stores the body.
+The second asks nothing:
+
+```text
+ran       `rank`   41ms
+
+input     `https://api.example.org/v4/targets?gene=EGFR&format=tsv` -- answered live on 23 October 2026
+
+1 step: 1 ran.
+```
+
+```text
+cached    `rank`
+
+input     `https://api.example.org/v4/targets?gene=EGFR&format=tsv` -- replayed from record of 23 October 2026
+
+1 step: 1 cached.
+```
+
+The report always says which it did. That is the line worth reading: a run
+that says *replayed* reached no network, and one that says *answered live*
+asked a source that promises nothing about what it will say next.
+
+## Make replay a rule
+
+```bash
+ligase run --replay pipeline.py
+```
+
+Now every query must have a record, and one that does not is an error:
+
+<Diagnostic note="ligase run --replay — no step ran">{diagnostics.replayWithoutRecord}</Diagnostic>
+
+It fails before any step runs — there is no graph yet when it fails, because
+a query resolves while the pipeline file is still being read. And it never
+falls back to a live fetch: a run that replayed some of its queries and
+quietly fetched the rest would be a result nobody could repeat, including
+you.
+
+<Note kind="tip" title="This is the check, not the convenience">
+`--replay` is how "this run touched no network" stops being something you
+hope and becomes something the engine asserts. Put it in CI.
+</Note>
+
+## Ask again, on purpose
+
+When you *want* to know whether the source has changed its mind:
+
+```bash
+ligase run --refresh pipeline.py
+```
+
+This asks every source again and reports what changed. It does **not**
+overwrite anything: a refresh writes a new dated record beside the old one,
+so the run you did last quarter is still replayable exactly as it ran.
+
+That matters if you are refreshing on a schedule. A surveillance pipeline
+running weekly is not reproducing one run — it is a series of runs, and each
+of them has to stay reproducible, or this week's refresh quietly destroys
+last week's evidence.
+
+A refresh that finds the same answer records nothing new, so a quiet quarter
+costs you nothing.
+
+## Authenticate without putting the token anywhere
+
+```python
+targets = lg.query(
+    "https://api.example.org/v4/targets?gene=EGFR&format=tsv",
+    kind=lg.types.EntitySet,
+    auth_env="OPENTARGETS_TOKEN",
+    organism="Homo sapiens",
+)
+```
+
+`auth_env` names an environment variable; the engine reads it at fetch time
+and sends `Authorization: Bearer <value>`.
+
+<Note kind="caution" title="Name the variable, never the token">
+A reproducibility bundle carries your pipeline file. A token written into the
+pipeline would therefore travel in every bundle you shared, which is the one
+way a secret can escape a design built to keep it out.
+
+Nothing the engine *stores* can hold a header at all — not the record, not
+the bundle — so there is nothing to strip and no field for a later change to
+reintroduce.
+</Note>
+
+A variable that is not set is an error naming it, rather than an
+unauthenticated request. A `401` would be the lucky outcome; the unlucky one
+is a smaller public subset of the data, recorded as though it were the
+answer.
+
+## Hand it to a reviewer
+
+```bash
+ligase methods --bundle ./bundle pipeline.py
+```
+
+The bundle carries the response bodies themselves, in `records/` and listed
+in `records.tsv`. It has to: nobody can fetch them again.
+
+On the reviewer's machine, with no network and no key:
+
+```bash
+ligase methods --verify ./bundle
+```
+
+The records are seeded into their store before the pipeline is read, and the
+run replays from them. From a script, the same thing is
+`ligase.remotes.seed("./bundle")` — called before the pipeline is built,
+because that is when a query resolves.
+
+The methods paragraph keeps the two claims apart, and the second sentence is
+the one a recorded query needs:
+
+```text
+Responses were recorded from `https://api.example.org/v4/targets?gene=EGFR&format=tsv`
+on 23 October 2026 (BLAKE3 4c1d…). A live source promises nothing about what
+it will answer next, so the responses themselves are included in the
+reproducibility bundle and the pipeline replays from them with no network
+access.
+```
+
+## When a query is the wrong tool
+
+An answer over **32 MiB** is refused, and the refusal says what to do: pin it
+as a release instead. Something that big is a dataset rather than a query
+result, and a dataset has a version — so
+[`lg.remote(..., digest=...)`](/guide/remotes/) is reproducible from the
+source, where a recorded query would only be reproducible from a 32 MiB copy
+in everybody's bundle.
+
+## Next
+
+- [Recording a live answer](/concepts/record-and-replay/) — why it works this
+  way
+- [Fetching your inputs](/guide/remotes/) — the pinned half
+- [Writing up a pipeline](/guide/provenance/) — what the bundle holds

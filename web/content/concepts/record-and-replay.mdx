@@ -1,0 +1,175 @@
+---
+title: "Recording a live answer"
+description: "A live query's source promises nothing about what it will answer next. A recorded query promises something else, and something that turns out to be enough."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# Recording a live answer
+
+A [pinned remote](/concepts/remotes/) rests on a promise the source makes:
+`SRR8525904` will mean the same reads next Tuesday, so a digest is how you
+hold NCBI to it.
+
+Most of the data a modern pipeline wants comes with no such promise. Open
+Targets will answer differently next quarter, because it is supposed to —
+new evidence arrives, scores move, associations appear. A REST call to
+Monarch is the same. Asking such a source for a pin is asking for a promise
+it would be wrong to make.
+
+So the honest question is not "how do we pin a live query?" but "what,
+exactly, can be promised about one?"
+
+## Two reproducibility claims
+
+**Source reproducibility** is the claim that a third party will serve the
+same answer later. Some sources make it and a digest is how you check it.
+**No live query can make it**, and pretending otherwise is how a paper
+becomes unreproducible without anyone noticing: the method section says
+"retrieved from Open Targets", the reviewer retrieves it a quarter later, and
+the numbers are different with nothing anywhere to say why.
+
+**Record reproducibility** is the claim a recorded query does make: anyone
+with the bundle runs the pipeline again and gets the same result. It is
+weaker — it says nothing about what the source will do — and for most of what
+a pipeline needs it is enough, because the question a reviewer is asking is
+"did this analysis produce these numbers?" rather than "does the world still
+look like this?".
+
+## What it takes: the body, not the digest
+
+The whole mechanism is one sentence. **The canonicalised response body goes
+into the content-addressed store, not merely its digest.**
+
+Everything follows from that. The body is then an input like any other: it
+has a content hash, that hash is in every cache key below it, and the result
+is deterministic by construction rather than by anybody's discipline. The
+body travels in the [reproducibility bundle](/concepts/provenance/), so a
+reviewer with no network and no API key replays the whole run.
+
+This is the record/replay pattern of vcrpy, and of a Nix fixed-output
+derivation. Ligase's contribution is not the pattern. It is that the record
+is typed, content-addressed, part of the cache key, and enforced by the
+engine rather than remembered by a person.
+
+## Three modes, set per run
+
+<table>
+  <thead>
+    <tr><th>Mode</th><th>What happens</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>**record**</td><td>no record exists: ask the source, canonicalise the answer, store the body</td></tr>
+    <tr><td>**replay**</td><td>a record exists: serve it, and reach no network</td></tr>
+    <tr><td>**refresh**</td><td>ask the source anyway, compare against the record, and report *drift*</td></tr>
+  </tbody>
+</table>
+
+The default replays what exists and records what does not, so a pipeline run
+twice does the right thing without being told. The run report always says
+which of the three each query did, because "it worked" and "it worked without
+asking anybody" are different statements and only one of them is about
+reproducibility.
+
+The mode is a setting for the **run**, not for the step. That is deliberate.
+A run that replayed some of its queries and quietly fetched the rest would be
+a plausible-looking result that nobody — including the person who ran it —
+could repeat, which is the exact failure this project exists to refuse. So:
+
+<Note kind="warning" title="In replay, a missing record is an error">
+`ligase run --replay` on a query it has no record of fails, and fails before
+any step runs. It never falls back to a live fetch.
+
+<Diagnostic note="ligase run --replay — no step ran">{diagnostics.replayWithoutRecord}</Diagnostic>
+</Note>
+
+## Which record is which
+
+A record is identified by its **canonical request**: the method, the URL with
+its query parameters sorted, and the request body. Nothing volatile.
+
+The consequence worth having is pagination. A step that makes twenty calls
+differing only in `?page=` writes twenty records, each keyed by what was
+asked rather than by when — so the same step next week finds all twenty
+whatever order it issues them in. And two URLs differing only in parameter
+order are *one* record, because they are one question.
+
+The URL that goes on the wire is the one you wrote, unsorted. Sorting decides
+which record this is; it never decides what to ask, because a server may care
+about the order and you wrote what you wrote.
+
+## What a response means
+
+A recorded body is canonicalised before it is hashed, exactly as every other
+kind is ([semantic hashing](/concepts/semantic-hashing/)): JSON keys are
+sorted at every depth, and a body that is not JSON stands in for itself. Two
+answers meaning the same thing hash the same, so a server that reorders its
+JSON does not invalidate a cache or set off a drift report every week.
+
+A server's own bookkeeping is dropped — a `requestId`, a `generatedAt`, a
+`took` — on the same ground that a tool's `@PG` line is dropped from a BAM's
+canonical form: it says *how the answer was served*, not what the answer is.
+
+Dropped from **the top level only**, and that line is where the care is. A
+`timestamp` key at the top of a response envelope is the server describing
+its own work. The same key inside a data record is what the record *says*,
+and dropping it recursively would silently delete a time series. So the
+engine draws the line at the one place the two cases can be told apart, and
+[says what it dropped](/concepts/notes/) in case it was yours after all.
+
+## A refresh never overwrites
+
+`ligase run --refresh` asks the source again and reports what changed. It
+writes a **new dated record beside the old one**; it does not replace it.
+
+The reason is that a pipeline refreshing weekly is not reproducing one run.
+It is a series of runs, each with its own record, and each of them has to
+stay replayable forever — otherwise this quarter's refresh quietly destroys
+last quarter's reproducibility, which is a strange thing for a refresh to do.
+
+A refresh that finds the *same* answer writes nothing new: the record that
+already exists is the record of those bytes.
+
+## What is not recorded
+
+A response over **32 MiB** is refused, and the refusal says to pin it as a
+release instead. An answer that large is a dataset rather than a query
+result, and a dataset has a version — so it belongs in `lg.remote` with a
+digest, where it is reproducible from the source rather than from a copy in
+everybody's bundle.
+
+A failure is never recorded. A query that answers 500 leaves no record,
+because a record of a failure would replay that failure forever as though it
+were the answer.
+
+And an answer that will not read as its declared kind is refused rather than
+stored: an API asked for something it does not have answers with an error
+page and a 200, and nothing in the status says so.
+
+## A bundle never carries a secret
+
+A query can be authenticated, and the pipeline never holds the token:
+
+```python
+genes = lg.query(
+    "https://api.example.org/v4/targets?gene=EGFR",
+    kind=lg.types.EntitySet,
+    auth_env="OPENTARGETS_TOKEN",
+)
+```
+
+`auth_env` is the **name** of an environment variable. That is not a style
+preference. A bundle carries the pipeline file, so a token written into the
+pipeline would travel in every bundle you ever shared.
+
+The record cannot hold one either, and not because it is filtered out:
+nothing the engine stores has a field for a request header. Stripping
+happens because there is nothing to strip into, which is the only version of
+the guarantee that a field added later cannot quietly undo.
+
+## Where this goes next
+
+- [Using recorded queries](/guide/recorded-queries/) — how to write one
+- [Where the data came from](/concepts/remotes/) — the pinned half
+- [D39](/project/decisions/#d39--a-remote-is-pinned-or-recorded-and-both-are-replayable) — the decision
+- [Remote inputs, inside](/project/architecture/remotes/) — how it works

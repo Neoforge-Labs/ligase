@@ -81,8 +81,8 @@ use crate::canon::Note;
 use crate::graph::{Graph, NodeId, StepSpec};
 use crate::hash::ContentHash;
 use crate::key::{Ingredients, StepKey};
-use crate::prov::{self, InputRecord, Prov, Record};
-use crate::types::{DataKind, Dataset};
+use crate::prov::{self, InputRecord, Prov, Record, day};
+use crate::types::{DataKind, Dataset, Origin, RemoteVerdict};
 
 /// How a step's output is produced.
 ///
@@ -1434,6 +1434,32 @@ pub fn render(graph: &Graph, roots: &[NodeId], report: &RunReport) -> String {
                 given.push(note.code());
                 lines.push(format!("          {}", note.advice()));
             }
+        }
+    }
+
+    // Where this run's inputs came from, which for a query is the whole
+    // question: "it worked" and "it worked without asking anybody" are
+    // different statements, and D39 asks that the report always say which
+    // of the two this was.
+    let mut remotes: Vec<&Origin> = Vec::new();
+    for node in graph.reachable_nodes(roots) {
+        if let Some(origin) = graph.dataset(node).and_then(Dataset::origin)
+            && !remotes.iter().any(|held| held.locator == origin.locator)
+        {
+            remotes.push(origin);
+        }
+    }
+    if !remotes.is_empty() {
+        lines.push(String::new());
+        for origin in remotes {
+            let what = match origin.verdict {
+                RemoteVerdict::Pinned => format!("pinned, fetched {}", day(origin.fetched_at)),
+                RemoteVerdict::Replayed => {
+                    format!("replayed from record of {}", day(origin.fetched_at))
+                }
+                RemoteVerdict::Live => format!("answered live on {}", day(origin.fetched_at)),
+            };
+            lines.push(format!("input     {} -- {what}", quoted(&origin.locator)));
         }
     }
 

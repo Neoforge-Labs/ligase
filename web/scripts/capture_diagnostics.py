@@ -183,6 +183,27 @@ def a_locator_with_a_scheme_the_engine_does_not_have(lg: Any) -> None:
     lg.remote("ftp://ftp.example.org/HXB2.fasta", kind=lg.types.Reference)
 
 
+def a_replay_with_no_record_of_the_query(lg: Any) -> None:
+    """Replay a run whose query has never been recorded.
+
+    No server is needed and none is started: the refusal happens before
+    anything is fetched, which is the point of it. So the locator here is a
+    plain example URL rather than a loopback one.
+    """
+    import tempfile
+
+    try:
+        with tempfile.TemporaryDirectory() as store:
+            lg.remotes.configure(cache=store, offline=False, mode="replay")
+            lg.query(
+                "https://api.example.org/v4/targets?gene=EGFR",
+                kind=lg.types.EntitySet,
+                organism="Homo sapiens",
+            )
+    finally:
+        lg.remotes.reset()
+
+
 SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         key="wrongReferenceBuild",
@@ -320,6 +341,16 @@ SCENARIOS: tuple[Scenario, ...] = (
         expect="RemoteError",
         description="A locator naming a scheme outside the closed set of four.",
         provoke=a_locator_with_a_scheme_the_engine_does_not_have,
+    ),
+    Scenario(
+        key="replayWithoutRecord",
+        step="",
+        expect="RemoteError",
+        description=(
+            "A run that may only replay, asked for a query it has no record "
+            "of: refused rather than quietly fetched."
+        ),
+        provoke=a_replay_with_no_record_of_the_query,
     ),
     Scenario(
         key="mixedOrganism",

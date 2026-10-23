@@ -47,12 +47,10 @@ answer differently next quarter, because it is supposed to: new evidence
 arrives. So a recorded query promises something else, and something that
 turns out to be enough — that anyone with the record gets the same result.
 
-<Note kind="note" title="One half is built">
-This page describes the design whole, because the two halves are only
-coherent together. `lg.remote` and the pinned half are built; `lg.query` and
-record/replay are the next milestone. See
-[the milestones](/project/milestones/).
-</Note>
+Both halves are built. This page is the pinned one; the recorded one has
+[a page of its own](/concepts/record-and-replay/), because what it has to
+explain — the three modes, which record is which, and what a refresh does —
+has no counterpart here.
 
 ## What a digest is over
 
@@ -141,6 +139,7 @@ only implementation so far. An object store behind it is
 [M14](/project/milestones/#m14--remote-store), and it turns the store into
 something a lab points every machine at.
 
+- [Recording a live answer](/concepts/record-and-replay/) — the other half
 - [Using remote inputs](/guide/remotes/) — how to write one
 - [D39](/project/decisions/#d39--a-remote-is-pinned-or-recorded-and-both-are-replayable) — the decision
 - [Remote inputs, inside](/project/architecture/remotes/) — how it works

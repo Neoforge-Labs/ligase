@@ -289,6 +289,27 @@ def test_a_refresh_with_no_record_is_a_first_record_rather_than_drift(
     assert digest_of(ask(server.url("/genes"))) is not None
 
 
+def test_the_run_report_says_where_each_input_came_from(
+    server: Server, tmp_path: Path
+) -> None:
+    # "It worked" and "it worked without asking anybody" are different
+    # statements, and the report has to say which this was.
+    server.serve("/genes", GENES)
+    url = server.url("/genes")
+
+    @lg.step
+    def rank(genes: lg.EntitySet) -> lg.RankedList:
+        """Turn a scored gene list into a ranking."""
+        return lg.sh("cp {genes} {out}")
+
+    store = tmp_path / "store"
+    first = lg.Pipeline(rank(ask(url))).run(cache=store)
+    assert "answered live on" in first.text
+
+    second = lg.Pipeline(rank(ask(url))).run(cache=store)
+    assert "replayed from record of" in second.text
+
+
 def test_replay_and_refresh_together_are_refused() -> None:
     # One says never ask the source and the other says always ask it.
     from ligase.cli import build_parser

@@ -1,6 +1,6 @@
 ---
 title: "Remote inputs"
-description: "How a locator becomes bytes, where the digest is checked, and why the store became a trait in the same change."
+description: "How a locator becomes bytes, where the digest is checked, how a recorded query is identified and replayed, and why the store became a trait in the same change."
 ---
 
 # Remote inputs
@@ -10,18 +10,29 @@ description: "How a locator becomes bytes, where the digest is checked, and why 
 [D39](/project/decisions/#d39--a-remote-is-pinned-or-recorded-and-both-are-replayable);
 this page is how it is built and what was given up to build it that way.
 
-## Four files
+## Six files
 
 | File | What it owns |
 |---|---|
 | `remote/locator.rs` | reading a locator, and turning it into URLs |
 | `remote/fetch.rs` | the `Transport` trait, the `ureq` client, the `Offline` one |
-| `remote/pinned.rs` | resolution: store, then source, then verify |
+| `remote/pinned.rs` | a pinned remote: store, then source, then verify |
+| `remote/request.rs` | what is asked, and which record that makes it |
+| `remote/response.rs` | what a recorded answer means |
+| `remote/recorded.rs` | a recorded query: replay, record or refresh |
 | `store.rs` | the `BlobStore` trait and its filesystem backend |
 
-Nothing above `pinned::resolve` knows about HTTP, and nothing in `fetch.rs`
-knows about digests or kinds. That seam is what lets a test take the network
-away without stubbing anything the engine actually does.
+Nothing above `pinned::resolve` and `recorded::resolve` knows about HTTP, and
+nothing in `fetch.rs` knows about digests or kinds. That seam is what lets a
+test take the network away without stubbing anything the engine actually
+does.
+
+The two resolvers sit side by side rather than one calling the other, because
+they answer different questions. `pinned::resolve` asks "are these the bytes
+that were promised?" and fails if not; `recorded::resolve` asks "do we
+already have an answer to this?" and records one if not. Folding them into a
+function with a flag would put the two reproducibility claims D39 exists to
+separate back into one code path.
 
 ## Resolution, in order
 
@@ -159,8 +170,167 @@ whole purpose is explaining a result should be explicable itself.
 
 A pinned remote's row is **replaced** by a later fetch of the same locator
 and kind. That is right here — a later fetch is either the same answer or a
-failure — and it is emphatically not how a recorded query will behave, which
-is why the two will be different tables rather than one with a flag.
+failure — and it is emphatically not how a recorded query behaves, which is
+why they are two tables rather than one with a flag.
+
+### The `records` table
+
+Keyed on `(request, revision)`, where `request` is the hash of the canonical
+request.
+
+| Column | What |
+|---|---|
+| `request` | the canonical request's hash: the record's identity |
+| `revision` | 1, then 2 for the first refresh, and so on |
+| `recorded_at` | seconds since the epoch; the record's date |
+| `locator` | as the pipeline wrote it |
+| `kind`, `method`, `url`, `status` | how it was asked and what answered |
+| `body` | the object key of the canonical response body |
+| `digest` | what the body *means*, read as `kind` |
+| `notes` | what canonicalising the response dropped |
+
+Two things about that key are load-bearing.
+
+**`revision` and not `recorded_at`.** A refresh must never overwrite what it
+refreshes, and keying on a timestamp would let two refreshes inside the same
+second collide — which is to say it would rest "never overwrite" on a clock.
+The revision is assigned by `Cache::record_query` rather than by the caller,
+so getting it right is not something each call site has to remember.
+
+**No `supersedes` column.** Revision *n* supersedes *n − 1* by construction,
+and a stored pointer saying the same thing is a second source of truth that
+can drift from the first.
+
+Bodies are never collected, so every revision stays replayable: a record's
+body lives in the write-once blob store under its own hash, and two
+revisions of identical bytes cost one file.
+
+A refresh that finds the same bytes writes **no** new revision. "Never
+replaces" is kept by never writing over anything, not by writing something
+every time — and a row per week recording bytes already recorded would buy a
+growing table and no replay.
+
+## Which record is which
+
+`remote/request.rs` holds two types that look redundant and are not.
+
+```rust
+pub struct Request { method, url, body, auth }       // what is sent
+pub struct CanonicalRequest { method, url, body }    // what is hashed
+```
+
+`Request::url` is the URL as written. `CanonicalRequest::url` is that URL
+with its query parameters sorted and its fragment dropped.
+
+They are two fields because a server may care about parameter order and the
+user wrote what they wrote: sorting decides *which record this is* and must
+never decide *what to ask*. Sorting is over whole `name=value` strings rather
+than by name, so `?id=a&id=b` keeps both values — it asks for two things and
+is not `?id=a`.
+
+The fragment goes because it is never sent. The host's case is left alone:
+two spellings of one host are two records, which costs a fetch and cannot
+produce a wrong answer, where folding them would be the engine deciding that
+two URLs written differently are the same.
+
+`method` and `body` are hashed although the transport can only issue a `GET`
+with no body. That is not dead weight — hashing all three now means a later
+`POST`, which Open Targets' GraphQL would need, cannot change the identity of
+a record written today. A `POST` handed to `Network` is refused rather than
+downgraded to a `GET`, which would ask a different question and then record
+the answer as though it were the one wanted.
+
+`auth` is on `Request` and on nothing else, which is the whole of the secret
+guarantee: see below.
+
+## What a recorded response means
+
+`remote/response.rs`, and it is thin on purpose. The body is parsed as JSON;
+`serde_json`'s map is a `BTreeMap` with `preserve_order` off, so
+re-serialising sorts the keys at every depth without a traversal of our own
+to get wrong. Arrays keep their order, because there order is the answer.
+
+`arbitrary_precision` is on, so every number is kept as the text the server
+sent. Without it a twenty-digit identifier would be rounded through an `f64`
+on its way into the store and the stored body would differ from the answer
+with nothing reporting it. The cost is that `1` and `1.0` hash differently,
+which is the conservative answer: the engine does not claim an equality it
+has not verified.
+
+A body that is not JSON is returned as it arrived, which needs no rule
+because [D21](/project/decisions/#d21--canonicalisation-falls-back-to-the-bytes)
+already says canonicalisation falls back to the bytes.
+
+**Volatile fields are dropped from the top level of a JSON object and
+nowhere else.** The closed set is `requestId`, `traceId`, `correlationId`,
+`timestamp`, `generatedAt`, `servedAt`, `retrievedAt`, `took`, `elapsed` and
+`queryTime`, matched against a key lower-cased with `-` and `_` removed so
+that four spellings of one name are one name.
+
+Dropping them at all is
+[D22](/project/decisions/#d22--a-tools-signature-is-not-part-of-its-result):
+a `generatedAt` says how the answer was served, which is a signature rather
+than part of the answer. Dropping them only at the top level is
+[D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead):
+inside a data record the same key is what the record says, and recursing
+would silently delete a time series. The top level is the one place the two
+cases can be told apart, and each drop emits a note in case the key was the
+user's own data after all.
+
+Response **headers** need no dropping. `Fetched` has no field for them, so a
+rate-limit header never reaches anything the engine stores. The guarantee is
+already structural, which is why there is no filter for it.
+
+Note the layering. This produces the bytes that go *into* the store; the
+stored body is then read as its declared kind by the ordinary loader. A
+query declared `EntitySet` over a TSV endpoint canonicalises to its bytes
+here and is parsed as a TSV there. **No kind in v0.2 reads JSON**, so the
+JSON branch is exercised by unit tests rather than end to end — D39 requires
+it and a JSON-reading kind is v0.3's `KnowledgeGraph`.
+
+## A secret has nowhere to be stored
+
+`Request` carries its `Auth`, because the token has to be sent. Nothing else
+does: `Fetched` has no field for a request header, nor does `QueryRecord`,
+nor does `records.tsv`. An `Authorization` header is therefore not
+*stripped* before storage — it is never representable in anything the engine
+stores, which is the only version of the guarantee a field added later
+cannot quietly undo.
+
+Two doors are closed deliberately beyond that.
+
+`Auth`'s `Debug` is hand-written and prints `Auth(<redacted>)`, because a
+derived one would print the token into any message that formatted a request.
+
+And the Python surface takes `auth_env=`, the **name** of an environment
+variable, rather than a token. A bundle copies the pipeline file into
+`pipeline/`, so a literal token in the pipeline would travel in every bundle
+— a leak the structural argument above does not cover, because it is in the
+pipeline's source rather than in the record.
+
+The test for all of it asserts over every file in the store and every file in
+the bundle rather than over a list of header names, so a future field is
+caught rather than trusted.
+
+## How a bundle replays
+
+A bundle carries `records.tsv` and a `records/` directory of bodies named by
+their own hashes, so the table and the files need no agreement about naming.
+Each body is read with `checked_get` on the way out: a bundle that carried a
+corrupted body would reproduce the wrong answer and report that it
+reproduced.
+
+`bundle::seed` puts them into a cache — the bodies into the blob store, the
+rows into `records` — and `ligase methods --verify` calls it **before the
+pipeline is imported**, because a query resolves while the pipeline file is
+being read. That ordering is the whole of why seeding is not done inside
+`methods()`: by then the query has already resolved or failed.
+
+This is the precise sense in which `provenance.py`'s "a bundle cannot fetch
+its own data" is retired. For a recorded query the bundle *is* the source. A
+pinned remote is unchanged and deliberately so: it is named rather than
+carried, because anyone can obtain it and check it against its digest, and
+copying gigabytes of reads into every bundle would buy nothing.
 
 ## The store trait, and the shape M14 needs
 
@@ -220,6 +390,22 @@ it is the only guard that works when no digest was declared.
 three steps is three rows, de-duplicated by the methods report rather than at
 write time. Consistent with how `references` already works: a provenance
 record is about one computation.
+
+**The kind check is only as strong as the kind's parser.** A fetched body
+must read as its declared kind, which catches an HTML error page served as a
+`Reference`. It does not catch one served as an `EntitySet`, because a
+single-column TSV *is* a valid gene list and an error page is a gene list of
+one implausible gene. That is uniform across local files, pinned remotes and
+recorded queries rather than something a query introduced, and it is pinned
+by a test (`an_error_page_passes_the_kind_check_for_an_entity_set_and_this_is_why`)
+so the day the entity-set loader learns to refuse an identifier containing a
+`<`, something says so.
+
+**A recorded body is held in memory while it is canonicalised.** Up to 32
+MiB, which is the cap's second job: a streamed canonicalisation would let the
+cap go and buy nothing, since the JSON has to be parsed whole to sort its
+keys. A pinned remote still streams to disk and is never buffered, which is
+why the two caps are different numbers for different reasons.
 
 **The dedup rule for `source_set` is settled and not implemented.** See
 [D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)
