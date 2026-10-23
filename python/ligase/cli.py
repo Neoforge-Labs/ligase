@@ -1,5 +1,12 @@
 """The `ligase` command.
 
+`ligase inspect FILE...` is the one command that needs no pipeline. It loads
+each file, says what kind it read it as, and prints every dimension the
+loader worked out along with where it read it from — and, given two or more
+files, compares them the way a step's inputs are compared and prints the
+diagnostic. Nothing is executed and nothing is cached: it is the question
+"does Ligase think these two files agree?" asked of files you already have.
+
 `ligase check` imports a pipeline file and type-checks every step in it. The
 module *is* executed, the way a Snakefile is: that is how a Python pipeline
 declares itself. The step bodies are not, because `@lg.step` defers them — so
@@ -30,15 +37,28 @@ import argparse
 import importlib.util
 import sys
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from . import (
+    _core,
+    alignment,
+    dimension_errors,
+    entity_set,
+    intervals,
+    reads,
+    reference,
+    variants,
+)
 from .errors import CheckError
 from .graph import CACHE_DIR, Pipeline
 from .run import RunError
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from types import ModuleType
+
+    from .types import Dataset
 
 __all__ = ["main"]
 
@@ -48,6 +68,33 @@ DEFAULT_PIPELINE = "pipeline.py"
 #: Exit codes. 1 means the pipeline is wrong, 2 means we could not look.
 FOUND_ERRORS = 1
 COULD_NOT_CHECK = 2
+
+#: Which loader `inspect` reads which extension with.
+#:
+#: Private to the command, and deliberately neither in the engine nor in the
+#: public API: which suffix means a FASTA is a question about filenames
+#: rather than about biology, and a pipeline answers it by naming the loader
+#: it wants. `inspect` is the one surface with nobody to ask.
+#:
+#: A compression suffix is stripped before the lookup, because every loader
+#: opens a gzipped file.
+LOADERS: Mapping[str, Callable[[str], Dataset]] = MappingProxyType(
+    {
+        ".fasta": reference,
+        ".fa": reference,
+        ".fna": reference,
+        ".fastq": reads,
+        ".fq": reads,
+        ".sam": alignment,
+        ".bam": alignment,
+        ".vcf": variants,
+        ".bed": intervals,
+        ".gff": intervals,
+        ".gff3": intervals,
+        ".gtf": intervals,
+        ".tsv": entity_set,
+    }
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,6 +112,30 @@ def build_parser() -> argparse.ArgumentParser:
         description="Type-safe, reproducible computational biology pipelines.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    # First, because it is the first thing someone does: it needs no
+    # pipeline, no installation of anyone's tools and no commitment, and the
+    # generated reference lists commands in the order they are added here.
+    inspect = commands.add_parser(
+        "inspect",
+        help="say what Ligase makes of files you already have",
+        description=(
+            "Load each file and print every dimension the loader inferred, "
+            "with where it read each one from. Given two or more files, "
+            "compare them the way a step's inputs are compared and print "
+            "the diagnostic. No pipeline, no cache, nothing executed."
+        ),
+    )
+    inspect.add_argument(
+        "files",
+        nargs="+",
+        type=Path,
+        metavar="FILE",
+        help=(
+            "the files to inspect, read by extension; two or more are "
+            "compared against each other"
+        ),
+    )
+
     check = commands.add_parser(
         "check",
         help="type-check a pipeline without running it",
@@ -210,9 +281,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Returns:
         0 when everything worked, 1 when a pipeline has errors or a step
-        failed, 2 when the pipeline could not be read at all.
+        failed or inspected files disagree, 2 when the pipeline or a file
+        could not be read at all.
     """
     arguments = build_parser().parse_args(argv)
+    if arguments.command == "inspect":
+        return _inspect(arguments.files)
     if arguments.command == "run":
         return _run(
             arguments.pipeline, arguments.jobs, arguments.force, arguments.cache
@@ -234,6 +308,132 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.cache,
         )
     return _check(arguments.pipeline)
+
+
+def _suffix(path: Path) -> str:
+    """The extension that decides the format, ignoring a compression one.
+
+    Every loader opens a gzipped file, so `genome.fasta.gz` is a FASTA.
+    """
+    name = path.name.lower()
+    for compression in (".gz", ".bgz"):
+        name = name.removesuffix(compression)
+    return Path(name).suffix
+
+
+def _names(paths: Sequence[Path]) -> list[str]:
+    """A short, distinct handle for each file, for a diagnostic to use by.
+
+    The basename, because that is what makes a diagnostic read like the one
+    a pipeline prints — where the handles are `ref` and `aln` — while the
+    full path travels on the same line inside the dimension's source.
+
+    Distinctness is not cosmetic. The handles are the keys the comparison is
+    given, so two files that shared one would be *one* input and the second
+    would be silently dropped. Files sharing a basename therefore fall back
+    to the path as typed, and a path typed twice is numbered.
+    """
+    basenames = [path.name for path in paths]
+    names = [
+        name if basenames.count(name) == 1 else str(path)
+        for name, path in zip(basenames, paths, strict=True)
+    ]
+
+    seen: dict[str, int] = {}
+    distinct = []
+    for name in names:
+        seen[name] = seen.get(name, 0) + 1
+        distinct.append(name if seen[name] == 1 else f"{name} ({seen[name]})")
+    return distinct
+
+
+def _inspect(paths: Sequence[Path]) -> int:
+    """Describe each file, then compare them as a step's inputs are compared.
+
+    One path with two sections rather than two paths: the descriptions are
+    the evidence for the diagnostic, and the diagnostic's lines are the
+    description's lines, so printing one without the other would withhold
+    the half that explains it. A single file is the degenerate case — there
+    are no pairs, so there is no comparison.
+    """
+    loaded: list[tuple[str, Dataset]] = []
+    unreadable: list[Path] = []
+
+    for name, path in zip(_names(paths), paths, strict=True):
+        loader = LOADERS.get(_suffix(path))
+        if not path.is_file():
+            _report(f"no such file: {path}")
+            unreadable.append(path)
+        elif loader is None:
+            known = ", ".join(sorted(LOADERS))
+            _report(
+                f"{path}: nothing here reads `{_suffix(path) or path.name}`; "
+                f"the extensions this knows are {known} (each also with .gz)"
+            )
+            unreadable.append(path)
+        else:
+            try:
+                loaded.append((name, loader(str(path))))
+            # Whatever the loader could not do with the file, in its own
+            # words. A file that will not parse is a fact about the file,
+            # not a crash in the tool that looked at it.
+            except Exception as error:
+                _report(f"{path} could not be read: {error}")
+                unreadable.append(path)
+
+    for name, data in loaded:
+        print(data._core.describe(name))
+        print()
+
+    files = f"{len(paths)} {_plural(len(paths), 'file')}"
+
+    # A verdict over the files that happened to load reads as a verdict over
+    # all of them, so there is no verdict at all.
+    if unreadable:
+        print(
+            f"not comparing: {len(unreadable)} of {files} could not be read, "
+            "and a file nobody could read has no verdict."
+        )
+        return COULD_NOT_CHECK
+
+    if len(loaded) < 2:
+        print(
+            f"{files}, so nothing to compare: two or more are compared the "
+            "way one step's inputs are."
+        )
+        return 0
+
+    # The same `check_step` a step's inputs go through. The step is named
+    # `inspect` because that is what is doing the comparing; there is no
+    # step, and the diagnostic is otherwise the one a pipeline would print.
+    errors = dimension_errors("inspect", dict(loaded))
+    for disagreement in errors:
+        print(disagreement)
+        print()
+
+    compared = _core.comparable([data._core for _, data in loaded])
+    on = f", compared on {_english(compared)}" if compared else ""
+
+    if errors:
+        # The count leads with the files, not with `compared`, because a
+        # dimension nothing states can still be a disagreement: two gene
+        # lists that each say nothing about their identifier space do not
+        # agree, they fail to answer a question the comparison demands.
+        found = f"{len(errors)} {_plural(len(errors), 'disagreement')}"
+        print(f"{files}{on}: {found}.")
+        return FOUND_ERRORS
+
+    if not compared:
+        # "They agree" over files sharing no stated dimension is false
+        # comfort: a FASTQ and a BED agree the way two sentences in
+        # different languages agree.
+        print(
+            f"{files}, but nothing was compared: no dimension is stated by two of them."
+        )
+        return 0
+
+    print(f"{files}{on}: no disagreement.")
+    return 0
 
 
 def _check(path: Path) -> int:
@@ -442,9 +642,25 @@ def _import(path: Path) -> ModuleType:
 
 
 def _cannot(message: str) -> int:
-    print(f"ligase: {message}", file=sys.stderr)
+    _report(message)
     return COULD_NOT_CHECK
+
+
+def _report(message: str) -> None:
+    """Say something went wrong, on the stream for saying so."""
+    print(f"ligase: {message}", file=sys.stderr)
 
 
 def _plural(count: int, word: str) -> str:
     return word if count == 1 else f"{word}s"
+
+
+def _english(words: Sequence[str]) -> str:
+    """Join as English does: `a`, `a and b`, `a, b and c`.
+
+    The engine punctuates its own lists this way; this is the one list the
+    command composes itself.
+    """
+    if len(words) < 2:
+        return "".join(words)
+    return f"{', '.join(words[:-1])} and {words[-1]}"
