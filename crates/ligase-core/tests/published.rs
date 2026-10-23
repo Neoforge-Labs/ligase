@@ -384,3 +384,87 @@ fn a_published_record_that_does_not_parse_is_a_finding_not_a_silence() {
     let error = prov.adopt(&objects, key).unwrap_err().to_string();
     assert!(error.contains("damaged"), "{error}");
 }
+
+// ---------------------------------------------------------- the report --
+
+#[test]
+fn the_report_says_nothing_about_a_store_the_run_did_not_use() {
+    use ligase::exec::{RunReport, render};
+    use ligase::graph::Graph;
+
+    let graph = Graph::new();
+    let report = RunReport::default();
+
+    assert!(
+        !render(&graph, &[], &report).contains("store"),
+        "a report must not grow a line for a feature the run did not use"
+    );
+}
+
+#[test]
+fn the_report_says_when_the_store_was_unreachable() {
+    use ligase::exec::{RunReport, render};
+    use ligase::graph::Graph;
+    use ligase::store::StoreStats;
+
+    let graph = Graph::new();
+    let report = RunReport {
+        store: StoreStats {
+            unreachable: 4,
+            ..StoreStats::default()
+        },
+        ..RunReport::default()
+    };
+
+    let text = render(&graph, &[], &report);
+    assert!(text.contains("did not answer"), "{text}");
+    assert!(
+        text.contains("done again"),
+        "a run that recomputed for an hour because a bucket was away is \
+         not wrong, and a user who is not told is misled: {text}"
+    );
+    assert!(text.contains("ligase store push"), "{text}");
+}
+
+#[test]
+fn the_report_names_an_object_that_was_refused() {
+    use ligase::exec::{RunReport, render};
+    use ligase::graph::Graph;
+    use ligase::store::StoreStats;
+
+    let graph = Graph::new();
+    let report = RunReport {
+        store: StoreStats {
+            rejected: 2,
+            ..StoreStats::default()
+        },
+        refused: Some("the object at s3://lab/ab/cd.bam is not what its name says".to_owned()),
+        ..RunReport::default()
+    };
+
+    let text = render(&graph, &[], &report);
+    assert!(text.contains("is not what its name says"), "{text}");
+    assert!(text.contains("1 further object"), "{text}");
+    assert!(text.contains("run again"), "{text}");
+}
+
+#[test]
+fn the_report_counts_objects_that_came_from_the_store() {
+    use ligase::exec::{RunReport, render};
+    use ligase::graph::Graph;
+    use ligase::store::StoreStats;
+
+    let graph = Graph::new();
+    let report = RunReport {
+        store: StoreStats {
+            fetched: 1,
+            pushed: 3,
+            ..StoreStats::default()
+        },
+        ..RunReport::default()
+    };
+
+    let text = render(&graph, &[], &report);
+    assert!(text.contains("1 object from the remote store"), "{text}");
+    assert!(text.contains("3 objects written through"), "{text}");
+}
