@@ -41,7 +41,17 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    # Only for the type checker's sake, and only for the three scenarios that
+    # define a step. `@lg.step` resolves a step's annotations with
+    # `get_type_hints`, which reads the *defining module's* globals and not
+    # the enclosing function's locals -- so those scenarios put the real
+    # classes into this module's globals as they run, and a kind named only
+    # inside one of them would otherwise fail to resolve and the captured
+    # diagnostic would be about that instead of about the seed.
+    from ligase.types import RankedList, Reads
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "crates/ligase-core/tests/fixtures"
@@ -204,6 +214,41 @@ def a_replay_with_no_record_of_the_query(lg: Any) -> None:
         lg.remotes.reset()
 
 
+def a_stochastic_step_that_names_no_seed(lg: Any) -> None:
+    """Declare a step stochastic and forget to say what seeds it.
+
+    No pipeline is built and no file is read: the refusal happens as the
+    decorator runs, which is the whole point of it. So this is a step
+    definition and nothing else.
+
+    The kind goes into this module's globals first; see the `TYPE_CHECKING`
+    import at the top for why.
+    """
+    globals()["RankedList"] = lg.types.RankedList
+
+    @lg.step(tool="iqtree", stochastic=True)  # type: ignore[untyped-decorator]
+    def tree(ranking: RankedList, seed: int = 42) -> RankedList:
+        raise AssertionError("the decorator refuses this step; the body never runs")
+
+
+def a_seed_that_is_not_an_int(lg: Any) -> None:
+    """Name a seed that is typed `str`."""
+    globals()["Reads"] = lg.types.Reads
+
+    @lg.step(tool="seqtk", stochastic=True, seed="seed")  # type: ignore[untyped-decorator]
+    def sampled(reads: Reads, seed: str = "42") -> Reads:
+        raise AssertionError("the decorator refuses this step; the body never runs")
+
+
+def a_seed_without_declaring_the_step_stochastic(lg: Any) -> None:
+    """Name a seed and leave `stochastic=` off."""
+    globals()["Reads"] = lg.types.Reads
+
+    @lg.step(tool="seqtk", seed="seed")  # type: ignore[untyped-decorator]
+    def sampled(reads: Reads, seed: int = 42) -> Reads:
+        raise AssertionError("the decorator refuses this step; the body never runs")
+
+
 SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         key="wrongReferenceBuild",
@@ -351,6 +396,37 @@ SCENARIOS: tuple[Scenario, ...] = (
             "of: refused rather than quietly fetched."
         ),
         provoke=a_replay_with_no_record_of_the_query,
+    ),
+    Scenario(
+        key="unseededStochasticStep",
+        step="",
+        expect="StepDefinitionError",
+        description=(
+            "A step that declares its tool stochastic without naming the "
+            "parameter that seeds it: refused as the pipeline is read, not "
+            "when it runs."
+        ),
+        provoke=a_stochastic_step_that_names_no_seed,
+    ),
+    Scenario(
+        key="seedThatIsNotAnInt",
+        step="",
+        expect="StepDefinitionError",
+        description=(
+            "A seed named on a parameter that is not typed `int`: refused, "
+            "because a seed a methods section cannot print is not one."
+        ),
+        provoke=a_seed_that_is_not_an_int,
+    ),
+    Scenario(
+        key="seedWithoutDeclaring",
+        step="",
+        expect="StepDefinitionError",
+        description=(
+            "A seed named without declaring the step stochastic: refused "
+            "rather than read as a shorthand for declaring it."
+        ),
+        provoke=a_seed_without_declaring_the_step_stochastic,
     ),
     Scenario(
         key="mixedOrganism",

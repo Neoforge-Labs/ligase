@@ -33,21 +33,35 @@ def _no_inherited_store() -> None:
     os.environ.pop(config.STORE_VARIABLE, None)
 
 
+PIPELINE = """\
+import ligase as lg
+from ligase.types import Alignment, Reference
+
+
+@lg.step(tool="awk")
+def align(ref: Reference) -> Alignment:
+    \"\"\"Stand in for an aligner: whatever it is, it is a shell command.\"\"\"
+    return lg.sh("awk 'END {{ print NR }}' {ref} > {out}")
+
+
+ref = lg.reference(__FIXTURE__, organism="HIV-1", build="tiny")
+pipeline = lg.Pipeline(align(ref))
+"""
+
+
 def write_pipeline(where: Path) -> Path:
-    """A one-step pipeline over a committed fixture."""
+    """A one-step pipeline over a committed fixture.
+
+    `awk` rather than `wc`, because a step names a tool and the engine
+    probes it for a version: BSD `wc` has no `--version`, and a version
+    read from a failed probe is refused.
+    """
     path = where / "pipeline.py"
+    # `replace` rather than `format`: the recipe itself contains `{ref}`,
+    # `{out}` and the `{{ }}` an awk program needs, and formatting would
+    # eat every one of them.
     path.write_text(
-        "import ligase as lg\n"
-        "from ligase.types import Alignment, Reference\n"
-        "\n"
-        "@lg.step(tool='wc')\n"
-        "def align(ref: Reference) -> Alignment:\n"
-        '    """Stand in for an aligner."""\n'
-        '    return lg.sh("wc -c < {ref} > {out}")\n'
-        "\n"
-        f"ref = lg.reference({str(fixture('tiny_bare.fasta'))!r},"
-        " organism='HIV-1', build='tiny')\n"
-        "pipeline = lg.Pipeline(align(ref))\n"
+        PIPELINE.replace("__FIXTURE__", repr(str(fixture("tiny_bare.fasta"))))
     )
     return path
 

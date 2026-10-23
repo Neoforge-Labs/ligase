@@ -168,3 +168,150 @@ def test_a_ranking_joins_a_truth_set_that_agrees_with_it() -> None:
         )
     )
     assert pipe.errors() == []
+
+
+# ----------------------------------- M13: crossing an identifier space --
+#
+# `lg.map_identifiers` is typed for an `EntitySet`, and M12 left the
+# conversion registry covering a `RankedList` with no shipped step to use
+# the edge. `lg.map_ranked_identifiers` is that step, and what is tested
+# here is the half that needed deciding: what it *says* about an output
+# whose ranks have moved.
+
+
+def mapping() -> lg.EntitySet:
+    """HGNC symbols to Ensembl IDs, with one of each failure in it.
+
+    `TP53` and `BRCA1` cross cleanly, `NKX2-1` goes to two targets, and
+    `EGFR` has no row at all. So any ranking mapped through it loses rows,
+    which is the case that matters.
+    """
+    return lg.entity_set(fixture("map_hgnc_to_ensembl.tsv"), organism="Homo sapiens")
+
+
+def test_a_mapped_ranking_declares_the_space_it_crossed_into() -> None:
+    """The conversion crosses the axis for a ranking as it does for a set.
+
+    M12 found and fixed the registry row this rests on: `graph::propagate`
+    guarded a conversion's axis override on the kinds the conversion was
+    registered for, and with only `EntitySet` named, a step annotated to
+    return a ranking would have carried the *input's* namespace onto data
+    that had crossed. This is the shipped step over that fixed row.
+    """
+    mapped = lg.map_ranked_identifiers(
+        ranked(), mapping(), column="ensembl_gene_id", to="Ensembl gene"
+    )
+    lg.Pipeline(mapped).check()
+
+    dataset = lg.handle(mapped).dataset
+    assert dataset is not None
+    found = dataset.dimension("identifier_namespace")
+    assert found is not None
+    assert found.value == "Ensembl gene"
+    assert dataset.kind == "RankedList", (
+        "a mapped ranking is still a ranking: its rows are in rank order and "
+        "its canonical form keeps them that way"
+    )
+
+
+def test_a_mapped_ranking_keeps_its_order_and_says_the_ranks_moved(
+    tmp_path: object,
+) -> None:
+    """The rows come out in rank order, shorter, and the step says so.
+
+    Two assertions and they are the whole decision. The output is a
+    well-formed ranking of what crossed — ranks 1..n, nothing in the file
+    to show that n is smaller than it was — so if the step did not say the
+    ranks had been renumbered, nothing would.
+
+    `ranked_degs.tsv` is TP53, BRCA1, EGFR, NKX2-1 in that order. EGFR has
+    no row in the table and NKX2-1 has two, so both are left out and what
+    remains is TP53 then BRCA1: the top of the ranking crossed, and the
+    ranks below the hole still closed up.
+    """
+    from pathlib import Path
+
+    mapped = lg.map_ranked_identifiers(
+        ranked(), mapping(), column="ensembl_gene_id", to="Ensembl gene"
+    )
+    report = lg.Pipeline(mapped).run(cache=Path(str(tmp_path)) / "cache")
+    run = next(step for step in report.steps if step.step == "map_ranked_identifiers")
+
+    rows = Path(run.output).read_text().splitlines()
+    assert rows[0].split("\t") == ["id", "score"]
+    assert [row.split("\t")[0] for row in rows[1:]] == [
+        "ENSG00000141510",
+        "ENSG00000012048",
+    ], "order is the result, so the surviving rows must still be in rank order"
+
+    said = " ".join(run.notes)
+    assert "renumbered" in said, f"the ranks closed up and nothing said so: {run.notes}"
+    for lost in ("EGFR", "NKX2-1"):
+        assert lost in said, (
+            f"{lost} did not cross and must still be named: {run.notes}"
+        )
+
+
+def test_a_mapped_ranking_says_which_rank_became_the_first(
+    tmp_path: object,
+) -> None:
+    """When the top-ranked identifier does not cross, the second becomes first.
+
+    Which is the consequence D41 records and the one a reader is most
+    likely to act on without noticing: take the top ten of a mapped
+    ranking and you have the top ten of what crossed, not the mapping of
+    the top ten. `ranked_top_unmapped.tsv` leads with EGFR, which has no
+    row in the table, so the output's rank 1 held rank 2 in the input and
+    the note has to carry that number rather than merely report a loss.
+    """
+    from pathlib import Path
+
+    leading = lg.ranked_list(
+        fixture("ranked_top_unmapped.tsv"), organism="Homo sapiens"
+    )
+    mapped = lg.map_ranked_identifiers(
+        leading, mapping(), column="ensembl_gene_id", to="Ensembl gene"
+    )
+    report = lg.Pipeline(mapped).run(cache=Path(str(tmp_path)) / "cache")
+    run = next(step for step in report.steps if step.step == "map_ranked_identifiers")
+
+    rows = Path(run.output).read_text().splitlines()
+    assert [row.split("\t")[0] for row in rows[1:]] == [
+        "ENSG00000141510",
+        "ENSG00000012048",
+    ]
+
+    said = " ".join(run.notes)
+    assert "rank 2 of the list that was mapped" in said, (
+        f"the new leader was the input's second, and the note has to say so: "
+        f"{run.notes}"
+    )
+
+
+def test_a_ranking_that_loses_nothing_says_nothing_about_ranks(
+    tmp_path: object,
+) -> None:
+    """No note where no rank moved.
+
+    A note is for something true of the data that a reader cannot act on
+    without being told. A ranking every one of whose identifiers crossed
+    has the ranks it went in with, and saying so anyway would be the kind
+    of noise that teaches people to skip the notes.
+    """
+    from pathlib import Path
+
+    mapped = lg.map_ranked_identifiers(
+        lg.ranked_list(
+            fixture("ranked_named_column.tsv"),
+            organism="Homo sapiens",
+            id_column="gene",
+        ),
+        mapping(),
+        column="ensembl_gene_id",
+        to="Ensembl gene",
+        id_column="gene",
+    )
+    report = lg.Pipeline(mapped).run(cache=Path(str(tmp_path)) / "cache")
+    run = next(step for step in report.steps if step.step == "map_ranked_identifiers")
+
+    assert not any("renumbered" in note for note in run.notes), run.notes

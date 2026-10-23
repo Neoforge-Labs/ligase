@@ -157,6 +157,9 @@ def interpret_resistance(
 def resistance_algorithms() -> list[str]: ...
 def default_resistance_algorithm() -> str: ...
 def resistance_fingerprint() -> str: ...
+def citation(tool: str) -> str | None: ...
+def canonical_form(kind_name: str, path: str) -> str: ...
+def tool_version(tool: str) -> str: ...
 
 # Whether this build can open a bucket, the store URL, why it did not
 # answer, local objects, local index rows, how many were asked about, how
@@ -176,8 +179,9 @@ def store_pull(
     cache: Path | None = None, url: str | None = None
 ) -> tuple[int, int]: ...
 
-# One task: node, code, command, callback, tools, parameters, citations.
-# Exactly one of the command and the callback is set.
+# One task: node, code, command, callback, tools, parameters, citations,
+# the name of the parameter that seeds it. Exactly one of the command and
+# the callback is set.
 Task = tuple[
     int,
     str,
@@ -186,6 +190,7 @@ Task = tuple[
     list[str],
     list[tuple[str, str]],
     list[str],
+    str | None,
 ]
 
 # One finished step: node, step, outcome, key, output hash, canonical hash,
@@ -197,8 +202,21 @@ RunResult = tuple[int, str, str, str, str, str, str, int, list[str]]
 RunFailure = tuple[int, str, str]
 
 # One audited step: node, step, scope, verdict, the two output hashes, the
-# two canonical hashes, and the two durations in milliseconds.
-StepAudit = tuple[int, str, str | None, str, str, str, str, str, int, int]
+# two canonical hashes, the two durations in milliseconds, and the seed
+# parameter with the value it was held at.
+StepAudit = tuple[
+    int,
+    str,
+    str | None,
+    str,
+    str,
+    str,
+    str,
+    str,
+    int,
+    int,
+    tuple[str, str] | None,
+]
 
 # One reference, pinned: parameter, path, build, accession, sequences,
 # bases, checksum, fingerprint.

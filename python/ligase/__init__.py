@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, TypeVar
 
 from . import _core, hivdb, remotes
 from .audit import AuditReport, StepAudit
-from .convert import map_identifiers
+from .convert import map_identifiers, map_ranked_identifiers
 from .errors import (
     CheckError,
     ContigNamingError,
@@ -124,6 +124,7 @@ __all__ = [
     "hivdb",
     "intervals",
     "map_identifiers",
+    "map_ranked_identifiers",
     "query",
     "ranked_list",
     "reads",
@@ -132,6 +133,7 @@ __all__ = [
     "samples",
     "sh",
     "step",
+    "steps",
     "variants",
     "version",
     "write",
@@ -156,6 +158,12 @@ def version() -> str:
     """Return the version of the compiled Ligase core engine."""
     return _core.version()
 
+
+# Imported last, and deliberately. The step library's modules decorate
+# their functions with `ligase.graph.step` at import time, so importing
+# `steps` from the top of this file would be asking a half-initialised
+# package for a name it has not bound yet.
+from . import steps  # noqa: E402
 
 # -------------------------------------------------------------- loaders --
 

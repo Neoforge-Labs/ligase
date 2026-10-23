@@ -1,0 +1,106 @@
+---
+title: "Aligning with BWA-MEM"
+description: "ligase.steps.bwa.mem: the other aligner, the index it builds and throws away, and why swapping aligners can never reuse the other one's cache."
+---
+
+# Aligning with BWA-MEM
+
+<Lede>
+The same inputs and the same output kind as the minimap2 step, so one can be
+swapped for the other without touching anything downstream. What must never
+be swappable is the result's identity, and that is the interesting part.
+</Lede>
+
+## Use it
+
+```python
+import ligase as lg
+from ligase.steps import bwa
+
+aligned = bwa.mem(reads, hxb2, sample_id="SRR8525904", threads=8)
+```
+
+Everything the [minimap2 page](/guide/steps/minimap2/) says about
+`sample_id`, about `threads`, and about paired-end reads applies here
+unchanged. The read group is written by `samtools addreplacerg` rather than
+by bwa's own `-R`, for no deeper reason than that it is then written the same
+way in both steps, and one mechanism has one place to be wrong.
+
+## Swapping the aligner is a different answer, and the cache knows
+
+Change `minimap2.align` to `bwa.mem` in a pipeline and nothing downstream has
+to change: both take reads and a reference and hand back an `Alignment`. But
+the alignments are not the same alignments, and a cache that served one for
+the other would be serving minimap2's numbers under a methods paragraph that
+says bwa.
+
+Nothing arranges this. A step's key is built from its tools' versions, and
+the two steps name different tools, so the keys differ for the same reason
+that upgrading minimap2 moves its own key. It is tested rather than assumed —
+`test_swapping_the_aligner_changes_the_cache_key` runs both over one cache
+and insists the second one ran.
+
+## The index it builds, and what that costs
+
+`bwa mem` cannot read a bare FASTA. It needs the five files `bwa index`
+writes, and in a Ligase run the reference is an object in the
+content-addressed store — where every name is the hash of its own bytes, and
+five siblings of an object are not objects of that store.
+
+So this step builds the index into a temporary directory of its own and
+throws it away afterwards. That is correct and it is slow: the index is
+rebuilt on every run of the step, which for a small reference costs nothing
+and for a human genome costs about an hour. `minimap2` has no such cost,
+because it indexes from the FASTA in memory.
+
+<Note kind="warning">
+For a large reference, prefer the minimap2 step, or write a step of your own
+that points at an index you keep. The real fix is not a flag on this step —
+it is a step being able to produce more than one file, which is the same
+engine gap that keeps `samtools index` out of this library.
+</Note>
+
+## On the citation
+
+BWA's own README asks for the 2013 arXiv note when the BWA-MEM algorithm was
+used, and BWA-MEM is what this step runs. So that is what the engine cites,
+with the DOI arXiv itself issues for it. The 2009 *Bioinformatics* paper
+describes `bwa aln`, which this library does not ship, and substituting it to
+make the reference list look tidier would be citing a paper about a different
+algorithm.
+
+A reviewer may well want a journal reference and there is not one to give.
+That is a fact about this tool rather than a gap in the table.
+
+## The version capture, and the bug it found
+
+This step is the reason the engine has a version-probe table at all.
+
+`bwa --version` is not a thing bwa understands. It prints
+`[main] unrecognized command '--version'` to stderr and exits non-zero — and
+the engine, which read stdout and then stderr and ignored the exit status,
+recorded that sentence as bwa's version. It went into provenance, into the
+methods paragraph, and into the cache key.
+
+The cache consequence is the serious one: that sentence is identical for
+every bwa ever released, so **upgrading the aligner moved no key**, and every
+alignment computed by the old bwa would have been served for the new one.
+`tool=` exists to prevent exactly that.
+
+So `bwa` has an entry saying how to ask it: no arguments, expect a non-zero
+exit, and keep the line marked `Version:`. A probe that stops finding its
+marker is now an error rather than a usage banner recorded as a version.
+
+## What it declares
+
+| | |
+|---|---|
+| In → out | `Reads`, `Reference` → `Alignment` |
+| Tools | `bwa`, `samtools` |
+| Cited as | Li H (2013) arXiv:1303.3997 [q-bio.GN] |
+| Output canonicalises as | an alignment: records sorted, `@PG` stripped |
+
+## See also
+
+- [Aligning with minimap2](/guide/steps/minimap2/)
+- [What a curated step is](/concepts/step-library/)

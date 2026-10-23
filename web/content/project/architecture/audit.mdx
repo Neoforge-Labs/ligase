@@ -1,0 +1,281 @@
+---
+title: "Audit"
+description: "How ligase audit runs a step twice, how the three verdicts are decided, and why a declared stochastic step can never reach the first of them."
+---
+
+# Audit
+
+<Lede>
+`crates/ligase-core/src/audit.rs`. Two runs into scratch files, two
+comparisons, one of three words — and the one design decision that makes the
+first word mean anything.
+</Lede>
+
+## What it does
+
+`audit(graph, roots, tasks, stores, options, host, subject)` picks the nodes
+of one step, runs the pipeline once normally so those nodes have their inputs,
+and then runs each of them **twice more** into scratch files. Each run is
+hashed twice: its bytes, and its
+[canonical form](/project/architecture/canonicalisation/).
+
+The preliminary run is an ordinary run. It uses the cache and records what it
+computes, because that is what it is. The two audit runs are not: their
+scratch files are deleted whatever happened, and nothing from them is written
+to the cache or to provenance. Recording either would put a result in the
+cache from a step that has just been shown to wobble.
+
+Nodes are taken in turn rather than at once. A duration is part of what an
+audit reports, and two runs of an aligner competing for cores would produce
+timings that said more about the machine than about the step.
+
+## Why three verdicts
+
+Byte equality is the wrong test, and the reference pipeline proves it: every
+tool in it records its own command line, and `bcftools` writes the time of day
+beside it. Such a step computes the same calls every time. Reporting it as a
+failure would make the audit useless on real tools; reporting it as a pass
+would hide what the audit exists to find.
+
+So bytes and meaning are compared separately:
+
+| Verdict | Bytes | Meaning | Declared stochastic |
+|---|---|---|---|
+| `deterministic` | same | same | no |
+| `reproducible` | same | same | **yes** |
+| `reproducible` | differ | same | either |
+| `not reproducible` | — | differ | either |
+
+`Verdict` derives `Ord` in that declaration order, so
+`AuditReport::verdict()` is `.max()` over the nodes: the worst verdict any
+node got, not the commonest. One irreproducible sample in a cohort is an
+irreproducible step, and a summary that averaged them would bury exactly what
+a user is auditing for.
+
+## The fourth column
+
+That column is M11's whole contribution, and it is a decision about what the
+first word *means*
+([D40](/project/decisions/#d40--a-stochastic-step-declares-itself-or-it-is-an-error)).
+
+A verdict here is a claim about the **step**, not about the pair of files in
+front of it. The question is "if I ran this again, would I get the same
+answer". A step that
+[declares itself stochastic](/concepts/stochastic-steps/) has already answered
+part of it, and a correctly seeded one is byte-identical — which is the
+success case, and the case where byte equality alone said `deterministic`.
+
+That word would be false. It tells a reader there is no randomness in the
+step; move the seed and the bytes move. So:
+
+```rust
+let verdict = if first_canonical != second_canonical {
+    Verdict::NotReproducible
+} else if first == second && task.seed.is_none() {
+    Verdict::Deterministic
+} else {
+    Verdict::Reproducible
+};
+```
+
+`&& task.seed.is_none()` is the entire mechanism. It is also the line a
+later contributor will want to delete, because the other two arms read as
+though byte equality were the test — so the module docs say why it is there
+and the expression carries a comment saying not to simplify it.
+
+Note which thing it tests: `task.seed`, the declaration, and not the
+`(parameter, value)` pair looked up for it. The two agree for anything the
+decorator built, since it refuses a `seed=` naming no parameter. A verdict is
+the wrong place to depend on that, though, so the withholding rests on the
+declaration alone and a declared step with no value to show comes out
+`reproducible` with an empty seed rather than `deterministic`
+(`a_declared_step_whose_seed_names_no_parameter_is_still_not_deterministic`).
+
+Two tests pin the contrast rather than the bare fact:
+`a_seeded_stochastic_step_is_reproducible_rather_than_deterministic` and
+`a_step_that_is_not_stochastic_is_still_deterministic_on_the_same_bytes`,
+over the same command, so a reader cannot mistake the first for a change in
+what `Deterministic` means.
+
+### Why it is not its own type
+
+M10 put the remote verdicts — *pinned*, *replayed*, *live* — in a separate
+`RemoteVerdict` rather than in this enum, because "the two are not on one
+scale: a remote's verdict is about where bytes came from, not about whether a
+step repeats". The same instinct applied here would give a
+`StochasticVerdict`, and it would be wrong.
+
+The test is whether the new fact is on the audit's own axis. "This step draws
+on randomness" is a statement about whether a step repeats — the very question
+a `Verdict` answers. It changes what two runs can tell you about that
+question; it does not answer a different question beside it. A second enum
+would make a reader combine two words to learn one fact, and — worse — would
+leave `Verdict::Deterministic` free to go on being wrong, which is the thing
+D40 exists to stop.
+
+### Why `bundle::Match` needs none of it
+
+[`prov::bundle`](/project/architecture/provenance/) has its own vocabulary for
+verifying a bundle: `identical`, `reproduced`, `missing`, `different`.
+`Match::Identical` stays correct for a seeded stochastic step and was not
+touched.
+
+It compares **one run against a record** — a question about two artefacts, to
+which "identical" is a true answer however the step arrived at it. `Verdict`
+compares a step against itself and reports on the step. The two enums differ
+in subject, not in strictness, and that difference is the line D40 draws. It
+is written down here because the obvious next move, on reading D40, is to go
+and "fix" `bundle.rs` too.
+
+## Why the report's wording changes with it
+
+Relabelling the verdict and leaving the text alone would make the report lie
+by a different route. The ordinary wording for `reproducible` is
+
+```text
+    the bytes differ            36696dacb83d / a96bfeff4e26
+    what they mean does not     43c4c32bbd53
+```
+
+which is false of a byte-identical seeded step. So `AuditReport::text` branches
+on the facts rather than on the verdict alone, and a seeded step gets a line
+saying what the equality rests on:
+
+```text
+reproducible     `permute`
+    the same bytes both times   6c636bdb27d9
+    because `seed` was held at 20260101, not because the step cannot wobble
+```
+
+The most useful of the branches is the one for `not reproducible` with a seed.
+A step that names a seed and still disagrees with itself has a declaration
+that is **false** — the parameter is not what the tool draws on — and filing
+that under ordinary irreproducibility would waste the one thing the
+declaration bought:
+
+```text
+    `seed` was held at 20260101 and the result moved anyway: the seed does not control this tool
+```
+
+Both are pinned, by `the_report_does_not_say_the_bytes_differ_when_they_did_not`
+and `a_stochastic_step_whose_result_moves_is_told_its_seed_did_not_hold`.
+
+## Where the declaration travels
+
+On `exec::Task`, as `seed: Option<String>` — the seed parameter's name.
+
+Not on `graph::StepSpec`, which holds what the graph needs to *check* a
+pipeline: output kind, coordinate convention, conversion. Stochasticity is not
+a dimension, does not propagate, and no check turns on it.
+
+`Task` already carries this shape of thing. `citations` lives there, outside
+the cache key, read only by the methods generator. The seed declaration
+belongs beside the `parameters` whose value it names, because the name alone is
+not the fact a report has to state — "`seed`, held at 42" is — and splitting
+the halves across two structs would make every reader join them back up.
+
+One `Option` rather than a `bool` beside a name, because the pair admits a
+fourth state — stochastic with no seed — that the decorator has just made an
+error. Representing it in the engine would mean every reader of the field
+deciding what it meant. `Some(name)` *is* "declared stochastic, seeded by
+`name`", and the invalid state is unrepresentable rather than merely unreached.
+
+### What is not in the cache key
+
+Nothing of the declaration. The seed's **value** is an ordinary parameter and
+is hashed like any other, which is all `CLAUDE.md`'s rule that seeds be
+explicit, typed, hashed parameters asks for; `a_step_run_under_two_seeds_has_two_keys`
+pins it, because two seeds sharing a key would serve the second run the
+first one's answer in silence.
+
+The declaration itself is not an ingredient: it says what a parameter *is*,
+not what it is set to, so it cannot change a result.
+
+Which is not the same as saying that adding it reruns nothing.
+`graph.py::_source` hashes a step's source **as written, decorator line
+included**, so editing `@lg.step(...)` moves the step's `code` and the step
+reruns — then early cutoff stops the rerun travelling downstream. That is the
+standing bias: too cold costs time, too warm is wrong. The same has always
+been true of `cite=`, whose field is out of the key while the line it is typed
+on is not; `exec.rs` now says so beside both, because the field being excluded
+reads like a promise that editing it is free.
+
+## Where the declaration is checked
+
+In `python/ligase/graph.py::_check_seed`, at decoration, beside the checks for
+a missing return annotation and for `*args`. Five refusals:
+
+| Written | Refused because |
+|---|---|
+| `stochastic=True` alone | nothing says what makes the step repeat |
+| `seed="x"` alone | the step has been told how it repeats, not that it needs to |
+| `seed="x"`, no such parameter | there is nothing to hold still |
+| `seed="x"`, not typed `int` | a seed the key cannot hash and a paragraph cannot print |
+| `seed="x"` naming a data parameter | the same check: its annotation is a kind |
+
+Python rather than Rust because that is where a signature is read, and
+decoration rather than check time because an unseeded stochastic step is a
+mistake in the pipeline's *source* — the sooner it is said, the less there is
+to read.
+
+### One honest suggestion
+
+The first refusal tries to help, and the first draft of it helped too much: it
+suggested the first `int` parameter it could find, which on a step taking
+`iterations: int` produced `seed="iterations"` — a confident wrong answer a
+reader might take. It now suggests a spelling only where a parameter is
+actually called one, lists the `int` parameters it found otherwise, and says
+so where there are none.
+`test_the_refusal_does_not_guess_a_seed_it_cannot_know` pins that.
+
+## What the methods generator does with it
+
+`Group::sentence` pulls the seed out of the ordinary parameter list and gives
+it its own clause, last, so the sentence ends on the number a reader has to
+copy: `, seeded with seed = 20260101.`
+
+Printed among the settings it would read `seed = 20260101` beside
+`min_freq = 0.01` — strictly true and of no use, since a reader cannot tell
+whether the number is a sampling seed or a cutoff. A methods section states a
+seed by calling it one.
+
+The declaration is also in `signature()`, the key that decides whether two
+nodes share a sentence, because it changes the sentence.
+
+### The guard that was one member wide
+
+`restating()` drops a parameter whose value is just the node's own scope, so
+that `sample_id = 'SRR8525904'` does not appear beside a sentence already
+naming four samples. The rule is right; its catch-all was written when every
+parameter was a setting, and it is too wide now that one parameter is
+*obliged* to appear. A seed caught by it would vanish from the paragraph.
+
+So the declared seed is exempt, and the exemption is principled rather than
+defensive: a seed never *merely restates* the scope, which is the only thing
+that function is for. Where the two rules meet, D40 wins.
+`a_seed_is_named_even_where_it_reads_like_the_sample` pins it.
+
+## What this component does not do
+
+**It does not detect stochasticity.** It cannot. A heuristic — a parameter
+named `seed`, a tool on a list — would be wrong in both directions and would
+make the declaration meaningless where it was right.
+
+**It does not test the declaration at check time.** `stochastic=True,
+seed="seed"` on a tool that ignores the flag is accepted, because nothing in
+the engine can read a tool. The declaration is a claim; `ligase audit` is what
+tests it, and the `not reproducible` wording above is what a failed test looks
+like.
+
+**It does not re-audit on its own.** A single `ligase run` reports an
+`Outcome` — `ran`, `cached`, `skipped` — which is a fact about the cache and
+not a claim about repeatability. There is deliberately no verdict from one
+run, because a verdict from one observation would be a guess. An audit is
+*defined* as two runs, so the "what about the first run?" case does not arise
+here.
+
+**It has no tolerance.** Numeric tolerance is a separate nondeterminism rule
+and no part of this. A seeded step is compared exactly, and the measurement
+that would justify a tolerance is the audit's own
+([D41](/project/decisions/#d41--in-a-ranked-list-rank-order-is-the-result)
+makes the same argument for a `score` column).

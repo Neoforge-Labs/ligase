@@ -34,6 +34,26 @@ of its *sequence* for exactly that reason. A pin that broke on a reformat
 would teach you to bump pins without reading, and then the one that matters
 gets bumped too.
 
+## On where the steps come from
+
+There are no shell commands in this file. Alignment and variant calling
+come from `ligase.steps`, the project's own library, and the pipeline reads
+
+    aligned = minimap2.align(sample, hxb2, sample_id=run, threads=threads)
+    called = bcftools.mpileup_call(aligned, hxb2, min_freq=min_freq)
+
+which is what it means. Until M13 each of those was a `lg.sh` command
+written here, and the alignment one was three programs piped together with
+a read group to arrange; the reasoning that made it those three programs
+has not gone anywhere, it has moved into the docstrings of the steps that
+own it. A demo that spells out its own `samtools addreplacerg` is not
+showing you Ligase, it is showing you the shell.
+
+What stays here is `resistance`, because interpreting calls against the
+Stanford algorithm is this pipeline's own subject rather than a tool
+anybody's pipeline begins with. It is `lg.hivdb.interpret` and not a shell
+command either.
+
 ## On what `resistance` does
 
 It interprets. Until M6 it localised each variant to a coding region and
@@ -45,15 +65,16 @@ The step therefore takes three inputs where
 `web/content/project/golden-example.mdx` wrote one. Its docstring says why;
 neither addition is optional.
 
-## On `min_freq`, and why the caller changed in M6
+## On `min_freq`, and the measurement behind it
 
-This step used to run `bcftools call -mv --ploidy 1`, and its docstring
-said what is still true of that tool: `bcftools call` is a consensus
-caller, so a frequency threshold below a half rarely removes anything,
-and a low-frequency caller is a change of tool rather than of threshold.
+`ligase.steps.bcftools.mpileup_call` reports allele depths rather than
+running `bcftools call`, and its docstring gives the general argument: a
+consensus caller answers "what is this sample's genotype?", which is the
+wrong question wherever the minority population *is* the question.
 
-M6 made the change, because validating against published results is what
-showed the cost. On SRR32217726 — Sample 3 of PRJNA1218827 — the reads at
+This is where the cost of the right-sounding default was measured, in M6,
+and the numbers are about this data rather than about that tool. On
+SRR32217726 — Sample 3 of PRJNA1218827 — the reads at
 HXB2 3204 are A 238, G 192. That is a 45% K219E, a zidovudine resistance
 mutation, and `bcftools call -mv` emitted no record for it at all: the
 majority allele is the reference, so there was no variant to call. The
@@ -66,9 +87,9 @@ high-level resistance to four NNRTIs. A pipeline whose answer flips from
 "fully susceptible" to "resistant to most of the NNRTI class" depending on
 a threshold it never exposed is not doing what it says it does.
 
-So the caller is gone and the pileup's own allele depths are the evidence.
-`min_freq` now means what its name says: an allele seen in that fraction
-of the reads is reported. What counts as *present* for interpretation is
+So the caller went and the pileup's own allele depths are the evidence.
+`min_freq` means what its name says: an allele seen in that fraction of
+the reads is reported. What counts as *present* for interpretation is
 `mixture`, a separate parameter on `resistance`, because the two questions
 are different — one is about what the reads show, the other is about what
 you are willing to act on. The published thresholds are 2%, 5% and 15%.
@@ -83,6 +104,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import ligase as lg
+from ligase.steps import bcftools, minimap2
 from ligase.types import Alignment, Reads, Reference, ResistanceReport, Variants
 
 if TYPE_CHECKING:
@@ -198,61 +220,6 @@ def run_reads(run: str, project: str = PROJECT) -> Reads:
 #: integrase to 5096, which includes pol's stop codon.
 
 
-@lg.step(tool=("minimap2", "samtools"))
-def align(reads: Reads, ref: Reference, sample_id: str, threads: int = 4) -> Alignment:
-    """Align one sample's reads against the reference.
-
-    `threads` is how many cores the aligner may use. It is a parameter like
-    any other, so changing it reruns this step — the engine cannot know in
-    advance that it will not change the answer. What it does know, once the
-    step has rerun, is whether the *result* changed: a BAM is hashed by what
-    it means rather than by its bytes, and the `@PG` line where minimap2
-    records `-t 8` is not part of what it means. So the alignments come out
-    the same, and nothing below here is recomputed.
-
-    ## Why the read group is written here
-
-    `minimap2` writes no `@RG`, and a BAM with no read group has no sample
-    name. `bcftools` then falls back to naming the VCF's sample column after
-    the *input file's path* — which for a Ligase run is a file inside the
-    content-addressed store, so the calls would carry a cache path as a
-    sample identifier. That would be wrong in three ways at once: wrong in a
-    methods paragraph, wrong for the sample-set dimension, and wrong for
-    reproducibility, since the canonical form of a VCF includes its sample
-    names and a cache path is not the same in two places.
-
-    So the sample is declared here, as the run accession it is. The same
-    reasoning as the `@PG` line in D22, with the opposite conclusion: a
-    sample name cannot be dropped before hashing, because it is part of what
-    the file is about.
-    """
-    return lg.sh(
-        "minimap2 -t {threads} -ax sr {ref} {reads.r1} {reads.r2} "
-        "| samtools addreplacerg -r ID:{sample_id} -r SM:{sample_id} -u -o - - "
-        "| samtools sort -@ {threads} -o {out}"
-    )
-
-
-@lg.step(tool="bcftools")
-def call(aln: Alignment, ref: Reference, min_freq: float = 0.01) -> Variants:
-    """Report every allele above a minimum fraction of the reads.
-
-    There is no `bcftools call` here any more, and M6 is why. See the
-    module docstring: a consensus caller cannot see a minority virus, and
-    for drug resistance the minority virus is the whole question.
-
-    The pileup's own allele depths are the evidence, so `min_freq` is
-    applied straight to them and the step reports what the reads say
-    rather than what a caller concluded. The threshold now means what its
-    name says.
-    """
-    return lg.sh(
-        "bcftools mpileup -a AD -f {ref} {aln} "
-        "| bcftools view -i '(AD[0:1])/(AD[0:0]+AD[0:1]) >= {min_freq}' "
-        "-Oz -o {out}"
-    )
-
-
 @lg.step(tool="hivdb")
 def resistance(
     v: Variants,
@@ -342,17 +309,19 @@ def pipeline(
     return lg.Pipeline(
         [
             resistance(
-                call(aligned, hxb2, min_freq=min_freq),
+                bcftools.mpileup_call(aligned, hxb2, min_freq=min_freq),
                 hxb2,
                 aligned,
                 algorithm=algorithm,
                 mixture=mixture,
             )
             for run, sample in chosen
-            # The alignment is used twice -- once by the caller and once
+            # The alignment is used twice -- once by the pileup and once
             # for coverage -- so it is named rather than built twice. One
             # node, one key, one run of minimap2.
-            for aligned in [align(sample, hxb2, sample_id=run, threads=threads)]
+            for aligned in [
+                minimap2.align(sample, hxb2, sample_id=run, threads=threads)
+            ]
         ]
     )
 

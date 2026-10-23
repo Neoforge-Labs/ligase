@@ -40,8 +40,14 @@ impl Citation {
 
 /// Every tool the engine has a checked reference for.
 ///
-/// These are the tools of the reference pipeline (D7). Anything else is
-/// cited by the step that uses it, or reported as uncited.
+/// Two sets of tools are in here and nothing else is. The first is the
+/// reference pipeline's (D7). The second is `ligase.steps`': a library step
+/// is admitted only if its citation resolves *here* rather than through its
+/// own `cite=` string (D42), because `cite=` is how a user's own step says
+/// what it wants cited, and a step the project ships should not be taking
+/// that liberty on the project's behalf.
+///
+/// Anything else is cited by the step that uses it, or reported as uncited.
 pub const KNOWN: &[Citation] = &[
     Citation {
         tool: "minimap2",
@@ -75,6 +81,24 @@ pub const KNOWN: &[Citation] = &[
                of SAMtools and BCFtools. GigaScience 10(2):giab008.",
         doi: "10.1093/gigascience/giab008",
     },
+    // `ligase.steps.bwa.mem`, and the one entry here whose reference is a
+    // preprint. BWA's own README asks for the 2013 arXiv note when the
+    // BWA-MEM algorithm was used, and that is the algorithm the library
+    // step runs; the 2009 Bioinformatics paper describes `bwa aln`, which
+    // the library does not ship. So the preprint is what is cited, with
+    // the DOI arXiv itself issues for it.
+    //
+    // A reviewer may well want a journal reference instead and there is
+    // not one to give. That is a fact about this tool rather than a gap in
+    // this table, and substituting the paper for a different algorithm to
+    // make the entry look tidier would be the kind of plausible wrongness
+    // D24 exists to refuse.
+    Citation {
+        tool: "bwa",
+        text: "Li H (2013) Aligning sequence reads, clone sequences and assembly \
+               contigs with BWA-MEM. arXiv:1303.3997 [q-bio.GN].",
+        doi: "10.48550/arXiv.1303.3997",
+    },
 ];
 
 /// The reference for a tool, if the engine knows one.
@@ -105,6 +129,29 @@ mod tests {
         let samtools = of("samtools").expect("in the table");
         let bcftools = of("bcftools").expect("in the table");
         assert_eq!(samtools.doi, bcftools.doi);
+    }
+
+    #[test]
+    fn the_aligner_a_library_step_runs_is_the_one_cited() {
+        let citation = of("bwa").expect("bwa is in the table");
+        assert!(
+            citation.text.contains("BWA-MEM"),
+            "`ligase.steps.bwa.mem` runs BWA-MEM, and that is the algorithm \
+             bwa asks to be cited for: {}",
+            citation.text
+        );
+        assert!(citation.render().contains("doi:10.48550/arXiv.1303.3997"));
+    }
+
+    #[test]
+    fn every_reference_carries_a_doi() {
+        for citation in KNOWN {
+            assert!(
+                citation.doi.starts_with("10."),
+                "{} has no resolvable DOI",
+                citation.tool
+            );
+        }
     }
 
     #[test]

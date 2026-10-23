@@ -161,7 +161,7 @@ export function collectPages() {
  * that a page imports needs one line added, and until this list has it the
  * expression fails to resolve rather than rendering as its own source.
  */
-const GENERATED = ['diagnostics', 'quickstart', 'ranked']
+const GENERATED = ['diagnostics', 'quickstart', 'ranked', 'stochastic']
 
 /**
  * lib/*.generated.ts export plain literals (the engine's real output). Pages

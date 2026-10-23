@@ -1,0 +1,104 @@
+---
+title: "Aligning with minimap2"
+description: "ligase.steps.minimap2.align: short reads to a reference, coordinate-sorted and read-grouped, with the sample declared because nothing else can declare it."
+---
+
+# Aligning with minimap2
+
+<Lede>
+One step for the three programs an alignment actually takes. The argument you
+have to supply is the one the files cannot answer: which sample these reads
+are of.
+</Lede>
+
+## Use it
+
+```python
+import ligase as lg
+from ligase.steps import minimap2
+
+hxb2 = lg.reference("refs/HXB2.fasta", organism="HIV-1", build="HXB2")
+reads = lg.reads("data/SRR8525904_1.fastq.gz", "data/SRR8525904_2.fastq.gz",
+                 organism="HIV-1", sample="SRR8525904")
+
+aligned = minimap2.align(reads, hxb2, sample_id="SRR8525904", threads=8)
+lg.Pipeline([aligned]).run()
+```
+
+What comes back is a coordinate-sorted BAM with an `@RG` line in it. That is
+`minimap2 -ax sr`, then `samtools addreplacerg`, then `samtools sort`, and
+the step names both tools in its `tool=` so that both versions are in its
+cache key.
+
+## Why `sample_id` is not optional
+
+`minimap2` writes no `@RG`, and a BAM with no read group has no sample name.
+`bcftools` then falls back on naming the VCF's sample column after the *input
+file's path* — and in a Ligase run that path is a file inside the
+content-addressed store. The calls would carry something like
+`.ligase/store/13/1d13c3….bam` where a sample identifier belongs.
+
+That is wrong three times over. Wrong in a methods paragraph, which would
+name a cache path. Wrong for the [sample-set
+dimension](/reference/dimensions/), which is one of the things this engine
+exists to keep straight. And wrong for reproducibility, because [what a BAM
+means](/concepts/semantic-hashing/) includes its read groups' samples, and a
+cache path is not the same path in two places.
+
+So the sample is declared, as the run accession or whatever else it is. It is
+the one argument of this step that is a fact about the world rather than a
+setting.
+
+<Note kind="caution">
+A string parameter currently reaches the shell with Python's quotes around
+it, so the read group this step writes reads `SM:'SRR8525904'`. It is
+reproducible and the science is unaffected — Ligase takes sample identity
+from the declared dimension, not from the file — but it is not true, and it
+is written into the semantic hash. It is recorded as a failing test,
+`test_a_string_parameter_should_reach_the_shell_as_its_value`.
+</Note>
+
+## Why `threads` reruns the step and nothing below it
+
+`threads` is a parameter like any other, so changing it changes this step's
+cache key and the step reruns. The engine cannot know in advance that a
+thread count will not change the answer.
+
+What it *can* know, once the step has rerun, is whether the result changed.
+An alignment is hashed by [what it means](/concepts/semantic-hashing/) rather
+than by its bytes, and the `@PG` line where minimap2 records `-t 8` is not
+part of what it means. So the new alignment has the same canonical hash as
+the old one, and everything below this step is skipped.
+
+Raising the thread count therefore costs you one alignment and not the
+pipeline.
+
+## Paired-end reads only
+
+This step aligns a pair. Handed single-end reads it fails before any compute,
+with the engine saying which placeholder it could not fill. That the
+requirement is not in the signature is a gap rather than a decision: `Reads`
+is one kind covering both shapes, and nothing lets a step *require* a value
+of the `pairing` dimension the way it can declare the coordinate convention
+it writes. The [architecture page](/project/architecture/step-library/) has
+the rest of it.
+
+## What it declares
+
+| | |
+|---|---|
+| In → out | `Reads`, `Reference` → `Alignment` |
+| Tools | `minimap2`, `samtools` |
+| Cited as | Li H (2018) *Bioinformatics* 34(18):3094–3100 |
+| Output canonicalises as | an alignment: records sorted, `@PG` stripped |
+
+Those four lines are what [D42](/project/decisions/) asks of every step in
+this library, and they are checked rather than claimed — see
+[what a curated step is](/concepts/step-library/).
+
+## See also
+
+- [Aligning with BWA-MEM](/guide/steps/bwa/) — the same output kind, never
+  the same cache key.
+- [Calling what the reads show](/guide/steps/bcftools/) — what usually comes
+  next.

@@ -61,19 +61,18 @@ exists to refuse.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from . import _core
 from .graph import step
 from .recipes import write
-from .types import EntitySet
+from .types import EntitySet, RankedList
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from .recipes import Noticed
 
-__all__ = ["map_identifiers"]
+__all__ = ["map_identifiers", "map_ranked_identifiers"]
 
 
 @step(tool="ligase", conversion="map_identifiers")
@@ -144,3 +143,160 @@ def map_identifiers(
         )
 
     return write(produce)
+
+
+@step(tool="ligase", conversion="map_identifiers")
+def map_ranked_identifiers(
+    entities: RankedList,
+    table: EntitySet,
+    *,
+    column: str,
+    to: str,
+    id_column: str = "id",
+    table_id_column: str = "id",
+) -> RankedList:
+    """Rewrite a ranked list's identifiers, and say that its ranks moved.
+
+    `map_identifiers` with one difference, and the difference is the reason
+    this is a second step rather than an argument: the output is a
+    `RankedList`, and a step's output kind is read off its return
+    annotation once, when it is decorated. One function cannot produce
+    both kinds.
+
+    The mapping itself is the same work and keeps the same guarantees. Rows
+    come out in the order they went in, so rank order survives; an
+    identifier that does not cross is named rather than dropped quietly or
+    carried into a space it is not in (D38).
+
+    ### What is different, and why it needs saying
+
+    An `EntitySet` that loses members is still an honest set of the ones
+    that crossed. A ranking that loses rows is not simply a shorter
+    ranking: rank is the row position (D41), so **every row below a
+    dropped one moves up**. If the top-ranked identifier had no mapping,
+    the second is now first.
+
+    The output is a perfectly well-formed ranking of the entities that
+    crossed, with ranks 1..n and nothing in the file to show that its rank
+    3 was not the input's rank 3. So this step says it, with a
+    `ranks-renumbered` note carrying what rank the output's first row held
+    in the input — in the run report, in provenance, in a bundle and in the
+    methods section, like every other note.
+
+    The practical consequence that note is there to stop: **take a cut-off
+    before mapping, not after.** The top ten of a mapped ranking is the top
+    ten of what crossed, which is not the mapping of the top ten.
+
+    Args:
+        entities: The ranking to convert.
+        table: The mapping, as an `EntitySet` whose own identifiers are the
+            *source* side — in the same space as the ranking, so a table of
+            the wrong space is refused before anything runs.
+        column: The column of `table` holding the identifiers to convert
+            *to*.
+        to: The space the output is in, such as `Ensembl gene`. Declared
+            rather than inferred, so what the output is does not depend on
+            which identifiers happened to cross.
+        id_column: The column of `entities` holding its identifiers.
+        table_id_column: The column of `table` holding the source
+            identifiers.
+
+    Returns:
+        A recipe, typed as the ranking the step produces.
+    """
+
+    def produce(out: Path) -> list[Noticed]:
+        """Map, write, and work out how far the ranks moved."""
+        noticed = _core.map_identifiers(
+            entities.file,
+            id_column,
+            table.file,
+            table_id_column,
+            column,
+            str(out),
+        )
+        first = _first_surviving_rank(
+            entities.file, id_column, table.file, table_id_column, column, out
+        )
+        if first is not None:
+            noticed.append(("ranks-renumbered", f"first={first}"))
+        return noticed
+
+    return write(produce)
+
+
+def _first_surviving_rank(
+    entities: str,
+    id_column: str,
+    table: str,
+    table_id_column: str,
+    column: str,
+    out: Path,
+) -> int | None:
+    """What rank the output's first row held in the input, if any rank moved.
+
+    `None` when nothing was lost, because then no rank moved and there is
+    nothing to say -- a note for every conversion would teach people to
+    skip the notes.
+
+    Worked out from the three files rather than reported by the mapping,
+    which names the identifiers that did not cross and not the positions
+    they left behind. The names alone would not do: they are capped for a
+    long list, so counting them would give a number that was too small,
+    and a note with a wrong number in it is worse than no note.
+
+    The output's identifiers are in the *target* space, so the leader is
+    found by asking the table which of the input's identifiers it sent
+    there. Exactly one can have: two input identifiers reaching one target
+    is a collision, and a collision is left out of the output (D38).
+    """
+    before = _identifiers(Path(entities), id_column)
+    after = _identifiers(out, id_column)
+    if not after or len(after) == len(before):
+        return None
+
+    leader = _source_of(Path(table), table_id_column, column, after[0], before)
+    # Unreachable while the mapping has succeeded: the output's first
+    # identifier came out of this table, from a row whose own identifier was
+    # in this list. Silence rather than a guessed rank if it ever is.
+    return None if leader is None else before.index(leader) + 1
+
+
+def _source_of(
+    table: Path,
+    id_column: str,
+    column: str,
+    target: str,
+    candidates: list[str],
+) -> str | None:
+    """Which of `candidates` the mapping table sent to `target`."""
+    wanted = set(candidates)
+    rows = table.read_text().splitlines()
+    if not rows:
+        return None
+    header = rows[0].split("\t")
+    if id_column not in header or column not in header:
+        return None
+    at, to = header.index(id_column), header.index(column)
+
+    for line in rows[1:]:
+        fields = line.split("\t")
+        if len(fields) <= max(at, to):
+            continue
+        if fields[to] == target and fields[at] in wanted:
+            return fields[at]
+    return None
+
+
+def _identifiers(path: Path, id_column: str) -> list[str]:
+    """The identifier column, in file order, from a TSV with a header."""
+    lines = path.read_text().splitlines()
+    if not lines:
+        return []
+    header = lines[0].split("\t")
+    at = header.index(id_column) if id_column in header else 0
+    return [
+        fields[at]
+        for fields in (line.split("\t") for line in lines[1:] if line.strip())
+        if len(fields) > at
+    ]

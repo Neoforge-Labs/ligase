@@ -9,6 +9,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`ligase.steps` — four steps with an entrance exam, and the reference demo
+  rewritten on them.** `examples/hiv-resistance/pipeline.py` no longer
+  contains a single shell command of its own. Alignment and variant calling
+  come from the library and the pipeline reads
+
+  ```python
+  aligned = minimap2.align(sample, hxb2, sample_id=run, threads=threads)
+  called = bcftools.mpileup_call(aligned, hxb2, min_freq=min_freq)
+  ```
+
+  which is what it means. The twelve-line incantation that gets a read group
+  onto a BAM has not gone anywhere; it has moved into the step that owns it,
+  with the reasoning that made it those three programs.
+
+  `ligase.steps` is curated and not convenient, which is
+  [D42](https://ligase.neoforgelabs.tech/project/decisions/): a step is
+  admitted only once it declares its tool's version capture, its citation, the
+  dimensions of its output and how that output canonicalises. **A step that
+  cannot say what it produces is not a library step.** The declarations are
+  held as data in `ligase.steps.LIBRARY` so that one test iterates them, and
+  the half needing no tool installed runs everywhere — a criterion that only
+  fails in CI is a criterion nobody is held to while writing the step.
+
+  Four steps: `minimap2.align`, `bwa.mem`, `samtools.sort` and
+  `bcftools.mpileup_call`. The two aligners are deliberately interchangeable
+  in a pipeline and never in provenance: swapping one for the other is a
+  different cache key and a different reference, which falls out of `tool=`
+  rather than being arranged, and is tested.
+
+  Two candidates from the spec's own table were **refused**, which is what an
+  admission criterion is for. `samtools index` produces an index, which is not
+  a dataset: it brings no dimension, so it earns no kind, and declared
+  `Alignment → Alignment` its output would have a BAI's bytes standing in for
+  an alignment's meaning, silently, because a file that does not parse as its
+  kind falls back to `Form::Raw`. And no step can trim paired reads at all: a
+  step's output is exactly one file and paired reads are two. Both are one
+  missing engine feature, named as a gap on the
+  [architecture page](https://ligase.neoforgelabs.tech/project/architecture/step-library/)
+  rather than papered over.
+
+- **`lg.map_ranked_identifiers`, and the note a mapped ranking needs.** M12
+  registered the identifier conversion for `RankedList` as well as
+  `EntitySet`, leaving the registry advertising an edge no shipped step
+  crossed. It crosses now.
+
+  A second step rather than an argument, because `@lg.step` reads the output
+  kind off the return annotation once and one function cannot produce both
+  kinds. The mapping itself already wrote survivors in input order, so rank
+  order survives for free. What needed deciding was the half that is about
+  the rows which *did* cross: rank is the row position, so dropping a row
+  renumbers every row beneath it, and the output is a well-formed ranking
+  with ranks 1..n and nothing in it to show that n is smaller than it was.
+  So there is a new `ranks-renumbered` note carrying what rank the output's
+  first row held in the input — the only note in the engine about what a
+  conversion *kept*. Its practical reading: take a cut-off before mapping,
+  not after, because the top ten of a mapped ranking is the top ten of what
+  crossed.
+
+- **Stochastic steps declare themselves, or they are refused.** A great deal
+  of computational biology is sampling — IQ-TREE and RAxML search tree space,
+  BEAST runs chains, AutoDock Vina docks from random starts, `seqtk sample`
+  takes a subset — and none of it gives the same answer twice unless it is
+  told to. Ligase can run a step twice and compare what came out; what it
+  cannot do is look at a tool and know whether randomness is in it. So the
+  step says:
+
+  ```python
+  @lg.step(tool="seqtk", stochastic=True, seed="seed")
+  def subsample(reads: Reads, fraction: float = 0.1, seed: int = 20260101) -> Reads:
+      return lg.sh("seqtk sample -s{seed} {reads.r1} {fraction} > {out}")
+  ```
+
+  Two new keyword arguments to `@lg.step`, and they are one declaration:
+  `stochastic=True` says there is randomness in the tool and `seed=` says
+  which parameter holds it still. Neither is accepted alone. A missing seed —
+  or one naming a parameter the step does not take, or one not typed `int` —
+  is a `StepDefinitionError` as the pipeline file is imported, in the same
+  breath as a missing return annotation, because an unseeded stochastic step
+  is not a step that fails. It is a step that works, caches a plausible
+  number, and gives a different one next Tuesday for reasons nothing records.
+
+  What it buys is a word that means what it says. `ligase audit` reports
+  `deterministic`, `reproducible` or `not reproducible`, and the first of
+  those now requires byte equality **and** a step that declared nothing. A
+  correctly seeded stochastic step is byte-identical across two runs — that is
+  the success case — and calling it `deterministic` would tell a reader there
+  is no randomness in the step. Move the seed and the bytes move. So such a
+  step saturates at `reproducible`, and the report says what the equality
+  rests on:
+
+  ```text
+  reproducible     `permute`
+      the same bytes both times   6c636bdb27d9
+      because `seed` was held at 20260101, not because the step cannot wobble
+  ```
+
+  The same body with nothing declared reports `deterministic` over the same
+  hash. A declaration adds no verdict; it takes one out of reach.
+
+  A step that names a seed and still disagrees with itself has a declaration
+  that is false — a renamed flag, a library reading the global generator, a
+  parallel reduction that adds in whatever order it finishes — and the audit
+  now names the parameter you believed was controlling the tool and says it is
+  not, rather than filing it under ordinary irreproducibility.
+
+  `ligase methods` states the seed as a seed: `seeded with seed = 20260101`,
+  not `with seed = 20260101`, because a reader of the latter cannot tell
+  whether the number is a sampling seed or a cutoff.
+
+  The seed itself needed nothing new. It is a plain typed parameter, so it is
+  already in the cache key, and two seeds are two keys and two results —
+  verified and now pinned, since two seeds sharing a key would serve the
+  second run the first one's answer in silence.
+  [D40](https://ligase.neoforgelabs.tech/project/decisions/) has the whole
+  argument, including why the verdict stays on the audit's own scale rather
+  than becoming a second enum beside it.
 - **A shared cache: a local store with a bucket behind it.** Everything
   Ligase computes already goes into a content-addressed store, where an
   object's name is the hash of its contents. That is what makes a cache hit
@@ -92,16 +208,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   every missing hash, before any step runs. A half-replayed run is the
   plausible-but-wrong result Ligase exists to refuse.
 
-### Fixed
-
-- **Two writers of one object no longer trip over each other.** `FsStore`
-  staged every write of a key at the same path, so two concurrent writers
-  of the same object raced: the loser found its own partial file already
-  renamed into place by the winner and failed with `NotFound` — an error on
-  a put that had in fact succeeded. Content addressing is supposed to make
-  that race benign, and it is, once the writers do not share a staging
-  path. Reachable before the shared store by two fan-out nodes recording
-  the same paginated response.
 
 - **Recorded queries — the second half of remote inputs, for a source that
   promises nothing.** `lg.remote` rests on a promise: NCBI undertakes that
@@ -197,6 +303,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   which is the honest word for it, and every later run is *replayed*.
 
 ### Changed
+
+- **`exec::Task::citations` no longer claims that editing a citation reruns
+  nothing.** The field is outside the cache key, which is true and was being
+  read as a promise that it is free to edit. It is not: a step's source is
+  hashed *as written, decorator line included*, so editing `cite=` moves the
+  step's code and reruns it, with early cutoff then stopping the rerun
+  travelling downstream. The doc comment now says so, beside the new `seed`
+  field, which would otherwise have copied the error.
 
 - **A recorded response is canonicalised before it is hashed**, like every
   other kind: JSON keys sorted at every depth, arrays left alone because there
@@ -935,6 +1049,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A tool that does not understand `--version` had its complaint recorded as
+  its version — and the cache key therefore never moved when the tool did.**
+  `exec::tool_version` ran `<tool> --version`, read stdout, fell back to
+  stderr and **ignored the exit status**. `bwa` prints
+  `[main] unrecognized command '--version'` and exits non-zero, so that
+  sentence was bwa's recorded version, in provenance, in the methods
+  paragraph and in the cache key. It is the same sentence for every bwa ever
+  released, so upgrading the aligner moved no key at all and every alignment
+  computed by the old one would have been served for the new. Preventing
+  exactly that is the only thing `tool=` promises.
+
+  There is now a version-probe table — arguments, whether a non-zero exit is
+  expected, which line holds the version — and a probe that fails
+  unexpectedly, or stops finding its line, is an error naming what to do. The
+  suite's own stand-in tool changed from `wc` to `awk` for the same reason:
+  `wc --version` is a BSD error message.
+
+- **`bcftools mpileup -f` left a `.fai` inside the content-addressed store.**
+  It writes an index beside the path it is handed, and in a run that path is
+  an object whose name is the hash of its own bytes. An unaddressed file in an
+  addressed store is a lie about what the store is, it would not travel with
+  the object when the store gains a blob tier, and on a read-only or remote
+  store it is not untidy but a failure. The library step indexes a symlink in
+  a directory of its own, and `bwa index -p` likewise.
+
+- **Every step the package exports was published in the API reference as a
+  `repr()` line with its documentation dropped.** `@lg.step` replaces a
+  function with a `Step` *instance*, which is neither a class nor a routine,
+  so `generate_api.py` fell through to its plain-value branch — and the branch
+  that fails the build on a missing docstring was never reached.
+  `lg.map_identifiers` had been published as
+  `map_identifiers: Step = <Step map_identifiers -> EntitySet>` since it was
+  added. The generator now documents the function the decorator read, and its
+  coverage contract walks nested submodules so that `steps.minimap2.align` —
+  the name a reader actually calls — has to be grouped and documented rather
+  than hidden behind `steps.minimap2`.
+
 - **Documentation: fifteen false claims about what the engine is.** Nothing
   checks a hand-written sentence that counts things, and five milestones
   landing in succession left a trail of them. The loader table in
@@ -1034,6 +1185,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   ``[`Note`]``. A reference-style label containing a code span does not match
   its definition in Python-Markdown, and `mkdocs --strict` does not catch an
   unresolved reference definition. It is an inline link now.
+
+### Fixed
+
+- **Two writers of one object no longer trip over each other.** `FsStore`
+  staged every write of a key at the same path, so two concurrent writers
+  of the same object raced: the loser found its own partial file already
+  renamed into place by the winner and failed with `NotFound` — an error on
+  a put that had in fact succeeded. Content addressing is supposed to make
+  that race benign, and it is, once the writers do not share a staging
+  path. Reachable before the shared store by two fan-out nodes recording
+  the same paginated response.
 
 ## [0.1.0] - 2026-10-20
 

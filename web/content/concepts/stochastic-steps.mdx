@@ -1,0 +1,163 @@
+---
+title: "Steps that draw on randomness"
+description: "An audit can tell you two runs agreed. Only the step itself can tell you whether that was luck, a fixed seed, or arithmetic — so Ligase makes it say."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+import { stochastic } from '../../lib/stochastic.generated'
+
+# Steps that draw on randomness
+
+<Lede>
+Two runs of a step agreed. That is a fact about two files. Whether it is a
+fact about the *step* depends on something no amount of comparing can find
+out — so the step is made to declare it.
+</Lede>
+
+A great deal of computational biology is sampling. IQ-TREE and RAxML search
+tree space, BEAST runs chains, AutoDock Vina docks from random starts, every
+model you train initialises from a draw, and `seqtk sample` takes a subset.
+None of these gives the same answer twice unless it is told to.
+
+Ligase can run such a step twice and compare what came out. What it cannot do
+is look at a tool and know whether randomness is in it. So the step says:
+
+```python
+@lg.step(tool="seqtk", stochastic=True, seed="seed")
+def subsample(reads: Reads, fraction: float = 0.1, seed: int = 20260101) -> Reads:
+    return lg.sh("seqtk sample -s{seed} {reads.r1} {fraction} > {out}")
+```
+
+Two keywords, and they are one declaration: `stochastic=True` says there is
+randomness in the tool, and `seed=` says which parameter holds it still.
+Neither is accepted alone.
+
+## Why this is a refusal and not a convention
+
+A missing seed is a `StepDefinitionError` as the pipeline file is read —
+before the graph is built, before a byte is hashed, in the same breath as a
+missing return annotation.
+
+<Diagnostic note="raised by @lg.step, as the pipeline is imported">{diagnostics.unseededStochasticStep}</Diagnostic>
+
+That is deliberate, and the reason is in what the alternative costs. An
+unseeded stochastic step is not a step that fails. It is a step that works,
+produces a plausible number, caches it, and hands it to everything
+downstream — and the number is different next Tuesday for reasons nothing
+anywhere records. By the time anyone notices, the figure is in a manuscript.
+
+This is the same shape as every other refusal in Ligase. An `hg19` alignment
+against an `hg38` reference does not crash either. The engine's whole premise
+is that the expensive mistakes in this field are the quiet ones, and the place
+to catch a quiet mistake is before it has run.
+
+## What it buys: a word that means what it says
+
+[`ligase audit`](/guide/semantic-hashing/) runs a step twice and reports one
+of three verdicts. The middle one exists because real tools stamp their own
+command lines into their output, so byte equality is too strict a test:
+
+| Verdict | What it means |
+|---|---|
+| `deterministic` | The bytes matched, and the step declared no seed. |
+| `reproducible` | The two runs agreed on the result. |
+| `not reproducible` | They did not. |
+
+Read the first row again. Both halves are the condition, and that is what a
+declaration changes.
+
+A correctly seeded stochastic step *is* byte-identical across two runs. Under
+the old rule it would be reported `deterministic` — and that word, said of a
+step that searches tree space, is false. It tells a reader there is no
+randomness in the step. Move the seed and the bytes move, so the reader has
+been told something that is not true, by the engine, in the report they were
+consulting to find out whether to trust the pipeline.
+
+So a step that declares itself stochastic saturates at `reproducible`, and
+`deterministic` is reachable only for a step that declared nothing. A
+declaration does not add a verdict. It takes one out of reach.
+
+Here are the two, over the same body, the same seed and the same eight rows:
+
+<RunReport note="declared stochastic, and seeded">{stochastic.declared}</RunReport>
+
+<RunReport note="the same body, undeclared">{stochastic.undeclared}</RunReport>
+
+Same hash. Different verdict. Nothing about the computation differs between
+those two runs; what differs is whether the pipeline told the truth about
+where its randomness is, and the report is only as good as that.
+
+<Note kind="note">
+The verdict is a claim about the **step**, not about the pair of files. "If I
+ran this again, would I get the same answer" is the question an audit
+answers, and for a seeded tool the honest answer is "yes, with this seed" —
+which is what `reproducible` says and `deterministic` does not.
+</Note>
+
+## When the declaration is false
+
+A step can name a seed the tool does not honour — a flag that was renamed, a
+library that reads the global generator, a parallel reduction whose order is
+not fixed. The declaration is then a false statement, and it is worth more
+than silence, because the audit can now say exactly which false statement it
+is:
+
+<RunReport note="a seed the tool does not actually draw on">{stochastic.ignoring}</RunReport>
+
+Without the declaration this would read as ordinary irreproducibility, and
+the hunt would start from nothing. With it, the report names the parameter
+you thought was controlling the tool and tells you it is not.
+
+## The seed is an ordinary parameter
+
+Nothing clever happens to it. A seed is a plain `int` parameter, so it is
+hashed into the [cache key](/concepts/caching/) like `min_freq` or a thread
+count, which means two seeds are two keys and two results. Change the seed
+and the step reruns; change it back and it hits the cache.
+
+This is why `seed=` names a parameter rather than taking a value. The engine
+is not given a seed to manage; it is told which of the step's own parameters
+already is one. The declaration adds knowledge, not machinery.
+
+It is also why the seed must be typed `int`. Not because the engine could not
+hash a string, but because a seed that is a float or a timestamp or `None`
+is a seed somebody will set differently by accident, and the type is the
+cheapest place to say so.
+
+## What the write-up says
+
+A methods section has to state the seed, and `ligase methods` does — as a
+seed, not as one more number:
+
+<RunReport note="ligase methods">{stochastic.methods}</RunReport>
+
+A paragraph reading `with seed = 20260101` would be strictly true and no use:
+a reader cannot tell from it that the step samples, or that this is the number
+to copy to repeat the run. *Seeded with* says both.
+
+## What Ligase does not do about this
+
+**It does not detect stochasticity.** It cannot, and a heuristic that tried —
+a parameter named `seed`, a tool on a list — would be wrong in both
+directions and would make the declaration meaningless where it was right.
+
+**It does not seed anything for you.** A default seed chosen by the engine
+would be a number nobody decided, appearing in methods sections as though
+somebody had.
+
+**It does not stop you being wrong.** `stochastic=True, seed="seed"` on a
+step whose tool ignores the flag is accepted, because nothing here can read
+the tool. What the engine does is make the claim explicit, and then let
+`ligase audit` test it — which is the division of labour everywhere else in
+Ligase too: the pipeline declares, the engine checks what it can, and what
+cannot be checked at least cannot be left unsaid.
+
+## Next
+
+- [Writing a stochastic step](/guide/stochastic-steps/) — the task, with a
+  runnable example.
+- [Checking that a step repeats](/guide/semantic-hashing/) — `ligase audit`
+  in full.
+- [D40](/project/decisions/#d40--a-stochastic-step-declares-itself-or-it-is-an-error)
+  — the decision, and why the verdict is on the audit's own scale.
+- [How the verdict is decided](/project/architecture/audit/) — the internals.

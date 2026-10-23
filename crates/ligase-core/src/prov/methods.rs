@@ -83,6 +83,15 @@ pub struct Group {
     pub template: Option<String>,
     /// References the step declared for itself.
     pub declared: Vec<String>,
+    /// The parameter this step declared as its seed, for a stochastic step.
+    ///
+    /// Taken from the task rather than from the record, for the reason
+    /// [`crate::exec::Task::citations`] gives: a record that stored the
+    /// declaration would go stale the moment the decorator line was edited,
+    /// and a methods paragraph takes it from the pipeline in front of it.
+    /// The seed's *value* does come from the record, because that is what
+    /// the step was actually run with.
+    pub seed: Option<String>,
     /// Parameters whose value is just the sample's own identifier.
     ///
     /// A step may have to be *told* which sample it is working on — the
@@ -433,11 +442,26 @@ impl Group {
             (None, Some(command)) => sentence.push_str(&format!(", as `{command}`")),
         }
 
+        // The seed is pulled out of the settings and given its own clause.
+        // Printed among them it reads as `seed = 42` beside
+        // `min_freq = 0.01`, which states the number and says nothing about
+        // what it is for: a reader cannot tell the step is stochastic, or
+        // that this is what makes it repeat. D40 asks the paragraph to state
+        // the seed, and a methods section states a seed by calling it one.
+        let seeded = self.seed.as_ref().and_then(|parameter| {
+            self.record
+                .parameters
+                .iter()
+                .find(|(name, _)| name == parameter)
+                .map(|(name, value)| format!("{name}{KNIT}={KNIT}{value}"))
+        });
+
         let settings: Vec<String> = self
             .record
             .parameters
             .iter()
             .filter(|(name, _)| !self.per_sample.contains(name))
+            .filter(|(name, _)| Some(name) != self.seed.as_ref())
             .map(|(name, value)| format!("{name}{KNIT}={KNIT}{value}"))
             .collect();
         if !settings.is_empty() {
@@ -456,6 +480,12 @@ impl Group {
                 "and with"
             };
             sentence.push_str(&format!(", {joined} {named} {verb} the sample"));
+        }
+
+        // Last of the clauses about how it was run, so that the sentence
+        // ends on the number a reader has to copy to repeat it.
+        if let Some(seeded) = seeded {
+            sentence.push_str(&format!(", seeded with {seeded}"));
         }
 
         for reference in &self.record.references {
@@ -504,6 +534,12 @@ pub fn methods(
             .map(|task| task.citations.clone())
             .unwrap_or_default()
     };
+    let seed_of = |node: NodeId| {
+        tasks
+            .iter()
+            .find(|task| task.node == node)
+            .and_then(|task| task.seed.clone())
+    };
 
     let mut groups: Vec<Group> = Vec::new();
     let mut gaps: Vec<Gap> = Vec::new();
@@ -538,8 +574,9 @@ pub fn methods(
         }
 
         let template = template_of(node);
-        let per_sample = restating(&record, scope_of(node).as_deref());
-        let signature = signature(&record, template.as_deref(), &per_sample);
+        let seed = seed_of(node);
+        let per_sample = restating(&record, scope_of(node).as_deref(), seed.as_deref());
+        let signature = signature(&record, template.as_deref(), &per_sample, seed.as_deref());
 
         match groups
             .iter_mut()
@@ -558,6 +595,7 @@ pub fn methods(
                 template,
                 declared: declared_of(node),
                 per_sample,
+                seed,
             }),
         }
     }
@@ -590,8 +628,23 @@ pub fn methods(
 /// A parameter that only restates which sample the node is for is left out:
 /// that is what tells the nodes of a group apart, not what distinguishes one
 /// group from another.
-fn signature(record: &Record, template: Option<&str>, per_sample: &[String]) -> String {
-    let mut parts = vec![record.step.clone(), template.unwrap_or("").to_owned()];
+///
+/// The seed declaration is in here because it changes the sentence — a
+/// seeded step says *seeded with*, where an unseeded one with the same
+/// parameter says *with*. Two written steps of one name, one stochastic and
+/// one not, is a thin case; this is one `format!` and keeps the sentence
+/// above true.
+fn signature(
+    record: &Record,
+    template: Option<&str>,
+    per_sample: &[String],
+    seed: Option<&str>,
+) -> String {
+    let mut parts = vec![
+        record.step.clone(),
+        template.unwrap_or("").to_owned(),
+        format!("seed={}", seed.unwrap_or("")),
+    ];
     for (name, value) in &record.parameters {
         if per_sample.contains(name) {
             parts.push(format!("{name}=<sample>"));
@@ -609,20 +662,34 @@ fn signature(record: &Record, template: Option<&str>, per_sample: &[String]) -> 
 }
 
 fn signature_of(group: &Group) -> String {
-    signature(&group.record, group.template.as_deref(), &group.per_sample)
+    signature(
+        &group.record,
+        group.template.as_deref(),
+        &group.per_sample,
+        group.seed.as_deref(),
+    )
 }
 
 /// The parameters whose value is just this node's own sample identifier.
 ///
 /// Compared with the quotes a host may have rendered the value with, since a
 /// Python string arrives as `'SRR8525904'`.
-fn restating(record: &Record, scope: Option<&str>) -> Vec<String> {
+///
+/// The declared seed is never one of them, whatever its value happens to
+/// equal. This rule was written when every parameter was a setting, and its
+/// catch-all is too wide now that one parameter is obliged to appear: a seed
+/// caught by it would vanish from the paragraph, and D40 requires the
+/// paragraph to state the seed. The exemption is principled rather than
+/// defensive — a seed never *merely restates* the scope, which is the only
+/// thing this function is for — so where the two rules meet, D40 wins.
+fn restating(record: &Record, scope: Option<&str>, seed: Option<&str>) -> Vec<String> {
     let Some(scope) = scope else {
         return Vec::new();
     };
     record
         .parameters
         .iter()
+        .filter(|(name, _)| Some(name.as_str()) != seed)
         .filter(|(_, value)| unquote(value) == scope)
         .map(|(name, _)| name.clone())
         .collect()

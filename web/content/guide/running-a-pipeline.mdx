@@ -114,7 +114,7 @@ $ ligase run pipeline.py
 running 12 steps in pipeline.py
 
 ran       `align` (sample SRR8525904)        4.5s
-ran       `call` (sample SRR8525904)         513ms
+ran       `mpileup_call` (sample SRR8525904) 513ms
 ran       `resistance` (sample SRR8525904)   3ms
 ...
 
@@ -128,7 +128,7 @@ type-check does not run at all:
 $ ligase run pipeline.py
 running 12 steps in pipeline.py
 
-DimensionError in step `call` (sample SRR8525904):
+DimensionError in step `mpileup_call` (sample SRR8525904):
   aln.reference = HXB2 (from step `align`)
   ref.reference = hg38 (from FASTA contigs: data/refs/hg38.fasta)
   These must match. Did you pass the wrong reference?
