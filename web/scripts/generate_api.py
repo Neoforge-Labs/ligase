@@ -88,9 +88,30 @@ GROUPS: tuple[Group, ...] = (
             "write",
             "handle",
             "map_identifiers",
+            "map_ranked_identifiers",
             "Pipeline",
             "Step",
             "Shell",
+        ),
+    ),
+    Group(
+        slug="library",
+        title="Steps you do not have to write",
+        blurb=(
+            "`ligase.steps` is curated rather than convenient: a step is in it only "
+            "once it declares its tool's version capture, its citation, the "
+            "dimensions of its output and how that output canonicalises "
+            "([D42](/project/decisions/)). Four of them, and the clause has already "
+            "kept two of the obvious candidates out -- see "
+            "[what a curated step is](/concepts/step-library/)."
+        ),
+        names=(
+            "steps.minimap2.align",
+            "steps.bwa.mem",
+            "steps.samtools.sort",
+            "steps.bcftools.mpileup_call",
+            "steps.LIBRARY",
+            "steps.LibraryStep",
         ),
     ),
     Group(
@@ -205,9 +226,10 @@ GROUPS: tuple[Group, ...] = (
     ),
 )
 
-# `hivdb` is a submodule rather than a name: its own members are grouped
-# individually above, so the module object itself is not documented as an entry.
-MODULE_EXPORTS = ("hivdb",)
+# `hivdb` and `steps` are submodules rather than names: their own members
+# are grouped individually above, so the module objects themselves are not
+# documented as entries.
+MODULE_EXPORTS = ("hivdb", "steps")
 
 
 # --------------------------------------------------------------------------
@@ -501,6 +523,16 @@ def render_entry(dotted: str, lg: Any, problems: list[str]) -> list[str]:
     """One exported name, as MDX."""
     obj, display = resolve(dotted, lg)
 
+    # `@lg.step` replaces a function with a `Step` *instance*, which is
+    # neither a class nor a routine -- so without this every step the package
+    # exports fell through to the plain-value branch below and was published
+    # as `map_identifiers: Step = <Step map_identifiers -> EntitySet>`, with
+    # its whole docstring dropped. The build did not complain, because the
+    # branch that requires a docstring was never reached. Document the
+    # function the decorator read instead, under the step's own name.
+    if isinstance(obj, lg.Step):
+        obj = obj.function
+
     # A plain value, such as `__version__` or `hivdb.DEFAULT`, has no docstring
     # of its own; document it by value and type.
     if not (inspect.isclass(obj) or inspect.isroutine(obj) or inspect.ismodule(obj)):
@@ -607,18 +639,35 @@ def mdx_sig(signature: str) -> str:
 # --------------------------------------------------------------------------
 
 
+def exported_names(
+    module: Any, names: Any, submodules: tuple[str, ...], prefix: str = ""
+) -> set[str]:
+    """Every public name under `module`, dotted, with submodules walked.
+
+    A submodule named in `submodules` is not itself an entry: its own
+    `__all__` is, and so on down, because `ligase.steps` is a package of
+    packages. Without the recursion `steps.minimap2` would be the leaf and
+    `steps.minimap2.align` -- the step a reader actually calls -- would be
+    neither grouped nor required to be documented.
+    """
+    found: set[str] = set()
+    for name in names:
+        dotted = f"{prefix}{name}"
+        member = getattr(module, name)
+        if name in submodules or (prefix and inspect.ismodule(member)):
+            found |= exported_names(
+                member, getattr(member, "__all__", ()), submodules, f"{dotted}."
+            )
+            continue
+        found.add(dotted)
+    return found
+
+
 def check_coverage(lg: Any) -> list[str]:
     """Every export grouped, and every grouped name exported."""
     problems: list[str] = []
 
-    exported: set[str] = set()
-    for name in lg.__all__:
-        if name in MODULE_EXPORTS:
-            submodule = getattr(lg, name)
-            for member in getattr(submodule, "__all__", ()):
-                exported.add(f"{name}.{member}")
-            continue
-        exported.add(name)
+    exported = exported_names(lg, lg.__all__, MODULE_EXPORTS)
 
     grouped = {name for group in GROUPS for name in group.names}
 
