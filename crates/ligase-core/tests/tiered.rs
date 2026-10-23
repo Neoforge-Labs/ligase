@@ -332,3 +332,36 @@ fn an_object_already_in_the_remote_is_not_written_again() {
 
     assert_eq!(store.stats().pushed, 0, "it was already held");
 }
+
+#[test]
+fn one_bad_object_read_twice_is_one_bad_object() {
+    // The report says "and N further objects" after naming the first, so
+    // counting occurrences rather than objects would send someone looking
+    // for a second problem that is not there.
+    let (_dir, store, remote) = tiers();
+    let key = key_for(b"the real thing", ".txt");
+    remote.put(&key, b"the real thing").unwrap();
+    corrupt(&remote, &key, b"wrong");
+
+    for _ in 0..3 {
+        assert!(store.get(&key).is_err());
+    }
+
+    assert_eq!(store.stats().rejected, 1);
+}
+
+#[test]
+fn a_refusal_names_the_store_it_came_from() {
+    // "which bucket is serving me this" is the question; the object's own
+    // name does not answer it.
+    let (_dir, store, remote) = tiers();
+    let key = key_for(b"the real thing", ".txt");
+    remote.put(&key, b"the real thing").unwrap();
+    corrupt(&remote, &key, b"wrong");
+
+    let message = store.get(&key).unwrap_err().to_string();
+    assert!(
+        message.contains(store.remote_url().unwrap()),
+        "{message} does not say where it came from"
+    );
+}

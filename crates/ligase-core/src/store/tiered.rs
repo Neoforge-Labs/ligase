@@ -46,6 +46,7 @@
 //! size one with). It does not collect garbage, and it does not manage
 //! buckets. `ligase store gc` is a v0.3 item.
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -69,7 +70,13 @@ pub struct StoreStats {
     /// because a bucket was briefly away is not wrong, and a user who is
     /// not told is misled.
     pub unreachable: u64,
-    /// Objects the remote served that were not what their names said.
+    /// Distinct objects the remote served that were not what their names
+    /// said.
+    ///
+    /// Distinct, not occurrences: one bad object read twice in a run is
+    /// one bad object, and a report saying "and 1 further object" about
+    /// the object it has just named would send someone looking for a
+    /// second problem that is not there.
     pub rejected: u64,
 }
 
@@ -87,7 +94,6 @@ struct Counters {
     fetched: AtomicU64,
     pushed: AtomicU64,
     unreachable: AtomicU64,
-    rejected: AtomicU64,
 }
 
 /// A local store, and a remote one consulted on a miss.
@@ -97,15 +103,14 @@ pub struct TieredStore {
     remote: Option<Box<dyn BlobStore + Send + Sync>>,
     url: Option<String>,
     counters: Counters,
-    /// The first object the remote served that was not what its name
-    /// said, in the error's own words.
+    /// Every object the remote served that was not what its name said:
+    /// its key, and the first error each produced.
     ///
-    /// Kept as well as counted because the clause is that a corrupted
-    /// object is "rejected on read with an error naming the hash
-    /// mismatch", and a count of one names nothing. The first is enough:
-    /// a store serving two wrong objects has the same single cause as one
-    /// serving one.
-    rejection: Mutex<Option<String>>,
+    /// Kept rather than merely counted because the clause is that a
+    /// corrupted object is "rejected on read with an error naming the
+    /// hash mismatch", and a count names nothing. Keyed, because one bad
+    /// object read twice in a run is one bad object.
+    rejections: Mutex<BTreeSet<(String, String)>>,
 }
 
 impl fmt::Debug for TieredStore {
@@ -168,7 +173,7 @@ impl TieredStore {
             remote: Some(remote),
             url: Some(url.to_owned()),
             counters: Counters::default(),
-            rejection: Mutex::new(None),
+            rejections: Mutex::new(BTreeSet::new()),
         })
     }
 
@@ -178,7 +183,7 @@ impl TieredStore {
             remote: None,
             url: None,
             counters: Counters::default(),
-            rejection: Mutex::new(None),
+            rejections: Mutex::new(BTreeSet::new()),
         }
     }
 
@@ -213,7 +218,11 @@ impl TieredStore {
             fetched: self.counters.fetched.load(Ordering::Relaxed),
             pushed: self.counters.pushed.load(Ordering::Relaxed),
             unreachable: self.counters.unreachable.load(Ordering::Relaxed),
-            rejected: self.counters.rejected.load(Ordering::Relaxed),
+            rejected: self
+                .rejections
+                .lock()
+                .map(|held| held.len() as u64)
+                .unwrap_or_default(),
         }
     }
 
@@ -225,7 +234,10 @@ impl TieredStore {
     /// someone else can write to.
     #[must_use]
     pub fn rejection(&self) -> Option<String> {
-        self.rejection.lock().ok().and_then(|held| held.clone())
+        self.rejections
+            .lock()
+            .ok()
+            .and_then(|held| held.iter().next().map(|(_, error)| error.clone()))
     }
 
     /// Whether the remote answers at all, for `ligase store status`.
@@ -257,10 +269,25 @@ impl TieredStore {
         match remote.checked_get(key) {
             Ok(Some(bytes)) => Ok(Some(bytes)),
             Ok(None) => Ok(None),
-            Err(error @ StoreError::Mismatch { .. }) => {
-                self.counters.rejected.fetch_add(1, Ordering::Relaxed);
-                if let Ok(mut held) = self.rejection.lock() {
-                    held.get_or_insert_with(|| error.to_string());
+            Err(StoreError::Mismatch {
+                expected,
+                found,
+                at: _,
+            }) => {
+                // Re-pointed at the store it actually came from. The
+                // default says only what the object is called, and the
+                // question a user has is *which bucket is serving me
+                // this*.
+                let error = StoreError::Mismatch {
+                    expected,
+                    found,
+                    at: PathBuf::from(format!(
+                        "{}/{key}",
+                        self.url.as_deref().unwrap_or("the remote store")
+                    )),
+                };
+                if let Ok(mut held) = self.rejections.lock() {
+                    held.insert((key.to_string(), error.to_string()));
                 }
                 Err(error)
             }
