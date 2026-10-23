@@ -70,11 +70,11 @@ def recorded(sample: str) -> str:
     this helper disappears the day that passes, and until then nothing can
     quietly come to depend on the quotes.
 
-    `graph.py` is M11's while that milestone is in flight, and the real fix
-    is not a one-liner there: a parameter needs to travel as both the form
-    that goes in the key and the form that goes in the command, which is a
-    change to the task shape across the Python layer, the bindings and
-    `exec.rs`.
+    The fix is not a one-liner: a parameter needs to travel as both the
+    form that goes in the key and the form that goes in the command, which
+    is a change to the task shape across the Python layer, the bindings and
+    `exec.rs`, and it retires every cache key of every step with a string
+    parameter.
     """
     return repr(sample)
 
@@ -557,9 +557,10 @@ def test_a_string_parameter_should_reach_the_shell_as_its_value(
     and the form that goes in the command. That is a change to the task
     shape across `graph.py`, `crates/ligase-py/src/lib.rs` and
     `exec.rs::resolve`, and it retires every cache key of every step with a
-    string parameter. `graph.py` is also M11's while that milestone is in
-    flight. So it is recorded rather than patched, and `str()` is not the
-    fix: it would make `f(1)` and `f("1")` share a key.
+    string parameter — which is a change worth its own milestone and its
+    own argument about what to do with the caches it invalidates. So it is
+    recorded rather than patched, and `str()` is not the fix: it would make
+    `f(1)` and `f("1")` share a key.
     """
     require("minimap2", "samtools")
     from ligase.steps import minimap2

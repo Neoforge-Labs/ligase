@@ -207,8 +207,9 @@ a conversion *kept* rather than the ones it lost.
 
 ## What it did not change
 
-`@lg.step` — M11 is extending it in parallel, and nothing here needed it
-widened. No new dependency. And one defect was found and deliberately left:
+`@lg.step` — M11 was extending it with `stochastic=` and `seed=` while this
+was built, and nothing here needed it widened either way. No new dependency.
+And one defect was found and deliberately left:
 `python/ligase/graph.py` serialises a plain parameter with `repr()`, so a
 string parameter reaches the shell with Python's quotes around it and the
 read groups this library writes say `SM:'SRR8525904'`. It is reproducible, and
@@ -216,6 +217,7 @@ the science is unaffected because Ligase takes sample identity from the
 declared dimension rather than from the file — but it is false, and it is
 hashed. The fix needs a parameter to travel as two forms, the one that goes
 in the key and the one that goes in the command, across the Python layer, the
-bindings and `exec.rs`; `str()` is not it, because it would make `f(1)` and
+bindings and `exec.rs`, and it retires every cache key of every step with a
+string parameter; `str()` is not it, because it would make `f(1)` and
 `f("1")` share a key. It is recorded as a strict `xfail`, so the day it is
 fixed the workaround cannot be left behind.

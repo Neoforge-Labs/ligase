@@ -878,11 +878,12 @@ the sample's identifier. The science is unaffected, which is why it went
 unseen: Ligase takes sample identity from the declared dimension rather than
 from the file. It is still false, and it is hashed.
 
-It is not fixed here because the fix is not a one-liner and `graph.py` is
-M11's while that milestone is in flight: a parameter has to travel as two
+It is not fixed here because the fix is not a one-liner, and because
+`graph.py` was M11's while this was built: a parameter has to travel as two
 forms, the one that enters the key and the one that enters the command, across
-the Python layer, the bindings and `exec.rs`. `str()` is not the fix — it
-would make `f(1)` and `f("1")` share a key. It is recorded as a strict
+the Python layer, the bindings and `exec.rs`, and it retires every cache key
+of every step with a string parameter. `str()` is not the fix — it would make
+`f(1)` and `f("1")` share a key. It is recorded as a strict
 `xfail`, `test_a_string_parameter_should_reach_the_shell_as_its_value`, so the
 day it is fixed the test fails the other way and the workaround cannot be left
 behind.
