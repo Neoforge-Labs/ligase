@@ -24,10 +24,12 @@ from .run import StepFailure
 
 __all__ = ["AuditReport", "StepAudit"]
 
-#: The bytes matched, so even the file is identical.
+#: The bytes matched, and the step declared no seed.
 DETERMINISTIC = "deterministic"
 
-#: The bytes differ; what they mean does not.
+#: The two runs agreed on the result. Either the bytes differ and what
+#: they mean does not, or the step declared itself stochastic, which can
+#: reach no better verdict than this.
 REPRODUCIBLE = "reproducible"
 
 #: The two runs disagree about the result.
@@ -53,6 +55,14 @@ class StepAudit:
         first_duration_ms: How long the first run took.
         second_duration_ms: How long the second run took.
         node: Which node of the graph it was.
+        seed: The parameter this step declared as its seed and the value it
+            was held at, as `("seed", "42")`. `None` for a step that
+            declared none.
+
+            A step with a seed is never `deterministic`, however its bytes
+            fall: byte equality under a fixed seed says the seed held, not
+            that the step has no randomness in it. The `reproducible` it
+            gets instead is the best verdict available to it.
     """
 
     step: str
@@ -66,6 +76,7 @@ class StepAudit:
     first_duration_ms: int
     second_duration_ms: int
     node: int
+    seed: tuple[str, str] | None = None
 
     @property
     def reproducible(self) -> bool:
