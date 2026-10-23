@@ -53,6 +53,7 @@ pub mod key;
 pub mod load;
 pub mod note;
 pub mod prov;
+pub mod store;
 pub mod types;
 
 /// The version of the core engine, as compiled.

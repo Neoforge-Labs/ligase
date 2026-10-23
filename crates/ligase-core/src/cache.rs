@@ -38,6 +38,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::canon::{self, CANON_VERSION, Canonical, Form, Note};
 use crate::hash::ContentHash;
 use crate::key::{KEY_VERSION, StepKey};
+use crate::store::{BlobStore, FsStore, ObjectKey, StoreError, suffix_of as suffix};
 use crate::types::DataKind;
 
 /// The version of the on-disk layout of the cache directory.
@@ -101,6 +102,8 @@ pub enum CacheError {
     Database(rusqlite::Error),
     /// A thread holding the database panicked.
     Poisoned,
+    /// The blob tier could not hold or produce an object.
+    Store(StoreError),
 }
 
 impl fmt::Display for CacheError {
@@ -109,6 +112,7 @@ impl fmt::Display for CacheError {
             Self::Io { path, source } => write!(f, "{}: {source}", path.display()),
             Self::Database(error) => write!(f, "cache metadata: {error}"),
             Self::Poisoned => f.write_str("the cache was left locked by a panicking thread"),
+            Self::Store(error) => error.fmt(f),
         }
     }
 }
@@ -119,6 +123,7 @@ impl std::error::Error for CacheError {
             Self::Io { source, .. } => Some(source),
             Self::Database(error) => Some(error),
             Self::Poisoned => None,
+            Self::Store(error) => Some(error),
         }
     }
 }
@@ -129,10 +134,17 @@ impl From<rusqlite::Error> for CacheError {
     }
 }
 
+impl From<StoreError> for CacheError {
+    fn from(error: StoreError) -> Self {
+        Self::Store(error)
+    }
+}
+
 /// Everything already computed, and where it was put.
 #[derive(Debug)]
 pub struct Cache {
     root: PathBuf,
+    objects: FsStore,
     database: Mutex<Connection>,
     hashed: AtomicU64,
     prefiltered: AtomicU64,
@@ -151,7 +163,7 @@ impl Cache {
     /// If the directory cannot be created or the database cannot be opened.
     pub fn open(root: &Path) -> Result<Self, CacheError> {
         create_dir(root)?;
-        create_dir(&root.join("store"))?;
+        let objects = FsStore::open(&root.join("store"))?;
         create_dir(&root.join("tmp"))?;
 
         let database = Connection::open(root.join("cache.sqlite")).map_err(CacheError::from)?;
@@ -164,6 +176,7 @@ impl Cache {
 
         Ok(Self {
             root: root.to_path_buf(),
+            objects,
             database: Mutex::new(database),
             hashed: AtomicU64::new(0),
             prefiltered: AtomicU64::new(0),
@@ -273,23 +286,21 @@ impl Cache {
     ///
     /// If the file cannot be read, hashed or moved.
     pub fn store(&self, staged: &Path) -> Result<Stored, CacheError> {
-        let hash = ContentHash::of_file(staged).map_err(|source| CacheError::Io {
-            path: staged.to_path_buf(),
-            source,
-        })?;
-        let path = self.object_path(hash, &suffix(staged));
+        let key = self.objects.put_file(staged, &suffix(staged))?;
+        Ok(Stored {
+            hash: key.hash,
+            path: self.objects.path_of(&key),
+        })
+    }
 
-        if path.is_file() {
-            remove(staged)?;
-            return Ok(Stored { hash, path });
-        }
-
-        if let Some(parent) = path.parent() {
-            create_dir(parent)?;
-        }
-        move_file(staged, &path)?;
-        make_read_only(&path)?;
-        Ok(Stored { hash, path })
+    /// The blob tier this cache keeps its objects in.
+    ///
+    /// Exposed because a recorded remote is written here rather than through
+    /// a step's output, and because M14 replaces what this returns with a
+    /// two-tier store without the cache above it changing.
+    #[must_use]
+    pub fn objects(&self) -> &FsStore {
+        &self.objects
     }
 
     /// Where a step should write while it runs.
@@ -392,11 +403,7 @@ impl Cache {
     /// Fanned out over the first byte of the hash: a flat directory of one
     /// object per step per sample is a directory no filesystem enjoys.
     fn object_path(&self, hash: ContentHash, suffix: &str) -> PathBuf {
-        let hex = hash.to_hex();
-        self.root
-            .join("store")
-            .join(&hex[..2])
-            .join(format!("{}{suffix}", &hex[2..]))
+        self.objects.path_of(&ObjectKey::new(hash, suffix))
     }
 
     fn forget(&self, key: StepKey) -> Result<(), CacheError> {
@@ -516,18 +523,6 @@ fn stat(path: &Path) -> Result<Stat, CacheError> {
     })
 }
 
-/// Everything after the first dot of a file's name, so `.vcf.gz` survives.
-///
-/// Tools read the format off the name — `samtools sort -o x.bam` writes BAM
-/// and `x.sam` writes SAM — so an object that loses its suffix is an object
-/// no tool will read correctly.
-fn suffix(path: &Path) -> String {
-    path.file_name()
-        .map(|name| name.to_string_lossy())
-        .and_then(|name| name.find('.').map(|at| name[at..].to_owned()))
-        .unwrap_or_default()
-}
-
 fn now() -> String {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -537,41 +532,6 @@ fn now() -> String {
 
 fn create_dir(path: &Path) -> Result<(), CacheError> {
     fs::create_dir_all(path).map_err(|source| CacheError::Io {
-        path: path.to_path_buf(),
-        source,
-    })
-}
-
-fn remove(path: &Path) -> Result<(), CacheError> {
-    fs::remove_file(path).map_err(|source| CacheError::Io {
-        path: path.to_path_buf(),
-        source,
-    })
-}
-
-fn move_file(from: &Path, to: &Path) -> Result<(), CacheError> {
-    match fs::rename(from, to) {
-        Ok(()) => Ok(()),
-        // A rename across filesystems fails; copying is the fallback, and
-        // the only cost is the copy.
-        Err(_) => {
-            fs::copy(from, to).map_err(|source| CacheError::Io {
-                path: to.to_path_buf(),
-                source,
-            })?;
-            remove(from)
-        }
-    }
-}
-
-fn make_read_only(path: &Path) -> Result<(), CacheError> {
-    let metadata = fs::metadata(path).map_err(|source| CacheError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let mut permissions = metadata.permissions();
-    permissions.set_readonly(true);
-    fs::set_permissions(path, permissions).map_err(|source| CacheError::Io {
         path: path.to_path_buf(),
         source,
     })
