@@ -18,7 +18,8 @@ import type { MetaRecord } from 'nextra'
  *
  * The two remote pages come after them and in that order, because a pinned
  * remote is the simpler promise and a recorded query is explained by
- * contrast with it.
+ * contrast with it. Pointing a lab at a bucket follows both, because what a
+ * thin bundle gives up is a recorded query's one guarantee.
  */
 const meta: MetaRecord = {
   'inspecting-files': 'Inspecting files you have',
@@ -30,6 +31,7 @@ const meta: MetaRecord = {
   'ranked-lists': 'Comparing ranked lists',
   remotes: 'Fetching your inputs',
   'recorded-queries': 'Recording a live query',
+  'remote-store': 'Pointing a lab at a bucket',
   'semantic-hashing': 'Checking that a step repeats',
   notes: 'Fixing a noticed line',
   'resistance-interpretation': 'Interpreting resistance',

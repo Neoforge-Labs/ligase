@@ -15,6 +15,7 @@ const meta: MetaRecord = {
   graph: 'Graph',
   execution: 'Execution',
   cache: 'Cache',
+  store: 'Store',
   canonicalisation: 'Canonicalisation',
   conversions: 'Conversions',
   remotes: 'Remote inputs',

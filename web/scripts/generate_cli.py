@@ -204,6 +204,61 @@ def render(parser: argparse.ArgumentParser, problems: list[str]) -> list[str]:
                 out += [f"# {why}", command, ""]
             out = [*out[:-1], "```", ""]
 
+        # A command may have subcommands of its own -- `ligase store` does.
+        # Without this they reached the page as a single `{status,push,pull}`
+        # usage line and nothing else, so the reference listed a command
+        # whose actual arguments it did not document, and the check that
+        # fails the build on missing help text never looked at them.
+        out += render_sub(sub, f"ligase {name}", problems)
+
+    return out
+
+
+def render_sub(
+    parser: argparse.ArgumentParser, prefix: str, problems: list[str]
+) -> list[str]:
+    """One command's subcommands, a heading level down.
+
+    Flat rather than recursive beyond this: two levels is what the CLI has,
+    and a generator that handled depth it never meets would be guessing at
+    its own output.
+    """
+    nested = next(
+        (a for a in parser._actions if isinstance(a, argparse._SubParsersAction)),
+        None,
+    )
+    if nested is None:
+        return []
+
+    out: list[str] = []
+    for name, sub in nested.choices.items():
+        label = f"{prefix} {name}"
+        if not (sub.description or "").strip():
+            problems.append(f"`{label}` has no description.")
+            continue
+
+        out += [f"### {label}", ""]
+        usage = " ".join(sub.format_usage().replace("usage: ", "").split())
+        out += ["```bash", usage.replace("[-h] ", ""), "```", ""]
+        out += [" ".join((sub.description or "").split()), ""]
+
+        positionals, optionals = options_of(sub)
+        for heading, actions in (("Arguments", positionals), ("Options", optionals)):
+            if not actions:
+                continue
+            out += [f"#### {heading}", "", f"| {heading[:-1]} | Description |", "|---|---|"]
+            for action in actions:
+                if not action.help:
+                    where = (
+                        action.option_strings[0]
+                        if action.option_strings
+                        else action.dest
+                    )
+                    problems.append(f"`{label}`: `{where}` has no help.")
+                    continue
+                out.append(f"| {flags(action)} | {describe(action)} |")
+            out.append("")
+
     return out
 
 

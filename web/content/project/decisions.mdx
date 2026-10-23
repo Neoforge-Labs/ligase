@@ -1513,3 +1513,139 @@ a space it is not in, and it is visible rather than silent, because every
 identifier that did not cross is named and counted in the run report, in
 provenance, in a bundle and in the methods paragraph
 ([D26](#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).
+
+## D43 — The store is a blob tier with pluggable backends; the index is local and rebuildable
+
+The content-addressed store — step outputs, canonical forms, recorded
+response bodies — is defined by a small trait: `has`, `get`, `put`, plus
+the two a filesystem affords and an object store has to emulate (a path
+for a tool to be handed, and a move rather than a copy through memory).
+The local filesystem is the default and only backend. An optional one over
+Apache's `object_store` serves S3, every S3-compatible store (MinIO,
+Cloudflare R2, Backblaze), GCS and Azure, behind a cargo feature so that
+the default install stays zero-config
+([D6](#d6--sqlite-metadata-content-addressed-store)).
+
+This is the Nix binary-cache model: a local store, always the first tier,
+and a remote *substituter* behind it — consulted on a miss, written
+through on a put, never a source of truth. A lab points every machine at
+one bucket, one person aligns the cohort, and everybody else's `ligase
+run` hits the cache.
+
+### Nothing read from a remote is trusted
+
+Every object is hashed on arrival and refused if it does not match the
+name it was asked for. A store a lab shares is a store other people can
+write to, and a wrong answer served quickly from a cache is worse than no
+cache. Objects are written once and never overwritten, for the same
+reason: every cache key derived from an object rests on it still being
+what it was.
+
+Verification lives on the trait rather than in each backend, so a backend
+author cannot forget it, and the remote is held behind a boxed trait object
+no caller outside the tiering module can reach — the rule is structural
+rather than remembered. Promotion into the local tier verifies *before* it
+installs, because the local tier is trusted and a corrupt object copied
+down unverified would be caught once and then never again.
+
+### An unreachable remote is a miss, not a failure
+
+Not in the spec, and the design is worse without an answer. A remote holds
+nothing the engine cannot recompute, so falling back to computing is always
+*correct*; failing the run instead would make the engine worse than having
+no remote at all.
+
+The cost is time, and the one way that cost becomes a bug is a user who is
+not told. So every fallback is counted and the run report says plainly that
+work a colleague had already done may have been done again, and that
+`ligase store push` sends this run's objects up once the store is back. A
+hash mismatch is the other case and is *not* a miss: it is returned,
+reported in full with the store that served it, and the step reruns.
+
+### The index stays local — and "rebuildable" needed earning
+
+SQLite over object storage is a known way to corrupt a database, so the
+metadata index stays on local disc.
+
+The spec said it is rebuildable from the store "because everything in it
+derives from content hashes". Checked against `cache.rs`, **that is
+false**. A step key is a hash of ingredients — code, parameters, input
+hashes, tool versions — that no object carries, and `remotes` is keyed by a
+locator, which is not a hash of anything. A clean machine pointed at a
+shared bucket would compute exactly the right key, find the output under
+exactly the right name, and rerun everything.
+
+So the rows that make a hit possible are published into the store as well,
+each one an object named for the *question* it answers: the step entry, the
+pinned-remote resolution, and the provenance record. An index miss consults
+them and writes back what it learns, so a rebuild is lazy — one store read
+per step actually needed, not a scan of the bucket.
+
+The provenance row is the one nothing asked for and the one that makes the
+feature usable. Without it the headline scenario gives every colleague a
+run that completes perfectly and a methods paragraph reading *"is in the
+cache from a run that recorded no provenance"* for every step: right
+results that nobody can write up. The hole predates the shared store —
+delete `provenance.sqlite` and keep the cache and you get the same message
+— but the two databases live side by side and are deleted together, so it
+was unreachable in practice until the cache could be shared.
+
+### What a shared store is as trustworthy as
+
+Worth being exact about, because content addressing is easy to over-read.
+
+Hashing an object proves the bytes are the bytes their name claims. It
+proves nothing about the claim *"step K produced object O"*, and nothing
+can, short of running the step — that is what a cache is. A published row
+is therefore the one object class whose name is not a hash of its contents,
+and it carries the verification it can: the body restates the table and key
+it was found under, on every read, and a row restating anything else is
+refused.
+
+What remains is that **a shared store is as trustworthy as write access to
+it**. Someone who can write your bucket can make a step return some other
+intact object; they cannot serve corrupted data. This is a Nix binary
+cache's trust boundary, Nix answers it with signatures, v0.2 has none, and
+saying so is better than implying a guarantee that is not there. Point
+Ligase at a bucket your lab writes.
+
+### Credentials are never Ligase's
+
+They come from each provider's standard chain — environment, instance,
+ECS-task or EKS-pod role — never from Ligase's own configuration. A
+`[store]` table in `ligase.toml` takes a URL and nothing else, and a key
+that looks like a credential is refused *by name* rather than ignored:
+`ligase.toml` is a file people commit, so the one place a user would try to
+put a secret is the one place that has to say no.
+
+One correction to the claim above: `object_store` does not read
+`~/.aws/credentials`, so a named profile has to be exported into the
+environment first. The guide says so rather than the decision implying
+otherwise.
+
+### What the feature costs, and why it is a feature
+
+`object_store`'s `aws`, `gcp` and `azure` all expand to include
+`aws-lc-rs`, whose `aws-lc-sys` has a non-optional build-dependency on
+`cmake`; Cargo features being additive, the crate's own `ring` feature
+cannot switch it off. So enabling the tier means cmake at build time, a
+second TLS stack beside `ring`, a second HTTP stack beside `ureq`, and a
+tokio runtime — 134 crates against a lock file holding 140.
+
+That is precisely why it is behind a feature, and why the claim is
+*tested*: `tests/default_build.rs` reads `cargo tree` and fails if any of
+them reaches a default build. A sentence in a document would say the same
+thing and would not notice the day someone adds `remote-store` to
+`default`, which is how an install story is actually lost — not by a
+decision, by a convenience.
+
+A Python extra cannot reach a cargo feature, so `ligase-bio[remote-store]`
+is a documented name rather than a mechanism: the build is selected with
+`MATURIN_PEP517_ARGS`, and `ligase store status` reports which kind of
+build is in front of you.
+
+### The local tier grows and does not shrink
+
+No eviction in v0.2. An LRU whose source of truth is a remote turns a cache
+miss into a network failure mode, and there is no measurement yet to size
+one with. `ligase store gc` is a v0.3 item.

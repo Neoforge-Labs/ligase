@@ -1,0 +1,210 @@
+---
+title: "Pointing a lab at a bucket"
+description: "Set LIGASE_STORE, and the machine next to yours stops recomputing what you have already computed. Installing the tier, configuring it, and what `ligase store status` is telling you."
+---
+
+# Pointing a lab at a bucket
+
+One person aligns the cohort. Everybody else's `ligase run` finds it done.
+
+That is the whole of this page. What it takes is a bucket everyone can
+read and write, a build of Ligase that can talk to one, and one
+environment variable.
+
+## Install a build that can reach a bucket
+
+The remote tier is behind a build-time feature, so the default install
+acquires no dependency on it — which is deliberate, because the libraries
+it needs want `cmake` at build time and `pip install ligase-bio` must not.
+
+Check what you have:
+
+```bash
+ligase store status
+```
+
+A default install says so, and says what to do:
+
+```
+remote-store support   no
+                       this build opens `file://` stores only. For a bucket, install
+                       `ligase-bio[remote-store]` from source, or build with
+                       `--features remote-store`.
+store                  none configured
+                       set LIGASE_STORE, or a [store] url in ligase.toml
+```
+
+To get one that can:
+
+```bash
+MATURIN_PEP517_ARGS="--features remote-store" \
+  pip install --no-binary ligase-bio "ligase-bio[remote-store]"
+```
+
+<Note kind="caution">
+  That needs a Rust toolchain, a C compiler and **cmake**. The cmake
+  requirement comes from the AWS cryptography the object-store library
+  pulls in, there is no configuration of it that avoids cmake, and it is
+  the reason this is a separate build rather than what everyone gets. A
+  `file://` store needs none of it and works in every build.
+</Note>
+
+## Say where the store is
+
+Either an environment variable:
+
+```bash
+export LIGASE_STORE=s3://our-lab-cache
+```
+
+or, committed with the project, a `ligase.toml` beside the pipeline or
+anywhere above it:
+
+```toml
+[store]
+url = "s3://our-lab-cache"
+```
+
+The environment wins, so a one-off run against a different bucket is a
+prefix on a command rather than an edit to a file under version control.
+
+Four schemes work: `s3://` (and every S3-compatible store — MinIO,
+Cloudflare R2, Backblaze B2, Ceph), `gs://`, `az://`, and `file://` for a
+directory, which is often all a lab on a shared mount needs and which
+needs no special build.
+
+### Credentials are not Ligase's business
+
+`[store]` takes a URL and nothing else. A key that looks like a credential
+is refused by name:
+
+```
+ligase: ligase.toml: `[store]` may not hold `secret_access_key`. Credentials come
+from your provider's own chain -- the environment, a profile, or an instance
+role -- and never from a Ligase config file, which is a file people commit. If
+`aws s3 ls` works, so does this.
+```
+
+Everything else a provider needs comes from that provider's own
+environment: `AWS_ACCESS_KEY_ID`, `AWS_ENDPOINT_URL`, `AWS_REGION`,
+`GOOGLE_SERVICE_ACCOUNT`, `AZURE_STORAGE_ACCOUNT_NAME`, and an instance,
+ECS-task or EKS-pod role where there is one.
+
+<Note kind="warning">
+  One gap worth knowing: a named AWS **profile** in `~/.aws/credentials` is
+  not read. Export it into the environment first —
+  `eval "$(aws configure export-credentials --profile lab --format env)"` —
+  or use a role.
+</Note>
+
+### A MinIO bucket, end to end
+
+```bash
+export AWS_ACCESS_KEY_ID=minioadmin
+export AWS_SECRET_ACCESS_KEY=minioadmin
+export AWS_ENDPOINT_URL=http://minio.lab.internal:9000
+export AWS_REGION=us-east-1
+export AWS_ALLOW_HTTP=true        # only for a plaintext endpoint
+export LIGASE_STORE=s3://our-lab-cache
+
+ligase store status
+```
+
+## Run
+
+Nothing else changes. `ligase run` consults the store when the local cache
+misses and writes through when it computes something, and the report says
+what happened:
+
+```
+cached    `align` for SRR8525904, SRR8525908, SRR8525942, SRR8525920
+cached    `call` for SRR8525904, SRR8525908, SRR8525942, SRR8525920
+
+store     10 objects from the remote store
+
+12 steps: 12 from cache.
+```
+
+A colleague on a machine that has never run this pipeline gets that, and
+can write it up too: `ligase methods` on a machine that ran nothing still
+names every tool and version, because the provenance travels with the
+entry.
+
+## When the store is not there
+
+A run whose bucket cannot be reached does not fail. It computes, which is
+always correct, and says so:
+
+```
+store     14 calls to the remote store did not answer, so this run used the local
+          store alone. Nothing here is wrong; work that a colleague had
+          already done may have been done again. `ligase store push` sends
+          this run's objects up once it is back.
+```
+
+Take it at its word afterwards:
+
+```bash
+ligase store push
+```
+
+## Reading `ligase store status`
+
+```
+remote-store support   yes
+store                  s3://our-lab-cache
+                       from /home/you/project/ligase.toml
+reachable              yes
+local objects          1841
+local index rows       612
+local only             0 (exact)
+```
+
+**`local only`** is the one to read carefully. It is a difference between
+two stores, and a bucket keeps no count, so answering it costs one request
+per object. Up to a thousand objects the number is exact and says so;
+above that it is sampled, and says that instead. A number you can read in
+a second is not an inventory of a bucket, and the line will not let you
+think it is.
+
+## Moving objects by hand
+
+```bash
+ligase store push    # everything here that the bucket has not got
+ligase store pull    # everything this index refers to that is not here
+```
+
+`pull` moves what **this** cache's index knows about. On a machine with no
+index there is nothing to pull, and that is the right answer: `ligase run`
+is what works out which objects a pipeline needs, and it fetches them as
+it goes.
+
+## Two things to expect
+
+**Drift at a pinned source is noticed later.** A pinned remote is checked
+against its digest when it is fetched; a warm cache does not re-fetch, and
+a shared store makes everyone's cache warm. `ligase run --force` re-fetches,
+and `--refresh` is the equivalent for a recorded query.
+
+**The local store grows.** There is no eviction in v0.2. If a machine is
+short of disc, delete `.ligase/store` — everything in it is either in the
+bucket or recomputable, and the index rebuilds itself from the store the
+next time it is asked.
+
+## Sharing a bundle with a store behind it
+
+`ligase methods --bundle out/ --thin` writes a bundle that names the store
+instead of carrying the object bodies. It is small, it is **not**
+self-contained, and it is only checkable where that store can be reached —
+including for recorded query responses, which a full bundle carries so that
+a reviewer can replay with no network and no API key.
+
+Use `--thin` for a collaborator who already has the bucket. For a
+reviewer, a referee or an archive, write a full one.
+
+## Where to go next
+
+- [Sharing a cache](/concepts/remote-store) — what the two tiers promise,
+  and what a shared store is as trustworthy as.
+- [Writing up a pipeline](/guide/provenance) — bundles, thin and not.
+- [The store](/project/architecture/store) — how it works inside.

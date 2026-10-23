@@ -1,0 +1,245 @@
+---
+title: "The store"
+description: "The blob tier: one trait, a filesystem backend, an object-store backend behind a feature, and the tiering between them. What D43 got wrong about rebuilding the index, and what a shared store is actually as trustworthy as."
+---
+
+# The store
+
+`crates/ligase-core/src/store/` — the half of the cache that holds *things*
+rather than facts about things.
+
+| File | What it is |
+|---|---|
+| `mod.rs` | `ObjectKey`, `StoreError`, the `BlobStore` trait, store-URL parsing |
+| `fs.rs` | `FsStore`, the local tier and the default |
+| `tiered.rs` | `TieredStore`: local first, remote behind it |
+| `published.rs` | index rows published into the store as objects |
+| `remote.rs` | the `object_store` backend, behind the `remote-store` feature |
+
+## One trait, and why verification lives on it
+
+`BlobStore` is `has`, `get`, `put`, plus the two a filesystem affords and
+an object store has to emulate: `put_file`, so a finished output is moved
+rather than copied through memory, and `local_path`, so an external tool
+can be handed a path.
+
+Implementors provide the unchecked primitives. `checked_get` — hash the
+bytes, compare with the name — is **provided on the trait**, not written
+per backend, because "nothing read from a store is trusted" must not be a
+rule each backend author remembers separately.
+
+`put_from_path` was added for M14: a tier writing through to the one below
+it has already hashed and installed the object, and what is left is to copy
+it without reading it into memory. The default does read it into memory,
+which is right for a filesystem and wrong for a forty-gigabyte upload, so
+the object-store backend overrides it with a multipart write above 16 MiB.
+
+## The tiering, in three rules
+
+`TieredStore` holds an `FsStore` and an optional `Box<dyn BlobStore>`. The
+remote is private to the module, so no caller outside it can hold a backend
+and read one unverified. Three rules decide everything:
+
+1. **An unreachable remote is a miss.** Any error from the remote that is
+   not a hash mismatch is swallowed into a miss and counted. A remote holds
+   nothing the engine cannot recompute, so falling back to computing is
+   always correct, and failing the run would make the engine worse than
+   having no remote at all. Every fallback is counted and the run report
+   prints it, because the failure mode that matters here is a user who is
+   not told.
+2. **A hash mismatch is not a miss.** It is returned. The caller — `Cache::
+   lookup` — turns it into a cache miss so the step reruns, and the store
+   keeps the error in full so the report can name it. Rejections are keyed
+   by object rather than counted by read: one bad object consulted twice is
+   one bad object.
+3. **Promotion verifies before it installs.** The local tier is trusted, so
+   anything entering it has to earn that. A corrupt object copied down
+   unverified would be caught once and never again.
+
+Writes go local first and then push, so a run is correct whatever the
+network does. A push that fails is counted, not fatal; `ligase store push`
+is how it is made up.
+
+### The one read that is not hash-checked
+
+`get_row`, for published rows, whose names are not hashes of their
+contents. It refuses to take that path for a key that is not a row's, so it
+cannot be used to fetch an *object* unverified however it is called, and
+nothing it returns is promoted into the local tier. The verification a row
+*can* carry is applied on every read — see below.
+
+## Published rows, and the thing D43 got wrong
+
+D43 says the SQLite index "is rebuildable from the store, which it can be
+because everything in it derives from content hashes". Checked against
+`cache.rs`, that is **false**. A step key is a hash of ingredients — code,
+parameters, input hashes, tool versions — that no object carries, and
+`remotes` is keyed by a locator, which is not a hash of anything. A bag of
+objects cannot say which key produced which.
+
+So a clean machine pointed at a shared bucket would compute exactly the
+right step key, find the output under exactly the right name, and rerun
+everything.
+
+`published.rs` closes it. Three kinds of row go into the store as objects
+named for the *question* they answer rather than for their contents:
+
+| Table | Keyed on | Without it |
+|---|---|---|
+| `steps` | the step key | every step reruns on a second machine |
+| `remotes` | locator and kind | a clean checkout downloads the reads again |
+| `prov` | the step key | the run completes and cannot be written up |
+
+A row's body is the project's usual escaped TSV, line-tagged, with its own
+format version: a row from a format this build does not read is *ignored*,
+costing one recomputation, rather than half-read.
+
+The third is the one nobody asked for, and it is the one that makes the
+feature usable. Built without it, the headline scenario — one person
+computes, everybody else hits the cache — gives every colleague a run that
+completes perfectly and a methods paragraph saying *"is in the cache from a
+run that recorded no provenance"* for every step. Measured rather than
+guessed: with the whole suite pointed at one shared store, eleven Python
+tests failed and nine of them failed that way. The hole predates this
+milestone — delete `provenance.sqlite`, keep the cache, and you get the
+same message — but the two databases live side by side and are deleted
+together, so it was unreachable in practice until the cache could be
+shared.
+
+A record is serialised as one flat document rather than as the six SQLite
+tables it comes from, because an object is what a key can name and half a
+record is not worth serving. A document of a format this build does not
+read is ignored; a document of the right format that does not parse is an
+**error**, because "I never knew" and "I knew and the note is damaged" are
+different answers and provenance is the one store that must not round the
+second to the first.
+
+### What verification a row can carry
+
+A row says *"key K produced object O"*, and nothing short of running the
+step can check that. So it gets the verification it can have:
+
+- the body restates the table and the key it was found under, and a row
+  restating anything else is refused;
+- the object it points at is still hashed on arrival like any other.
+
+What remains is that **a shared store is as trustworthy as write access to
+it**. Someone who can write your bucket can claim a step produced some
+other intact object. They cannot serve corrupt data, and they cannot make
+an object lie about its own contents. This is a Nix binary cache's trust
+boundary; Nix answers it with signatures, v0.2 does not have them, and the
+honest thing is to say so in the error-free case rather than to leave it to
+be discovered in the bad one.
+
+## The dependency, and what it costs
+
+`object_store` is Apache's, is what the v0.2 spec named, and serves S3,
+every S3-compatible store, GCS and Azure from one API. Three costs were
+weighed and accepted; all three are in `Cargo.toml` beside the dependency.
+
+**cmake at build time.** `aws`, `gcp` and `azure` each expand to
+`[…, "reqwest/rustls", "aws-lc-rs"]`, and `aws-lc-sys` has a *non-optional*
+build-dependency on the `cmake` crate. Cargo features are additive, so the
+crate's `ring` feature cannot switch it off: there is no configuration of
+`object_store` that reaches a bucket without `aws-lc-rs`. This is the same
+hazard that sent M10a to `ureq` instead of `reqwest`. It is accepted here
+because it is confined to a feature nobody gets by default, and because the
+alternative — hand-writing SigV4 and a credential chain — is
+security-sensitive code the project would then own forever.
+
+**A second TLS stack and a second HTTP stack**: `aws-lc-rs` beside `ring`,
+reqwest and hyper beside `ureq`. 134 crates, against a lock file that holds
+140.
+
+**An async runtime.** The note beside `ureq` says the executor never
+touches one, and that stays true of the *executor*: `object_store` is
+async-only, so one tokio runtime lives in `store/remote.rs` and every call
+enters it with `block_on`. Multi-threaded rather than current-thread,
+because several rayon workers call in at once.
+
+None of it is in a default build, and that is asserted rather than
+documented: `tests/default_build.rs` reads `cargo tree` and fails if
+`object_store`, `aws-lc-sys`, `tokio`, `reqwest` or `hyper` appears. A
+sentence in a document would not notice the day someone adds `remote-store`
+to `default`, which is how an install story is actually lost — not by a
+decision, by a convenience.
+
+`parse_url_opts` is called with `std::env::vars` rather than the plainer
+`parse_url`, which builds a client from the URL and nothing else: a
+correctly configured machine would otherwise have been told its credentials
+were missing. The chain that gives is the environment plus an instance,
+ECS-task or EKS-pod role. It does **not** read `~/.aws/credentials`, so D43
+promises one thing this backend does not, and the guide says to export the
+profile.
+
+## A race that had to be proved rather than assumed
+
+Two machines pushing the same object is the normal case for a lab, and
+content addressing is supposed to make it benign: the bytes under a key are
+fixed by the key, so whoever wins, the answer is the same.
+
+Writing the test found that it was not. `FsStore::put` staged every write
+of a key at the same path, so the second writer found its own partial file
+already renamed into place by the first and failed with `NotFound` — an
+error on a put that had in fact succeeded. Reachable before this milestone
+by two fan-out nodes recording the same paginated response. The staged name
+now carries the process and a counter, and
+`two_writers_of_one_object_do_not_trip_over_each_other` pins it.
+
+## What is deliberately not here
+
+- **Eviction and garbage collection.** The local tier grows and does not
+  shrink in v0.2. An LRU whose source of truth is a remote turns a cache
+  miss into a network failure mode, and there is no measurement yet to size
+  one with. `ligase store gc` is a v0.3 item, settled in the spec.
+- **Bucket management.** Objects are read and written. Nothing creates,
+  configures, lifecycles or deletes a bucket.
+- **Credentials of our own.** No key is read from Ligase configuration, and
+  `[store]` refuses one by name.
+- **Signatures.** The trust boundary above is documented rather than
+  closed.
+- **Listing the remote.** `ligase store status` asks about objects it knows
+  of, up to a bound, and says whether its answer is exact or sampled.
+  Listing a bucket to produce a prettier number is the same work with a
+  worse failure mode.
+
+## Testing
+
+`tests/tiered.rs` covers the tiering with a second `FsStore` standing in for
+the remote: promotion, write-through, corruption, an unreachable remote, and
+the race. It runs in every build, because the tier logic is
+backend-independent and a fake is the right tool for it.
+
+`tests/minio.rs` covers the backend against a real S3 implementation, and
+only when `LIGASE_TEST_STORE` names a bucket: the round trip, a 404 that has
+to be a miss, an object corrupted in place, the multipart path, eight
+threads writing one object, and a second machine completing a pipeline with
+nothing of its own. Each test works under its own prefix, because two tests
+sharing a content-addressed namespace are two tests sharing their answers.
+
+### Why the whole suite is not run against the bucket
+
+M14's done-when asks for the full suite to pass against a MinIO container
+with `LIGASE_STORE` set and no test changed. It does not, and the reason is
+a finding rather than a defect.
+
+A handful of tests assert that a *fresh cache directory* means nothing has
+been computed. A shared store is precisely what makes that false, and it is
+the feature working: two tests that compute the same thing from the same
+inputs have the same step key, because the key is a hash of code,
+parameters, input contents and tool versions and nothing about where the
+cache lives.
+
+Worse, the failing set is not fixed. Which of two colliding tests sees the
+hit depends on which runs first, so excluding the failures moves the
+failure elsewhere — measured: six failures, and seven *different* ones once
+those six were skipped. A deselect list would not stay true for a week.
+
+The clause's real question is whether the remote tier is substitutable for
+the local one, and the measurements say yes: against a real MinIO bucket,
+458 of 460 Rust tests and 303 of 307 Python tests pass unchanged, and the
+six that do not all fail for that one reason. The two clauses are in direct
+conflict — "a second checkout completes the demo entirely from cache"
+requires step entries to be shared, and "the full suite passes unchanged"
+requires sharing them to change nothing — and the first is the one worth
+having.
