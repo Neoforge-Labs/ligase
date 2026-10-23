@@ -106,7 +106,25 @@ impl Bench {
             tools: Vec::new(),
             parameters: Vec::new(),
             citations: Vec::new(),
+            seed: None,
         });
+        node
+    }
+
+    /// A step that declares itself stochastic and names the seed it drew on.
+    ///
+    /// The seed is an ordinary plain parameter besides, which is how it
+    /// reaches the cache key; what the declaration adds is the engine
+    /// knowing which parameter it is.
+    fn stochastic_step(&mut self, name: &str, command: &str, input: NodeId, seed: &str) -> NodeId {
+        let node = self.step(name, command, input);
+        let task = self
+            .tasks
+            .iter_mut()
+            .find(|task| task.node == node)
+            .expect("the step just pushed its task");
+        task.seed = Some("seed".to_owned());
+        task.parameters = vec![("seed".to_owned(), seed.to_owned())];
         node
     }
 
@@ -495,4 +513,169 @@ fn an_audit_with_no_remotes_says_nothing_about_them() {
 
     assert!(report.remotes.is_empty());
     assert!(!report.text().contains("pinned"));
+}
+
+// -------------------------------------------------------- stochastic steps --
+//
+// M11: a step that declares itself stochastic is never reported
+// *deterministic*, however its bytes fall. D40 is the argument; the tests
+// here are the teeth.
+
+#[test]
+fn a_seeded_stochastic_step_is_reproducible_rather_than_deterministic() {
+    // The clause D40 turns on. `STEADY` writes the same bytes every time, so
+    // this step reaches byte equality -- which is exactly what a correctly
+    // seeded stochastic tool does, and exactly the case where the old rule
+    // would have called it deterministic.
+    //
+    // It is not deterministic. The bytes match *because the seed was held
+    // still*; move the seed and they do not. A reader who saw
+    // `deterministic` would conclude there is no randomness in the step, and
+    // that conclusion would be false -- which is the class of
+    // engine-produced false statement this project exists not to make.
+    let mut bench = Bench::new();
+    let reference = bench.input("ref.fasta", ">1\nACGT\n");
+    let step = bench.stochastic_step("tree", STEADY, reference, "42");
+
+    let report = bench.audit(&[step], "tree");
+
+    let audited = &report.audited[0];
+    assert_eq!(audited.first, audited.second, "the bytes should match here");
+    assert_eq!(audited.verdict, Verdict::Reproducible, "{audited:?}");
+    assert_ne!(
+        audited.verdict,
+        Verdict::Deterministic,
+        "a declared stochastic step must never be called deterministic"
+    );
+    assert_eq!(report.verdict(), Verdict::Reproducible);
+}
+
+#[test]
+fn a_step_that_is_not_stochastic_is_still_deterministic_on_the_same_bytes() {
+    // The contrast, over the very same command, so that the test above
+    // cannot be read as a change in what `Deterministic` means. The verdict
+    // turns on the declaration and on nothing else.
+    let mut bench = Bench::new();
+    let reference = bench.input("ref.fasta", ">1\nACGT\n");
+    let declared = bench.stochastic_step("tree", STEADY, reference, "42");
+    let plain = bench.step("align", STEADY, reference);
+
+    assert_eq!(
+        bench.audit(&[declared], "tree").audited[0].verdict,
+        Verdict::Reproducible
+    );
+    assert_eq!(
+        bench.audit(&[plain], "align").audited[0].verdict,
+        Verdict::Deterministic
+    );
+}
+
+#[test]
+fn a_stochastic_step_reports_the_seed_it_was_held_at() {
+    let mut bench = Bench::new();
+    let reference = bench.input("ref.fasta", ">1\nACGT\n");
+    let step = bench.stochastic_step("tree", STEADY, reference, "42");
+
+    let report = bench.audit(&[step], "tree");
+
+    assert_eq!(
+        report.audited[0].seed,
+        Some(("seed".to_owned(), "42".to_owned())),
+        "the parameter and the value, since the name alone is not the fact"
+    );
+}
+
+#[test]
+fn an_ordinary_step_reports_no_seed() {
+    let mut bench = Bench::new();
+    let reference = bench.input("ref.fasta", ">1\nACGT\n");
+    let step = bench.step("align", STEADY, reference);
+
+    assert_eq!(bench.audit(&[step], "align").audited[0].seed, None);
+}
+
+#[test]
+fn the_report_does_not_say_the_bytes_differ_when_they_did_not() {
+    // Relabelling the verdict and leaving the wording alone would make the
+    // report lie by a different route: `reproducible`'s ordinary text is
+    // "the bytes differ", which is false of a byte-identical seeded step.
+    let mut bench = Bench::new();
+    let reference = bench.input("ref.fasta", ">1\nACGT\n");
+    let step = bench.stochastic_step("tree", STEADY, reference, "42");
+
+    let text = bench.audit(&[step], "tree").text();
+
+    assert!(text.contains("reproducible"), "{text}");
+    assert!(
+        !text.contains("the bytes differ"),
+        "the bytes did not differ: {text}"
+    );
+    assert!(text.contains("the same bytes both times"), "{text}");
+    // And it says why that is not determinism, where the reader is.
+    assert!(text.contains("seed"), "{text}");
+    assert!(text.contains("42"), "{text}");
+}
+
+#[test]
+fn a_stochastic_step_whose_result_moves_is_told_its_seed_did_not_hold() {
+    // The most useful diagnostic in the milestone. A step that names a seed
+    // and still disagrees with itself has a declaration that is false: the
+    // parameter is not what the tool draws on. Filing that under ordinary
+    // irreproducibility would waste the one thing the declaration bought.
+    let mut bench = Bench::new();
+    let reference = bench.input("ref.fasta", ">1\nACGT\n");
+    let step = bench.stochastic_step("tree", &volatile_sequence(&bench), reference, "42");
+
+    let report = bench.audit(&[step], "tree");
+    let text = report.text();
+
+    assert_eq!(report.audited[0].verdict, Verdict::NotReproducible);
+    assert!(text.contains("not reproducible"), "{text}");
+    assert!(text.contains("seed"), "{text}");
+    assert!(
+        text.contains("does not control"),
+        "it should say the seed is not what the tool draws on: {text}"
+    );
+}
+
+#[test]
+fn a_stochastic_step_whose_bytes_move_still_reads_as_it_did() {
+    // A seeded tool that records its own command line: bytes move, meaning
+    // does not. The ordinary `reproducible` wording is right here, and the
+    // seed is stated beside it.
+    let mut bench = Bench::new();
+    let reference = bench.input("ref.fasta", ">1\nACGT\n");
+    let step = bench.stochastic_step("tree", &volatile_description(&bench), reference, "7");
+
+    let report = bench.audit(&[step], "tree");
+    let text = report.text();
+
+    assert_eq!(report.audited[0].verdict, Verdict::Reproducible);
+    assert!(text.contains("the bytes differ"), "{text}");
+    assert!(text.contains("what they mean does not"), "{text}");
+    assert!(text.contains('7'), "the seed should be stated: {text}");
+}
+
+#[test]
+fn a_declared_step_whose_seed_names_no_parameter_is_still_not_deterministic() {
+    // The decorator refuses a `seed=` naming no parameter, so this cannot
+    // arise from Python. It is pinned anyway, because the verdict is the
+    // wrong place to lean on that: `Deterministic` is withheld on the
+    // strength of the *declaration*, and a declaration whose value cannot
+    // be found is still a declaration. The report simply has no number to
+    // print beside it.
+    let mut bench = Bench::new();
+    let reference = bench.input("ref.fasta", ">1\nACGT\n");
+    let node = bench.step("tree", STEADY, reference);
+    bench
+        .tasks
+        .iter_mut()
+        .find(|task| task.node == node)
+        .expect("the step just pushed its task")
+        .seed = Some("seed".to_owned());
+
+    let report = bench.audit(&[node], "tree");
+
+    assert_eq!(report.audited[0].verdict, Verdict::Reproducible);
+    assert_eq!(report.audited[0].seed, None);
 }

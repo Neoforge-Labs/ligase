@@ -125,6 +125,7 @@ impl Bench {
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
                 .collect(),
             citations: Vec::new(),
+            seed: None,
         });
         node
     }
@@ -153,6 +154,7 @@ impl Bench {
             tools: Vec::new(),
             parameters: Vec::new(),
             citations: Vec::new(),
+            seed: None,
         });
         node
     }
@@ -750,6 +752,7 @@ fn a_python_step_is_run_by_the_host_and_cached_like_any_other() {
         tools: Vec::new(),
         parameters: Vec::new(),
         citations: Vec::new(),
+        seed: None,
     });
     let host = Writing {
         calls: Mutex::new(Vec::new()),

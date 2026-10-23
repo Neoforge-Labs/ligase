@@ -1,0 +1,181 @@
+---
+title: "Declaring a stochastic step"
+description: "How to write a step whose tool samples, how the engine refuses one that forgot its seed, and what the audit and the methods paragraph then say."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+import { stochastic } from '../../lib/stochastic.generated'
+
+# Declaring a stochastic step
+
+<Lede>
+Your tool samples: a tree search, a chain, a docking run, a subsample, a
+training run. Two keywords make that a fact the engine knows, and the
+difference shows up in what `ligase audit` and `ligase methods` are then
+allowed to say.
+</Lede>
+
+```python
+@lg.step(tool="seqtk", stochastic=True, seed="seed")
+def subsample(reads: Reads, fraction: float = 0.1, seed: int = 20260101) -> Reads:
+    return lg.sh("seqtk sample -s{seed} {reads.r1} {fraction} > {out}")
+```
+
+- `stochastic=True` — there is randomness in this tool.
+- `seed="seed"` — and *this* parameter is what holds it still.
+
+Both or neither. Everything else on this page follows from those two lines.
+
+**Before you start:** nothing. The refusals below happen as a pipeline file
+is imported, so you can try them in a REPL.
+
+## The two things to get right
+
+### Name a parameter, not a value
+
+`seed=` takes the **name** of one of the step's own parameters. The engine is
+not being handed a seed to look after; it is being told which parameter
+already is one.
+
+```python
+@lg.step(tool="iqtree", stochastic=True, seed="rng_seed")   # the name
+def tree(aln: Alignment, rng_seed: int = 42) -> Intervals:
+    ...
+```
+
+### Type it `int`
+
+```python
+@lg.step(stochastic=True, seed="seed")
+def sampled(reads: Reads, seed: str = "42") -> Reads:   # refused
+    ...
+```
+
+<Diagnostic note="raised by @lg.step, as the pipeline is imported">{diagnostics.seedThatIsNotAnInt}</Diagnostic>
+
+A float seed, a timestamp or a `None` is a seed somebody will set differently
+by accident. The annotation is the cheapest place to say so.
+
+## What happens when you forget
+
+The refusal is raised by the decorator, so it arrives when the pipeline file
+is read — not when the step runs, and not as a warning:
+
+<Diagnostic note="raised by @lg.step, as the pipeline is imported">{diagnostics.unseededStochasticStep}</Diagnostic>
+
+It suggests a parameter only when it can see one actually called a seed. Given
+a step that takes `iterations: int`, it lists what it found and leaves the
+choice to you, because `seed="iterations"` would be a confident wrong answer.
+
+The other direction is refused too. A `seed=` with no `stochastic=True` is not
+read as a shorthand:
+
+```python
+@lg.step(seed="seed")                    # refused
+def sampled(reads: Reads, seed: int = 42) -> Reads:
+    ...
+```
+
+<Diagnostic note="raised by @lg.step, as the pipeline is imported">{diagnostics.seedWithoutDeclaring}</Diagnostic>
+
+One declaration, one spelling.
+
+<Note kind="tip">
+A step may of course take a parameter called `seed` and declare nothing. That
+is legal and means what it says: a number the step passes along, about which
+the pipeline makes no claim. The engine does not guess.
+</Note>
+
+## Auditing it
+
+[`ligase audit`](/guide/semantic-hashing/) runs the step twice and compares
+both the bytes and the meaning. For a correctly seeded step the bytes match —
+and the verdict is still `reproducible`:
+
+<RunReport note="ligase audit, on a declared stochastic step">{stochastic.declared}</RunReport>
+
+The second line is the whole of the declaration's value. Without it, the same
+run reports this:
+
+<RunReport note="the same body, with nothing declared">{stochastic.undeclared}</RunReport>
+
+Identical hash, different verdict — because `deterministic` is a claim about
+the step, and said of a step that samples it is false. See
+[why](/concepts/stochastic-steps/#what-it-buys-a-word-that-means-what-it-says).
+
+### When the seed does not hold
+
+If the tool ignores the flag you named — renamed between releases, or a
+library reading the global generator — the audit says so, and says which
+parameter you were wrong about:
+
+<RunReport note="a seed the tool does not draw on">{stochastic.ignoring}</RunReport>
+
+What to do, in order:
+
+1. **Check the flag.** `-seed`, `--seed`, `-s`, `--random_seed`: they are all
+   in use, and a tool that does not recognise yours usually says nothing.
+2. **Check the threads.** Many tools are deterministic per seed only at a
+   fixed thread count, because a parallel reduction adds in whatever order it
+   finishes. If so, the thread count is a parameter too.
+3. **Check for a second source.** A step that shells out twice, or calls a
+   library that seeds itself, has randomness your parameter never reaches.
+
+Until it is fixed the step is honestly reported as not reproducible, which is
+better than a `deterministic` that would have been luck.
+
+### From Python
+
+```python
+report = pipe.audit("subsample")
+
+for step in report.steps:
+    if step.seed is not None:
+        parameter, value = step.seed
+        print(f"{step.step}: {step.verdict}, with {parameter} = {value}")
+```
+
+`step.seed` is `None` for a step that declared none, and `step.verdict` is
+never `"deterministic"` for one that did.
+
+## Writing it up
+
+`ligase methods` names the seed as a seed:
+
+<RunReport note="ligase methods">{stochastic.methods}</RunReport>
+
+*Seeded with* rather than *with*, because a reader of `with seed = 20260101`
+cannot tell whether that number is a sampling seed or a cutoff — and the one
+thing a methods section owes a stochastic analysis is the number to copy.
+
+## Changing the seed
+
+A seed is an ordinary typed parameter, so it is in the
+[cache key](/concepts/caching/):
+
+```python
+lg.Pipeline(subsample(reads, seed=1)).run()     # ran
+lg.Pipeline(subsample(reads, seed=1)).run()     # from cache
+lg.Pipeline(subsample(reads, seed=2)).run()     # ran
+```
+
+Two seeds are two results, so they are two keys. Nothing was arranged to make
+that so; it falls out of the seed being a parameter, which is
+[why it has to be one](/concepts/stochastic-steps/#the-seed-is-an-ordinary-parameter).
+
+<Note kind="caution">
+Changing the *declaration* reruns the step as well, even though it cannot
+change the result. A step's code is hashed as written, decorator line
+included, so editing `@lg.step(...)` moves its key exactly as editing a
+comment does — and then
+[early cutoff](/concepts/caching/#why-outputs-are-named-after-their-contents) stops the rerun travelling
+downstream. Too cold costs time; too warm is wrong.
+</Note>
+
+## Next
+
+- [Steps that draw on randomness](/concepts/stochastic-steps/) — why this is
+  a refusal rather than a convention.
+- [Checking that a step repeats](/guide/semantic-hashing/) — the rest of
+  `ligase audit`.
+- [Writing up a pipeline](/guide/provenance/) — the whole methods section.

@@ -95,7 +95,7 @@ that the demo's organism survives inheritance through two steps.
 
 ## The v0.2 roadmap
 
-M8, M9 and M12 are built; the rest is planned. v0.2 exists to make
+M7 to M12 are built; M13 and M14 remain. v0.2 exists to make
 Ligase useful to a scientist who has never heard of this project, and three
 things carry that: the commonest silent bug in biology — identifiers from one
 namespace joined to another — becomes a refused connection; the fetch that
@@ -529,6 +529,134 @@ as *reproducible* over two runs with the same seed; the methods paragraph
 names the seed; the test uses a real stochastic tool on the tiny fixtures
 (IQ-TREE on a small alignment, or a seeded Python step where the tool is
 absent).
+
+**Done.** All four clauses, each pinned by a named test. See
+[steps that draw on randomness](/concepts/stochastic-steps/),
+[declaring one](/guide/stochastic-steps/) and
+[how the verdict is decided](/project/architecture/audit/).
+
+Decorating an unseeded `stochastic=True` step raises `StepDefinitionError`
+naming the missing seed, in `test_a_stochastic_step_must_name_its_seed`, and
+the refusal is captured from a real decoration into both pages by a new
+`capture_diagnostics.py` scenario. Four more refusals are pinned beside it,
+all at decoration: a `seed=` naming a parameter the step does not take, one
+not typed `int`, one naming a data parameter, and `seed=` with no
+`stochastic=True` — which the spec does not mention and which is refused
+rather than read as a shorthand, because two spellings of one declaration is
+how a second untested path gets in.
+
+A seeded stochastic step audits as *reproducible* over two runs with the same
+seed, in `test_a_seeded_stochastic_step_audits_as_reproducible` and
+`a_seeded_stochastic_step_is_reproducible_rather_than_deterministic`. The
+second of those is the clause that matters, and it is asserted as a
+*contrast*: the same body, the same seed and the same output hash, declared
+and undeclared, giving `reproducible` and `deterministic`. A reader finding
+only the first would reasonably take the saturation for a bug.
+
+The methods paragraph names the seed, in
+`a_stochastic_steps_paragraph_says_it_was_seeded`. It says *seeded with
+seed = 42* rather than *with seed = 42*, which is more than the clause asked
+for and less than it meant: a seed is a plain parameter, so the paragraph
+already printed it, indistinguishable from `min_freq = 0.01`. A reader of
+that cannot tell the step samples or that this is the number to copy.
+
+**The test runs everywhere, and nothing skips.** The clause offered IQ-TREE
+on the tiny fixtures or a seeded Python step where the tool is absent, and
+the Python step was taken for both halves of the reason. IQ-TREE is installed
+on no machine this project builds on — it is not among the `demo` job's three
+tools — so an IQ-TREE test would skip on all of them, and a test that
+silently skips in CI is worth much less than one that runs. It would also
+need the `Tree` kind D40 declines. The vehicle is a seeded Python shuffle of
+a `RankedList`, chosen because that kind's canonical form keeps row order
+(D41), so the seed's effect is visible in the engine's own comparison rather
+than hidden behind a sort.
+
+**No `Tree` kind, and so no standing requirement.** D35 refuses one: a
+tree's tip labels are on the `identifier_namespace` axis an `EntitySet`
+already claims, its organisms are `organism`, a reference tree's version is
+`release`, and what is left is Newick with a schema — a parser. So this
+milestone adds no kind, applies no axis, and brings no `compare` or
+`propagate` arm within reach that was not already pinned. M7's standing
+requirement does not land here, and the absence is recorded rather than left
+to be inferred.
+
+**The seed was already in the cache key.** `CLAUDE.md` requires seeds to be
+explicit, typed, hashed parameters, and `key.rs` already said in its module
+docs that a seed needs nothing special because it is an ordinary parameter.
+Verified rather than assumed, and then pinned, because an unpinned property
+is one that can be lost: `a_step_run_under_two_seeds_has_two_keys` and
+`the_same_seed_is_the_same_key` are both new, and without the first two seeds
+could come to share a key and the second run would be served the first one's
+answer in silence.
+
+**Audit has no first-run problem.** An audit is *defined* as two runs of its
+own, so there is never one observation to judge; the surface that does see a
+single run, `ligase run`, reports an `Outcome` rather than a verdict, which is
+the right answer rather than a gap. Nothing to build, and it is written down
+in the architecture page so that the next reader does not go looking for the
+missing case.
+
+**What the work turned up, and the lesson worth keeping.** Three things, and
+none of them was in the four clauses.
+
+The first is that satisfying the saturation by relabelling would have made the
+report lie by a different route. `reproducible`'s existing text is "the bytes
+differ; what they mean does not", which is false of a byte-identical seeded
+step — so `AuditReport::text` now branches on the facts rather than on the
+verdict alone. The most valuable branch is one nothing asked for: a step that
+names a seed and *still* disagrees with itself has a declaration that is
+false, and the report now names the parameter the pipeline believed was
+controlling the tool and says it is not. Filing that under ordinary
+irreproducibility would have wasted the one thing the declaration bought.
+
+The second is `methods.rs::restating`, which drops a parameter whose value is
+merely the node's own scope so that `sample_id = 'SRR8525904'` does not appear
+beside a sentence already naming four samples. That rule is right and its
+catch-all was written when every parameter was a setting. It is too wide the
+moment one parameter is *obliged* to appear, and a seed caught by it would
+have vanished from the paragraph — a methods section quietly omitting the one
+number D40 exists to make it state.
+`a_seed_is_named_even_where_it_reads_like_the_sample` pins the exemption.
+
+The third is in the error message, which on this project is the product. The
+refusal for a missing seed tried to suggest the parameter it thought was
+meant, and the first version suggested the first `int` parameter it could
+find — producing `seed="iterations"` on a step taking `iterations: int`, a
+confident wrong answer a reader might take. A guess is only worth printing
+where it cannot be wrong. It now suggests a spelling only where a parameter
+is actually called one, and otherwise lists what it found and leaves the
+choice with the person who knows the tool.
+`test_the_refusal_does_not_guess_a_seed_it_cannot_know` pins that, and the
+published diagnostic is a real one rather than a paraphrase.
+
+**The lesson.** Two of those three are the same shape as M12's: a rule
+written when its category had one member, which becomes wrong the moment the
+category has two. `restating` was correct while every parameter was optional
+prose and wrong once one was mandatory; `Verdict::Deterministic` was correct
+while every step was either arithmetic or broken and wrong once a step could
+be *seeded*. Adding a member to a category rewrites every catch-all that was
+written when there was one — and the place to look is wherever a rule says
+"all parameters" or "the bytes matched".
+
+**One pre-existing claim corrected.** `exec.rs` said of `citations` that
+"adding one must not rerun a pipeline". The field is indeed out of the cache
+key, but `graph.py::_source` hashes a step's source *including its decorator
+line*, so editing `cite=` has always moved the step's `code` and rerun it —
+early cutoff then stopping the rerun downstream. The field being excluded
+reads like a promise that editing it is free, and it is not. Both fields now
+say what is true, because the new `seed` field would otherwise have copied
+the error.
+
+**Deliberately not done.** No `Tree` kind; no new `Verdict` variant and no
+separate `StochasticVerdict` (the argument is in D40); no change to
+`prov::bundle`, whose `Match::Identical` is correct as it stands and whose
+file belongs to M14; no `tolerance=`, which is a separate nondeterminism rule
+no clause here asks for; and no attempt to *detect* stochasticity, which the
+engine cannot do and which a heuristic would get wrong in both directions.
+`AuditReport::verdict()` still answers `deterministic` for a report in which
+every step failed — pre-existing, outside these clauses, and already handled
+on the Python surface by `AuditReport.reproducible`, which accounts for
+failures. Noted rather than widened into.
 
 ## M12 — Ranked lists
 A `RankedList` kind, canonicalised **in order**. D41.
