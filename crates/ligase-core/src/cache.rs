@@ -38,6 +38,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::canon::{self, CANON_VERSION, Canonical, Form, Note};
 use crate::hash::ContentHash;
 use crate::key::{KEY_VERSION, StepKey};
+use crate::remote::request::Method;
 use crate::store::{BlobStore, FsStore, ObjectKey, StoreError, suffix_of as suffix};
 use crate::types::DataKind;
 
@@ -50,8 +51,10 @@ use crate::types::DataKind;
 /// 2 added the `notes` column, for what canonicalising a file noticed
 /// (D26). 3 added one to `steps`, for what a step noticed about its own
 /// work (D32). 4 added the `remotes` table, for what was fetched from
-/// where (D39).
-const SCHEMA_VERSION: u32 = 4;
+/// where (D39). 5 added the `records` table beside it, for a recorded
+/// query -- a separate table rather than a flag, because a pinned remote's
+/// record is replaced and a query's must never be.
+const SCHEMA_VERSION: u32 = 5;
 
 /// An output held in the store.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -106,6 +109,53 @@ pub struct RemoteRow {
     pub files: Vec<RemoteFile>,
     /// When it was fetched, as seconds since the epoch.
     pub fetched_at: i64,
+}
+
+/// One recorded response to one query.
+///
+/// Identified by the hash of its canonical request, so a step making twenty
+/// paginated calls writes twenty of these and finds them again whatever
+/// order it asks in next time (D39).
+///
+/// Note what is **not** here: no request headers, so no `Authorization`
+/// token. The transport's [`crate::remote::fetch::Fetched`] has no field
+/// for one and neither does this, which is how "a bundle never carries a
+/// secret" survives a later field being added by someone who has not read
+/// D39.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueryRecord {
+    /// The hash of the canonical request, which is this record's identity.
+    pub request: ContentHash,
+    /// Which recording of that request this is: 1, then 2 for the first
+    /// refresh, and so on.
+    ///
+    /// The revision rather than the date is what makes a record unique,
+    /// because two records a second apart must still be two records and a
+    /// clock is the wrong thing to rest that on.
+    pub revision: u32,
+    /// When it was recorded, as seconds since the epoch. What "a new dated
+    /// record" and "replayed from record of <date>" both read.
+    pub recorded_at: i64,
+    /// The locator as the pipeline wrote it.
+    pub locator: String,
+    /// How the body is read.
+    pub kind: DataKind,
+    /// The method that was used, which is part of the identity and is kept
+    /// so a record can be explained as well as found.
+    pub method: Method,
+    /// The URL that answered, after any redirects — not the locator, and
+    /// worth keeping precisely because it can differ.
+    pub url: String,
+    /// The status it answered with. Always a success: a record of a failure
+    /// would replay the failure forever as though it were an answer.
+    pub status: u16,
+    /// The canonical response body, in the blob store.
+    pub body: ObjectKey,
+    /// The digest of what the body *means*, read as `kind`, which is what
+    /// enters a step key.
+    pub digest: ContentHash,
+    /// What canonicalising the response noticed: a field dropped from it.
+    pub notes: Vec<Note>,
 }
 
 /// How much work the prefilter saved.
@@ -420,6 +470,128 @@ impl Cache {
         Ok(())
     }
 
+    /// Every recording of this request, oldest revision first.
+    ///
+    /// All of them rather than only the current one, because a refresh
+    /// never replaces what it refreshes: an earlier run replays from the
+    /// revision it recorded, and a drift report names both.
+    ///
+    /// # Errors
+    ///
+    /// If the metadata cannot be read.
+    pub fn query_records(&self, request: ContentHash) -> Result<Vec<QueryRecord>, CacheError> {
+        let rows: Vec<Row> = self.with_database(|database| {
+            let mut statement = database.prepare(
+                "SELECT revision, recorded_at, locator, kind, method, url, status,
+                        body, suffix, digest, notes
+                     FROM records WHERE request = ?1 ORDER BY revision",
+            )?;
+            statement
+                .query_map(params![request.to_hex()], |row| -> rusqlite::Result<Row> {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                        row.get(9)?,
+                        row.get(10)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<Row>>>()
+        })??;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| decode_query_record(request, row))
+            .collect())
+    }
+
+    /// The current recording of this request, if there is one.
+    ///
+    /// The highest revision, which is what a replay serves.
+    ///
+    /// # Errors
+    ///
+    /// If the metadata cannot be read.
+    pub fn query_record(&self, request: ContentHash) -> Result<Option<QueryRecord>, CacheError> {
+        Ok(self.query_records(request)?.pop())
+    }
+
+    /// Record a response, as the next revision of its request.
+    ///
+    /// The revision is assigned here rather than by the caller, so that
+    /// "a refresh writes beside" cannot be got wrong by whoever is doing
+    /// the refreshing. Returns the record as it was written.
+    ///
+    /// # Errors
+    ///
+    /// If the metadata cannot be read or written.
+    pub fn record_query(&self, record: &QueryRecord) -> Result<QueryRecord, CacheError> {
+        let next = self
+            .query_records(record.request)?
+            .last()
+            .map_or(1, |previous| previous.revision + 1);
+        let written = QueryRecord {
+            revision: next,
+            ..record.clone()
+        };
+        self.with_database(|database| {
+            database.execute(
+                "INSERT INTO records
+                     (request, revision, recorded_at, locator, kind, method, url,
+                      status, body, suffix, digest, notes)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    written.request.to_hex(),
+                    written.revision,
+                    written.recorded_at,
+                    written.locator,
+                    written.kind.name(),
+                    written.method.name(),
+                    written.url,
+                    written.status,
+                    written.body.hash.to_hex(),
+                    written.body.suffix,
+                    written.digest.to_hex(),
+                    encode_notes(&written.notes),
+                ],
+            )
+        })??;
+        Ok(written)
+    }
+
+    /// Every recorded response this cache holds, oldest first.
+    ///
+    /// For a bundle, which carries them so that a reviewer with no network
+    /// and no API key can replay the run (D39).
+    ///
+    /// # Errors
+    ///
+    /// If the metadata cannot be read.
+    pub fn all_query_records(&self) -> Result<Vec<QueryRecord>, CacheError> {
+        let requests: Vec<String> = self.with_database(|database| {
+            let mut statement =
+                database.prepare("SELECT DISTINCT request FROM records ORDER BY request")?;
+            statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()
+        })??;
+
+        let mut records = Vec::new();
+        for request in requests {
+            let Some(request) = ContentHash::parse(&request) else {
+                continue;
+            };
+            records.extend(self.query_records(request)?);
+        }
+        Ok(records)
+    }
+
     /// The blob tier this cache keeps its objects in.
     ///
     /// Exposed because a recorded remote is written here rather than through
@@ -673,6 +845,51 @@ fn create_dir(path: &Path) -> Result<(), CacheError> {
 ///
 /// Tab-separated and readable with `sqlite3`, because a cache whose whole
 /// purpose is explaining a result should be explicable itself.
+/// One `records` row as SQLite hands it back.
+///
+/// A named alias because the tuple is eleven columns wide and a signature
+/// spelling it out twice would be two places for it to drift.
+type Row = (
+    u32,
+    i64,
+    String,
+    String,
+    String,
+    String,
+    u16,
+    String,
+    String,
+    String,
+    String,
+);
+
+/// A `records` row as a [`QueryRecord`].
+///
+/// `None` for a row this version cannot read -- an unknown kind or method,
+/// a hash that will not parse -- which is treated as no record at all. That
+/// costs one fetch and cannot serve a half-understood answer, which is how
+/// `remote` already treats a row it does not recognise.
+fn decode_query_record(request: ContentHash, row: Row) -> Option<QueryRecord> {
+    let (revision, recorded_at, locator, kind, method, url, status, body, suffix, digest, notes) =
+        row;
+    Some(QueryRecord {
+        request,
+        revision,
+        recorded_at,
+        locator,
+        kind: DataKind::ALL
+            .iter()
+            .copied()
+            .find(|known| known.name() == kind)?,
+        method: Method::parse(&method)?,
+        url,
+        status,
+        body: ObjectKey::new(ContentHash::parse(&body)?, &suffix),
+        digest: ContentHash::parse(&digest)?,
+        notes: decode_notes(&notes),
+    })
+}
+
 fn encode_remote_files(files: &[RemoteFile]) -> String {
     files
         .iter()
@@ -736,6 +953,7 @@ fn prepare(database: &Connection) -> Result<(), CacheError> {
         database.execute("DROP TABLE IF EXISTS steps", [])?;
         database.execute("DROP TABLE IF EXISTS canonical", [])?;
         database.execute("DROP TABLE IF EXISTS remotes", [])?;
+        database.execute("DROP TABLE IF EXISTS records", [])?;
     }
 
     database.execute(
@@ -778,6 +996,40 @@ fn prepare(database: &Connection) -> Result<(), CacheError> {
              files      TEXT NOT NULL,
              fetched_at INTEGER NOT NULL,
              PRIMARY KEY (locator, kind)
+         )",
+        [],
+    )?;
+
+    // Every recorded response, keyed by the hash of its canonical request
+    // (D39). A separate table from `remotes` rather than one with a flag,
+    // and the difference is the whole of why: `remotes` is
+    // `INSERT OR REPLACE`, because a later fetch of a pinned locator is
+    // either the same answer or a failure, and a refresh of a query must
+    // *never* replace what it refreshes -- every earlier run stays
+    // replayable.
+    //
+    // So the key is `(request, revision)` and a refresh inserts the next
+    // revision. Not `(request, recorded_at)`: two records a second apart
+    // must still be two records, and keying on a clock would let a refresh
+    // inside the same second overwrite the thing it exists not to
+    // overwrite. Nothing supersedes anything explicitly either -- revision
+    // `n` supersedes `n - 1` by construction, which cannot drift out of
+    // step with itself.
+    database.execute(
+        "CREATE TABLE IF NOT EXISTS records (
+             request     TEXT NOT NULL,
+             revision    INTEGER NOT NULL,
+             recorded_at INTEGER NOT NULL,
+             locator     TEXT NOT NULL,
+             kind        TEXT NOT NULL,
+             method      TEXT NOT NULL,
+             url         TEXT NOT NULL,
+             status      INTEGER NOT NULL,
+             body        TEXT NOT NULL,
+             suffix      TEXT NOT NULL,
+             digest      TEXT NOT NULL,
+             notes       TEXT NOT NULL DEFAULT '',
+             PRIMARY KEY (request, revision)
          )",
         [],
     )?;

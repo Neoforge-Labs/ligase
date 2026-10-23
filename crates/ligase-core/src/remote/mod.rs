@@ -35,11 +35,14 @@
 //! [`request`] says which record a query is — the canonical request, so that
 //! paginated calls are keyed by what was asked rather than by the order it
 //! was asked in — and [`response`] says what a recorded answer means, so
-//! that two answers meaning the same thing are one answer.
+//! that two answers meaning the same thing are one answer. [`recorded`]
+//! puts the two together: it replays a record, writes one, or refreshes one
+//! and reports the drift.
 
 pub mod fetch;
 pub mod locator;
 pub mod pinned;
+pub mod recorded;
 pub mod request;
 pub mod response;
 

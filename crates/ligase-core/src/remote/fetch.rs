@@ -24,11 +24,15 @@
 //!
 //! # A secret has nowhere to go
 //!
-//! [`Fetched`] has no field for request headers, and neither does anything
-//! derived from it. An `Authorization` header is therefore not *stripped*
-//! before storage — it is never representable in anything the engine stores,
-//! which is the only version of that guarantee a later field cannot quietly
-//! undo (D39: a bundle never carries a secret).
+//! A [`Request`] carries its [`crate::remote::request::Auth`], because the
+//! token has to be sent. Nothing else does: [`Fetched`] has no field for
+//! request headers, and neither does the record written from it or the
+//! bundle written from that. An `Authorization` header is therefore not
+//! *stripped* before storage — it is never representable in anything the
+//! engine stores, which is the only version of that guarantee a later field
+//! cannot quietly undo (D39: a bundle never carries a secret). The one door
+//! left is a message that formats a request, which `Auth`'s own `Debug`
+//! closes by redacting the token.
 //!
 //! # Why a trait
 //!
@@ -41,6 +45,8 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+use crate::remote::request::{Method, Request};
 
 /// How hard to try, and how much to accept.
 #[derive(Clone, Copy, Debug)]
@@ -119,6 +125,18 @@ pub enum FetchError {
         /// The underlying failure.
         source: io::Error,
     },
+    /// The request asks for a method this transport cannot issue.
+    ///
+    /// A method is part of a record's identity, so a `POST` is hashable
+    /// before it is sendable. Refused here rather than downgraded to a
+    /// `GET`, which would ask a different question and then record the
+    /// answer as though it were the one wanted.
+    Unsendable {
+        /// What was asked for.
+        url: String,
+        /// The method that cannot be issued.
+        method: Method,
+    },
 }
 
 impl fmt::Display for FetchError {
@@ -135,6 +153,13 @@ impl fmt::Display for FetchError {
                 "{url} is larger than the {limit} bytes this fetch allows"
             ),
             Self::Io { path, source } => write!(f, "{}: {source}", path.display()),
+            Self::Unsendable { url, method } => write!(
+                f,
+                "{url} would have to be asked with {method}, which this \
+                 engine cannot send yet: a request body is part of what \
+                 identifies a record, so the method is understood before it \
+                 can be issued"
+            ),
         }
     }
 }
@@ -158,7 +183,7 @@ impl FetchError {
         match self {
             Self::Unreachable { .. } => true,
             Self::Status { status, .. } => *status == 429 || *status >= 500,
-            Self::TooLarge { .. } | Self::Io { .. } => false,
+            Self::TooLarge { .. } | Self::Io { .. } | Self::Unsendable { .. } => false,
         }
     }
 }
@@ -169,14 +194,21 @@ impl FetchError {
 /// everything else. The staged path is the caller's: the transport writes it
 /// and removes it on failure, and never decides where it goes.
 pub trait Transport: Send + Sync {
-    /// Fetch `url` into `into`, replacing whatever was there.
+    /// Make this request, writing the body into `into` and replacing
+    /// whatever was there.
+    ///
+    /// Takes the whole [`Request`] rather than a URL because a recorded
+    /// query may be authenticated, and one method taking one type is what
+    /// stops a second one existing whose default implementation quietly
+    /// drops the authentication.
     ///
     /// # Errors
     ///
     /// [`FetchError`] if the server cannot be reached, answers with a
-    /// failure, answers with too much, or the staged file cannot be written.
-    /// On any error the staged file is removed.
-    fn get(&self, url: &str, into: &Path) -> Result<Fetched, FetchError>;
+    /// failure, answers with too much, is asked for a method this transport
+    /// cannot issue, or the staged file cannot be written. On any error the
+    /// staged file is removed.
+    fn fetch(&self, request: &Request, into: &Path) -> Result<Fetched, FetchError>;
 }
 
 /// The networked transport.
@@ -207,18 +239,23 @@ impl Network {
     }
 
     /// One attempt, with no retrying.
-    fn attempt(&self, url: &str, into: &Path) -> Result<Fetched, FetchError> {
+    fn attempt(&self, request: &Request, into: &Path) -> Result<Fetched, FetchError> {
         use ureq::ResponseExt as _;
         use ureq::http::Uri;
 
-        let response = self
-            .agent
-            .get(url)
-            .call()
-            .map_err(|error| FetchError::Unreachable {
-                url: url.to_owned(),
-                why: error.to_string(),
-            })?;
+        let url = request.url.as_str();
+        let mut call = self.agent.get(url);
+        // The one place a token leaves `Auth`, handed straight to the
+        // client: nothing in between holds it, and nothing downstream has a
+        // field it could be written to.
+        if let Some(auth) = &request.auth {
+            let (name, value) = auth.header();
+            call = call.header(name, value);
+        }
+        let response = call.call().map_err(|error| FetchError::Unreachable {
+            url: url.to_owned(),
+            why: error.to_string(),
+        })?;
 
         let status = response.status().as_u16();
         let answered: &Uri = response.get_uri();
@@ -258,10 +295,20 @@ impl Network {
 }
 
 impl Transport for Network {
-    fn get(&self, url: &str, into: &Path) -> Result<Fetched, FetchError> {
+    fn fetch(&self, request: &Request, into: &Path) -> Result<Fetched, FetchError> {
+        let url = request.url.as_str();
+        if request.method != Method::Get {
+            // Refused rather than silently downgraded to a GET, which would
+            // ask a different question and record the answer as though it
+            // were the one wanted.
+            return Err(FetchError::Unsendable {
+                url: url.to_owned(),
+                method: request.method,
+            });
+        }
         let mut waited = self.policy.backoff;
         for attempt in 1..=self.policy.attempts.max(1) {
-            match self.attempt(url, into) {
+            match self.attempt(request, into) {
                 Ok(fetched) => return Ok(fetched),
                 Err(error) => {
                     // Whatever happened, nothing half-written is left where
@@ -297,9 +344,9 @@ impl Transport for Network {
 pub struct Offline;
 
 impl Transport for Offline {
-    fn get(&self, url: &str, _into: &Path) -> Result<Fetched, FetchError> {
+    fn fetch(&self, request: &Request, _into: &Path) -> Result<Fetched, FetchError> {
         Err(FetchError::Unreachable {
-            url: url.to_owned(),
+            url: request.url.clone(),
             why: "this run may not fetch anything, and the store does not \
                   hold it. Run it once with the network available, or point \
                   it at a store that has been"

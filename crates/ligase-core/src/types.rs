@@ -170,12 +170,28 @@ pub enum RemoteVerdict {
     /// The same bytes forever, from the source, pinned by digest. Anyone,
     /// anywhere, at any time gets this input.
     Pinned,
+    /// Served from a record of a past response, with no network touched.
+    ///
+    /// The same bytes forever *from the record*, which is a weaker promise
+    /// than `Pinned` and a different one rather than a lesser one: the
+    /// source promises nothing, so what makes this reproducible is that the
+    /// body itself is in the store and travels in the bundle.
+    Replayed,
+    /// Fetched on this run, from a source that promises nothing.
+    ///
+    /// What the run that *writes* a record gets, and what a `--refresh`
+    /// gets. Honest rather than reassuring: this run's answer came off the
+    /// network, and it is the record written here that makes the next one
+    /// repeatable.
+    Live,
 }
 
 impl fmt::Display for RemoteVerdict {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Pinned => "pinned",
+            Self::Replayed => "replayed",
+            Self::Live => "live",
         })
     }
 }

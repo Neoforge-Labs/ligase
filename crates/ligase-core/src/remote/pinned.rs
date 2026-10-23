@@ -49,6 +49,7 @@ use crate::hash::ContentHash;
 use crate::note::Note;
 use crate::remote::fetch::{FetchError, Transport};
 use crate::remote::locator::{Locator, LocatorError};
+use crate::remote::request::Request;
 use crate::store::{BlobStore, ObjectKey, StoreError};
 use crate::types::{DataKind, Origin, RemoteVerdict};
 
@@ -399,8 +400,12 @@ fn fetch_all(
             "fetch-{}-{at}{suffix}",
             ContentHash::of_bytes(written.as_bytes()).to_hex()
         ));
+        // A pinned remote is a plain GET and is never authenticated: an
+        // accession an archive undertakes not to change is one anybody can
+        // ask for, and a pin that needed a token would not be a promise
+        // anyone could hold the source to.
         let fetched = transport
-            .get(url, &into)
+            .fetch(&Request::get(url), &into)
             .map_err(|source| RemoteError::Fetch {
                 locator: written.to_owned(),
                 source,

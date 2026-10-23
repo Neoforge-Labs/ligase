@@ -27,6 +27,7 @@ use ligase::note::Note;
 use ligase::remote::Locator;
 use ligase::remote::fetch::{FetchError, Fetched, Network, Offline, Policy, Transport};
 use ligase::remote::pinned::{self, RemoteError, Source};
+use ligase::remote::request::Request;
 use ligase::types::DataKind;
 use tempfile::TempDir;
 
@@ -289,12 +290,14 @@ struct ViaMock {
 }
 
 impl Transport for ViaMock {
-    fn get(&self, url: &str, into: &std::path::Path) -> Result<Fetched, FetchError> {
-        let path = url
+    fn fetch(&self, request: &Request, into: &std::path::Path) -> Result<Fetched, FetchError> {
+        let path = request
+            .url
             .split_once("://")
             .and_then(|(_, rest)| rest.split_once('/'))
             .map_or_else(String::new, |(_, path)| format!("/{path}"));
-        self.inner.get(&format!("{}{path}", self.base), into)
+        self.inner
+            .fetch(&Request::get(&format!("{}{path}", self.base)), into)
     }
 }
 
