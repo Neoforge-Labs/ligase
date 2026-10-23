@@ -223,21 +223,23 @@ actually have is one comprehension away:
 ['SRR32217714', 'SRR32217715', 'SRR32217716', 'SRR32217726']
 ```
 
-## What is not here yet
+## What is here, and what is not yet
 
 The graph is built, checked and run — see
 [running a pipeline](/guide/running-a-pipeline/) for `lg.sh`, the cache
 and what `pipe.run()` reports. What a step body returns is covered there
 too, since a body describes work rather than doing it.
 
-`pipe.methods()` and `ligase methods` arrive with provenance in
+`pipe.methods()` and `ligase methods` arrived with provenance in
 [M5](/project/milestones/): the engine records a step's tool versions and
-parameters today, but nothing turns them into a methods paragraph or a
-reproducibility bundle yet.
+parameters, and turns them into a methods paragraph and a reproducibility
+bundle. See [provenance](/concepts/provenance/).
 
-Conversions are still v2. `check()` reports that a BED and a VCF disagree
-about coordinates; it does not go looking for the conversion that would fix
-it ([D5](/project/decisions/)).
+Conversions are **searched for** only in v2. One conversion exists —
+`lg.map_identifiers`, which crosses `identifier_namespace` — but `check()`
+reporting that a BED and a VCF disagree about coordinates is as far as it
+goes: it does not go looking for the conversion that would fix it
+([D5](/project/decisions/)).
 
 ## Next
 

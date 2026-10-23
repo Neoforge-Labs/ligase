@@ -58,9 +58,11 @@ The full catalogue, including which formats can state which dimension, is in
 | `pairing` | Single-end against paired-end |
 | `quality_encoding` | Phred+33 against Phred+64 |
 | `release` | Which release of a versioned resource the data is on, declared on a reference as `release="GRCh38.p14"` and compared by equality, because two releases of one build can share a name |
+| `identifier_namespace` | Which space a gene or protein list's names live in — `HGNC symbol` against `Ensembl gene` — read off the identifiers where it can be, and never coerced |
 
-`subject` and `source_set` complete the ten; they apply to no kind the engine
-reads yet and are listed in the catalogue.
+`subject` and `source_set` complete the eleven, and are listed in the
+catalogue. `subject` applies to a gene list and to a ranking; `source_set`
+applies to no kind the engine reads yet.
 
 Each dimension is inferred from the file where the format records it, and
 declared by the user once where it does not. A FASTA cannot tell you its
@@ -209,8 +211,10 @@ off.
 
 ## What is not here yet
 
-Dimensions are checked where steps meet. They are not *converted*: a typed
-`liftover` that the engine could **search for** to fix a mismatch
+Dimensions are checked where steps meet. One is *converted* on request —
+`lg.map_identifiers` crosses `identifier_namespace`, and is the first entry in
+the engine's [conversion registry](/project/architecture/conversions/) — but a
+typed `liftover` that the engine could **search for** to fix a mismatch
 automatically is v2, and the design note is [D5](/project/decisions/).
 
 ## Next
