@@ -28,7 +28,7 @@ use ligase::load::{self, Declared, IntervalFormat, LoadError as CoreLoadError};
 use ligase::note::Note;
 use ligase::prov::{self, Prov};
 use ligase::remote::Locator;
-use ligase::remote::fetch::{Network, Policy};
+use ligase::remote::fetch::{Network, Offline, Policy, Transport};
 use ligase::remote::pinned;
 use ligase::types::{DataKind, Dataset};
 
@@ -368,6 +368,19 @@ impl PyDataset {
         self.inner.notes().iter().map(ToString::to_string).collect()
     }
 
+    /// Every file this data is, in order.
+    ///
+    /// One for most kinds and two for a pair of FASTQ mates, in mate
+    /// order. `path` names the primary file, which is what a message
+    /// quotes; this is what code that has to open all of them wants.
+    fn files(&self) -> Vec<String> {
+        self.inner
+            .files()
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect()
+    }
+
     /// Where this was fetched from, if it was fetched.
     ///
     /// A tuple rather than a class, because the Python layer owns the
@@ -603,7 +616,7 @@ fn declared_label(name: &str, value: Option<String>) -> PyResult<Option<String>>
 /// here, while the pipeline is still being read, which is what makes "it
 /// fails before any step runs" true rather than merely intended.
 #[pyfunction]
-#[pyo3(signature = (locator, kind, digest=None, cache=None, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None))]
+#[pyo3(signature = (locator, kind, digest=None, cache=None, offline=false, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None))]
 #[expect(
     clippy::too_many_arguments,
     reason = "every declarable dimension, plus the three a remote needs; \
@@ -614,6 +627,7 @@ fn resolve_remote(
     kind: &str,
     digest: Option<&str>,
     cache: Option<PathBuf>,
+    offline: bool,
     organism: Option<Organisms>,
     build: Option<String>,
     frame: Option<(String, u64)>,
@@ -656,18 +670,31 @@ fn resolve_remote(
     // duration -- including a progress display, a signal handler, or a
     // local server a test is fetching from, which is a deadlock rather
     // than a slowdown.
+    let network = Network::new(Policy::default());
+    let transport: &dyn Transport = if offline { &Offline } else { &network };
     let resolved = Python::attach(|py| {
-        py.detach(|| {
-            pinned::resolve(
-                &parsed,
-                wanted,
-                declared_digest,
-                &cache,
-                &Network::new(Policy::default()),
-            )
-        })
+        py.detach(|| pinned::resolve(&parsed, wanted, declared_digest, &cache, transport))
     })
     .map_err(|error| RemoteError::new_err(error.to_string()))?;
+
+    // A local FASTQ's sample is taken from its filename, and a store object's
+    // filename is the hash of its bytes -- so reads fetched from a remote
+    // have no filename to read a sample from, and the engine must be told
+    // rather than take a hash for a sample identifier. Not defaulted to the
+    // run accession either: one sample can have several runs, so a run is
+    // not a sample and quietly treating it as one is the kind of wrong
+    // answer this engine exists to refuse.
+    if wanted == DataKind::Reads && samples.as_ref().is_none_or(Vec::is_empty) {
+        return Err(PyValueError::new_err(format!(
+            "`{locator}` is reads, so it needs `samples=` naming the sample \
+             they are from. A local FASTQ's sample comes from its filename, \
+             and a fetched one is stored under the hash of its bytes, which \
+             is no sample identifier at all. The run accession is usually \
+             what you want -- `samples=[\"{}\"]` -- but say so, because one \
+             sample can have several runs",
+            parsed.body()
+        )));
+    }
 
     let declared = Declared {
         organism: organisms(organism)?,

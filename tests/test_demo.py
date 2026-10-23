@@ -15,9 +15,11 @@ minimap2 actually writes into a BAM — and what it writes is its whole
 command line, `-t 8` and output path and all.
 
 These run real minimap2, samtools and bcftools over real reads, so they skip
-rather than fail wherever the data has not been fetched or a tool is not
-installed. The one machine where neither is true is the `demo` job in CI,
-which installs the three tools, fetches PRJNA517147 and sets
+rather than fail wherever the data is not available or a tool is not
+installed. Since M10 the demo fetches its own inputs — there is no script
+to run first — so "available" means in the store, or obtainable on a
+machine allowed to fetch. The one machine where nothing is missing is the
+`demo` job in CI, which installs the three tools and sets
 `LIGASE_DEMO_REQUIRED` — under which a skip here fails the build, because a
 green run has to mean the pipeline ran. Every property here is also tested
 without the tools, in `crates/ligase-core/tests/execution.rs`,
@@ -32,7 +34,6 @@ and an alignment is its thread count's own — so expect a few minutes.
 
 from __future__ import annotations
 
-import importlib.util
 import shutil
 from pathlib import Path
 from types import ModuleType
@@ -40,7 +41,7 @@ from types import ModuleType
 import pytest
 
 import ligase as lg
-from tests.conftest import DATA, REPO_ROOT, unavailable
+from tests.conftest import REPO_ROOT, require_demo, unavailable
 
 #: Three runs for the demo, and a fourth to add to it.
 RUNS = ("SRR8525904", "SRR8525908", "SRR8525920")
@@ -54,34 +55,22 @@ TOOLS = ("minimap2", "samtools", "bcftools")
 DEMO = REPO_ROOT / "examples" / "hiv-resistance" / "pipeline.py"
 
 
-def _require_runnable() -> None:
-    """Establish that the tools and the data are both here."""
+def _require_tools() -> None:
+    """Establish that the three external tools are installed."""
     missing = [tool for tool in TOOLS if shutil.which(tool) is None]
     if missing:
         unavailable(f"not installed: {', '.join(missing)}")
 
-    if not (DATA / "refs" / "HXB2.fasta").is_file():
-        unavailable("data/refs/HXB2.fasta is missing; run scripts/fetch_test_data.sh")
-
-    reads = DATA / "reads" / "PRJNA517147"
-    for run in (*RUNS, ADDED):
-        if not (reads / f"{run}_1.fastq.gz").is_file():
-            unavailable(
-                f"{run} is missing; run "
-                "scripts/fetch_test_data.sh --project PRJNA517147"
-            )
-
 
 @pytest.fixture(scope="module")
 def demo() -> ModuleType:
-    """The demo pipeline module, loaded from its path."""
-    _require_runnable()
-    specification = importlib.util.spec_from_file_location("ligase_demo", DEMO)
-    assert specification is not None
-    assert specification.loader is not None
-    module = importlib.util.module_from_spec(specification)
-    specification.loader.exec_module(module)
-    return module
+    """The demo pipeline module, with its inputs resolved.
+
+    Loading it resolves every remote and checks every digest, so a module
+    that imports at all is a module whose inputs are the pinned ones.
+    """
+    _require_tools()
+    return require_demo(runs=(*RUNS, ADDED))
 
 
 @pytest.fixture(scope="module")
@@ -421,8 +410,27 @@ def test_a_bundle_of_the_demo_reproduces_it_on_a_clean_cache(
     assert len(results) == 10, results
     references = (into / "references.tsv").read_text()
     assert "K03455.1" in references
+
+    # Each input by content hash. It used to be checkable by looking for
+    # `SRR8525904_1.fastq.gz` in here, and since M10 the reads are fetched
+    # rather than kept in `data/`, so the path is a store object named for
+    # the hash of its bytes. The hash is the better check anyway: a file
+    # name is not evidence of anything, which is why the engine does not
+    # key on one.
     inputs = (into / "inputs.tsv").read_text()
-    assert "SRR8525904_1.fastq.gz" in inputs
+    reads = demo.run_reads("SRR8525904").files
+    assert len(reads) == 2
+    for mate in reads:
+        assert mate in inputs, inputs
+
+    # And the locator, so a reader can obtain them. That is what *pinned*
+    # means: the source promises the same bytes forever, so naming them
+    # beats carrying a hundred megabytes of them.
+    remotes = (into / "remotes.tsv").read_text()
+    assert "sra:SRR8525904" in remotes, remotes
+    assert "ncbi:K03455.1" in remotes, remotes
+    assert "pinned" in remotes, remotes
+
     # And the pipeline that produced it travels with it.
     assert (into / "pipeline" / "pipeline.py").is_file()
 

@@ -7,7 +7,7 @@
 This one runs the real interpretation when the HIV-1 demo data is present.
 Without it, the rule metadata below is still the whole point.
 
-    scripts/fetch_test_data.sh --project PRJNA1218827
+    python scripts/fetch_demo_data.py --project PRJNA1218827
 """
 
 import marimo
@@ -80,17 +80,29 @@ def _(hivdb, mo):
 
 
 @app.cell
-def _(root):
-    reference_path = root / "data/refs/HXB2.fasta"
-    have_demo_data = reference_path.exists()
-    have_demo_data
-    return have_demo_data, reference_path
+def _(lg, root):
+    # The demo does not keep its reference on disk: it declares where it
+    # comes from, and the engine keeps it in the content-addressed store.
+    # So this asks for it offline -- the notebook is rendered on every docs
+    # build and must not reach the network -- and carries on without it
+    # where the store is cold.
+    lg.remotes.configure(cache=root / ".ligase", offline=True)
+    try:
+        hxb2 = lg.remote(
+            "ncbi:K03455.1",
+            kind=lg.types.Reference,
+            organism="HIV-1",
+            build="HXB2",
+        )
+    except lg.RemoteError:
+        hxb2 = None
+    have_demo_data = hxb2 is not None
+    return have_demo_data, hxb2
 
 
 @app.cell
-def _(have_demo_data, hivdb, lg, mo, reference_path):
+def _(have_demo_data, hivdb, hxb2, mo):
     if have_demo_data:
-        hxb2 = lg.reference(str(reference_path), organism="HIV-1", build="HXB2")
         detail = f"""
         The real HXB2 reference is here, so interpretation can run against it:
 
@@ -108,11 +120,11 @@ def _(have_demo_data, hivdb, lg, mo, reference_path):
         """
     else:
         detail = """
-        The HIV-1 demo data is not on disk, so this cell is showing the rule
-        metadata only. To run the interpretation for real:
+        The HIV-1 demo data is not in the store, so this cell is showing
+        the rule metadata only. To run the interpretation for real:
 
         ```bash
-        scripts/fetch_test_data.sh --project PRJNA1218827
+        python scripts/fetch_demo_data.py --project PRJNA1218827
         ligase run examples/hiv-resistance/pipeline.py
         ```
         """

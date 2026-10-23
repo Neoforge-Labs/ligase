@@ -140,6 +140,16 @@ class Dataset:
         return found
 
     @property
+    def files(self) -> tuple[str, ...]:
+        """Every file this data is, in order.
+
+        One for most kinds and two for a pair of FASTQ mates, in mate
+        order. `file` names the primary one, which is what a message
+        quotes; this is what code that has to open all of them wants.
+        """
+        return tuple(self._core.files())
+
+    @property
     def origin(self) -> RemoteOrigin | None:
         """Where this was fetched from, or `None` if it was not fetched.
 

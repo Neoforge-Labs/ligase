@@ -285,6 +285,29 @@ impl Transport for Network {
     }
 }
 
+/// A transport that fetches nothing.
+///
+/// For a run that must not reach the network: a reviewer with no connection,
+/// a test that wants to prove its inputs came out of the store, or a machine
+/// on a plane. Resolution still succeeds for anything the store already
+/// holds with a digest that satisfies the declaration — which is the whole
+/// point, and is why this is a transport rather than a flag threaded through
+/// the resolver.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Offline;
+
+impl Transport for Offline {
+    fn get(&self, url: &str, _into: &Path) -> Result<Fetched, FetchError> {
+        Err(FetchError::Unreachable {
+            url: url.to_owned(),
+            why: "this run may not fetch anything, and the store does not \
+                  hold it. Run it once with the network available, or point \
+                  it at a store that has been"
+                .to_owned(),
+        })
+    }
+}
+
 /// Copy at most `cap` bytes from a reader to a path, reporting how many
 /// landed.
 ///

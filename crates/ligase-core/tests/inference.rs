@@ -333,9 +333,10 @@ fn fastq_has_no_reference() {
 
 #[test]
 fn real_hxb2_fasta_loads_with_the_expected_identity() {
-    // `data/` is gitignored, so this skips rather than fails in CI.
+    // The demo's inputs are fetched rather than committed, so this skips
+    // rather than fails where the store is cold.
     let Some(path) = hxb2_reference() else {
-        eprintln!("skipping: run scripts/fetch_test_data.sh to fetch data/refs/HXB2.fasta");
+        eprintln!("skipping: run `python scripts/fetch_demo_data.py` to fetch HXB2");
         return;
     };
 

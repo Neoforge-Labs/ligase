@@ -25,7 +25,7 @@ use ligase::cache::Cache;
 use ligase::hash::ContentHash;
 use ligase::note::Note;
 use ligase::remote::Locator;
-use ligase::remote::fetch::{FetchError, Fetched, Network, Policy, Transport};
+use ligase::remote::fetch::{FetchError, Fetched, Network, Offline, Policy, Transport};
 use ligase::remote::pinned::{self, RemoteError, Source};
 use ligase::types::DataKind;
 use tempfile::TempDir;
@@ -414,4 +414,59 @@ fn a_source_that_cannot_be_reached_and_a_store_that_has_nothing_is_an_error() {
         "expected a fetch failure, got {error}"
     );
     assert!(error.to_string().contains(&locator));
+}
+
+// ---------------------------------------------------------- offline runs --
+
+#[test]
+fn an_offline_run_serves_what_the_store_holds() {
+    let (_dir, cache, server) = setup();
+    server.on("/HXB2.fasta", HXB2);
+    let locator = server.url("/HXB2.fasta");
+    let first = resolve(&cache, &locator, None).unwrap();
+
+    let offline = pinned::resolve(
+        &Locator::parse(&locator).unwrap(),
+        DataKind::Reference,
+        Some(first.digest),
+        &cache,
+        &Offline,
+    )
+    .unwrap();
+
+    // Which is the point of the whole design: a reviewer with no
+    // connection runs the pipeline and gets the same inputs.
+    assert_eq!(offline.from, Source::Store);
+    assert_eq!(offline.digest, first.digest);
+}
+
+#[test]
+fn an_offline_run_that_needs_a_fetch_says_what_to_do_about_it() {
+    let (_dir, cache, server) = setup();
+    server.on("/HXB2.fasta", HXB2);
+
+    let error = pinned::resolve(
+        &Locator::parse(&server.url("/HXB2.fasta")).unwrap(),
+        DataKind::Reference,
+        None,
+        &cache,
+        &Offline,
+    )
+    .unwrap_err();
+
+    let message = error.to_string();
+    assert!(matches!(error, RemoteError::Fetch { .. }), "{message}");
+    assert!(
+        message.contains("may not fetch"),
+        "and it says why rather than only that it failed: {message}"
+    );
+    assert!(
+        message.contains("network available"),
+        "and what to do instead: {message}"
+    );
+    assert_eq!(
+        server.hits("/HXB2.fasta"),
+        0,
+        "offline means offline: nothing was asked"
+    );
 }

@@ -77,7 +77,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="type-check a pipeline without running it",
         description=(
             "Build the pipeline's graph and check every step's dimensions. "
-            "The pipeline file is imported; the step bodies are not run."
+            "The pipeline file is imported; the step bodies are not run. "
+            "A remote input resolves here, because its dimensions cannot "
+            "be read until its bytes are in hand -- so this is also where "
+            "a digest that does not match is reported."
         ),
     )
     check.add_argument(
@@ -86,6 +89,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_PIPELINE,
         type=Path,
         help=f"the pipeline to check (default: {DEFAULT_PIPELINE})",
+    )
+    check.add_argument(
+        "--cache",
+        type=Path,
+        metavar="DIR",
+        help=(
+            f"where to look for the pipeline's remote inputs (default: ./{CACHE_DIR})"
+        ),
     )
 
     run = commands.add_parser(

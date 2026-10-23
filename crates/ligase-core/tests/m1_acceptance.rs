@@ -146,12 +146,14 @@ fn a_vcf_naming_only_some_contigs_is_accepted() {
 
 #[test]
 fn the_real_demo_alignment_agrees_with_the_real_hxb2_reference() {
-    // The reference demo from CLAUDE.md, on real data. `data/` is
-    // gitignored, so this skips rather than fails in CI.
+    // The reference demo from CLAUDE.md, on real data. Its inputs are
+    // fetched rather than committed, so this skips rather than fails where
+    // the store is cold.
     let (Some(fasta), Some(bam)) = (hxb2_reference(), demo_alignment()) else {
         eprintln!(
-            "skipping: run scripts/fetch_test_data.sh and scripts/make_demo_alignment.sh \
-             to produce data/refs/HXB2.fasta and data/alignments/*.bam"
+            "skipping: run `python scripts/fetch_demo_data.py` and \
+             `scripts/make_demo_alignment.sh` to fetch HXB2 and produce \
+             data/alignments/*.bam"
         );
         return;
     };

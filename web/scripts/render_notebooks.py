@@ -297,7 +297,7 @@ the real interpretation if the HIV-1 demo data is present, and explains itself
 if it is not:
 
 ```bash
-scripts/fetch_test_data.sh --project PRJNA1218827
+python scripts/fetch_demo_data.py --project PRJNA1218827
 ```
 
 ## Why they are not interactive on this page

@@ -18,7 +18,7 @@ do not match -- like units in physics.
 from __future__ import annotations
 
 from glob import glob
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from . import _core, hivdb, remotes
 from .audit import AuditReport, StepAudit
@@ -66,6 +66,10 @@ from .types import (
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+
+#: Which kind of data a call produced, so `lg.remote(kind=Reference)` is
+#: typed as a `Reference` rather than as a bare `Dataset`.
+DatasetT = TypeVar("DatasetT", bound=Dataset)
 
 __all__ = [
     "Alignment",
@@ -433,7 +437,7 @@ def entity_set(
 def remote(
     locator: str,
     *,
-    kind: type[Dataset] | str,
+    kind: type[DatasetT],
     digest: str | None = None,
     organism: str | Sequence[str] | None = None,
     build: str | None = None,
@@ -442,7 +446,7 @@ def remote(
     samples: list[str] | None = None,
     identifier_namespace: str | None = None,
     subject: str | None = None,
-) -> Dataset:
+) -> DatasetT:
     """Fetch a pinned remote input, and load what arrives.
 
     The first step of nearly every pipeline is a fetch, and until now it sat
@@ -491,10 +495,12 @@ def remote(
             accession, fetched as FASTA. `ensembl:release-110/...` is a path
             under Ensembl's public tree. `https://...` is an exact URL, for
             everything else. Anything else is an error naming the four.
-        kind: What the bytes are, as one of the types in `ligase.types` or
-            its name: `Reference` for a FASTA, `Reads` for a FASTQ pair.
-            Required, and not inferred from the locator, because it decides
-            how the file is read and therefore what its digest is over.
+        kind: What the bytes are, as one of the types in `ligase.types`:
+            `Reference` for a FASTA, `Reads` for a FASTQ pair. Required,
+            and not inferred from the locator, because it decides how the
+            file is read and therefore what its digest is over -- and
+            because it is what the result is typed as, so a step annotated
+            `Reference` will not accept reads by mistake.
         digest: The digest this input must have, as the 64 hexadecimal
             characters a previous run reported. `None` fetches whatever the
             source serves and records its digest, which is how you get the
@@ -505,41 +511,50 @@ def remote(
         frame: Which coordinate frame a reference's positions are numbered
             along, as `(frame, first)`.
         release: Which release of the data this is. Compared by equality.
-        samples: The sample identifiers, where the file does not name them.
+        samples: The sample identifiers. **Required for reads**, and only
+            for them: a local FASTQ's sample comes from its filename, and a
+            fetched one is stored under the hash of its bytes, which is no
+            sample identifier at all. The run accession is usually what you
+            want, but say so rather than have the engine assume it -- one
+            sample can have several runs.
         identifier_namespace: Which identifier space an entity set's names
             live in.
         subject: What the data is about, when that is one named thing.
 
     Returns:
-        The loaded data, of the class `kind` named, carrying the dimensions
+        The loaded data, of the class `kind` named -- so the call is typed
+            as a `Reference` or a `Reads` and not as a bare dataset --
+            carrying the dimensions
         inferred from what arrived and a record of where it came from. That
         record is what puts the fetch in the methods paragraph and the
         reproducibility bundle.
 
     Raises:
         RemoteError: If the locator names no scheme Ligase has, if the
-            source cannot be reached, if what arrives cannot be read as
-            `kind` -- an archive asked for an accession it does not have
-            answers with an error page and a 200 -- or if the digest does
-            not match.
+            source cannot be reached -- which includes a run configured
+            offline by `ligase.remotes.configure` whose store does not hold
+            this input -- if what arrives cannot be read as `kind`, since
+            an archive asked for an accession it does not have answers with
+            an error page and a 200, or if the digest does not match.
         ValueError: If `kind` is not a kind of data Ligase knows, if
-            `digest` is not 64 hexadecimal characters, or if a declared
-            dimension is blank.
+            `digest` is not 64 hexadecimal characters, if `kind` is `Reads`
+            and no `samples` are named, or if a declared dimension is
+            blank.
         LoadError: If what arrives cannot be parsed.
     """
-    named = kind if isinstance(kind, str) else kind.__name__
-    wanted = KINDS.get(named)
-    if wanted is None:
+    named = kind.__name__
+    if named not in KINDS:
         known = ", ".join(sorted(KINDS))
         message = f"`{named}` is not a kind of data Ligase knows. The kinds are {known}"
         raise ValueError(message)
 
-    return wanted(
+    return kind(
         _core.resolve_remote(
             locator,
             named,
             digest,
             str(remotes.cache_directory()),
+            remotes.offline(),
             organism,
             build,
             frame,

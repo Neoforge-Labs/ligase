@@ -9,13 +9,30 @@ Every feature of Ligase has to work end to end on this pipeline, which is
 why it is a real one: real reads, real tools, real reference, and
 resistance calls that are checked against published ones.
 
-The data is not in the repository. Fetch it first:
+The data is not in the repository and there is no script to fetch it. The
+pipeline says where it comes from — `lg.remote("ncbi:K03455.1", ...)` and
+`lg.remote("sra:SRR8525904", ...)` — so `ligase run` obtains it, checks each
+input against the digest pinned below before any step runs, and keeps it in
+the content-addressed store. The second run fetches nothing.
 
-    scripts/fetch_test_data.sh --project PRJNA517147
+Until M10 this was `scripts/fetch_test_data.sh`: three hundred lines that
+knew ENA's directory layout, computed checksums and verified them, all of it
+outside anything Ligase promises. The engine had to take the script's word
+for what had arrived. Now the archive is an input like any other, with its
+digest in every cache key below it and its locator in the methods paragraph.
 
 Run it twice to watch the cache work. Nothing is recomputed the second time,
 because a step's key is built from its code, its parameters, its inputs'
 contents and its tools' versions — and none of those moved.
+
+## On the digests
+
+Each is over what the file *means*, not over its bytes: the canonical form
+of what arrives, read as its kind. NCBI reflows a FASTA and rewords a
+defline from time to time, and the shell script pinned HXB2 by the checksum
+of its *sequence* for exactly that reason. A pin that broke on a reformat
+would teach you to bump pins without reading, and then the one that matters
+gets bumped too.
 
 ## On what `resistance` does
 
@@ -74,17 +91,102 @@ if TYPE_CHECKING:
 #: The repository root, so the demo runs from any directory.
 REPO = Path(__file__).resolve().parents[2]
 
-#: The HXB2 reference, as `scripts/fetch_test_data.sh` leaves it.
-REFERENCE = REPO / "data" / "refs" / "HXB2.fasta"
+#: HXB2, by the accession NCBI serves it under.
+#:
+#: 9,719 bases, one contig named `K03455.1`. The digest is over the
+#: canonical form of the FASTA — the sequence, uppercased, with the defline
+#: read for its contig name — so a reflow at NCBI does not break it.
+HXB2 = "ncbi:K03455.1"
+HXB2_DIGEST = "1f460b25ab23b95345d579c234c43ca6d0abf7c1adf6aeffb43b974b2b1941ad"
 
-#: Where the fetched reads live, by BioProject.
-READS = REPO / "data" / "reads"
+#: Every run the demo and its validation use, by BioProject, with the digest
+#: each one is pinned to.
+#:
+#: Paired Illumina AMPLICON runs, the smallest in each project so the demo
+#: stays quick. A run's digest is a fold over its two mates' canonical forms
+#: in order, so swapping the mates is a different digest — which it must be,
+#: since it reverses every read's orientation.
+#:
+#: This table is the manifest. CI keys its cache on the hash of this file,
+#: so editing a pin re-fetches and nothing else does.
+RUNS: dict[str, dict[str, str]] = {
+    "PRJNA517147": {
+        "SRR8525904": (
+            "a7800f3dace6464faa08c34ce765f0398ab883c76c5475102318dae6c3d21923"
+        ),
+        "SRR8525908": (
+            "6a81bfc60cf4c232afc1cf383131ae1c8eadaee5aef33ebc4b44b530afa6f495"
+        ),
+        "SRR8525942": (
+            "c7b1d37c0a0e3af510523134cbd3994a9c656ba14cd76631790ca354551fb155"
+        ),
+        "SRR8525920": (
+            "0e06df1d6e83d9dcda1169c741fe12547210783ef8bce93d26f17d44f83f03df"
+        ),
+    },
+    "PRJNA1218827": {
+        "SRR32217714": (
+            "fbaacf18c2499c8c42de57a10e3b41158ccaa0454d91f476aa0e91e6e99441bc"
+        ),
+        "SRR32217716": (
+            "e53caf5bccec4eefe2bd7430246fddff454e156dbc27e39be050bde7fd017765"
+        ),
+        "SRR32217715": (
+            "05439677b3f12bed37e778c4ac6ea19fdb8aa1a8e19b39eb0dc2a11e91417578"
+        ),
+        "SRR32217726": (
+            "d4234265f76c66c21fb70f3080cc8e60270b0084842f4505017a6dea35787359"
+        ),
+    },
+}
 
 #: The project the demo reads from unless told otherwise.
 #:
-#: PRJNA1218827 is the other one fetched, and it is what M6's validation
-#: uses: its samples have published Stanford HIVdb calls to check against.
+#: PRJNA1218827 is the other one, and it is what M6's validation uses: its
+#: samples have published Stanford HIVdb calls to check against.
 PROJECT = "PRJNA517147"
+
+
+def reference() -> Reference:
+    """HXB2, fetched and checked against its pin.
+
+    Returns:
+        The reference, with its contigs and their checksums read from the
+        FASTA that arrived rather than taken on trust.
+    """
+    return lg.remote(
+        HXB2,
+        kind=Reference,
+        digest=HXB2_DIGEST,
+        organism="HIV-1",
+        build="HXB2",
+    )
+
+
+def run_reads(run: str, project: str = PROJECT) -> Reads:
+    """One run's paired reads, fetched and checked against their pin.
+
+    Args:
+        run: The run accession, e.g. `SRR8525904`.
+        project: Which BioProject it belongs to.
+
+    Returns:
+        The reads, with the sample declared as the run accession.
+
+    Raises:
+        KeyError: If the project or the run is not in `RUNS`.
+    """
+    # The sample has to be declared. A local FASTQ's sample comes from its
+    # filename and a fetched one is stored under the hash of its bytes,
+    # which is no sample identifier at all.
+    return lg.remote(
+        f"sra:{run}",
+        kind=Reads,
+        digest=RUNS[project][run],
+        organism="HIV-1",
+        samples=[run],
+    )
+
 
 #: The coding regions are no longer the pipeline's business.
 #:
@@ -208,41 +310,34 @@ def pipeline(
     """Build the demo over some or all of the fetched runs.
 
     Args:
-        runs: Which runs to include, e.g. `["SRR8525904"]`. All of the
-            fetched ones by default.
+        runs: Which runs to include, e.g. `["SRR8525904"]`. Every run the
+            project's manifest names, by default.
         min_freq: The minimum allele fraction a variant must reach.
         threads: How many cores the aligner may use. Changing it reruns
             `align` and nothing below it, which is what semantic hashing
             buys.
-        project: Which fetched BioProject to read from. M6's validation
-            uses `PRJNA1218827`, whose samples have published Stanford
-            HIVdb calls to compare against.
+        project: Which BioProject to read from. M6's validation uses
+            `PRJNA1218827`, whose samples have published Stanford HIVdb
+            calls to compare against.
         algorithm: Which vendored resistance algorithm to interpret with.
         mixture: The fraction of reads an allele must reach to count as
             present when interpreting. The published results this is
             validated against use 2%, 5% and 15%.
 
     Returns:
-        The pipeline, built and ready to check. Nothing has run.
-    """
-    hxb2 = lg.reference(str(REFERENCE), organism="HIV-1", build="HXB2")
-    reads = READS / project
+        The pipeline, built and ready to check. The remotes have resolved —
+        which is to say the inputs are in the store and every digest has
+        been checked — and no step has run.
 
-    if runs is None:
-        found = lg.samples(str(reads / "*.fastq.gz"), paired=True, organism="HIV-1")
-        chosen = list(zip(found.ids, found, strict=True))
-    else:
-        chosen = [
-            (
-                run,
-                lg.reads(
-                    str(reads / f"{run}_1.fastq.gz"),
-                    str(reads / f"{run}_2.fastq.gz"),
-                    organism="HIV-1",
-                ),
-            )
-            for run in runs
-        ]
+    Raises:
+        RemoteError: If an input cannot be fetched or does not match its
+            pin. This happens here rather than in `run()`, because a
+            remote's dimensions cannot be known until its bytes are in
+            hand and the engine checks dimensions before any compute.
+    """
+    hxb2 = reference()
+    wanted = list(RUNS[project]) if runs is None else list(runs)
+    chosen = [(run, run_reads(run, project)) for run in wanted]
 
     return lg.Pipeline(
         [

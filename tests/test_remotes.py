@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 import ligase as lg
+import ligase.types
 from ligase.types import Reference
 
 if TYPE_CHECKING:
@@ -255,8 +256,14 @@ def test_a_bare_accession_is_refused_rather_than_guessed() -> None:
 
 
 def test_an_unknown_kind_says_which_kinds_there_are() -> None:
+    # A class of the right shape that is not one of the engine's kinds. The
+    # annotation says `type[Dataset]`, so this is what the mistake looks
+    # like when it gets past the type checker.
+    class Genome(lg.types.Dataset):
+        """Not a kind Ligase knows."""
+
     with pytest.raises(ValueError, match="kinds are"):
-        lg.remote("https://example.org/x", kind="Genome")
+        lg.remote("https://example.org/x", kind=Genome)
 
 
 def test_a_digest_that_is_not_a_digest_says_what_one_looks_like() -> None:
