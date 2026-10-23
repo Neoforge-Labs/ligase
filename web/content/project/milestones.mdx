@@ -454,6 +454,19 @@ of its own; every library step has a fixture test, a citation that resolves
 and a page under `guide/steps/`; the validation suite still passes 81 of 81 at
 15% and 5%, with the same nine explained discrepancies at 2%.
 
+**Carried over from M12.** `lg.map_identifiers` is typed for an `EntitySet`,
+while the conversion *registry* covers a `RankedList` too, so a ranking
+crosses identifier spaces only through a step of the user's own declaring
+`conversion="map_identifiers"`. Widening the shipped library step is this
+milestone's, because what it needs decided is a presentation question rather
+than an engine one: a mapped ranking is shorter by the identifiers that did
+not cross, so its **ranks close up**, and if the top-ranked identifier had no
+mapping the second becomes first. The consequence is already recorded — see
+[D41](/project/decisions/#d41--in-a-ranked-list-rank-order-is-the-result)
+and
+[canonicalisation](/project/architecture/canonicalisation/#named-lists-the-one-pair-that-disagrees-on-purpose)
+— and what is missing is how a step says so to the person reading its output.
+
 ## M14 — Remote store
 The content-addressed store gains a blob tier with pluggable backends, on the
 trait M10 introduces. The index stays local and rebuildable. D43.
