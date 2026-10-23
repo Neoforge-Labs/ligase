@@ -38,6 +38,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::canon::{self, CANON_VERSION, Canonical, Form, Note};
 use crate::hash::ContentHash;
 use crate::key::{KEY_VERSION, StepKey};
+use crate::store::{BlobStore, FsStore, ObjectKey, StoreError, suffix_of as suffix};
 use crate::types::DataKind;
 
 /// The version of the on-disk layout of the cache directory.
@@ -48,8 +49,9 @@ use crate::types::DataKind;
 ///
 /// 2 added the `notes` column, for what canonicalising a file noticed
 /// (D26). 3 added one to `steps`, for what a step noticed about its own
-/// work (D32).
-const SCHEMA_VERSION: u32 = 3;
+/// work (D32). 4 added the `remotes` table, for what was fetched from
+/// where (D39).
+const SCHEMA_VERSION: u32 = 4;
 
 /// An output held in the store.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +76,36 @@ pub struct Entry {
     /// because a cache hit does not rerun the body and a hedge that stopped
     /// appearing on the second run would be worse than none (D32).
     pub notes: Vec<Note>,
+}
+
+/// One object a remote resolved to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteFile {
+    /// Its name in the store.
+    pub key: ObjectKey,
+    /// The URL that answered, after any redirects — which is not the
+    /// locator, and is worth keeping precisely because it can differ.
+    pub url: String,
+    /// How many bytes arrived.
+    pub bytes: u64,
+}
+
+/// What a past fetch produced.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteRow {
+    /// The digest of what the files *mean*, folded over them in order —
+    /// which is what a pin is compared against (D4, D21).
+    pub digest: ContentHash,
+    /// The digest of their *bytes*, folded the same way.
+    ///
+    /// Kept beside the other so that a source which rewrote a file without
+    /// changing its meaning can be noticed rather than either ignored or
+    /// treated as a failure.
+    pub bytes: ContentHash,
+    /// The objects, in order. Mate order for a paired run.
+    pub files: Vec<RemoteFile>,
+    /// When it was fetched, as seconds since the epoch.
+    pub fetched_at: i64,
 }
 
 /// How much work the prefilter saved.
@@ -101,6 +133,8 @@ pub enum CacheError {
     Database(rusqlite::Error),
     /// A thread holding the database panicked.
     Poisoned,
+    /// The blob tier could not hold or produce an object.
+    Store(StoreError),
 }
 
 impl fmt::Display for CacheError {
@@ -109,6 +143,7 @@ impl fmt::Display for CacheError {
             Self::Io { path, source } => write!(f, "{}: {source}", path.display()),
             Self::Database(error) => write!(f, "cache metadata: {error}"),
             Self::Poisoned => f.write_str("the cache was left locked by a panicking thread"),
+            Self::Store(error) => error.fmt(f),
         }
     }
 }
@@ -119,6 +154,7 @@ impl std::error::Error for CacheError {
             Self::Io { source, .. } => Some(source),
             Self::Database(error) => Some(error),
             Self::Poisoned => None,
+            Self::Store(error) => Some(error),
         }
     }
 }
@@ -129,10 +165,17 @@ impl From<rusqlite::Error> for CacheError {
     }
 }
 
+impl From<StoreError> for CacheError {
+    fn from(error: StoreError) -> Self {
+        Self::Store(error)
+    }
+}
+
 /// Everything already computed, and where it was put.
 #[derive(Debug)]
 pub struct Cache {
     root: PathBuf,
+    objects: FsStore,
     database: Mutex<Connection>,
     hashed: AtomicU64,
     prefiltered: AtomicU64,
@@ -151,7 +194,7 @@ impl Cache {
     /// If the directory cannot be created or the database cannot be opened.
     pub fn open(root: &Path) -> Result<Self, CacheError> {
         create_dir(root)?;
-        create_dir(&root.join("store"))?;
+        let objects = FsStore::open(&root.join("store"))?;
         create_dir(&root.join("tmp"))?;
 
         let database = Connection::open(root.join("cache.sqlite")).map_err(CacheError::from)?;
@@ -164,6 +207,7 @@ impl Cache {
 
         Ok(Self {
             root: root.to_path_buf(),
+            objects,
             database: Mutex::new(database),
             hashed: AtomicU64::new(0),
             prefiltered: AtomicU64::new(0),
@@ -273,23 +317,117 @@ impl Cache {
     ///
     /// If the file cannot be read, hashed or moved.
     pub fn store(&self, staged: &Path) -> Result<Stored, CacheError> {
-        let hash = ContentHash::of_file(staged).map_err(|source| CacheError::Io {
-            path: staged.to_path_buf(),
-            source,
-        })?;
-        let path = self.object_path(hash, &suffix(staged));
+        let key = self.objects.put_file(staged, &suffix(staged))?;
+        Ok(Stored {
+            hash: key.hash,
+            path: self.objects.path_of(&key),
+        })
+    }
 
-        if path.is_file() {
-            remove(staged)?;
-            return Ok(Stored { hash, path });
-        }
+    /// What was fetched for this locator, read as this kind, if anything
+    /// has been.
+    ///
+    /// A record is a fact about a past fetch, not a promise about the
+    /// present: whoever reads one checks that its objects are still in the
+    /// store and that its digest still satisfies whatever the pipeline
+    /// declares, because both can have moved since.
+    ///
+    /// # Errors
+    ///
+    /// If the metadata cannot be read.
+    pub fn remote(&self, locator: &str, kind: DataKind) -> Result<Option<RemoteRow>, CacheError> {
+        let row: Option<(String, String, String, i64)> = self.with_database(|database| {
+            database
+                .query_row(
+                    "SELECT digest, bytes, files, fetched_at FROM remotes
+                         WHERE locator = ?1 AND kind = ?2",
+                    params![locator, kind.name()],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .optional()
+        })??;
 
-        if let Some(parent) = path.parent() {
-            create_dir(parent)?;
-        }
-        move_file(staged, &path)?;
-        make_read_only(&path)?;
-        Ok(Stored { hash, path })
+        let Some((digest, bytes, files, fetched_at)) = row else {
+            return Ok(None);
+        };
+        // A row this version cannot read is treated as absent, which costs
+        // one fetch and cannot serve a half-understood answer.
+        let Some(digest) = ContentHash::parse(&digest) else {
+            return Ok(None);
+        };
+        let Some(bytes) = ContentHash::parse(&bytes) else {
+            return Ok(None);
+        };
+        Ok(Some(RemoteRow {
+            digest,
+            bytes,
+            files: decode_remote_files(&files),
+            fetched_at,
+        }))
+    }
+
+    /// Record what was fetched for this locator, read as this kind.
+    ///
+    /// Replaces any earlier record of the same locator and kind. That is
+    /// right for a *pinned* remote, where a later fetch of the same locator
+    /// is either the same answer or a failure; it is emphatically not how a
+    /// recorded query behaves, and that is why the two are different tables
+    /// rather than one with a flag (D39).
+    ///
+    /// # Errors
+    ///
+    /// If the metadata cannot be written.
+    pub fn record_remote(
+        &self,
+        locator: &str,
+        kind: DataKind,
+        row: &RemoteRow,
+    ) -> Result<(), CacheError> {
+        self.with_database(|database| {
+            database.execute(
+                "INSERT OR REPLACE INTO remotes
+                     (locator, kind, digest, bytes, files, fetched_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    locator,
+                    kind.name(),
+                    row.digest.to_hex(),
+                    row.bytes.to_hex(),
+                    encode_remote_files(&row.files),
+                    row.fetched_at,
+                ],
+            )
+        })??;
+        Ok(())
+    }
+
+    /// Forget what was fetched for this locator, read as this kind.
+    ///
+    /// For a fetch that turned out not to be what was promised: a record of
+    /// it would be a record of the wrong bytes, which a later run might
+    /// serve without asking.
+    ///
+    /// # Errors
+    ///
+    /// If the metadata cannot be written.
+    pub fn forget_remote(&self, locator: &str, kind: DataKind) -> Result<(), CacheError> {
+        self.with_database(|database| {
+            database.execute(
+                "DELETE FROM remotes WHERE locator = ?1 AND kind = ?2",
+                params![locator, kind.name()],
+            )
+        })??;
+        Ok(())
+    }
+
+    /// The blob tier this cache keeps its objects in.
+    ///
+    /// Exposed because a recorded remote is written here rather than through
+    /// a step's output, and because M14 replaces what this returns with a
+    /// two-tier store without the cache above it changing.
+    #[must_use]
+    pub fn objects(&self) -> &FsStore {
+        &self.objects
     }
 
     /// Where a step should write while it runs.
@@ -392,11 +530,7 @@ impl Cache {
     /// Fanned out over the first byte of the hash: a flat directory of one
     /// object per step per sample is a directory no filesystem enjoys.
     fn object_path(&self, hash: ContentHash, suffix: &str) -> PathBuf {
-        let hex = hash.to_hex();
-        self.root
-            .join("store")
-            .join(&hex[..2])
-            .join(format!("{}{suffix}", &hex[2..]))
+        self.objects.path_of(&ObjectKey::new(hash, suffix))
     }
 
     fn forget(&self, key: StepKey) -> Result<(), CacheError> {
@@ -516,18 +650,6 @@ fn stat(path: &Path) -> Result<Stat, CacheError> {
     })
 }
 
-/// Everything after the first dot of a file's name, so `.vcf.gz` survives.
-///
-/// Tools read the format off the name — `samtools sort -o x.bam` writes BAM
-/// and `x.sam` writes SAM — so an object that loses its suffix is an object
-/// no tool will read correctly.
-fn suffix(path: &Path) -> String {
-    path.file_name()
-        .map(|name| name.to_string_lossy())
-        .and_then(|name| name.find('.').map(|at| name[at..].to_owned()))
-        .unwrap_or_default()
-}
-
 fn now() -> String {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -542,46 +664,42 @@ fn create_dir(path: &Path) -> Result<(), CacheError> {
     })
 }
 
-fn remove(path: &Path) -> Result<(), CacheError> {
-    fs::remove_file(path).map_err(|source| CacheError::Io {
-        path: path.to_path_buf(),
-        source,
-    })
-}
-
-fn move_file(from: &Path, to: &Path) -> Result<(), CacheError> {
-    match fs::rename(from, to) {
-        Ok(()) => Ok(()),
-        // A rename across filesystems fails; copying is the fallback, and
-        // the only cost is the copy.
-        Err(_) => {
-            fs::copy(from, to).map_err(|source| CacheError::Io {
-                path: to.to_path_buf(),
-                source,
-            })?;
-            remove(from)
-        }
-    }
-}
-
-fn make_read_only(path: &Path) -> Result<(), CacheError> {
-    let metadata = fs::metadata(path).map_err(|source| CacheError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let mut permissions = metadata.permissions();
-    permissions.set_readonly(true);
-    fs::set_permissions(path, permissions).map_err(|source| CacheError::Io {
-        path: path.to_path_buf(),
-        source,
-    })
-}
-
 /// Notes as one column: `code<TAB>value`, one note a line.
 ///
 /// Both SAM and VCF forbid a tab or a newline inside a field, so a note's
 /// value cannot hold either and nothing has to be escaped. A value that
 /// somehow did would lose its tail rather than corrupt the row.
+/// One object per line: key, the URL that answered, and the byte count.
+///
+/// Tab-separated and readable with `sqlite3`, because a cache whose whole
+/// purpose is explaining a result should be explicable itself.
+fn encode_remote_files(files: &[RemoteFile]) -> String {
+    files
+        .iter()
+        .map(|file| format!("{}\t{}\t{}", file.key, file.url, file.bytes))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The objects a column holds, dropping any line this version cannot read.
+fn decode_remote_files(column: &str) -> Vec<RemoteFile> {
+    column
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split('\t');
+            let key = parts.next()?;
+            let url = parts.next()?;
+            let bytes = parts.next()?.parse().ok()?;
+            let hash = ContentHash::parse(key.get(..64)?)?;
+            Some(RemoteFile {
+                key: ObjectKey::new(hash, key.get(64..).unwrap_or_default()),
+                url: url.to_owned(),
+                bytes,
+            })
+        })
+        .collect()
+}
+
 fn encode_notes(notes: &[Note]) -> String {
     notes
         .iter()
@@ -617,6 +735,7 @@ fn prepare(database: &Connection) -> Result<(), CacheError> {
         database.execute("DROP TABLE IF EXISTS files", [])?;
         database.execute("DROP TABLE IF EXISTS steps", [])?;
         database.execute("DROP TABLE IF EXISTS canonical", [])?;
+        database.execute("DROP TABLE IF EXISTS remotes", [])?;
     }
 
     database.execute(
@@ -638,6 +757,27 @@ fn prepare(database: &Connection) -> Result<(), CacheError> {
              duration_ms INTEGER NOT NULL,
              created_at  TEXT NOT NULL,
              notes       TEXT NOT NULL DEFAULT ''
+         )",
+        [],
+    )?;
+
+    // What was fetched from where, and what it turned out to be (D39).
+    // Keyed by locator and kind, because the same URL read as two kinds is
+    // two facts: a digest is over what a file *means*, and what it means
+    // depends on how it is read.
+    //
+    // `files` holds one line per object -- key, the URL that answered, and
+    // the byte count -- so a run's inputs can be read back with `sqlite3`
+    // by anyone explaining a result.
+    database.execute(
+        "CREATE TABLE IF NOT EXISTS remotes (
+             locator    TEXT NOT NULL,
+             kind       TEXT NOT NULL,
+             digest     TEXT NOT NULL,
+             bytes      TEXT NOT NULL,
+             files      TEXT NOT NULL,
+             fetched_at INTEGER NOT NULL,
+             PRIMARY KEY (locator, kind)
          )",
         [],
     )?;

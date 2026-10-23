@@ -47,7 +47,6 @@ aligning to HXB2 rather than anything this engine decides.
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import shutil
 from pathlib import Path
@@ -55,7 +54,7 @@ from types import ModuleType
 
 import pytest
 
-from tests.conftest import DATA, REPO_ROOT, unavailable
+from tests.conftest import REPO_ROOT, require_demo, unavailable
 
 #: The published expectations, as `scripts/build_hivdb_fixture.py` left
 #: them. Committed, so this test needs no network and no supplement.
@@ -68,9 +67,6 @@ EXPECTED = (
     / "hivdb"
     / "expected.tsv"
 )
-
-#: The demo pipeline, loaded by path.
-DEMO = REPO_ROOT / "examples" / "hiv-resistance" / "pipeline.py"
 
 #: The project whose samples have published resistance calls.
 PROJECT = "PRJNA1218827"
@@ -124,33 +120,23 @@ KNOWN_AT_TWO_PERCENT = {
 }
 
 
-def _require_runnable() -> None:
-    """Establish that the tools and this project's data are both here."""
+def _require_tools() -> None:
+    """Establish that the three external tools are installed."""
     missing = [tool for tool in TOOLS if shutil.which(tool) is None]
     if missing:
         unavailable(f"not installed: {', '.join(missing)}")
 
-    if not (DATA / "refs" / "HXB2.fasta").is_file():
-        unavailable("data/refs/HXB2.fasta is missing; run scripts/fetch_test_data.sh")
-
-    reads = DATA / "reads" / PROJECT
-    for run in RUNS:
-        if not (reads / f"{run}_1.fastq.gz").is_file():
-            unavailable(
-                f"{run} is missing; run scripts/fetch_test_data.sh --project {PROJECT}"
-            )
-
 
 @pytest.fixture(scope="module")
 def demo() -> ModuleType:
-    """The demo pipeline module, loaded from its path."""
-    _require_runnable()
-    specification = importlib.util.spec_from_file_location("ligase_demo", DEMO)
-    assert specification is not None
-    assert specification.loader is not None
-    module = importlib.util.module_from_spec(specification)
-    specification.loader.exec_module(module)
-    return module
+    """The demo pipeline module, with this project's inputs resolved.
+
+    The module resolves the *demo's* project on import; this project's runs
+    are resolved here, which is what checks their digests before any of
+    them is aligned.
+    """
+    _require_tools()
+    return require_demo(runs=RUNS, project=PROJECT)
 
 
 @pytest.fixture(scope="module")

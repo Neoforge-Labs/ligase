@@ -46,6 +46,8 @@ use crate::check::Scope;
 use crate::exec::{self, Host, Options, StepFailure, Stores, Task, output_suffix};
 use crate::graph::{Graph, NodeId};
 use crate::hash::ContentHash;
+use crate::prov::day;
+use crate::types::{Dataset, Origin};
 
 /// Which nodes an audit is about.
 ///
@@ -126,6 +128,15 @@ pub struct AuditReport {
     pub audited: Vec<StepAudit>,
     /// Every node that could not be audited because it failed.
     pub failures: Vec<StepFailure>,
+    /// Every remote the audited steps rest on, with no duplicates.
+    ///
+    /// Reported beside the step verdicts rather than folded into
+    /// [`Self::verdict`], because the two are not on one scale: a remote's
+    /// verdict says who else could obtain this input, and a step's says
+    /// whether the same input twice gives the same answer. A pipeline whose
+    /// every step is deterministic can still rest on a query nobody else
+    /// can repeat, and that is worth reading rather than averaging away.
+    pub remotes: Vec<Origin>,
 }
 
 impl AuditReport {
@@ -224,6 +235,19 @@ impl AuditReport {
             }
         }
 
+        for remote in &self.remotes {
+            lines.push(format!(
+                "{:<16} `{}`",
+                remote.verdict.to_string(),
+                remote.locator
+            ));
+            lines.push(format!(
+                "    fetched {}            {}",
+                day(remote.fetched_at),
+                short(remote.digest)
+            ));
+        }
+
         if !lines.is_empty() {
             lines.push(String::new());
         }
@@ -285,6 +309,20 @@ pub fn audit(
         .collect();
 
     let mut report = AuditReport::default();
+
+    // Every remote the audited steps rest on, de-duplicated by locator: a
+    // reference fetched once and handed to three steps is one fetch.
+    for node in graph.reachable_nodes(roots) {
+        if let Some(origin) = graph.dataset(node).and_then(Dataset::origin)
+            && !report
+                .remotes
+                .iter()
+                .any(|held| held.locator == origin.locator)
+        {
+            report.remotes.push(origin.clone());
+        }
+    }
+
     for node in chosen {
         let name = graph
             .step(node)

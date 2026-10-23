@@ -22,11 +22,15 @@ use ligase::convert::{self, Conversion};
 use ligase::dim::{CoordinateSystem, Dimension};
 use ligase::exec::{self, Host, Options, Recipe, Stores, Task};
 use ligase::graph::{Argument, Converted, Graph, NodeId, StepSpec};
+use ligase::hash::ContentHash;
 use ligase::hivdb;
 use ligase::inspect;
 use ligase::load::{self, Declared, IntervalFormat, LoadError as CoreLoadError};
 use ligase::note::Note;
 use ligase::prov::{self, Prov};
+use ligase::remote::Locator;
+use ligase::remote::fetch::{Network, Offline, Policy, Transport};
+use ligase::remote::pinned;
 use ligase::types::{DataKind, Dataset};
 
 /// One contig as Python sees it: name, length, checksum.
@@ -275,6 +279,13 @@ create_exception!(
 
 create_exception!(
     _core,
+    RemoteError,
+    PyException,
+    "A remote input could not be fetched, or is not what its digest says."
+);
+
+create_exception!(
+    _core,
     FrameError,
     PyValueError,
     "A reference is not numbered along the frame a step's coordinates mean."
@@ -371,6 +382,34 @@ impl PyDataset {
     /// that every surface says the same thing about the same file.
     fn notes(&self) -> Vec<String> {
         self.inner.notes().iter().map(ToString::to_string).collect()
+    }
+
+    /// Every file this data is, in order.
+    ///
+    /// One for most kinds and two for a pair of FASTQ mates, in mate
+    /// order. `path` names the primary file, which is what a message
+    /// quotes; this is what code that has to open all of them wants.
+    fn files(&self) -> Vec<String> {
+        self.inner
+            .files()
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// Where this was fetched from, if it was fetched.
+    ///
+    /// A tuple rather than a class, because the Python layer owns the
+    /// wording and the shape a user reads: `ligase.types.RemoteOrigin`.
+    fn origin(&self) -> Option<(String, String, String, i64, String)> {
+        let origin = self.inner.origin()?;
+        Some((
+            origin.locator.clone(),
+            origin.digest.to_hex(),
+            origin.bytes.to_hex(),
+            origin.fetched_at,
+            origin.verdict.to_string(),
+        ))
     }
 
     /// The samples this data covers, in order, if they are known.
@@ -584,6 +623,138 @@ fn declared_label(name: &str, value: Option<String>) -> PyResult<Option<String>>
         ))),
         label => Ok(label),
     }
+}
+
+/// Resolve a pinned remote, and load what arrives as `kind`.
+///
+/// The digest is over what the file *means*, so a source that reflows a
+/// FASTA does not break the pin. A digest that does not match is an error
+/// here, while the pipeline is still being read, which is what makes "it
+/// fails before any step runs" true rather than merely intended.
+#[pyfunction]
+#[pyo3(signature = (locator, kind, digest=None, cache=None, offline=false, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None))]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "every declarable dimension, plus the three a remote needs; \
+              the Python surface names them and nothing calls this twice"
+)]
+fn resolve_remote(
+    locator: &str,
+    kind: &str,
+    digest: Option<&str>,
+    cache: Option<PathBuf>,
+    offline: bool,
+    organism: Option<Organisms>,
+    build: Option<String>,
+    frame: Option<(String, u64)>,
+    release: Option<String>,
+    samples: Option<Vec<String>>,
+    namespace: Option<String>,
+    subject: Option<String>,
+) -> PyResult<PyDataset> {
+    let parsed =
+        Locator::parse(locator).map_err(|error| RemoteError::new_err(error.to_string()))?;
+    let wanted = DataKind::ALL
+        .iter()
+        .copied()
+        .find(|known| known.name() == kind)
+        .ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "`{kind}` is not a kind of data Ligase knows. The kinds are {}",
+                DataKind::ALL
+                    .iter()
+                    .map(|known| known.name())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })?;
+    let declared_digest = match digest {
+        Some(text) => Some(ContentHash::parse(text.trim()).ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "`{text}` is not a digest: a digest is the 64 hexadecimal \
+                 characters `ligase run` reports for a remote it fetched"
+            ))
+        })?),
+        None => None,
+    };
+
+    let root = cache.unwrap_or_else(|| PathBuf::from(".ligase"));
+    let cache = Cache::open(&root).map_err(|error| RemoteError::new_err(error.to_string()))?;
+
+    // The GIL is released for the fetch, which can take minutes on an SRA
+    // run. Holding it would stop every other Python thread for the
+    // duration -- including a progress display, a signal handler, or a
+    // local server a test is fetching from, which is a deadlock rather
+    // than a slowdown.
+    let network = Network::new(Policy::default());
+    let transport: &dyn Transport = if offline { &Offline } else { &network };
+    let resolved = Python::attach(|py| {
+        py.detach(|| pinned::resolve(&parsed, wanted, declared_digest, &cache, transport))
+    })
+    .map_err(|error| RemoteError::new_err(error.to_string()))?;
+
+    // A local FASTQ's sample is taken from its filename, and a store object's
+    // filename is the hash of its bytes -- so reads fetched from a remote
+    // have no filename to read a sample from, and the engine must be told
+    // rather than take a hash for a sample identifier. Not defaulted to the
+    // run accession either: one sample can have several runs, so a run is
+    // not a sample and quietly treating it as one is the kind of wrong
+    // answer this engine exists to refuse.
+    if wanted == DataKind::Reads && samples.as_ref().is_none_or(Vec::is_empty) {
+        return Err(PyValueError::new_err(format!(
+            "`{locator}` is reads, so it needs `samples=` naming the sample \
+             they are from. A local FASTQ's sample comes from its filename, \
+             and a fetched one is stored under the hash of its bytes, which \
+             is no sample identifier at all. The run accession is usually \
+             what you want -- `samples=[\"{}\"]` -- but say so, because one \
+             sample can have several runs",
+            parsed.body()
+        )));
+    }
+
+    let declared = Declared {
+        organism: organisms(organism)?,
+        build,
+        frame,
+        samples,
+        release: declared_label("release", release)?,
+        identifier_namespace: declared_label("namespace", namespace)?,
+        subject: declared_label("subject", subject)?,
+    };
+
+    // Loaded from the store exactly as a local file is, so a remote's
+    // dimensions are inferred by the same code and cannot disagree with it.
+    let mates: Vec<PathBuf> = resolved.paths.iter().skip(1).cloned().collect();
+    let primary = resolved
+        .paths
+        .first()
+        .ok_or_else(|| RemoteError::new_err(format!("`{locator}` resolved to no files")))?;
+    let loaded = match wanted {
+        DataKind::Reference => load::reference(primary, &declared),
+        DataKind::Alignment => load::alignment(primary, &declared),
+        DataKind::Variants => load::variants(primary, &declared),
+        // The format is read off the file's own suffix, which the locator
+        // settled before anything was fetched.
+        DataKind::Intervals => load::intervals(primary, None, &declared),
+        DataKind::EntitySet => load::entity_set(primary, None, &declared),
+        DataKind::RankedList => load::ranked_list(primary, None, &declared),
+        DataKind::Reads => load::reads(primary, mates.first().map(PathBuf::as_path), &declared),
+        DataKind::ResistanceReport => {
+            return Err(PyValueError::new_err(
+                "a resistance report is something Ligase produces, not \
+                 something to fetch",
+            ));
+        }
+    }
+    .map_err(to_py)?;
+
+    let mut inner = loaded.with_origin(resolved.origin());
+    if !resolved.notes.is_empty() {
+        let mut notes = inner.notes().to_vec();
+        notes.extend(resolved.notes.iter().cloned());
+        inner = inner.with_notes(notes);
+    }
+    Ok(PyDataset { inner })
 }
 
 #[pyfunction]
@@ -1311,6 +1482,7 @@ fn version() -> &'static str {
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(load_reference, m)?)?;
+    m.add_function(wrap_pyfunction!(resolve_remote, m)?)?;
     m.add_function(wrap_pyfunction!(load_entity_set, m)?)?;
     m.add_function(wrap_pyfunction!(load_ranked_list, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_axis, m)?)?;
@@ -1330,6 +1502,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDataset>()?;
     m.add_class::<PyGraph>()?;
     m.add("LoadError", m.py().get_type::<LoadError>())?;
+    m.add("RemoteError", m.py().get_type::<RemoteError>())?;
     m.add("FrameError", m.py().get_type::<FrameError>())?;
     Ok(())
 }

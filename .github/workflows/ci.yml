@@ -103,34 +103,37 @@ jobs:
           environment-file: .github/demo-tools.yml
           cache-environment: true
 
-      # The accessions and their checksums live in the fetch script, so its
-      # hash is the right cache key: edit the manifest and the data is
-      # fetched again, change anything else and it is not. Only the fetched
-      # inputs are cached, never anything derived from them.
-      #
-      # On a hit the script still verifies every file against its pinned
-      # checksum, from disk, and downloads nothing -- not even HXB2, the one
-      # input that comes from a rate-limited API rather than from ENA.
-      - name: cache the fetched data
-        uses: actions/cache@v4
-        with:
-          path: |
-            data/reads
-            data/refs
-          key: ligase-data-both-${{ hashFiles('scripts/fetch_test_data.sh') }}
-
-      # Both projects now. PRJNA517147 is what tests/test_demo.py runs the
-      # pipeline on, about 103 MB. PRJNA1218827 is M6's validation set, a
-      # further 27 MB: its samples have published Stanford HIVdb calls, so
-      # tests/test_validation.py can check this pipeline's resistance
-      # calls against someone else's answers rather than against itself.
-      - name: fetch the test data
-        run: |
-          scripts/fetch_test_data.sh --project PRJNA517147
-          scripts/fetch_test_data.sh --project PRJNA1218827
-
       - name: pip install -e .
         run: pip install -e ".[dev]"
+
+      # Keyed on the *digests*, which is what M10 bought: the pins live in
+      # the demo pipeline, so editing one re-fetches that input and editing
+      # anything else does not. What is cached is the engine's own
+      # content-addressed store, where an object's name is the hash of its
+      # bytes -- so a restored cache cannot be stale, only incomplete, and
+      # an incomplete one is a fetch rather than a wrong answer.
+      #
+      # `.ligase/cache.sqlite` rides along because it holds the record of
+      # which locator produced which object. Losing it costs one re-fetch
+      # and nothing else: everything in it is derived from content hashes.
+      - name: cache the demo's fetched inputs
+        uses: actions/cache@v4
+        with:
+          path: .ligase
+          key: >-
+            ligase-store-${{ hashFiles('examples/hiv-resistance/pipeline.py') }}
+
+      # Both projects. PRJNA517147 is what tests/test_demo.py runs the
+      # pipeline on, about 103 MB. PRJNA1218827 is M6's validation set, a
+      # further 27 MB: its samples have published Stanford HIVdb calls, so
+      # tests/test_validation.py can check this pipeline's resistance calls
+      # against someone else's answers rather than against itself.
+      #
+      # On a cache hit this verifies every input against its pin from the
+      # store and downloads nothing -- not even HXB2, the one input that
+      # comes from a rate-limited API rather than from ENA.
+      - name: warm the store
+        run: python scripts/fetch_demo_data.py
 
       # One BAM whose header a real aligner wrote, for the type tests that
       # check what minimap2 actually emits rather than what the SAM

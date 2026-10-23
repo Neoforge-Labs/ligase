@@ -27,6 +27,7 @@ __all__ = [
     "RankedList",
     "Reads",
     "Reference",
+    "RemoteOrigin",
     "ResistanceReport",
     "Variants",
 ]
@@ -62,6 +63,34 @@ class DimensionValue:
     name: str
     value: str
     source: str
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteOrigin:
+    """Where a dataset was fetched from.
+
+    On `dataset.origin` for anything `lg.remote` produced, and `None` for a
+    file somebody already had. `digest` is the value to write into
+    `lg.remote(digest=...)` to make every later run a checked one.
+
+    Attributes:
+        locator: What the pipeline asked for, e.g. `ncbi:K03455.1`. Not the
+            URL that answered, which can differ and is recorded separately.
+        digest: The digest of what the files *mean*, which is what the pin
+            is compared against.
+        bytes: The digest of their bytes. It can move while `digest` does
+            not: a source that reflows a FASTA has changed no biology.
+        fetched_at: When they were fetched, as seconds since the epoch.
+        verdict: What this input's reproducibility rests on. `pinned` means
+            the source promises the same bytes forever, so anyone can
+            obtain this input and check it.
+    """
+
+    locator: str
+    digest: str
+    bytes: str
+    fetched_at: int
+    verdict: str
 
 
 class Dataset:
@@ -110,6 +139,35 @@ class Dataset:
                 "has run; `path` is the accessor that admits to that"
             )
         return found
+
+    @property
+    def files(self) -> tuple[str, ...]:
+        """Every file this data is, in order.
+
+        One for most kinds and two for a pair of FASTQ mates, in mate
+        order. `file` names the primary one, which is what a message
+        quotes; this is what code that has to open all of them wants.
+        """
+        return tuple(self._core.files())
+
+    @property
+    def origin(self) -> RemoteOrigin | None:
+        """Where this was fetched from, or `None` if it was not fetched.
+
+        The overwhelming majority of inputs are files somebody has, and for
+        those this says nothing by being `None`.
+        """
+        found = self._core.origin()
+        if found is None:
+            return None
+        locator, digest, raw, fetched_at, verdict = found
+        return RemoteOrigin(
+            locator=locator,
+            digest=digest,
+            bytes=raw,
+            fetched_at=fetched_at,
+            verdict=verdict,
+        )
 
     @property
     def applicable(self) -> tuple[str, ...]:

@@ -156,11 +156,37 @@ pub type Organism = NameSet;
 
 /// The sources a dataset was assembled from.
 ///
-/// Shares [`NameSet`]'s ASCII-case-insensitive dedup for now, which is right
-/// for study accessions (`GSE12345` and `gse12345` are one study) and wrong
-/// for object keys (`s3://bucket/A.vcf` and `s3://bucket/a.vcf` are two
-/// objects, and the second would be dropped). No kind applies this dimension
-/// yet. The type is to be split when one does; see D36.
+/// Shares [`NameSet`]'s ASCII-case-insensitive dedup for now, and **must
+/// stop doing so when a kind first applies this axis**. No kind applies it
+/// yet: M10 settled what the split is, M8 and M12 each declined the axis
+/// with reasons, and `KnowledgeGraph` in v0.3 is the first kind the feature
+/// spec gives it — so that is where the split lands, together with this
+/// axis's `check::compare` and `graph::propagate` arms (D36).
+///
+/// # The rule, and why it is not this one
+///
+/// The two failures are not symmetric. Folding case *drops* a member, which
+/// turns two sets that differ into two sets that agree — a false agreement,
+/// which is the thing this engine exists to refuse. Not folding it can only
+/// *add* a member, which turns agreement into a refusal: loud, legible, and
+/// fixed by declaring one spelling. This project has taken that trade twice
+/// already, in D37's refusal to equate `human` with `Homo sapiens` and in
+/// D38's refusal of an alias table.
+///
+/// The folding is also the unusual rule rather than the default. [`Release`],
+/// [`Subject`] and [`IdentifierNamespace`] are all [`Label`] and compared
+/// case-sensitively, because a label is a name the user chose. [`Organism`]
+/// folds because Latin binomials are a closed conventional vocabulary where
+/// `HIV-1` and `hiv-1` are one organism by convention. Sources are not that:
+/// `s3://bucket/A.vcf` and `s3://bucket/a.vcf` are two objects *by
+/// specification*, and a URL path is case-sensitive wherever it is served.
+/// `GSE12345` matching `gse12345` is real but is the minority case, and it
+/// costs a user one consistent spelling.
+///
+/// It is not split *now* because nothing would exercise it: until a kind
+/// applies the axis, `joined_on` filters it out and `check_step` never
+/// reaches its arms, which is the condition M7's standing requirement exists
+/// to prevent.
 pub type SourceSet = NameSet;
 
 /// A scalar label, compared exactly.

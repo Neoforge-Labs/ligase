@@ -378,7 +378,7 @@ given.
 Because `data/` is gitignored, anything touching real data skips when absent
 rather than failing in CI. Two tests do:
 
-- the real HXB2 FASTA, after `scripts/fetch_test_data.sh`
+- the real HXB2 FASTA, after `python scripts/fetch_demo_data.py`
 - the real minimap2 alignment, after `scripts/make_demo_alignment.sh`
 
 That second script rebuilds the BAM header with `samtools dict` so the `@SQ`

@@ -41,6 +41,24 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 # run by Rust threads and never touches the GIL.
 rayon = "1.12"
 
+# Fetching a remote input (D39). Blocking, because the executor is a rayon
+# thread pool and deliberately never touches an async runtime -- and because
+# a fetch here is one synchronous call whose answer the caller needs before
+# it can do anything else.
+#
+# Chosen over `reqwest`, which the feature spec named, for the install story
+# that D11 is about: `reqwest`'s `rustls` feature resolves to `aws-lc-rs`,
+# which needs `cmake` at build time, and a wheel that needs cmake does not
+# build on a machine without it. `ureq` uses rustls over `ring`, which needs
+# only a C compiler -- and `rusqlite`'s bundled SQLite already requires one,
+# so this adds no toolchain requirement at all. It also costs 16 crates
+# against 82, because it needs no tokio, no hyper and no tower to make a
+# blocking GET.
+ureq = { version = "3.5", default-features = false, features = [
+  "rustls",
+  "gzip",
+] }
+
 # Encodes the CLAUDE.md rule "no unwrap outside tests" as a machine check.
 # Test files opt out explicitly with #![allow(...)].
 [workspace.lints.clippy]

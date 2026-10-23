@@ -11,6 +11,7 @@ const meta: MetaRecord = {
   'semantic-hashing': 'What a file means',
   provenance: 'How was this produced?',
   identifiers: 'Identifier spaces',
+  remotes: 'Where the data came from',
   notes: 'What a result rests on',
   'resistance-interpretation': 'Resistance interpretation',
 }

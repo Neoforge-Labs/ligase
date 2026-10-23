@@ -103,6 +103,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   prompt. The guide page is "Inspecting files you have", and the quickstart
   now opens with it.
 
+- **A pipeline says where its data comes from, and the engine fetches it**
+  (**D39**). The first step of nearly every pipeline is a fetch, and until now
+  it sat outside everything Ligase promises — including in its own demo, where
+  a three-hundred-line shell script downloaded the reads and the engine took
+  its word for what had arrived.
+
+  ```python
+  hxb2 = lg.remote(
+      "ncbi:K03455.1",
+      kind=Reference,
+      digest="1f460b25ab23b95345d579c234c43ca6d0abf7c1adf6aeffb43b974b2b1941ad",
+      organism="HIV-1",
+      build="HXB2",
+  )
+  ```
+
+  `ligase run` fetches it, verifies it, and hands back the same object
+  `lg.reference` would have — contigs, checksums, dimensions and all — with
+  its content hash in every cache key below it and its locator in the methods
+  paragraph. The second run fetches nothing, so a pipeline built on remotes
+  runs offline once it has run online.
+
+  **A pinned remote promises the same bytes forever, from the source.** That
+  is a promise an SRA run accession or a numbered release actually makes, and
+  `digest=` is how you hold a source to it. The other kind of remote — a live
+  query, whose source promises nothing — needs a record rather than a pin, and
+  is the next milestone; D39 is written whole because the two halves are only
+  coherent together.
+
+  **The digest is over what the file means, not over its bytes.** The shell
+  script this replaces pinned HXB2 by the checksum of its *sequence* for a
+  reason it wrote down: NCBI may reflow lines or reword a defline without the
+  biology changing. An alarm that fires on a cosmetic reformat teaches you to
+  bump pins without reading, and then the one that matters gets bumped too. So
+  a changed *meaning* is a loud failure naming both digests, and bytes that
+  moved with the meaning intact are noticed instead.
+
+  **A wrong digest fails before any step runs**, and that needed no arranging:
+  a remote resolves as the pipeline file is read, because its dimensions
+  cannot be known until its bytes are in hand and the engine checks dimensions
+  before any compute. There is no graph yet when it fails.
+
+  **Four locator schemes and no more** — `sra:`, `ncbi:`, `ensembl:`,
+  `https:` — because a scheme is a promise that the engine knows how to turn
+  an accession into bytes *and* how to recognise the answer. A fifth is an
+  error naming the four, and a bare `SRR8525904` with no scheme is refused
+  rather than guessed at: a guess would be right often enough to be trusted
+  and then one day fetch from the wrong archive.
+
+  **A 200 is not a promise about the body.** NCBI answers a bad accession with
+  an HTTP 200 and an HTML page, so what arrives is read as the kind it was
+  declared to be and a body that will not parse as one is refused. With no
+  digest declared, that is the only thing between an error page and a pipeline
+  treating it as a reference.
+
+  Reads fetched from a remote must name their sample. A local FASTQ's sample
+  comes from its filename and a fetched one is stored under the hash of its
+  bytes, which is no sample identifier — and the run accession is not assumed,
+  because one sample can have several runs.
+
+  `ligase.remotes.configure(offline=True)` makes a run resolve only what the
+  store already holds, which is what a reviewer with no connection wants.
+  `ligase check` gained `--cache DIR` for the same reason remotes resolve
+  early: the store has to be known before the pipeline file is read.
+
+- **`ligase audit` reports each remote as *pinned*,** beside the step verdicts
+  rather than folded into them. The two are not on one scale: a remote's
+  verdict says who else could obtain this input, and a step's says whether the
+  same input twice gives the same answer. A pipeline whose every step is
+  deterministic can still rest on an input nobody else can get, and folding
+  the verdicts would let that average away.
+
+- **The methods paragraph says what was fetched, from where and when,** and a
+  reproducibility bundle names each remote in `remotes.tsv` by locator and
+  digest. Named rather than carried, because that is what *pinned* means:
+  anyone can obtain it from the source and check it against the digest
+  recorded there, so copying gigabytes of reads into every bundle would buy
+  nothing.
+
+- **The content-addressed store is a trait** (`store::BlobStore`), with the
+  local filesystem as its only backend. Records are the first thing written
+  there that a lab will want to share, so the shape is settled now and M14
+  implements it over object storage. Two additions to D39's three operations
+  are not conveniences: a key carries a **suffix** beside the hash, because a
+  step's output is handed to `bcftools` as a path and those tools dispatch on
+  the extension; and verification is a **provided method on the trait**, so
+  "nothing read from a store is trusted" is not something each backend author
+  remembers separately.
+
+- `Dataset` gained `files`, every file a dataset is in order, and `origin`,
+  where it was fetched from. `lg.remote` is typed on its `kind`, so it returns
+  a `Reference` or a `Reads` rather than a bare `Dataset`.
+
+
 - **A gene list knows which identifier space it is in, and two spaces refuse
   to join** (**D38**). `TP53`, `ENSG00000141510`, `7157` and `P04637` are four
   correct names for one gene and no two of them are equal as strings, and a
@@ -393,6 +487,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **The HIV-1 demo fetches its own inputs, and `scripts/fetch_test_data.sh` is
+  gone.** `examples/hiv-resistance/pipeline.py` declares seventeen remotes —
+  HXB2 and eight paired runs — and is itself the manifest of their pins, so
+  there is nothing to run before `ligase run`. ENA's directory layout rule,
+  which lived only in that script, moved into the engine and is now tested at
+  all four of its branches.
+
+  The test suite is a different matter and is **offline by default**: a suite
+  that downloads a hundred megabytes because you ran it is a suite people stop
+  running, so a test needing the demo's inputs skips unless the store is warm.
+  `python scripts/fetch_demo_data.py` warms it. CI sets
+  `LIGASE_DEMO_REQUIRED`, which both allows the fetch and turns a skip into a
+  failure.
+
+  The CI `demo` job now caches the engine's own store, keyed on the hash of
+  the demo pipeline — which is to say on the digests. A restored cache cannot
+  be stale, only incomplete, and an incomplete one is a fetch rather than a
+  wrong answer.
+
+  `scripts/make_demo_alignment.sh` and the Rust tests that wanted real HXB2
+  now ask the engine where its own input is rather than looking for a path.
+
 - **The docs moved onto the Neoforge Labs identity.** They were warm paper
   and violet, designed before the project had to belong to anything; they are
   now near-black (`#0A0A0B`) with cream (`#F5F5F0`) ink and the flame orange
@@ -613,6 +729,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   scoring a ranking against a curated truth set is, could join by silence.
   Two lists that each say nothing overlapping in nothing is the failure the
   dimension exists to break.
+
+- The fetch releases the GIL. Holding it through a minutes-long download would
+  freeze every other Python thread, and it deadlocked outright against a local
+  server a test was fetching *from* — the server's thread could not run while
+  the fetch it was answering held the lock.
+
 
 - **The errors reference showed a `ReferenceFrameError` nobody had run.** It
   was pasted in and hand-wrapped, and it named a fixture file

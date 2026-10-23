@@ -997,6 +997,7 @@ impl Runner<'_> {
     fn remember(&self, made: &Made<'_>) -> Result<(), String> {
         let mut inputs = Vec::new();
         let mut references = Vec::new();
+        let mut remotes = Vec::new();
 
         // The arguments and the inputs are in the same order: the inputs
         // were built from the arguments.
@@ -1020,6 +1021,16 @@ impl Runner<'_> {
                     bytes,
                     canonical,
                 });
+            }
+
+            // Where an input was fetched from, if it was fetched. A remote
+            // the pipeline declared once but passed to three steps is
+            // recorded against each of them, because a record is about one
+            // computation; the methods report is what de-duplicates.
+            if let Some(dataset) = dataset
+                && let Some(origin) = dataset.origin()
+            {
+                remotes.push(origin.clone());
             }
 
             // A reference is pinned by what its own file says: the accession
@@ -1053,6 +1064,7 @@ impl Runner<'_> {
                 parameters: made.task.parameters.clone(),
                 inputs,
                 references,
+                remotes,
                 tools,
                 engine: crate::version().to_owned(),
                 platform: prov::platform(),

@@ -23,6 +23,12 @@ asking. It distinguishes a step whose *bytes* move from one whose *result*
 does: the first is every tool that records its own command line, and the
 second is a finding.
 
+`ligase run` also resolves the pipeline's remote inputs, which happens
+before the graph is built: a remote whose digest does not match the one the
+pipeline pins is a failure before any step has run, and on a second run
+nothing is fetched because the bytes and their digest are already in the
+store.
+
 `ligase methods` says how the results were produced: tool versions,
 parameters, every reference by accession and checksum, and the references to
 cite. It runs the pipeline first — normally and through the cache — because
@@ -48,6 +54,7 @@ from . import (
     intervals,
     reads,
     reference,
+    remotes,
     variants,
 )
 from .errors import CheckError
@@ -141,7 +148,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="type-check a pipeline without running it",
         description=(
             "Build the pipeline's graph and check every step's dimensions. "
-            "The pipeline file is imported; the step bodies are not run."
+            "The pipeline file is imported; the step bodies are not run. "
+            "A remote input resolves here, because its dimensions cannot "
+            "be read until its bytes are in hand -- so this is also where "
+            "a digest that does not match is reported."
         ),
     )
     check.add_argument(
@@ -150,6 +160,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_PIPELINE,
         type=Path,
         help=f"the pipeline to check (default: {DEFAULT_PIPELINE})",
+    )
+    check.add_argument(
+        "--cache",
+        type=Path,
+        metavar="DIR",
+        help=(
+            f"where to look for the pipeline's remote inputs (default: ./{CACHE_DIR})"
+        ),
     )
 
     run = commands.add_parser(
@@ -285,6 +303,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         could not be read at all.
     """
     arguments = build_parser().parse_args(argv)
+
+    # Before anything imports a pipeline file. A remote resolves when the
+    # pipeline declares it -- that is what makes a wrong digest fail before
+    # any step runs -- so by the time `pipeline.run(cache=...)` is reached
+    # the fetching is already done, and `--cache` would have been ignored.
+    remotes.configure(cache=getattr(arguments, "cache", None))
+
     if arguments.command == "inspect":
         return _inspect(arguments.files)
     if arguments.command == "run":

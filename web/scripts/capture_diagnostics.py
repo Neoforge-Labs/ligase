@@ -17,10 +17,19 @@ reference-build scenario declares `build=` names, which is how a real pipeline
 names a build the file headers cannot identify on their own.
 
 Most scenarios are one step's inputs disagreeing with each other, which
-`lg.dimension_errors` finds on its own. One is not: a reference in the wrong
+`lg.dimension_errors` finds on its own. Two are not. A reference in the wrong
 coordinate frame disagrees with what the *step* reads, which is known from
-its return annotation rather than from any input, so that scenario is checked
-as a whole pipeline (`pipeline=True`).
+its return annotation rather than from any input, so that one is checked as a
+whole pipeline (`pipeline=True`). And a remote input is refused before there
+is a step at all -- a digest that does not match fails while the pipeline
+file is still being read -- so those scenarios name a `provoke` function and
+the error it must raise.
+
+The remote scenarios serve their fixture from a local HTTP server on a
+loopback port, which is a scheme the engine accepts for exactly this reason:
+TLS protects a channel against something sitting in it, and between two ends
+of a loopback socket there is nothing to sit in. So these are real fetches
+over a real socket, and the docs build still reaches no network.
 """
 
 from __future__ import annotations
@@ -28,6 +37,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,16 +58,23 @@ class Scenario:
     """The step name the diagnostic is reported against."""
     expect: str
     """The error class name the engine must produce."""
-    build: Callable[[Any], dict[str, Any]]
-    """Returns the step's named inputs, given the `ligase` module."""
     description: str
     """What this demonstrates, for the generated file's comments."""
+    build: Callable[[Any], dict[str, Any]] | None = None
+    """Returns the step's named inputs, given the `ligase` module."""
     pipeline: bool = False
     """Check a whole one-step pipeline rather than the inputs alone.
 
     For a disagreement between an input and what the step itself reads,
     which `dimension_errors` cannot see: it compares inputs, and a step's
     own coordinate frame comes from its return annotation.
+    """
+    provoke: Callable[[Any], None] | None = None
+    """Do something that must raise `expect`, given the `ligase` module.
+
+    For a failure that is not a disagreement between two inputs: a remote
+    whose digest does not match is refused as the pipeline file is read,
+    before there is a step for a diagnostic to be reported against.
     """
 
 
@@ -73,6 +90,97 @@ def fixture(name: str) -> str:
     if not path.is_file():
         raise SystemExit(f"fixture missing: {path}")
     return str(path.relative_to(ROOT))
+
+
+class Served:
+    """A fixture, served over a loopback socket, for the remote scenarios.
+
+    Not a stub: the engine's own HTTP client fetches this over a real
+    socket, so the diagnostics captured from it are the ones a user gets
+    from a real archive. Loopback only, so the docs build reaches no
+    network.
+    """
+
+    #: Ports to try, in order.
+    #:
+    #: Fixed rather than picked by the operating system, because the locator
+    #: ends up inside a published diagnostic and `http://localhost:8731/...`
+    #: reads as an example where `http://127.0.0.1:61401/...` reads as a
+    #: machine's accident. Several, so a port already in use is not a failed
+    #: docs build.
+    PORTS = tuple(range(8731, 8741))
+
+    def __init__(self, body: bytes) -> None:
+        """Start on the first of `PORTS` that is free."""
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class Handler(BaseHTTPRequestHandler):
+            # `do_GET` is the name `http.server` dispatches on.
+            def do_GET(self) -> None:
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args: object) -> None:
+                """Say nothing: a build log is not a web server log."""
+
+        for port in self.PORTS:
+            try:
+                self._http = ThreadingHTTPServer(("localhost", port), Handler)
+                break
+            except OSError:
+                continue
+        else:
+            raise SystemExit(
+                "could not bind a local port for the remote diagnostics: "
+                f"every one of {self.PORTS[0]}-{self.PORTS[-1]} is in use"
+            )
+        self._thread = threading.Thread(target=self._http.serve_forever, daemon=True)
+        self._thread.start()
+
+    @property
+    def url(self) -> str:
+        """Where the fixture is, as a locator.
+
+        Written with `localhost` rather than the address it resolved to,
+        because this string is published inside a diagnostic and is read as
+        an example.
+        """
+        port = self._http.server_address[1]
+        return f"http://localhost:{port}/HXB2.fasta"
+
+    def stop(self) -> None:
+        """Close the port."""
+        self._http.shutdown()
+        self._http.server_close()
+        self._thread.join(timeout=5)
+
+
+def a_remote_whose_digest_does_not_match(lg: Any) -> None:
+    """Fetch a reference, pinned to a digest it does not have."""
+    import tempfile
+
+    served = Served((FIXTURES / "tiny_bare.fasta").read_bytes())
+    try:
+        with tempfile.TemporaryDirectory() as store:
+            lg.remotes.configure(cache=store, offline=False)
+            lg.remote(
+                served.url,
+                kind=lg.types.Reference,
+                # Deliberately wrong, and obviously so: nothing hashes to
+                # a run of zeroes.
+                digest="0" * 64,
+                organism="test",
+            )
+    finally:
+        lg.remotes.reset()
+        served.stop()
+
+
+def a_locator_with_a_scheme_the_engine_does_not_have(lg: Any) -> None:
+    """Name a remote with a fifth scheme."""
+    lg.remote("ftp://ftp.example.org/HXB2.fasta", kind=lg.types.Reference)
 
 
 SCENARIOS: tuple[Scenario, ...] = (
@@ -197,6 +305,23 @@ SCENARIOS: tuple[Scenario, ...] = (
         },
     ),
     Scenario(
+        key="remoteMoved",
+        step="",
+        expect="RemoteError",
+        description=(
+            "A remote pinned to a digest the source does not serve: the one "
+            "failure a pin exists to produce."
+        ),
+        provoke=a_remote_whose_digest_does_not_match,
+    ),
+    Scenario(
+        key="remoteScheme",
+        step="",
+        expect="RemoteError",
+        description="A locator naming a scheme outside the closed set of four.",
+        provoke=a_locator_with_a_scheme_the_engine_does_not_have,
+    ),
+    Scenario(
         key="mixedOrganism",
         step="call",
         expect="DimensionError",
@@ -238,6 +363,7 @@ def pipeline_errors(lg: Any, scenario: Scenario) -> list[Any]:
         "return": types.ResistanceReport,
     }
 
+    assert scenario.build is not None
     pipe = lg.Pipeline(lg.step(tool="hivdb")(resistance)(**scenario.build(lg)))
     try:
         pipe.check()
@@ -246,13 +372,31 @@ def pipeline_errors(lg: Any, scenario: Scenario) -> list[Any]:
     return []
 
 
+def provoked(lg: Any, scenario: Scenario) -> list[Any]:
+    """Do the thing that must fail, and return what it raised.
+
+    One error or none: the failures captured this way are refusals rather
+    than reports, and a refusal is one exception.
+    """
+    assert scenario.provoke is not None
+    try:
+        scenario.provoke(lg)
+    # Broad on purpose: the error *is* the output, and narrowing this would
+    # mean this script deciding which classes a page may show.
+    except Exception as error:
+        return [error]
+    return []
+
+
 def capture(lg: Any, scenario: Scenario) -> str:
     """Run one scenario and return the engine's text, or exit with why not."""
-    errors = (
-        pipeline_errors(lg, scenario)
-        if scenario.pipeline
-        else lg.dimension_errors(scenario.step, scenario.build(lg))
-    )
+    if scenario.provoke is not None:
+        errors = provoked(lg, scenario)
+    elif scenario.pipeline:
+        errors = pipeline_errors(lg, scenario)
+    else:
+        assert scenario.build is not None
+        errors = lg.dimension_errors(scenario.step, scenario.build(lg))
 
     if not errors:
         raise SystemExit(

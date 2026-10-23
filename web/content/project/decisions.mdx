@@ -1216,6 +1216,184 @@ The other corruption, a symbol turned into a date *serial* such as `42615`, is
 deliberately not detected: it is indistinguishable from an Entrez gene ID, and
 a rule that flagged it would report real identifiers as mistakes.
 
+## D39 — A remote is pinned or recorded, and both are replayable
+
+The first step of nearly every pipeline is a fetch, and until M10 it sat
+outside everything this engine promises — including in Ligase's own demo,
+where a three-hundred-line shell script downloaded the reads and the engine
+took its word for what had arrived. That is a strange hole to leave in a tool
+whose whole claim is that a result can be accounted for.
+
+Closing it means answering a question first: what, exactly, is being
+promised about a fetched input? There are two answers, and conflating them
+would be the usual mistake.
+
+|  | `PinnedRemote` | `RecordedQuery` |
+|---|---|---|
+| Examples | an SRA run, a PDB entry, a numbered ChEMBL release, HXB2 by accession | a live Open Targets query, a REST call to Monarch |
+| Promise | the same bytes forever, from the source; pinned by digest | the same bytes forever, from the record; the source promises nothing |
+| On change at the source | loud failure: the remote moved | reported as *drift* by `--refresh`; never a silent re-fetch |
+| Reproducible from | the source — anyone, anywhere, any time | the bundle — anyone holding the record |
+| Audit verdict | **pinned** | **replayed**, or **live** on the run that made the record |
+
+### Two reproducibility claims, kept apart
+
+*Source reproducibility* — that a third party will serve the same answer next
+Tuesday — is a real promise and some sources make it. An SRA run accession is
+an undertaking; HXB2 is `K03455.1` and will be; a numbered database release
+exists in order to be cited. Where a source makes that promise, a digest is
+how you hold it to it.
+
+No live query can make it, and pretending otherwise is how a paper becomes
+unreproducible without anyone noticing. Open Targets will answer differently
+next quarter, because it is supposed to.
+
+So a recorded query promises something else, and something that turns out to
+be enough: *record reproducibility*, that anyone with the bundle can run the
+pipeline again and get the same result. That needs exactly one thing — the
+canonicalised response **body** goes into the content-addressed store, not
+merely its digest. The body is then an ordinary input with a content hash,
+and everything downstream is deterministic by construction.
+
+This is the record/replay pattern of vcrpy and of a Nix fixed-output
+derivation. Ligase's contribution is not the pattern: it is that the record
+is typed, content-addressed, part of the cache key, and enforced by the
+engine rather than by discipline.
+
+### Three modes, set per run
+
+| Mode | What happens |
+|---|---|
+| record | no record exists for this query: fetch live, canonicalise, store the body, log locator, timestamp and digest |
+| replay | a record exists: serve it, no network, and the run report says it was replayed |
+| refresh | fetch live anyway, compare against the record, and report *drift* |
+
+The default replays what exists and records what does not, and the run report
+always says which it did. **In replay mode a query with no record is an
+error, never a silent live fetch** — a half-replayed run is the
+plausible-but-wrong result Ligase exists to refuse. And **a refresh never
+replaces a record**: it writes a new dated one beside the old, so every
+earlier run stays replayable. A surveillance pipeline refreshing weekly is
+not reproducing one run; it is a series of runs, each with its own record,
+each replayable forever.
+
+A record's identity is the *canonical request*: method, URL with sorted
+parameters, request body, nothing volatile. A step making twenty paginated
+calls writes twenty records keyed by request rather than by sequence, so call
+order is irrelevant. The response is canonicalised like any other kind — JSON
+keys sorted, request IDs and server timestamps and rate-limit headers dropped
+— so two responses meaning the same thing hash the same, on the `@PG`-line
+precedent of [D22](#d22--a-tools-signature-is-not-part-of-its-result).
+
+### A digest is over what the file means
+
+Not over its bytes: the canonical form of what arrives, read as its declared
+kind, folded over its files in order. For a kind with no canonical form the
+fold is over the bytes, which needs no special case because
+[D21](#d21--canonicalisation-falls-back-to-the-bytes) already says
+canonicalisation falls back to them.
+
+This is [D4](#d4--semantic-hashing) applied to an input, and the argument for
+it came from the shell script that M10 deleted. It pinned HXB2 by the
+checksum of its *sequence* rather than of the file, with a comment saying
+why: NCBI may reflow lines or reword a defline without the biology changing,
+and that must not break the build.
+
+The comment is right, and the reason is about people rather than bytes. An
+alarm that fires on a cosmetic reformat teaches you to bump pins without
+reading — and then the one that matters gets bumped too. So a changed
+*meaning* is a loud failure naming both digests, and bytes that moved with
+the meaning intact are [noticed](#d26--a-field-that-cannot-be-dropped-is-noticed-instead) rather
+than failed on.
+
+Folding even a single file means a lone file and a paired run are described
+the same way, and that swapping a pair's mates is a different digest — which
+it must be, since it reverses every read's orientation.
+
+### Resolution happens before the graph exists
+
+A remote resolves when the pipeline declares it. That is not a deferred
+optimisation: a remote's dimensions cannot be known until its bytes are in
+hand, and the engine checks dimensions before any compute. You cannot
+type-check data you have not got.
+
+Which is why "a wrong digest fails before any step runs" needed no arranging.
+There is no graph yet when it fails. The cost is that `ligase check` on a
+cold store reaches the network once; on a warm one it reaches nothing.
+
+### A closed set of four schemes
+
+`sra:`, `ncbi:`, `ensembl:`, `https:`, and anything else is an error naming
+the four. A scheme is a promise that the engine knows how to turn an
+accession into bytes *and* how to recognise the answer — `ncbi:` asks eutils
+for FASTA, `sra:` knows ENA's directory layout and that a run is a pair of
+files. An open set, or one extensible by configuration, would be a promise
+the engine could not keep, and the failure would be a fetch of the wrong
+thing rather than an error. Adding a fifth is a decision, not a setting.
+
+`https:` is the escape hatch and deliberately the only one: it says "these
+exact bytes, from this exact URL", which is a promise the user makes rather
+than one the engine makes for them. A loopback address may be written
+`http://`, which is the same scheme by another name — TLS protects a channel
+against something sitting in it, and between two ends of a loopback socket
+there is nothing to sit in.
+
+A bare accession with no scheme is refused rather than guessed at.
+`SRR8525904` looks like an SRA run and `K03455.1` like an NCBI accession, so
+a guess would be right often enough to be trusted and then one day fetch from
+the wrong archive.
+
+### A 200 is not a promise about the body
+
+An archive asked for an accession it does not have does not always say so.
+NCBI answers with an HTTP 200 and an HTML page beginning `Error: ID list is
+empty`. Nothing in the status says anything is wrong, and with no digest
+declared there is nothing to compare against.
+
+So what arrives is read as the kind it was declared to be, and a body that
+will not parse as one is refused. That is a deliberate departure from
+[D21](#d21--canonicalisation-falls-back-to-the-bytes), which lets a local
+file that will not parse fall back to its bytes: a local file is one the user
+chose, and a fetched one is whatever an archive returned.
+
+### A secret has nowhere to be stored
+
+Auth headers are not stripped before storage. The type the transport returns
+has no field for request headers, and neither does anything derived from it,
+so there is nothing to strip. That is the only version of "a bundle never
+carries a secret" that a later field cannot quietly undo, and the test for it
+asserts over the whole record and the whole bundle rather than over a list of
+header names.
+
+### What this retires
+
+`python/ligase/provenance.py` records the limitation that "a bundle cannot
+fetch its own data". With recorded bodies in the bundle it does not need to:
+a reviewer replays the run with no network and no API keys, and the methods
+paragraph reads "retrieved from Open Targets on 22 October 2026; responses
+are included in the reproducibility bundle."
+
+A *pinned* remote's bundle is different and deliberately so. It names the
+locator and the digest rather than carrying the bytes, because that is what
+pinned means — anyone can obtain it from the source and check it against the
+digest recorded there, and copying gigabytes of reads into every bundle would
+buy nothing.
+
+### The store became a trait in the same change
+
+Records are the first thing written to the content-addressed store that a lab
+will want to *share*, so M10 introduced the small trait that M14 implements
+over object storage: `has`, `get`, `put`, with the local filesystem as the
+only backend for now. Two additions to the three operations were not
+conveniences. A key carries a **suffix** beside the hash, because a step's
+output is handed to `bcftools` as a path and those tools dispatch on the
+extension — a trait keyed on the hash alone could not name the file it was
+asked for. And verification is a **provided method on the trait**, not a
+backend's job, because "nothing read from a store is trusted" must not be
+something each backend author remembers separately. See
+[remote inputs](/project/architecture/remotes/) for the shape and what was
+given up to get it.
+
 ## D41 — In a ranked list, rank order is the result
 
 Every canonical form in Ligase sorts its records, and the reason is stated

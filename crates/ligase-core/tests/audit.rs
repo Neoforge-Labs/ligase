@@ -20,9 +20,10 @@ use ligase::cache::Cache;
 use ligase::dim::{Dim, Dimensions, SampleSet, Source};
 use ligase::exec::{Host, Options, Recipe, Stores, Task};
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
+use ligase::hash::ContentHash;
 use ligase::note::Note;
 use ligase::prov::Prov;
-use ligase::types::{DataKind, Dataset};
+use ligase::types::{DataKind, Dataset, Origin, RemoteVerdict};
 use tempfile::TempDir;
 
 // ------------------------------------------------------------ scaffold --
@@ -107,6 +108,21 @@ impl Bench {
             citations: Vec::new(),
         });
         node
+    }
+
+    /// A FASTA input that came from a pinned remote.
+    fn fetched(&mut self, name: &str, contents: &str, locator: &str) -> NodeId {
+        let path = self.dir.path().join(name);
+        fs::write(&path, contents).unwrap();
+        let dataset = Dataset::new(DataKind::Reference, Some(path), Dimensions::default())
+            .with_origin(Origin {
+                locator: locator.to_owned(),
+                digest: ContentHash::of_bytes(contents.as_bytes()),
+                bytes: ContentHash::of_bytes(contents.as_bytes()),
+                fetched_at: 1_792_627_200,
+                verdict: RemoteVerdict::Pinned,
+            });
+        self.graph.add_input(name, dataset)
     }
 
     fn audit(&self, roots: &[NodeId], step: &str) -> audit::AuditReport {
@@ -426,4 +442,57 @@ fn objects(cache: &Cache) -> usize {
             .unwrap_or(0)
     }
     count(&cache.root().join("store"))
+}
+
+// ------------------------------------------------------ remote inputs --
+
+#[test]
+fn a_pinned_remote_is_reported_as_pinned() {
+    let mut bench = Bench::new();
+    let input = bench.fetched("hxb2.fasta", ">one\nACGT\n", "ncbi:K03455.1");
+    let step = bench.step("copy", "cat {in} > {out}", input);
+
+    let report = bench.audit(&[step], "copy");
+
+    assert_eq!(report.remotes.len(), 1);
+    assert_eq!(report.remotes[0].verdict, RemoteVerdict::Pinned);
+    let text = report.text();
+    assert!(text.contains("pinned"), "{text}");
+    assert!(text.contains("ncbi:K03455.1"), "{text}");
+    assert!(
+        text.contains("22 October 2026"),
+        "when it was fetched, in the same words the methods paragraph uses: {text}"
+    );
+}
+
+#[test]
+fn a_remotes_verdict_does_not_change_the_steps_own_verdict() {
+    let mut bench = Bench::new();
+    let local = bench.input("local.fasta", ">one\nACGT\n");
+    let fetched = bench.fetched("hxb2.fasta", ">two\nTGCA\n", "ncbi:K03455.1");
+    let with_local = bench.step("local_copy", "cat {in} > {out}", local);
+    let with_remote = bench.step("remote_copy", "cat {in} > {out}", fetched);
+
+    let plain = bench.audit(&[with_local], "local_copy");
+    let remote = bench.audit(&[with_remote], "remote_copy");
+
+    // The two verdicts are not on one scale. A step that is deterministic
+    // is deterministic whether its input was fetched or found on disk, and
+    // a pipeline's verdict must not degrade for using a remote.
+    assert_eq!(plain.verdict(), Verdict::Deterministic);
+    assert_eq!(remote.verdict(), Verdict::Deterministic);
+    assert!(plain.remotes.is_empty());
+    assert_eq!(remote.remotes.len(), 1);
+}
+
+#[test]
+fn an_audit_with_no_remotes_says_nothing_about_them() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.fasta", ">one\nACGT\n");
+    let step = bench.step("copy", "cat {in} > {out}", input);
+
+    let report = bench.audit(&[step], "copy");
+
+    assert!(report.remotes.is_empty());
+    assert!(!report.text().contains("pinned"));
 }

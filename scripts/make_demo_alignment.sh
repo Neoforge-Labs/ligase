@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Align one fetched HIV-1 run against HXB2, producing a real BAM for the
-# reference demo in a gitignored data/alignments/.
+# Align one of the demo's HIV-1 runs against HXB2, producing a real BAM for
+# the reference demo in a gitignored data/alignments/.
 #
 # This exists because M1 needs a BAM whose @SQ header was written by a real
 # aligner, not by Ligase's own test helpers. The committed fixtures prove the
@@ -16,13 +16,21 @@
 #
 # Written for bash 3.2 so it runs on a stock macOS.
 #
+# The reads and the reference come from the engine, not from disk: the demo
+# pipeline declares where they come from and Ligase keeps them in its
+# content-addressed store, so this script asks it for paths rather than
+# knowing any. Warm the store first if it is cold:
+#
+#   python scripts/fetch_demo_data.py
+#
 # Usage:
-#   scripts/make_demo_alignment.sh                   # the first run found
+#   scripts/make_demo_alignment.sh                   # the demo's first run
 #   scripts/make_demo_alignment.sh SRR32217714       # a named run
 #   scripts/make_demo_alignment.sh --list            # what is available
 #   scripts/make_demo_alignment.sh --force           # realign
 #
-# Override the destination with LIGASE_DATA_DIR.
+# Override the destination with LIGASE_DATA_DIR and the store with
+# LIGASE_DEMO_STORE.
 
 set -euo pipefail
 
@@ -31,8 +39,9 @@ readonly SCRIPT_NAME
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly REPO_ROOT
 readonly DATA_DIR="${LIGASE_DATA_DIR:-${REPO_ROOT}/data}"
-readonly REFERENCE="${DATA_DIR}/refs/HXB2.fasta"
 readonly OUT_DIR="${DATA_DIR}/alignments"
+readonly DEMO="${REPO_ROOT}/examples/hiv-resistance/pipeline.py"
+readonly PYTHON="${LIGASE_PYTHON:-python3}"
 
 # ----------------------------------------------------------------- helpers --
 
@@ -44,15 +53,42 @@ require() {
     command -v "$1" >/dev/null 2>&1 || die "$1 is not installed. $2"
 }
 
-# Every paired run that has been fetched, as "<project>/<run>".
+# Ask the demo what it declares, and where the engine has put it. One
+# invocation rather than three, because loading the module resolves the
+# remotes and that is the slow part.
+#
+# Prints, in order: the reference's path, then one "<project> <run> <mate1>
+# <mate2>" line per run in the manifest.
+demo_inputs() {
+    "$PYTHON" - "$DEMO" <<'PYTHON'
+import importlib.util
+import os
+import pathlib
+import sys
+
+import ligase as lg
+
+demo = pathlib.Path(sys.argv[1])
+store = os.environ.get("LIGASE_DEMO_STORE", demo.parents[2] / ".ligase")
+lg.remotes.configure(cache=store, offline=True)
+
+specification = importlib.util.spec_from_file_location("ligase_demo", demo)
+module = importlib.util.module_from_spec(specification)
+try:
+    specification.loader.exec_module(module)
+    print(module.reference().file)
+    for project, runs in module.RUNS.items():
+        for run in runs:
+            print(project, run, *module.run_reads(run, project).files)
+except lg.RemoteError as error:
+    print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1) from None
+PYTHON
+}
+
+# Every paired run the demo declares, as "<project>/<run>".
 available_runs() {
-    local mate1
-    for mate1 in "${DATA_DIR}"/reads/*/*_1.fastq.gz; do
-        [ -e "$mate1" ] || continue
-        [ -e "${mate1%_1.fastq.gz}_2.fastq.gz" ] || continue
-        local run project
-        run="$(basename "${mate1%_1.fastq.gz}")"
-        project="$(basename "$(dirname "$mate1")")"
+    printf '%s\n' "$INPUTS" | tail -n +2 | while read -r project run _rest; do
         printf '%s/%s\n' "$project" "$run"
     done
 }
@@ -61,22 +97,19 @@ usage() {
     cat <<EOF
 Usage: ${SCRIPT_NAME} [RUN|--list|--force]
 
-Aligns a fetched paired run against HXB2 into ${OUT_DIR}.
-Run scripts/fetch_test_data.sh first.
+Aligns one of the demo's paired runs against HXB2 into ${OUT_DIR}.
+If the store is cold, warm it with: python scripts/fetch_demo_data.py
 EOF
 }
 
 # -------------------------------------------------------------------- main --
 
 main() {
-    local wanted="" force=0
+    local wanted="" force=0 listing=0
 
     while [ $# -gt 0 ]; do
         case "$1" in
-            --list)
-                available_runs
-                return 0
-                ;;
+            --list) listing=1 ;;
             --force) force=1 ;;
             -h|--help)
                 usage
@@ -91,11 +124,20 @@ main() {
     require minimap2 "Install it with: brew install minimap2"
     require samtools "Install it with: brew install samtools"
 
-    [ -f "$REFERENCE" ] || die "no reference at ${REFERENCE}. Run scripts/fetch_test_data.sh"
+    INPUTS="$(demo_inputs)" || die "the demo's inputs are not in the store.
+  Warm it with: python scripts/fetch_demo_data.py"
+    readonly INPUTS
+    REFERENCE="$(printf '%s\n' "$INPUTS" | head -n 1)"
+    readonly REFERENCE
+
+    if [ "$listing" -eq 1 ]; then
+        available_runs
+        return 0
+    fi
 
     local candidates target=""
     candidates="$(available_runs)"
-    [ -n "$candidates" ] || die "no paired reads found. Run scripts/fetch_test_data.sh"
+    [ -n "$candidates" ] || die "the demo declares no paired runs"
 
     if [ -n "$wanted" ]; then
         target="$(printf '%s\n' "$candidates" | grep -- "/${wanted}\$" || true)"
@@ -104,10 +146,12 @@ main() {
         target="$(printf '%s\n' "$candidates" | head -n 1)"
     fi
 
-    local project run reads_dir out
+    local project run mates mate1 mate2 out
     project="$(dirname "$target")"
     run="$(basename "$target")"
-    reads_dir="${DATA_DIR}/reads/${project}"
+    mates="$(printf '%s\n' "$INPUTS" | awk -v r="$run" '$2 == r {print $3, $4}')"
+    mate1="$(printf '%s\n' "$mates" | cut -d' ' -f1)"
+    mate2="$(printf '%s\n' "$mates" | cut -d' ' -f2)"
     out="${OUT_DIR}/${run}.bam"
 
     if [ -f "$out" ] && [ "$force" -eq 0 ]; then
@@ -123,7 +167,8 @@ main() {
     trap "rm -rf '${work}'" EXIT
 
     step "Aligning ${run} (${project}) against HXB2"
-    log "reads:     ${reads_dir}/${run}_{1,2}.fastq.gz"
+    log "reads:     ${mate1}"
+    log "           ${mate2}"
     log "reference: ${REFERENCE}"
 
     # -ax sr: short paired reads. The read group is what gives the BAM a
@@ -132,8 +177,8 @@ main() {
     minimap2 -ax sr \
         -R "@RG\tID:${run}\tSM:${run}\tPL:ILLUMINA" \
         "$REFERENCE" \
-        "${reads_dir}/${run}_1.fastq.gz" \
-        "${reads_dir}/${run}_2.fastq.gz" \
+        "$mate1" \
+        "$mate2" \
         2>"${work}/minimap2.log" \
         | samtools sort -o "${work}/raw.bam" -
 

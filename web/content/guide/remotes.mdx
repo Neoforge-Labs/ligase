@@ -1,0 +1,188 @@
+---
+title: "Fetching your inputs"
+description: "Declare where a pipeline's data comes from, pin it by digest, and let the engine fetch and verify it before any step runs."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# Fetching your inputs
+
+**What you will do:** replace the download step at the top of a pipeline with
+a declaration, pin it, and watch the second run fetch nothing.
+
+**Before you start:** a pipeline that runs. See
+[building a pipeline](/guide/building-a-pipeline/).
+
+## Declare it instead of downloading it
+
+A pipeline that starts with a path has already lost the argument: the path
+proves nothing about what is at the end of it.
+
+```python
+hxb2 = lg.reference("data/refs/HXB2.fasta", organism="HIV-1", build="HXB2")
+```
+
+Say where it comes from instead:
+
+```python
+import ligase as lg
+from ligase.types import Reference
+
+hxb2 = lg.remote(
+    "ncbi:K03455.1",
+    kind=Reference,
+    organism="HIV-1",
+    build="HXB2",
+)
+```
+
+`ligase run` fetches it, reads it as a `Reference`, and hands back the same
+object `lg.reference` would have — contigs, checksums, dimensions and all.
+The file lands in the content-addressed store under `.ligase/`, named for the
+hash of its bytes.
+
+`kind` is required and is not inferred from the locator. It decides how the
+file is read, therefore what its digest is over, and what the result is
+typed as — so a step annotated `Reference` will not accept reads by mistake.
+
+## Pin it
+
+Run it once with no digest, and read back what arrived:
+
+```python
+print(hxb2.origin.digest)
+```
+
+```text
+1f460b25ab23b95345d579c234c43ca6d0abf7c1adf6aeffb43b974b2b1941ad
+```
+
+Paste that into the call and every later run is a checked one:
+
+```python
+hxb2 = lg.remote(
+    "ncbi:K03455.1",
+    kind=Reference,
+    digest="1f460b25ab23b95345d579c234c43ca6d0abf7c1adf6aeffb43b974b2b1941ad",
+    organism="HIV-1",
+    build="HXB2",
+)
+```
+
+A digest that does not match is an error **before any step runs**:
+
+<Diagnostic note="ligase check — no step ran">{diagnostics.remoteMoved}</Diagnostic>
+
+The digest is over what the file means rather than over its bytes, so a
+source that reflows a FASTA or rewords a defline does not break the pin. That
+is reported as a note instead. See
+[where the data came from](/concepts/remotes/) for why.
+
+## The four schemes
+
+```python
+lg.remote("sra:SRR8525904", kind=Reads, samples=["SRR8525904"])
+lg.remote("ncbi:K03455.1", kind=Reference, organism="HIV-1")
+lg.remote("ensembl:release-110/fasta/homo_sapiens/README", kind=...)
+lg.remote("https://example.org/panel.tsv", kind=EntitySet)
+```
+
+| Scheme | What it names | How many files |
+|---|---|---|
+| `sra:` | an SRA run accession, served by ENA | two — a mate pair |
+| `ncbi:` | an NCBI nucleotide accession, fetched as FASTA | one |
+| `ensembl:` | a path under Ensembl's public tree | one |
+| `https:` | an exact URL | one |
+
+Anything else is an error naming the four:
+
+<Diagnostic note="ligase check — no step ran">{diagnostics.remoteScheme}</Diagnostic>
+
+A loopback address may be written
+`http://`, which is the same scheme by another name: TLS protects a channel
+against something sitting in it, and between two ends of a loopback socket
+there is nothing to sit in. That is what lets you point a pipeline at a mock
+archive on your own machine.
+
+## Reads need their sample named
+
+```python
+reads = lg.remote(
+    "sra:SRR8525904",
+    kind=Reads,
+    digest="a7800f3d…",
+    organism="HIV-1",
+    samples=["SRR8525904"],      # required
+)
+```
+
+A local FASTQ's sample identifier comes from its filename. A fetched one is
+stored under the hash of its bytes, which is no sample identifier at all — so
+the engine asks rather than taking a hash for a sample. It will not default
+to the run accession either, because one sample can have several runs and
+quietly treating a run as a sample is the sort of wrong answer this engine
+exists to refuse.
+
+## Running offline
+
+Once an input is in the store with a matching digest, nothing is fetched. You
+can make that a rule rather than a happy accident:
+
+```python
+from ligase.remotes import configure
+
+configure(offline=True)
+```
+
+Now a remote the store holds resolves as usual and anything else is an error
+saying so. This is what a reviewer with no connection wants, and what makes
+"the second run needs no network" a thing you can check rather than hope for.
+
+`configure` also takes `cache=`, for a store somewhere other than
+`./.ligase`. Call it **before** the pipeline is built, because that is when
+remotes resolve — `ligase run --cache DIR` and `ligase check --cache DIR` do
+it for you.
+
+## What ends up in the write-up
+
+Both the locator and the date are in the methods paragraph, and neither is
+something a reader could work out from anything else:
+
+```text
+Input data was retrieved from `sra:SRR8525904` on 23 October 2026 (BLAKE3
+a7800f3dace6464faa08c34ce765f0398ab883c76c5475102318dae6c3d21923) and
+`ncbi:K03455.1` on 23 October 2026 (BLAKE3
+1f460b25ab23b95345d579c234c43ca6d0abf7c1adf6aeffb43b974b2b1941ad). Each is
+pinned by the digest of its canonical form, so a rerun anywhere verifies the
+same bytes before any step runs.
+```
+
+A reproducibility bundle names each one in `remotes.tsv` — the locator and
+the digest, not the bytes. That is what *pinned* means: anyone can obtain it
+from the source and check it against the digest recorded there, so copying
+gigabytes of reads into every bundle would buy nothing.
+
+`ligase audit` reports each remote as **pinned**, beside the step verdicts
+rather than folded into them. A pipeline whose every step is deterministic
+can still rest on an input nobody else can obtain, and that is worth reading
+rather than averaging away.
+
+## Seeing it work
+
+The reference demo is built this way. With a source checkout:
+
+```bash
+ligase run examples/hiv-resistance/pipeline.py
+```
+
+There is nothing to run first. The pipeline declares seventeen remotes — HXB2
+and eight paired runs — and
+[`examples/hiv-resistance/pipeline.py`](https://github.com/Neoforge-Labs/ligase/blob/main/examples/hiv-resistance/pipeline.py)
+is also the manifest of their pins.
+
+## Next
+
+- [Where the data came from](/concepts/remotes/) — why pinned and recorded
+  are different things
+- [Provenance](/guide/provenance/) — what the write-up says
+- [Remote inputs, inside](/project/architecture/remotes/) — how it works

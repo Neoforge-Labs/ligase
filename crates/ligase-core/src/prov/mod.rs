@@ -62,7 +62,7 @@ use crate::canon::Note;
 use crate::dim::ReferenceId;
 use crate::hash::ContentHash;
 use crate::key::StepKey;
-use crate::types::DataKind;
+use crate::types::{DataKind, Origin, RemoteVerdict};
 
 /// The version of the provenance schema.
 ///
@@ -155,6 +155,12 @@ pub struct Record {
     pub inputs: Vec<InputRecord>,
     /// Each reference, pinned.
     pub references: Vec<ReferenceRecord>,
+    /// Every remote among this step's inputs, in input order.
+    ///
+    /// Per step rather than per run, as `references` is, because a record is
+    /// about one computation; the methods report is what gathers them across
+    /// the pipeline without duplicates.
+    pub remotes: Vec<Origin>,
     /// External tools, as `(name, the whole version it printed)`.
     pub tools: Vec<(String, String)>,
     /// The version of Ligase that ran it.
@@ -285,7 +291,14 @@ impl Prov {
             ],
         )?;
 
-        for table in ["parameters", "inputs", "references", "tools", "notes"] {
+        for table in [
+            "parameters",
+            "inputs",
+            "references",
+            "remotes",
+            "tools",
+            "notes",
+        ] {
             transaction.execute(
                 &format!("DELETE FROM produced_{table} WHERE key = ?1"),
                 params![key],
@@ -334,6 +347,23 @@ impl Prov {
                     i64::try_from(reference.length).unwrap_or(i64::MAX),
                     reference.checksum,
                     reference.fingerprint,
+                ],
+            )?;
+        }
+
+        for (position, remote) in record.remotes.iter().enumerate() {
+            transaction.execute(
+                "INSERT INTO produced_remotes
+                     (key, position, locator, digest, bytes, fetched_at, verdict)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    key,
+                    position_of(position),
+                    remote.locator,
+                    remote.digest.to_hex(),
+                    remote.bytes.to_hex(),
+                    remote.fetched_at,
+                    remote.verdict.to_string(),
                 ],
             )?;
         }
@@ -459,6 +489,45 @@ impl Prov {
             }
         }
 
+        let mut remotes = Vec::new();
+        {
+            let mut statement = guard.prepare(
+                "SELECT locator, digest, bytes, fetched_at, verdict FROM produced_remotes
+                 WHERE key = ?1 ORDER BY position",
+            )?;
+            let rows = statement.query_map(params![hex], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?;
+            for row in rows {
+                let (locator, digest, bytes, fetched_at, verdict) = row?;
+                // A row this version cannot read is skipped rather than
+                // guessed at: the alternative is a methods paragraph making
+                // a claim about a verdict nobody wrote.
+                let (Some(digest), Some(bytes)) =
+                    (ContentHash::parse(&digest), ContentHash::parse(&bytes))
+                else {
+                    continue;
+                };
+                let verdict = match verdict.as_str() {
+                    "pinned" => RemoteVerdict::Pinned,
+                    _ => continue,
+                };
+                remotes.push(Origin {
+                    locator,
+                    digest,
+                    bytes,
+                    fetched_at,
+                    verdict,
+                });
+            }
+        }
+
         let mut tools = Vec::new();
         {
             let mut statement = guard.prepare(
@@ -505,6 +574,7 @@ impl Prov {
             parameters,
             inputs,
             references,
+            remotes,
             tools,
             engine: head.engine,
             platform: head.platform,
@@ -620,6 +690,65 @@ pub fn now() -> i64 {
         .unwrap_or_default()
 }
 
+/// A UTC date, as a methods section writes one: `22 October 2026`.
+///
+/// Spelled out rather than `2026-10-22` because this is read in a sentence,
+/// and in UTC rather than locally because a provenance record is read on
+/// another machine in another place — a date that shifted with the reader's
+/// zone would make two readings of one record disagree.
+///
+/// The conversion is Hinnant's `civil_from_days`, which is a few lines of
+/// arithmetic and needs no calendar crate. The era shift it opens with is
+/// what makes it correct for dates before 1970 as well as after, which
+/// matters only because a clock that is badly wrong should produce a wrong
+/// date rather than a panic.
+#[must_use]
+pub fn day(epoch_seconds: i64) -> String {
+    const MONTHS: [&str; 12] = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+
+    // Days since 1970-01-01, flooring so a negative second lands on the
+    // day it belongs to rather than the one after.
+    let days = epoch_seconds.div_euclid(86_400);
+    // Shift the epoch to 0000-03-01, which puts the leap day at the end of
+    // the year and makes the rest of this arithmetic linear.
+    let shifted = days + 719_468;
+    let era = shifted.div_euclid(146_097);
+    let day_of_era = shifted.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day_of_month = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    // March is 0 in the shifted calendar, so months 10 and 11 are January
+    // and February of the following year.
+    let month = if month_prime < 10 {
+        month_prime + 3
+    } else {
+        month_prime - 9
+    };
+    let year = if month <= 2 { year + 1 } else { year };
+
+    let name = MONTHS
+        .get(usize::try_from(month - 1).unwrap_or_default())
+        .copied()
+        .unwrap_or("January");
+    format!("{day_of_month} {name} {year}")
+}
+
 /// A position as the integer SQLite stores, saturating rather than wrapping.
 fn position_of(position: usize) -> i64 {
     i64::try_from(position).unwrap_or(i64::MAX)
@@ -699,6 +828,22 @@ fn prepare(database: &Connection) -> Result<(), ProvError> {
          )",
         [],
     )?;
+    // Where an input was fetched from (D39). A locator and a kind are
+    // enough to find the cache's own record of the fetch; what is here is
+    // what a methods paragraph and an audit report print.
+    database.execute(
+        "CREATE TABLE IF NOT EXISTS produced_remotes (
+             key        TEXT NOT NULL,
+             position   INTEGER NOT NULL,
+             locator    TEXT NOT NULL,
+             digest     TEXT NOT NULL,
+             bytes      TEXT NOT NULL,
+             fetched_at INTEGER NOT NULL,
+             verdict    TEXT NOT NULL,
+             PRIMARY KEY (key, position)
+         )",
+        [],
+    )?;
     database.execute(
         "CREATE TABLE IF NOT EXISTS produced_tools (
              key      TEXT NOT NULL,
@@ -731,6 +876,33 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+
+    #[test]
+    fn a_date_reads_as_a_sentence_does() {
+        // 2026-10-22T00:00:00Z, one second before the next midnight, and
+        // that midnight.
+        assert_eq!(day(1_792_627_200), "22 October 2026");
+        assert_eq!(day(1_792_713_599), "22 October 2026");
+        assert_eq!(day(1_792_713_600), "23 October 2026");
+    }
+
+    #[test]
+    fn the_epoch_and_the_leap_days_around_it_are_right() {
+        assert_eq!(day(0), "1 January 1970");
+        // 2024-02-29, an ordinary leap day.
+        assert_eq!(day(1_709_164_800), "29 February 2024");
+        // 2000-02-29: divisible by 400, so a leap year after all.
+        assert_eq!(day(951_782_400), "29 February 2000");
+        // 1900 is not a leap year, so this is the 1st of March and not the
+        // 29th of February.
+        assert_eq!(day(-2_203_891_200), "1 March 1900");
+    }
+
+    #[test]
+    fn a_clock_that_is_badly_wrong_gives_a_wrong_date_rather_than_a_panic() {
+        let _ = day(i64::MIN);
+        let _ = day(i64::MAX);
+    }
 
     #[test]
     fn an_accession_is_recognised_by_its_shape() {

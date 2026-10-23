@@ -94,60 +94,70 @@ Python changes take effect immediately and your Rust changes do not.
 
 ## Test data
 
-The reference pipeline runs on real HIV-1 data. It is downloaded rather than
-committed, into a gitignored `data/`:
+The reference pipeline runs on real HIV-1 data, and **there is nothing to run
+first**. The pipeline says where its data comes from:
+
+```python
+hxb2 = lg.remote("ncbi:K03455.1", kind=Reference, digest="1f460b25...")
+reads = lg.remote("sra:SRR8525904", kind=Reads, digest="a7800f3d...", samples=["SRR8525904"])
+```
+
+So `ligase check` and `ligase run` fetch it, verify every digest before any
+step runs, and keep it in the content-addressed store under `.ligase/`. The
+second run fetches nothing. See [remote inputs](/guide/remotes/).
+
+### Warming the store for the tests
+
+The test suite is a different matter. A test that needs the demo's inputs is
+**offline by default**, because a suite that downloads a hundred megabytes
+because you ran it is a suite people stop running — so it skips instead, and
+one command makes it stop skipping:
 
 ```bash
-scripts/fetch_test_data.sh
+python scripts/fetch_demo_data.py
 ```
 
 ```text
-==> Reference: HXB2 (K03455.1)
-  downloading from NCBI
-  verified: 9719 bp, canonical SHA-256 matches
-
-==> Reads: PRJNA1218827
-  SRR32217714_1.fastq.gz verified
+fetching the demo's inputs into /path/to/ligase/.ligase
+  ncbi:K03455.1 ready
+  sra:SRR8525904 ready
   ...
-  4 runs ready in data/reads/PRJNA1218827
+done; the store is warm and the tests will stop skipping
 ```
 
-You get:
-
-| Path | What |
-|---|---|
-| `data/refs/HXB2.fasta` | HIV-1 HXB2 reference, NCBI `K03455.1`, 9719 bp |
-| `data/reads/PRJNA517147/` | 4 paired runs, ~100 MB — published resistance results |
-| `data/reads/PRJNA1218827/` | 4 paired runs, ~30 MB — Sanger ground truth |
-
-Useful flags:
+You get about 130 MB in `.ligase/store`: HXB2 (NCBI `K03455.1`, 9,719 bp),
+four paired runs from PRJNA517147 with published resistance results, and four
+from PRJNA1218827 with Sanger ground truth. Useful flags:
 
 ```bash
-scripts/fetch_test_data.sh --list                     # show the manifest
-scripts/fetch_test_data.sh --project PRJNA1218827     # just the small set
-scripts/fetch_test_data.sh --reference-only           # just HXB2
-scripts/fetch_test_data.sh --force                    # re-download
+python scripts/fetch_demo_data.py --list                     # the manifest
+python scripts/fetch_demo_data.py --project PRJNA1218827     # the small set
+python scripts/fetch_demo_data.py --reference-only           # just HXB2
 ```
 
-Set `LIGASE_DATA_DIR` to put the data somewhere else — useful if you keep
-large files on another volume.
+Set `LIGASE_DEMO_STORE` to keep it somewhere else — useful if you keep large
+files on another volume. CI sets `LIGASE_DEMO_REQUIRED`, which both allows
+the fetch and turns a skip into a failure.
 
-### What the script guarantees
+### What the pins guarantee
 
-Every file is verified against a checksum pinned in the script, and the script
-exits non-zero if one does not match. Re-running is safe and cheap: files
-already on disk that verify are not downloaded again, so this doubles as an
-integrity check on data you fetched weeks ago.
+Every input is verified against a digest in
+[`examples/hiv-resistance/pipeline.py`](https://github.com/Neoforge-Labs/ligase/blob/main/examples/hiv-resistance/pipeline.py),
+and a mismatch is an error before any step runs. Re-running is cheap: an input
+already in the store with a matching digest is not fetched again, so this
+doubles as an integrity check on data you fetched weeks ago.
 
-Reads are pinned by ENA's own per-file MD5. The reference is pinned by the
-SHA-256 of its **canonical sequence** — sequence only, uppercased, line breaks
-removed — rather than of the raw file. This is
-[decision D4](/project/decisions/) applied to an input: NCBI can reflow a FASTA
-or reword a defline without the biology changing, and a cosmetic change
-upstream must not break your build. A real change to the sequence still fails,
-loudly.
+Each digest is over the input's **canonical form** rather than its bytes —
+the sequence of a FASTA, the sorted records of a FASTQ. That is
+[decision D4](/project/decisions/) applied to an input, and
+[D39](/project/decisions/#d39--a-remote-is-pinned-or-recorded-and-both-are-replayable)
+is why: NCBI can reflow a FASTA or reword a defline without the biology
+changing, and an alarm that fired on that would teach you to bump pins
+without reading. Such a rewrite is reported as a note. A real change to the
+sequence fails, loudly.
 
-FASTQs come from ENA over HTTPS, so no SRA toolkit is required — only `curl`.
+FASTQs come from ENA over HTTPS, so no SRA toolkit is required — and since
+the engine fetches them itself, not even `curl`.
 
 ### The tools the demo runs
 

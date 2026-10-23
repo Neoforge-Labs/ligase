@@ -20,7 +20,7 @@ use ligase::hash::ContentHash;
 use ligase::load::{self, Declared};
 use ligase::note::Note;
 use ligase::prov::{self, Prov, bundle};
-use ligase::types::{DataKind, Dataset};
+use ligase::types::{DataKind, Dataset, Origin, RemoteVerdict};
 use tempfile::TempDir;
 
 // ------------------------------------------------------------ scaffold --
@@ -96,6 +96,23 @@ impl Bench {
             },
         )
         .unwrap();
+        self.graph.add_input(name, dataset)
+    }
+
+    /// A text input that came from a pinned remote rather than from a path
+    /// the user had.
+    fn fetched(&mut self, name: &str, contents: &str, locator: &str) -> NodeId {
+        let path = self.path(name);
+        fs::write(&path, contents).unwrap();
+        let dataset = Dataset::new(DataKind::Reference, Some(path), Dimensions::default())
+            .with_origin(Origin {
+                locator: locator.to_owned(),
+                digest: ContentHash::of_bytes(contents.as_bytes()),
+                bytes: ContentHash::of_bytes(contents.as_bytes()),
+                // 22 October 2026, so the wording can be asserted.
+                fetched_at: 1_792_627_200,
+                verdict: RemoteVerdict::Pinned,
+            });
         self.graph.add_input(name, dataset)
     }
 
@@ -971,4 +988,129 @@ fn a_parameter_that_differs_for_another_reason_still_splits_a_step() {
     let text = methods.text();
     assert!(text.contains("min_freq = 0.01"), "{text}");
     assert!(text.contains("min_freq = 0.5"), "{text}");
+}
+
+// ------------------------------------------------------ remote inputs --
+
+#[test]
+fn a_remote_input_is_recorded_against_the_step_that_used_it() {
+    let mut bench = Bench::new();
+    let input = bench.fetched("hxb2.fasta", HXB2, "ncbi:K03455.1");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+
+    let report = bench.run(&[node]);
+    let key = report.result(node).unwrap().key;
+    let record = bench.prov.lookup(key).unwrap().expect("a record");
+
+    assert_eq!(record.remotes.len(), 1);
+    assert_eq!(record.remotes[0].locator, "ncbi:K03455.1");
+    assert_eq!(record.remotes[0].verdict, RemoteVerdict::Pinned);
+}
+
+#[test]
+fn a_local_input_records_no_remote_at_all() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+
+    let report = bench.run(&[node]);
+    let key = report.result(node).unwrap().key;
+    let record = bench.prov.lookup(key).unwrap().expect("a record");
+
+    // Saying nothing by saying nothing: the overwhelming majority of
+    // inputs are files somebody has, and a record of them should carry no
+    // remote machinery at all.
+    assert!(record.remotes.is_empty());
+}
+
+#[test]
+fn the_paragraph_names_the_locator_and_the_day_it_was_fetched() {
+    let mut bench = Bench::new();
+    let input = bench.fetched("hxb2.fasta", HXB2, "ncbi:K03455.1");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+
+    let report = bench.run(&[node]);
+    let text = methods_of(&bench, &[node], &report).text();
+
+    assert!(text.contains("ncbi:K03455.1"), "{text}");
+    assert!(
+        text.contains("22 October 2026"),
+        "a reader needs *when*, and it is spelled out because it is read \
+         in a sentence: {text}"
+    );
+    assert!(
+        text.contains("retrieved from"),
+        "the wording a methods section wants: {text}"
+    );
+}
+
+#[test]
+fn one_remote_passed_to_three_steps_is_named_once() {
+    let mut bench = Bench::new();
+    let input = bench.fetched("hxb2.fasta", HXB2, "ncbi:K03455.1");
+    let first = bench.step("one", "cat {in} > {out}", &[("in", input)]);
+    let second = bench.step("two", "cat {in} > {out}", &[("in", input)]);
+    let third = bench.step("three", "cat {in} > {out}", &[("in", input)]);
+
+    let report = bench.run(&[first, second, third]);
+    let methods = methods_of(&bench, &[first, second, third], &report);
+
+    assert_eq!(
+        methods.remotes().len(),
+        1,
+        "it was fetched once; a paragraph that said so three times would be \
+         describing the pipeline rather than the work"
+    );
+    let text = methods.text();
+    assert_eq!(text.matches("ncbi:K03455.1").count(), 1, "{text}");
+}
+
+#[test]
+fn a_paragraph_with_no_remotes_says_nothing_about_fetching() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+
+    let report = bench.run(&[node]);
+    let methods = methods_of(&bench, &[node], &report);
+
+    assert!(methods.fetched_sentence().is_none());
+    assert!(!methods.text().contains("retrieved from"));
+}
+
+#[test]
+fn a_bundle_names_every_remote_by_locator_and_digest() {
+    let mut bench = Bench::new();
+    let input = bench.fetched("hxb2.fasta", HXB2, "ncbi:K03455.1");
+    let node = bench.step("copy", "cat {in} > {out}", &[("in", input)]);
+    let report = bench.run(&[node]);
+    let methods = methods_of(&bench, &[node], &report);
+
+    let into = bench.path("bundle");
+    bundle::write(
+        &into,
+        &bundle::Request {
+            graph: &bench.graph,
+            roots: &[node],
+            report: &report,
+            prov: &bench.prov,
+            methods: &methods,
+            include: &[],
+        },
+    )
+    .unwrap();
+
+    let table = fs::read_to_string(into.join("remotes.tsv")).unwrap();
+    assert!(table.contains("ncbi:K03455.1"), "{table}");
+    assert!(table.contains("pinned"), "{table}");
+    assert!(
+        table.contains(&ContentHash::of_bytes(HXB2.as_bytes()).to_hex()),
+        "the digest, because a date alone does not identify bytes: {table}"
+    );
+
+    // Named, not carried. That is what *pinned* means: anyone can obtain it
+    // from the source and check it against the digest recorded here, so a
+    // bundle holding gigabytes of reads would buy nothing.
+    let readme = fs::read_to_string(into.join("README.md")).unwrap();
+    assert!(readme.contains("remotes.tsv"), "{readme}");
 }

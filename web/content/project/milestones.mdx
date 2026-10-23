@@ -299,6 +299,15 @@ compare — has to be read from the one that can say *no*. Both are now pinned:
 bodies in the bundle; the methods-paragraph wording for both. The HIV demo
 retrofitted onto them. D39.
 
+**Split into two, and why.** This is the largest milestone in v0.2 and the
+only one whose design constrains later ones, so the design was settled whole
+— D39 is written in full, including the half not yet built — and the delivery
+split at the seam D39 itself draws. **M10a** is the pinned remote and the
+blob tier M14 needs; **M10b** is the recorded query and replay. Everything
+M10b needs is delivered and exercised by M10a: the store trait, the locator
+parser, the transport and the remote index. `decisions.mdx` records what was
+decided and this page records what is built, which are different questions.
+
 **Done when:** the demo runs end to end from `lg.remote` calls with no shell
 script; a deliberately wrong digest fails loudly before any step runs; a
 pipeline with a `RecordedQuery` step runs once against a local mock server and
@@ -323,6 +332,105 @@ that differ only in ASCII case, which is right for accessions and wrong for
 object keys
 ([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)),
 and the requirement falls on it for `source_set` as for any axis it applies.
+
+### M10a — Pinned remotes and the blob tier
+
+**Done.** The three of M10's eleven clauses that are about a pinned remote,
+plus the trait M14 is built on.
+
+The demo runs end to end from `lg.remote` calls with no shell script.
+`scripts/fetch_test_data.sh` is deleted — three hundred lines that knew ENA's
+directory layout, computed checksums and verified them, all of it outside
+anything Ligase promises. `examples/hiv-resistance/pipeline.py` now declares
+seventeen remotes and is itself the manifest of their pins, and the ENA
+layout rule moved into `remote/locator.rs` where
+`the_ena_subdirectory_rule_holds_at_every_accession_length` holds it to all
+four of its branches.
+
+A deliberately wrong digest fails loudly before any step runs, in
+`remotes.rs::a_wrong_digest_fails_naming_the_locator_the_expected_and_the_got`
+and in
+`tests/test_remotes.py::test_a_wrong_digest_fails_while_the_pipeline_is_still_being_read`
+— which needs no pipeline at all, because resolution happens as the file is
+read and there is no graph yet. The message is captured from a real run into
+[the guide](/guide/remotes/) by a `capture_diagnostics.py` scenario, over a
+loopback socket, so the page cannot drift from the engine.
+
+The CI `demo` job caches on remote digests: the pins live in the demo
+pipeline, so its hash is the cache key and what is cached is the engine's own
+content-addressed store. A restored cache cannot be stale, only incomplete,
+and an incomplete one is a fetch rather than a wrong answer.
+
+**Three clauses the spec did not ask for, each pinned by a test.** A fetched
+body that will not parse as its declared kind is refused rather than stored,
+because NCBI answers a bad accession with a 200 and an HTML page and with no
+digest declared nothing else stands between that page and a pipeline treating
+it as a reference. Reads fetched from a remote must declare their sample,
+because a store object is named for the hash of its bytes and a hash is no
+sample identifier — and the run accession is not defaulted to, because one
+sample can have several runs. And `offline=True` makes "the second run needs
+no network" a thing a test can prove rather than infer, which is also what a
+reviewer with no connection wants.
+
+**What writing the tests caught.** The fetch has to release the GIL. Holding
+it through a minutes-long SRA download would freeze every other Python
+thread, and it deadlocked outright against a local server the test was
+fetching *from* — the server's thread could not run while the fetch it was
+answering held the lock. The only way that one gets found is by writing the
+test.
+
+**One existing assertion changed, and it is the milestone's point.**
+`test_a_bundle_of_the_demo_reproduces_it_on_a_clean_cache` looked for
+`SRR8525904_1.fastq.gz` in the bundle's `inputs.tsv`. The reads are fetched
+now, so the path is a store object named for the hash of its bytes; the test
+asserts the hashes instead, and additionally that `remotes.tsv` names the
+locator. The hash was the better check all along — a file name is not
+evidence of anything, which is why the engine does not key on one.
+
+**The `source_set` dedup rule is settled.** It must **not** keep `NameSet`'s
+ASCII-case folding, and the reason is the asymmetry of the two failures.
+Folding case *drops* a member, which turns two sets that differ into two sets
+that agree — a false agreement, the thing this engine exists to refuse. Not
+folding it can only *add* one, which turns agreement into a refusal: loud,
+legible, and fixed by declaring one spelling. Ligase has taken that trade
+twice already, in D37's refusal to equate `human` with `Homo sapiens` and in
+D38's refusal of an alias table.
+
+The folding is also the *unusual* rule rather than the default. `release`,
+`subject` and `identifier_namespace` are all `Label` and compared
+case-sensitively, because a label is a name the user chose. `Organism` folds
+because Latin binomials are a closed conventional vocabulary where `HIV-1`
+and `hiv-1` are one organism by convention. Sources are not that:
+`s3://bucket/A.vcf` and `s3://bucket/a.vcf` are two objects *by
+specification*, and `GSE12345` matching `gse12345` is the minority case,
+costing a user one consistent spelling.
+
+M10a applies the axis to **no kind** — `PinnedRemote` and `RecordedQuery` are
+not kinds, they are how a dataset is obtained, and what comes back is a
+`Reference` or a `Reads`. So the settlement is recorded in
+`dim::names::SourceSet`'s own doc comment and here, and the type split lands
+with the milestone that first applies the axis, together with that axis's
+`check.rs::compare` and `graph.rs::propagate` arms. Shipping an unexercised
+value type now is the very condition M7's standing requirement exists to
+prevent.
+
+**Which milestone that is, after M12.** M12 declined the axis too, and gave
+its reasons: §4.2 defines a `RankedList` as an ordered `EntitySet`, §4.1
+gives an `EntitySet` four dimensions, and `source_set` is not among them.
+Claiming an axis to match a summary sentence would have forced D36's question
+open on a kind with no need of it. So **no kind in v0.2 applies
+`source_set`**, and the implementation travels to `KnowledgeGraph` in v0.3,
+which §4.3 does give it. What has changed since M7 raised the question is
+that the answer is now written down rather than left open, so whoever gets
+there is implementing a decision rather than making one.
+
+### M10b — Recorded queries and replay
+
+The other eight clauses: `lg.query`, the canonical request, record/replay/
+refresh, `--replay` and `--refresh`, drift, dated records that never
+overwrite, the 32 MiB refusal, auth-header stripping, recorded bodies in the
+bundle, and the retirement of `provenance.py`'s "a bundle cannot fetch its
+own data". D39 needs no second write.
 
 ## M11 — Stochastic steps
 A step that is not deterministic says so, and an unseeded one is refused. D40.
