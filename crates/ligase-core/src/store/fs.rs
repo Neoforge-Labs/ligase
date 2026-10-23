@@ -3,6 +3,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::hash::ContentHash;
 
@@ -81,7 +82,17 @@ impl BlobStore for FsStore {
         }
         // Written beside the store and moved in, so a crash mid-write
         // cannot leave a partial object wearing a whole object's name.
-        let staged = self.root.join(format!(".partial-{key}"));
+        //
+        // The staged name carries the writer as well as the key. Two
+        // machines -- or two fan-out nodes -- writing the same object at
+        // once is the normal case for a content-addressed store, and the
+        // race is supposed to be benign: the bytes under a key are fixed
+        // by the key, so whoever wins, the answer is the same. It is only
+        // benign if the writers do not share a staging path. With one path
+        // per key, the second writer found its own staged file already
+        // renamed away by the first and failed with `NotFound` -- a
+        // spurious error on a put that had in fact succeeded.
+        let staged = self.root.join(format!(".partial-{key}.{}", writer()));
         if let Some(parent) = staged.parent() {
             create_dir(parent)?;
         }
@@ -121,6 +132,19 @@ impl BlobStore for FsStore {
         let path = self.path_of(key);
         Ok(path.is_file().then_some(path))
     }
+}
+
+/// Something no two concurrent writers share.
+///
+/// The process, so two machines on one network mount do not collide, and a
+/// counter, so two threads in one process do not either.
+fn writer() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 fn create_dir(path: &Path) -> Result<(), StoreError> {

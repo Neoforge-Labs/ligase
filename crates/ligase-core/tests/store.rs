@@ -293,3 +293,37 @@ fn an_empty_store_url_is_refused() {
     assert!(Backend::parse("").is_err());
     assert!(Backend::parse("s3://").is_err());
 }
+
+// --------------------------------------------------------- a benign race --
+
+#[test]
+fn two_writers_of_one_object_do_not_trip_over_each_other() {
+    // Regression. Two fan-out nodes recording the same response body, or
+    // two machines pushing the same output, write the same key at the same
+    // moment -- which content addressing is supposed to make harmless,
+    // since the bytes under a key are fixed by the key.
+    //
+    // They shared a staging path, so the loser found its own partial file
+    // already renamed into place by the winner and failed with `NotFound`:
+    // an error on a put that had succeeded.
+    let (dir, _) = store();
+    let store = std::sync::Arc::new(FsStore::open(&dir.path().join("shared")).unwrap());
+    let key = key_for(b"written twice at once", ".txt");
+
+    let threads: Vec<_> = (0..8)
+        .map(|_| {
+            let store = std::sync::Arc::clone(&store);
+            let key = key.clone();
+            std::thread::spawn(move || store.put(&key, b"written twice at once"))
+        })
+        .collect();
+    for thread in threads {
+        let result = thread.join().unwrap();
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    assert_eq!(
+        store.checked_get(&key).unwrap().as_deref(),
+        Some(&b"written twice at once"[..])
+    );
+}
