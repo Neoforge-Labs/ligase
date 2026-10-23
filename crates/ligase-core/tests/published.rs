@@ -11,7 +11,7 @@
 use ligase::cache::{Cache, Stored};
 use ligase::key::{Ingredients, StepKey};
 use ligase::store::published::{self, REMOTES, STEPS};
-use ligase::store::{BlobStore, FsStore};
+use ligase::store::{BlobStore, FsStore, TieredStore};
 use ligase::types::DataKind;
 use tempfile::TempDir;
 
@@ -283,4 +283,104 @@ fn a_store_with_no_remote_still_publishes_rows_locally() {
             .unwrap()
             .is_some()
     );
+}
+
+// ------------------------------------------------------------ provenance --
+
+#[test]
+fn a_record_survives_the_round_trip_through_the_store() {
+    use ligase::prov::{InputRecord, Prov, Record};
+
+    let dir = tempfile::tempdir().unwrap();
+    let bucket = dir.path().join("bucket");
+    let url = format!("file://{}", bucket.display());
+
+    let key = ligase::key::Ingredients {
+        step: "call".to_owned(),
+        code: "def call(aln):\n\treturn lg.sh(\"bcftools\")\n".to_owned(),
+        recipe: "bcftools mpileup".to_owned(),
+        output: DataKind::Variants,
+        parameters: vec![("min_freq".to_owned(), "0.01".to_owned())],
+        inputs: Vec::new(),
+        tools: Vec::new(),
+    }
+    .key();
+
+    let written = Record {
+        key,
+        step: "call".to_owned(),
+        // Tabs and newlines in the code, because a step's source has both
+        // and one of them shifting a column would be a silently wrong
+        // methods paragraph.
+        code: "def call(aln):\n\treturn lg.sh(\"bcftools\")\n".to_owned(),
+        command: Some("bcftools mpileup -f ref.fa aln.bam".to_owned()),
+        output_kind: DataKind::Variants,
+        output_bytes: ligase::hash::ContentHash::of_bytes(b"vcf"),
+        output_canonical: ligase::hash::ContentHash::of_bytes(b"vcf, canonically"),
+        output_notes: Vec::new(),
+        parameters: vec![("min_freq".to_owned(), "0.01".to_owned())],
+        inputs: vec![InputRecord {
+            param: "aln".to_owned(),
+            kind: DataKind::Alignment,
+            path: std::path::PathBuf::from("/tmp/aln.bam"),
+            bytes: ligase::hash::ContentHash::of_bytes(b"bam"),
+            canonical: ligase::hash::ContentHash::of_bytes(b"bam, canonically"),
+        }],
+        references: Vec::new(),
+        remotes: Vec::new(),
+        tools: vec![(
+            "bcftools".to_owned(),
+            "bcftools 1.21\nhtslib 1.21".to_owned(),
+        )],
+        engine: "0.1.0".to_owned(),
+        platform: "macos-aarch64".to_owned(),
+        recorded_at: 1_760_000_000,
+        duration_ms: 1234,
+    };
+
+    let objects = TieredStore::open(&dir.path().join("objects"), Some(&url)).unwrap();
+    let first = Prov::open(&dir.path().join("first")).unwrap();
+    first.record(&written).unwrap();
+    first.publish(&objects, key).unwrap();
+
+    // A second machine: nothing local, the record in the bucket.
+    let elsewhere = TieredStore::open(&dir.path().join("elsewhere"), Some(&url)).unwrap();
+    let second = Prov::open(&dir.path().join("second")).unwrap();
+    assert_eq!(second.lookup(key).unwrap(), None);
+
+    let adopted = second
+        .adopt(&elsewhere, key)
+        .unwrap()
+        .expect("the record was published");
+    assert_eq!(adopted, written);
+    assert_eq!(
+        second.lookup(key).unwrap().as_ref(),
+        Some(&written),
+        "adopting writes it down, so the bucket is asked once and not once \
+         per command"
+    );
+}
+
+#[test]
+fn a_published_record_that_does_not_parse_is_a_finding_not_a_silence() {
+    use ligase::prov::Prov;
+
+    let dir = tempfile::tempdir().unwrap();
+    let objects = TieredStore::open(&dir.path().join("objects"), None).unwrap();
+    let prov = Prov::open(&dir.path().join("prov")).unwrap();
+    let key = ligase::key::StepKey::parse(&"ab".repeat(32)).unwrap();
+
+    published::publish(
+        &objects,
+        "prov",
+        &key.to_hex(),
+        &["head\t1\tnonsense".to_owned()],
+    )
+    .unwrap();
+
+    // "I never knew" and "I knew and the note is damaged" are different
+    // answers, and provenance is the one store that must not round the
+    // second to the first.
+    let error = prov.adopt(&objects, key).unwrap_err().to_string();
+    assert!(error.contains("damaged"), "{error}");
 }

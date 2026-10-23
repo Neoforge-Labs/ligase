@@ -914,6 +914,22 @@ impl Runner<'_> {
             .semantic(spec.output, &output.path)
             .map_err(|error| error.to_string())?;
 
+        // A hit this machine never computed has no local provenance, which
+        // on a shared store is the normal case rather than an oddity: the
+        // whole point is that somebody else ran it. Take their record
+        // along with their output, or `ligase methods` can say nothing
+        // about a pipeline that completed perfectly.
+        if self
+            .prov
+            .lookup(key)
+            .map_err(|error| error.to_string())?
+            .is_none()
+        {
+            self.prov
+                .adopt(self.cache.objects(), key)
+                .map_err(|error| error.to_string())?;
+        }
+
         Ok(StepResult {
             node,
             step: spec.name.clone(),
@@ -1071,6 +1087,14 @@ impl Runner<'_> {
                 recorded_at: prov::now(),
                 duration_ms: made.duration_ms,
             })
+            .map_err(|error| error.to_string())?;
+
+        // And into the store, beside the output it explains. A colleague
+        // whose run takes this output from a shared bucket takes the
+        // record with it, instead of a result nobody can write up
+        // (`prov::shared`).
+        self.prov
+            .publish(self.cache.objects(), made.key)
             .map_err(|error| error.to_string())
     }
 

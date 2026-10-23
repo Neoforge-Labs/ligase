@@ -46,6 +46,7 @@
 pub mod bundle;
 pub mod cite;
 mod methods;
+mod shared;
 
 use std::fmt;
 use std::io;
@@ -62,6 +63,8 @@ use crate::canon::Note;
 use crate::dim::ReferenceId;
 use crate::hash::ContentHash;
 use crate::key::StepKey;
+use crate::store::BlobStore;
+use crate::store::published;
 use crate::types::{DataKind, Origin, RemoteVerdict};
 
 /// The version of the provenance schema.
@@ -386,6 +389,57 @@ impl Prov {
 
         transaction.commit()?;
         Ok(())
+    }
+
+    /// Put this step's record in the store, beside the output it explains.
+    ///
+    /// Called after [`record`](Self::record) for a step that ran. Without
+    /// it a colleague whose run takes the output from a shared bucket gets
+    /// the result and no way to write it up (see [`shared`]).
+    ///
+    /// # Errors
+    ///
+    /// If the record cannot be read back, or the store cannot be written.
+    pub fn publish(&self, store: &dyn BlobStore, key: StepKey) -> Result<(), ProvError> {
+        let Some(record) = self.lookup(key)? else {
+            return Ok(());
+        };
+        published::publish(
+            store,
+            shared::PROV,
+            &key.to_hex(),
+            &[shared::encode(&record)],
+        )
+        .map_err(|error| ProvError::Io {
+            path: PathBuf::from("store"),
+            source: io::Error::other(error.to_string()),
+        })
+    }
+
+    /// Take this step's record from the store, if the store has one.
+    ///
+    /// For a step served from the cache on a machine that never ran it.
+    /// The record is written into the local store on the way past, so the
+    /// question is asked of the bucket once rather than once per command.
+    ///
+    /// # Errors
+    ///
+    /// If the store cannot be read, or holds a record that does not parse.
+    pub fn adopt(&self, store: &dyn BlobStore, key: StepKey) -> Result<Option<Record>, ProvError> {
+        let fields = published::fetch(store, shared::PROV, &key.to_hex()).map_err(|error| {
+            ProvError::Io {
+                path: PathBuf::from("store"),
+                source: io::Error::other(error.to_string()),
+            }
+        })?;
+        let Some([document]) = fields.as_deref() else {
+            return Ok(None);
+        };
+        let Some(record) = shared::decode(key, document)? else {
+            return Ok(None);
+        };
+        self.record(&record)?;
+        Ok(Some(record))
     }
 
     /// How the step with this key produced its output, if it is known.
