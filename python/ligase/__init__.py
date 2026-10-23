@@ -124,6 +124,7 @@ __all__ = [
     "hivdb",
     "intervals",
     "map_identifiers",
+    "query",
     "ranked_list",
     "reads",
     "reference",
@@ -628,6 +629,132 @@ def remote(
             digest,
             str(remotes.cache_directory()),
             remotes.offline(),
+            organism,
+            build,
+            frame,
+            release,
+            samples,
+            identifier_namespace,
+            subject,
+        )
+    )
+
+
+def query(
+    locator: str,
+    *,
+    kind: type[DatasetT],
+    auth_env: str | None = None,
+    organism: str | Sequence[str] | None = None,
+    build: str | None = None,
+    frame: tuple[str, int] | None = None,
+    release: str | None = None,
+    samples: list[str] | None = None,
+    identifier_namespace: str | None = None,
+    subject: str | None = None,
+) -> DatasetT:
+    """Record a live query's answer, or replay the answer already recorded.
+
+    The other half of `remote`, for a source that promises nothing. An
+    Open Targets query will answer differently next quarter, because it is
+    supposed to -- new evidence arrives -- and a pipeline that re-asked it
+    on every run would quietly stop being the pipeline that produced the
+    paper.
+
+    **A recorded query promises the same bytes forever, from the record.**
+    Not from the source, which is the promise `remote` makes and this one
+    cannot. What makes that enough is that the canonicalised response
+    **body** goes into the content-addressed store rather than merely its
+    digest: the body is then an ordinary input with a content hash,
+    everything below it is deterministic by construction, and a reviewer
+    replays the whole run with no network and no API key.
+
+    ## The three modes, which are a setting for the run
+
+    | Mode | What happens |
+    |---|---|
+    | `auto` | replay a record that exists, record one that does not. The default |
+    | `replay` | replay only: a query with no record is an **error** |
+    | `refresh` | ask the source anyway, and report what changed |
+
+    Set by `ligase run --replay` and `--refresh`, or by
+    `ligase.remotes.configure(mode=...)`, and set for the run rather than
+    for the step -- because a run that replayed some of its queries and
+    fetched the rest would be reporting a result nobody can repeat. In
+    `replay` a query with no record is refused rather than fetched, and the
+    run report always says which of the three each query did.
+
+    A refresh never overwrites a record. It writes a new dated one beside
+    the old, so a pipeline refreshing weekly is a series of runs, each
+    replayable forever.
+
+    ## What identifies a record
+
+    The request, not the order it was asked in: the method, the URL with its
+    parameters sorted, and the body. A step making twenty paginated calls
+    therefore writes twenty records and finds them all again next time
+    whatever order it asks in.
+
+    Args:
+        locator: Where to ask, as one of the four schemes -- in practice
+            `https://...`, since a query is a question and the other three
+            name archives. Parameters may be in any order: two URLs
+            differing only in that are one record.
+        kind: What the answer is, as one of the types in `ligase.types`.
+            Required, and not inferred, because it decides how the body is
+            read and therefore what the digest is over. An answer that will
+            not read as `kind` is refused rather than recorded: an API asked
+            for something it does not have answers with an error page and a
+            200.
+        auth_env: The name of an environment variable holding a bearer
+            token, sent as `Authorization: Bearer <value>`. The **name**,
+            not the token: a bundle carries the pipeline file, so a token
+            written in the pipeline would travel in every bundle. Nothing
+            the engine stores has a field for a header, so the record and
+            the bundle hold no trace of it.
+        organism: The organism, as for the matching loader.
+        build: A human label for the reference build. Display only.
+        frame: Which coordinate frame a reference's positions are numbered
+            along, as `(frame, first)`.
+        release: Which release of the data this is. Compared by equality.
+        samples: The sample identifiers. Required for reads.
+        identifier_namespace: Which identifier space an entity set's names
+            live in. Worth declaring for a query, because an API's own
+            namespace is rarely the one the rest of your pipeline uses.
+        subject: What the data is about, when that is one named thing.
+
+    Returns:
+        The loaded data, of the class `kind` named, carrying the dimensions
+            inferred from the recorded body and a record of where it came
+            from -- which is what puts the query in the methods paragraph
+            and its response in the
+        reproducibility bundle.
+
+    Raises:
+        RemoteError: If the locator names no scheme Ligase has, if the
+            source cannot be reached, if this run may only replay and there
+            is no record of this query, if the answer is larger than the 32
+            MiB a record may hold -- an answer that large is a dataset, and
+            a dataset has a version to pin with `remote` instead -- if the
+            answer cannot be read as `kind`, or if `auth_env` names a
+            variable that is not set.
+        ValueError: If `kind` is not a kind of data Ligase knows, or a
+            declared dimension is blank.
+        LoadError: If the recorded body cannot be parsed.
+    """
+    named = kind.__name__
+    if named not in KINDS:
+        known = ", ".join(sorted(KINDS))
+        message = f"`{named}` is not a kind of data Ligase knows. The kinds are {known}"
+        raise ValueError(message)
+
+    return kind(
+        _core.resolve_query(
+            locator,
+            named,
+            remotes.mode(),
+            str(remotes.cache_directory()),
+            auth_env,
             organism,
             build,
             frame,

@@ -1285,6 +1285,35 @@ keys sorted, request IDs and server timestamps and rate-limit headers dropped
 — so two responses meaning the same thing hash the same, on the `@PG`-line
 precedent of [D22](#d22--a-tools-signature-is-not-part-of-its-result).
 
+### Volatile fields go from the top level and nowhere else
+
+Added in M10b, because building the canonicaliser raised a question this
+decision had not answered: *where* to look for a server's bookkeeping.
+
+The closed set is `requestId`, `traceId`, `correlationId`, `timestamp`,
+`generatedAt`, `servedAt`, `retrievedAt`, `took`, `elapsed` and `queryTime`,
+matched against a key lower-cased with `-` and `_` removed, so four spellings
+of one name are one name. Closed and listed, on the same ground as the four
+schemes: a set extensible by configuration would be a promise the engine
+could not keep, and the failure would be a silently deleted field rather than
+an error.
+
+Dropping them **only from the top level of a JSON object** is the part worth
+arguing. Recursing is the obvious implementation and the wrong one. A
+`timestamp` key at the top of a response envelope is the server describing
+its own work, which is [D22](#d22--a-tools-signature-is-not-part-of-its-result)'s
+case exactly; the same key inside a data record is what the record *says*,
+and a pipeline reading a time series would have it silently deleted. That is
+[D26](#d26--a-field-that-cannot-be-dropped-is-noticed-instead)'s distinction
+— a field that is part of what the data is about cannot be dropped — and the
+top level is the one place the two cases can be told apart without guessing.
+
+Even there the key might have been the user's own data, so each drop is a
+note rather than a silence. The hash stands and the engine says what it saw.
+
+Response *headers* need no rule at all: the type the transport returns has no
+field for them, so a rate-limit header never reaches anything that is stored.
+
 ### A digest is over what the file means
 
 Not over its bytes: the canonical form of what arrives, read as its declared

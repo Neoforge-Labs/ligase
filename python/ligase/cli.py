@@ -204,6 +204,27 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="DIR",
         help=f"where to keep the cache (default: ./{CACHE_DIR})",
     )
+    # Mutually exclusive, so `--replay --refresh` is an error rather than a
+    # precedence puzzle: one says never ask the source and the other says
+    # always ask it, and a run that did both would be reporting a result
+    # nobody could repeat.
+    queries = run.add_mutually_exclusive_group()
+    queries.add_argument(
+        "--replay",
+        action="store_true",
+        help=(
+            "serve every recorded query from its record and reach no "
+            "network; a query with no record is an error"
+        ),
+    )
+    queries.add_argument(
+        "--refresh",
+        action="store_true",
+        help=(
+            "ask every recorded query's source again and report what "
+            "changed, keeping the existing records"
+        ),
+    )
 
     audit = commands.add_parser(
         "audit",
@@ -290,6 +311,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _mode_of(arguments: argparse.Namespace) -> str | None:
+    """Which query mode the flags ask for, or `None` for the default.
+
+    `None` rather than `"auto"` so that a command without the flags leaves
+    whatever a script already configured alone, which is how every other
+    per-run setting behaves.
+    """
+    if getattr(arguments, "replay", False):
+        return "replay"
+    if getattr(arguments, "refresh", False):
+        return "refresh"
+    return None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the command line interface.
 
@@ -308,7 +343,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     # pipeline declares it -- that is what makes a wrong digest fail before
     # any step runs -- so by the time `pipeline.run(cache=...)` is reached
     # the fetching is already done, and `--cache` would have been ignored.
-    remotes.configure(cache=getattr(arguments, "cache", None))
+    remotes.configure(
+        cache=getattr(arguments, "cache", None),
+        mode=_mode_of(arguments),
+    )
+
+    # Also before the import, and for the same reason: a bundle's recorded
+    # responses have to be in the store before the pipeline declares the
+    # queries that replay them. This is what lets a reviewer check a bundle
+    # on a clean machine with no network and no API key.
+    verifying = getattr(arguments, "verify", None)
+    if verifying is not None:
+        try:
+            remotes.seed(verifying)
+        except _core.RemoteError as raised:
+            # Not fatal. A directory that is not a bundle, or a bundle with
+            # no records, is reported by `--verify` itself in terms a reader
+            # can act on; failing here would replace that with a complaint
+            # about seeding.
+            print(f"could not read the bundle's records: {raised}", file=sys.stderr)
 
     if arguments.command == "inspect":
         return _inspect(arguments.files)

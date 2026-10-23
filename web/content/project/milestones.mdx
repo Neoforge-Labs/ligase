@@ -426,11 +426,99 @@ there is implementing a decision rather than making one.
 
 ### M10b — Recorded queries and replay
 
-The other eight clauses: `lg.query`, the canonical request, record/replay/
-refresh, `--replay` and `--refresh`, drift, dated records that never
-overwrite, the 32 MiB refusal, auth-header stripping, recorded bodies in the
-bundle, and the retirement of `provenance.py`'s "a bundle cannot fetch its
-own data". D39 needs no second write.
+**Done.** The six of M10's clauses M10a did not discharge, each by a named
+test. D39 needed no second write; it gained one subsection, below.
+
+A pipeline with a `RecordedQuery` step runs against a local mock server and
+then again with that server **down**, completing from the record with a
+byte-identical result, in
+`tests/test_queries.py::test_a_recorded_pipeline_runs_again_with_the_server_down_to_an_identical_result`
+— where "down" is a closed socket rather than a stubbed error, which is what
+M10a's `mock_http.rs` and its `shutdown()` were written for.
+
+`--replay` on a query with no record fails before any step runs
+(`test_replay_on_a_query_with_no_record_fails_before_any_step_runs`), and
+needs no arranging for the same reason the wrong-digest clause did not: there
+is no graph yet when it fails, because a query resolves while the pipeline
+file is being read. The message is captured from a real run into
+[the guide](/guide/recorded-queries/) by a `capture_diagnostics.py` scenario,
+so the page cannot drift from the engine.
+
+`--refresh` against a changed response reports the drift and does not
+overwrite the record
+(`a_refresh_against_a_changed_response_reports_the_drift_naming_both_records`,
+`an_earlier_run_is_still_replayable_after_a_refresh`). Two paginated calls
+recorded in one order replay in the other
+(`test_two_paginated_calls_recorded_in_one_order_replay_in_the_other`), which
+falls out of keying a record on the canonical request rather than being
+arranged.
+
+A bundle exported from the recorded run replays on a clean machine with no
+network (`test_a_bundle_replays_on_a_clean_machine_with_no_network`): a fresh
+store, a stopped server, and `remotes.seed` — which `ligase methods --verify`
+calls itself, before the pipeline is imported, because by the time
+`methods()` runs the query has already resolved.
+
+And a request made with an auth header stores no trace of it
+(`test_an_auth_header_leaves_no_trace_in_the_record_or_the_bundle`), asserted
+over every file in the store and the bundle rather than over a list of header
+names. **M10a did not discharge this one**: its
+`test_nothing_the_engine_sends_or_keeps_holds_a_secret` proves only that the
+engine sends no header of its own, and the clause needs a request actually
+made with one.
+
+**Three decisions the building raised.** D39 settles what is promised and
+left these.
+
+*Where volatile fields are dropped from.* Only the top level of a JSON
+object, which is the one new subsection D39 gained. Recursing is the obvious
+implementation and the wrong one: a `timestamp` at the top of an envelope is
+D22's case, and the same key inside a data record is what the record says, so
+dropping it recursively would silently delete a time series. Each drop is a
+note, in case the key was the user's own data after all.
+
+*How a record is keyed.* `(request, revision)` and not
+`(request, recorded_at)`. A refresh must never overwrite what it refreshes,
+and keying on a timestamp would let two refreshes inside the same second
+collide — resting "never overwrite" on a clock. There is no `supersedes`
+column either: revision *n* supersedes *n − 1* by construction, where a
+stored pointer could drift from it.
+
+*How a token is supplied.* `auth_env=` names an environment variable rather
+than taking a value. D39's structural argument — that nothing stored has a
+field for a header — does not cover the pipeline file, which a bundle copies
+into `pipeline/`, so a literal token would have travelled in every bundle.
+Naming the variable closes that door, and `Auth`'s hand-written `Debug`
+closes the last one by redacting the token out of any message that formats a
+request.
+
+**What writing the tests caught.** The mock server routed on the path alone,
+stripping the query string — so it could not tell `?page=1` from `?page=2`,
+which is the whole of the pagination clause. It now matches a route
+registered with a query string against the whole target. The only way that
+gets found is by writing the test.
+
+**One honest gap, pinned by a test rather than left to be discovered.** A
+fetched body must read as its declared kind, which catches an HTML error page
+served as a `Reference` and does **not** catch one served as an `EntitySet`:
+a single-column TSV is a valid gene list, so an error page is a gene list of
+one implausible gene. That is uniform across local files, pinned remotes and
+queries rather than something this milestone introduced, and
+`an_error_page_passes_the_kind_check_for_an_entity_set_and_this_is_why`
+records it so that the day the entity-set loader learns to refuse an
+identifier containing a `<`, something says so.
+
+**And one gap in M10a's docs, closed.** `web/content/guide/remotes.mdx` was
+never added to its `_meta.ts`. The page built and was linked, so `npm run
+check` passed, but Nextra appended it unlisted with a default title instead
+of showing it as "Fetching your inputs" in its intended place.
+
+**`source_set` needed nothing here.** M10a settled the dedup rule and
+established that no kind in v0.2 applies the axis; `lg.query` claims no axis
+for the first time either, since it takes the same declared dimensions as
+`lg.remote` and a kind already applies every one of them. So M7's
+arm-pinning requirement is not reachable in this milestone, and the type
+split still travels to `KnowledgeGraph` in v0.3.
 
 ## M11 — Stochastic steps
 A step that is not deterministic says so, and an unseeded one is refused. D40.

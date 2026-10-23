@@ -12,6 +12,7 @@ const meta: MetaRecord = {
   provenance: 'How was this produced?',
   identifiers: 'Identifier spaces',
   remotes: 'Where the data came from',
+  'record-and-replay': 'Recording a live answer',
   notes: 'What a result rests on',
   'resistance-interpretation': 'Resistance interpretation',
 }

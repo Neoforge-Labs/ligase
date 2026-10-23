@@ -171,9 +171,18 @@ impl MockServer {
 
     /// How many requests have arrived for one path.
     pub fn hits(&self, path: &str) -> usize {
+        // Counted by whichever spelling the caller used: a bare path counts
+        // every query against it, and a path with a query string counts
+        // only that one, which is what a pagination test needs.
         self.received()
             .iter()
-            .filter(|request| request.target.split('?').next() == Some(path))
+            .filter(|request| {
+                if path.contains('?') {
+                    request.target == path
+                } else {
+                    request.target.split('?').next() == Some(path)
+                }
+            })
             .count()
     }
 
@@ -242,16 +251,25 @@ fn serve(stream: &TcpStream, state: &Arc<Mutex<State>>) {
     let path = target.split('?').next().unwrap_or(&target).to_owned();
     let reply = {
         let mut state = state.lock().unwrap();
+        // A route registered with a query string matches the whole target;
+        // one registered without it matches the path whatever the query.
+        // Paginated calls differ only in a parameter, so a mock that could
+        // not tell `?page=1` from `?page=2` could not test them.
+        let route = if state.routes.contains_key(&target) {
+            target.clone()
+        } else {
+            path.clone()
+        };
         state.received.push(Received {
             method,
             target,
             headers,
             body,
         });
-        let served = state.served.entry(path.clone()).or_default();
+        let served = state.served.entry(route.clone()).or_default();
         let at = *served;
         *served += 1;
-        state.routes.get(&path).map_or_else(
+        state.routes.get(&route).map_or_else(
             || Reply::status(404),
             |replies| replies[at.min(replies.len() - 1)].clone(),
         )

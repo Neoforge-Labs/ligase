@@ -40,7 +40,7 @@ use super::{Prov, ProvError, Record, ReferenceRecord, cite, day};
 use crate::canon::Note;
 use crate::exec::{RunReport, Task};
 use crate::graph::{Graph, NodeId};
-use crate::types::Origin;
+use crate::types::{Origin, RemoteVerdict};
 
 /// Stands in for a space that must not be broken across lines.
 ///
@@ -204,23 +204,36 @@ impl Methods {
         if remotes.is_empty() {
             return None;
         }
-        let described: Vec<String> = remotes
+
+        // Two claims, kept apart, because conflating them is what D39
+        // exists to prevent. A pinned remote is reproducible from the
+        // *source*: anyone can obtain it and check it against the digest.
+        // A recorded query is reproducible from the *record*, because its
+        // source promises nothing -- so what a reader needs told is that
+        // the responses travel in the bundle.
+        let (pinned, recorded): (Vec<&Origin>, Vec<&Origin>) = remotes
             .iter()
-            .map(|remote| {
-                format!(
-                    "`{}` on {} (BLAKE3 {})",
-                    remote.locator,
-                    day(remote.fetched_at),
-                    remote.digest.to_hex()
-                )
-            })
-            .collect();
-        Some(format!(
-            "Input data was retrieved from {}. Each is pinned by the digest \
-             of its canonical form, so a rerun anywhere verifies the same \
-             bytes before any step runs.",
-            join_names(&described)
-        ))
+            .partition(|remote| remote.verdict == RemoteVerdict::Pinned);
+
+        let mut sentences = Vec::new();
+        if !pinned.is_empty() {
+            sentences.push(format!(
+                "Input data was retrieved from {}. Each is pinned by the \
+                 digest of its canonical form, so a rerun anywhere verifies \
+                 the same bytes before any step runs.",
+                join_names(&described(&pinned))
+            ));
+        }
+        if !recorded.is_empty() {
+            sentences.push(format!(
+                "Responses were recorded from {}. A live source promises \
+                 nothing about what it will answer next, so the responses \
+                 themselves are included in the reproducibility bundle and \
+                 the pipeline replays from them with no network access.",
+                join_names(&described(&recorded))
+            ));
+        }
+        Some(sentences.join(" "))
     }
 
     /// The reference list, and the tools that have no reference.
@@ -748,6 +761,24 @@ fn fold(text: &str, width: usize, indent: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n")
         .replace(KNIT, " ")
+}
+
+/// Each remote as a methods sentence names it: what, from where, and when.
+///
+/// The digest as well as the date, because a date alone does not identify
+/// bytes — two people fetching "on 20 October" may not have the same thing.
+fn described(remotes: &[&Origin]) -> Vec<String> {
+    remotes
+        .iter()
+        .map(|remote| {
+            format!(
+                "`{}` on {} (BLAKE3 {})",
+                remote.locator,
+                day(remote.fetched_at),
+                remote.digest.to_hex()
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]

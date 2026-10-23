@@ -516,6 +516,8 @@ impl Prov {
                 };
                 let verdict = match verdict.as_str() {
                     "pinned" => RemoteVerdict::Pinned,
+                    "replayed" => RemoteVerdict::Replayed,
+                    "live" => RemoteVerdict::Live,
                     _ => continue,
                 };
                 remotes.push(Origin {

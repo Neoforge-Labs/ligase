@@ -649,6 +649,7 @@ fn bundle_of(bench: &Bench, roots: &[NodeId], report: &RunReport, into: &Path) -
             prov: &bench.prov,
             methods: &methods,
             include: &[],
+            queries: None,
         },
     )
     .unwrap()
@@ -906,6 +907,7 @@ fn a_bundle_carries_the_files_it_was_given() {
             prov: &bench.prov,
             methods: &methods,
             include: &[pipeline],
+            queries: None,
         },
     )
     .unwrap();
@@ -1096,6 +1098,7 @@ fn a_bundle_names_every_remote_by_locator_and_digest() {
             prov: &bench.prov,
             methods: &methods,
             include: &[],
+            queries: None,
         },
     )
     .unwrap();

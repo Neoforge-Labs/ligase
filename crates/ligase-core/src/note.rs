@@ -189,6 +189,38 @@ pub enum Note {
         /// The locator, as the pipeline wrote it.
         locator: String,
     },
+    /// A recorded query whose source now answers something else.
+    ///
+    /// What `--refresh` is for. Not an error and not a silent re-record: the
+    /// earlier record is kept, so the run that used it is still replayable,
+    /// and this says which query moved and between which two bodies. A
+    /// source that promises nothing is *entitled* to change its answer, so
+    /// the honest statement is "this is different now", not "this pipeline
+    /// is broken".
+    QueryDrifted {
+        /// The locator, as the pipeline wrote it.
+        locator: String,
+        /// The body the earlier record holds.
+        was: String,
+        /// The body the new record holds.
+        now: String,
+    },
+    /// A top-level field dropped from a recorded response body.
+    ///
+    /// A `requestId` or a `generatedAt` is the server's account of how it
+    /// served the answer rather than part of the answer, so it is dropped
+    /// before the body is hashed, on D22's precedent. But even at the top
+    /// level the key might have been the user's own data — a payload that
+    /// really is a bare `{"timestamp": ...}` is possible — so the engine
+    /// says which field it dropped rather than leaving the user to wonder
+    /// why a body in the store is shorter than the one on the wire (D26).
+    QueryFieldDropped {
+        /// The locator, as the pipeline wrote it, so a run making several
+        /// queries can say which of them this was.
+        locator: String,
+        /// The field, spelled as the server spelled it.
+        field: String,
+    },
     /// Codons read base by base because no read spans them (D31).
     CodonsUnphased {
         /// The gene.
@@ -246,6 +278,8 @@ impl Note {
             Self::CodonsUnread { .. } => "codons-unread",
             Self::CodonsUnphased { .. } => "codons-unphased",
             Self::RemoteRewritten { .. } => "remote-rewritten",
+            Self::QueryFieldDropped { .. } => "query-field-dropped",
+            Self::QueryDrifted { .. } => "query-drifted",
             Self::IdentifierIsADate { .. } => "identifier-is-a-date",
             Self::IdentifierUnmapped { .. } => "identifier-unmapped",
             Self::IdentifierAmbiguous { .. } => "identifier-ambiguous",
@@ -266,6 +300,12 @@ impl Note {
         match self {
             Self::SampleIsAFile { sample } => sample.clone(),
             Self::RemoteRewritten { locator } => locator.clone(),
+            Self::QueryFieldDropped { locator, field } => {
+                format!("field={field} locator={locator}")
+            }
+            Self::QueryDrifted { locator, was, now } => {
+                format!("was={was} now={now} locator={locator}")
+            }
             Self::ReadingWithoutCoverage => String::new(),
             Self::GeneUnread { gene, depth } => format!("gene={gene} depth={depth}"),
             Self::GeneBarelyRead {
@@ -354,6 +394,15 @@ impl Note {
             "remote-rewritten" => Some(Self::RemoteRewritten {
                 locator: value.to_owned(),
             }),
+            "query-field-dropped" => Some(Self::QueryFieldDropped {
+                field: named(value, "field")?.to_owned(),
+                locator: named(value, "locator")?.to_owned(),
+            }),
+            "query-drifted" => Some(Self::QueryDrifted {
+                was: named(value, "was")?.to_owned(),
+                now: named(value, "now")?.to_owned(),
+                locator: named(value, "locator")?.to_owned(),
+            }),
             "codons-unphased" => Some(Self::CodonsUnphased {
                 gene: named(value, "gene")?.to_owned(),
                 unphased: counted(value, "unphased")?,
@@ -399,6 +448,15 @@ impl Note {
             Self::RemoteRewritten { .. } => {
                 "Nothing needs doing: the pin still holds. Update it only if you would rather \
                  pin the new bytes."
+            }
+            Self::QueryFieldDropped { .. } => {
+                "Nothing needs doing where the field was the server's own. If it was your data, \
+                 ask for it under another name: this one is on the list the engine drops."
+            }
+            Self::QueryDrifted { .. } => {
+                "Read what changed before you rely on the new answer. Nothing else needs doing: \
+                 both records are kept, so run without `--refresh` to go on replaying the \
+                 earlier one."
             }
             Self::IdentifierIsADate { .. } => {
                 "Export the file again with the identifier column typed as text, or recover the \
@@ -467,6 +525,18 @@ impl Note {
                 "Nothing downstream moves: the pin is over what the file means, and that is \
                  unchanged. What has changed is the source's habits, which is worth knowing \
                  before a change that is not cosmetic arrives."
+            }
+            Self::QueryFieldDropped { .. } => {
+                "The field is in neither the stored body nor the hash, so the record repeats \
+                 when the server's own bookkeeping changes -- which is the point. The cost is \
+                 that a field of yours that shares one of those names is not in the record \
+                 either, and this is how you find out."
+            }
+            Self::QueryDrifted { .. } => {
+                "Everything below this input has a new content hash, so every step that uses \
+                 it reruns and its results are the new source's results rather than the \
+                 earlier ones. The earlier record is untouched: the run that produced the \
+                 earlier results can still be replayed exactly as it ran."
             }
             Self::IdentifierIsADate { .. } => {
                 "A date is in no identifier space, so this entity matches nothing in any other \
@@ -554,6 +624,17 @@ impl fmt::Display for Note {
                 f,
                 "the source rewrote `{locator}`: its bytes differ from the ones recorded, and \
                  what it means does not, so the pin still holds"
+            ),
+            Self::QueryFieldDropped { locator, field } => write!(
+                f,
+                "`{field}` was dropped from the recorded response to `{locator}`: a field of \
+                 that name is the server's account of how it answered, not part of the answer"
+            ),
+            Self::QueryDrifted { locator, was, now } => write!(
+                f,
+                "the source of `{locator}` has changed since it was recorded: the record held \
+                 {was} and it now answers {now}. Both records are kept, so the earlier run is \
+                 still replayable"
             ),
             Self::IdentifierIsADate { identifier } => write!(
                 f,
