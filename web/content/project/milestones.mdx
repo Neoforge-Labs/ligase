@@ -95,7 +95,7 @@ that the demo's organism survives inheritance through two steps.
 
 ## The v0.2 roadmap
 
-Everything below is planned and none of it is built. v0.2 exists to make
+M8, M9 and M12 are built; the rest is planned. v0.2 exists to make
 Ligase useful to a scientist who has never heard of this project, and three
 things carry that: the commonest silent bug in biology — identifiers from one
 namespace joined to another — becomes a refused connection; the fetch that
@@ -226,6 +226,73 @@ same `ContigNamingError` the home page shows and exits non-zero; a single file
 prints every dimension with its source; the quickstart gains an "inspect
 first" section captured by `capture_quickstart.py`.
 
+**Done.** All three clauses, each pinned by a named test.
+See [the internals](/project/architecture/inspect/).
+
+`ligase inspect tiny_bare.fasta tiny_prefixed.sam` prints the
+`ContigNamingError` and returns 1, in
+`test_two_disagreeing_files_print_the_diagnostic_and_exit_non_zero`. It is
+the *same* error in the sense that matters: the same `check_step` over the
+same comparison, rendered through the same helpers, with the same values,
+the same provenance and the same conclusion. Two things necessarily differ,
+and both are deliberate. The heading names the step `inspect`, because that
+is what did the comparing and there is no step. And the handles are the
+files' basenames rather than a pipeline's argument names, since on a command
+line there are no argument names to use;
+`a_description_line_is_the_line_a_diagnostic_quotes` pins the rendering
+itself, by asserting that the diagnostic's line appears verbatim in the
+description printed above it.
+
+A single file prints every dimension with its source, in
+`test_a_single_file_prints_every_dimension_with_its_source` and in
+`inspect.rs`'s own tests. The clause the spec did not write is the one that
+took the care: a dimension that does not *apply* to the kind must not be
+printed as a gap, because `Dimensions::reason` answers for it as readily as
+for an applicable one.
+`a_dimension_the_kind_has_no_business_with_is_never_called_unknown` and
+`test_a_dimension_that_does_not_apply_is_not_reported_as_a_gap` pin that a
+`Reference` is never described as missing a quality encoding, and
+`the_dimensions_that_do_not_apply_are_named_once_as_not_applying` pins that
+they are still named, on a line saying they do not apply — because dropping
+them silently would leave a reader unable to tell "this file does not say"
+from "this question does not arise".
+
+The quickstart's "Inspect them first" is §2 of
+[the quickstart](/start/quickstart/#2-inspect-them-first), captured by
+`capture_quickstart.py` from a real run on the two files the page has just
+told the reader to create. The capture also reads the exit code, because the
+page claims `inspect` exits non-zero on a mismatch and a claim about an exit
+code can only be checked by reading one.
+
+**No decision, and no concepts page.** The spec's D35–D43 holds nothing about
+`inspect` and M9 adds none: it introduces no rule a future request could be
+measured against, only a new way to reach the dimensions M7 and M8 defined.
+For the same reason it ships a `guide/` page and no `concepts/` one —
+[types and dimensions](/concepts/types-and-dimensions/) already says what a
+dimension is and why it is inferred, and a second page saying it again from
+the command line would be a page to keep in step for nothing.
+
+**What the work caught, and the lesson worth keeping.** Two bugs, both found
+by tests written before the code, and both in the same place: the handles
+that name a file in a message.
+
+The handles are the *keys* the comparison is given, so two files sharing one
+collapsed into a single input and the second was silently dropped —
+`ligase inspect a/sample.sam b/sample.sam` compared one file with itself and
+reported agreement. And the summary line returned 0 whenever
+`comparable` was empty, which is exactly the case where two gene lists that
+each declare nothing produce an `UndeclaredDimensionError`: the surface built
+to catch M8's failure reported it as a clean bill of health.
+
+The lesson is that a name chosen to read well is still a key, and that a
+verdict assembled from two sources — the errors, and what there was to
+compare — has to be read from the one that can say *no*. Both are now pinned:
+`test_every_file_given_gets_its_own_say`,
+`test_the_same_file_twice_is_still_two_files` and
+`test_two_gene_lists_that_each_state_nothing_are_refused`. A third test,
+`test_files_with_nothing_in_common_do_not_claim_to_agree`, holds the inverse
+— that files sharing no stated dimension are not told they agree.
+
 ## M10 — Remotes and replay
 `PinnedRemote` and `RecordedQuery`, with record, replay and refresh; the
 *pinned*, *replayed* and *live* audit verdicts; drift reporting; recorded
@@ -343,9 +410,19 @@ not kinds, they are how a dataset is obtained, and what comes back is a
 `Reference` or a `Reads`. So the settlement is recorded in
 `dim::names::SourceSet`'s own doc comment and here, and the type split lands
 with the milestone that first applies the axis, together with that axis's
-`check.rs::compare` and `graph.rs::propagate` arms. **The obligation is M12's**
-(see below): shipping an unexercised value type now is the very condition
-M7's standing requirement exists to prevent.
+`check.rs::compare` and `graph.rs::propagate` arms. Shipping an unexercised
+value type now is the very condition M7's standing requirement exists to
+prevent.
+
+**Which milestone that is, after M12.** M12 declined the axis too, and gave
+its reasons: §4.2 defines a `RankedList` as an ordered `EntitySet`, §4.1
+gives an `EntitySet` four dimensions, and `source_set` is not among them.
+Claiming an axis to match a summary sentence would have forced D36's question
+open on a kind with no need of it. So **no kind in v0.2 applies
+`source_set`**, and the implementation travels to `KnowledgeGraph` in v0.3,
+which §4.3 does give it. What has changed since M7 raised the question is
+that the answer is now written down rather than left open, so whoever gets
+there is implementing a decision rather than making one.
 
 ### M10b — Recorded queries and replay
 
@@ -380,15 +457,101 @@ with a test. Until a kind applies an axis, `check_step` never reaches its arms,
 so no test can catch one written against the wrong field, and the compiler
 cannot either: `Organism` and `SourceSet` are one type, and so are `Release`
 and `Subject`. A `RankedList` brings `source_set` and `subject` into play, so
-the requirement falls on this milestone for both.
+the requirement falls on this milestone for both, and the `source_set` dedup
+question under M8 and M10 must be settled before `source_set` is applied.
 
-**And `source_set` gets its type here.** M10a settled the dedup rule with its
-reasons and applied the axis to nothing, so this is the milestone that splits
-the type: `SourceSet` stops folding ASCII case, because an object key is
-case-sensitive by specification and folding one *drops* a member, turning two
-sets that differ into two that agree. The settlement is in
-`dim::names::SourceSet`'s doc comment; implementing it is this milestone's,
-along with the two arms.
+**Done.** All three clauses, each pinned by a named test. See
+[comparing ranked lists](/guide/ranked-lists/) and
+[the internals](/project/architecture/canonicalisation/#named-lists-the-one-pair-that-disagrees-on-purpose).
+
+Two files with identical rows in different orders produce different canonical
+hashes, in `ranked_list.rs::the_order_of_a_ranked_list_is_its_result`. The
+test says so at length, and it asserts the *contrast* rather than the bare
+fact: it hashes the same two files as a ranking and as a set, and asserts the
+ranking disagrees and the set agrees. A reader finding only an `assert_ne!`
+between two orderings would reasonably take it for a bug, and the fix is one
+word in one line. A clause the spec did not ask for is pinned beside it:
+reading *one* file as both kinds gives two hashes, because the `DataKind` is
+hashed into the stream, so a step annotated to return a ranking can never be
+served the cached output of one annotated to return a set.
+
+A `RankedList` and an `EntitySet` in different namespaces refuse to join, in
+`a_ranked_list_in_one_space_refuses_to_join_a_gene_list_in_another` and
+`test_a_ranking_and_a_truth_set_in_different_spaces_refuse_to_join`. This
+needed a change to `check::required_pair` that reading the clause does not
+suggest: `identifier_namespace` was required for `(EntitySet, EntitySet)` and
+the arm below it returned nothing for every *other* pair involving an
+`EntitySet`, so the mixed pair — a ranking scored against a curated truth
+set, which is the commonest reason to join the two kinds at all — would have
+been demanded nothing of. Both pairs are now written out, and
+`two_named_lists_must_both_say_which_space_they_are_in` asserts all four
+combinations rather than the two the clause names.
+
+A `RankedList` released `HGNC 2026-09` refuses to score against an
+`EntitySet` released `HGNC 2026-03`, in
+`a_ranked_list_refuses_to_score_against_a_gene_list_from_another_release` and
+`test_a_ranking_refuses_to_score_against_another_release`. That one needed no
+table change — both kinds apply `release`, so `compare_known` reaches it
+wherever both sides state one — which is the point of M7 having made
+`release` an axis rather than part of `reference`.
+
+Both refusals are captured from a real run into
+[the guide](/guide/ranked-lists/#the-two-refusals) by two new
+`capture_diagnostics.py` scenarios, so neither page can drift from the
+engine. The guide's central claim is captured too, by a new
+`capture_ranked.py`: it builds a one-step pipeline over one file of each kind
+in a temporary directory, runs it, reorders the ranking, runs it, reorders the
+set, runs it, and publishes the four real run reports. The ranking rerunning
+and the set not is the whole of D41, so the docs build now fails if either
+stops being true.
+
+**The standing requirement was already discharged, and the entry above
+misreads the spec.** A `RankedList` brings `subject` into play, and M8 had
+already brought it: an `EntitySet` claims `subject`, `release` and
+`identifier_namespace`, and pinned each one's `compare` and `propagate` arm.
+This milestone adds `each_axis_a_ranked_list_claims_compares_its_own_field`
+and `a_step_over_a_ranked_list_carries_every_axis_it_claims` anyway, since a
+second kind reaching the same arms is cheap to pin, but the arms were not
+unverified.
+
+It does **not** bring `source_set` into play. The clause above says it does;
+the spec it summarises says otherwise, and the spec is right. §4.2 defines a
+`RankedList` as "`EntitySet` but ordered", and §4.1 gives an `EntitySet` four
+dimensions — `organism`, `identifier_namespace`, `subject` and `release` —
+with `source_set` not among them. Claiming an axis in order to match a
+summary sentence would have been the tail wagging the dog, and would have
+forced D36's `NameSet` question open on a kind with no need of it. So
+`source_set` still has no kind, `source_set_still_has_no_kind` and
+`a_ranked_list_claims_no_source_set` both hold, and the deduplication
+obligation travels on to whichever milestone first needs the axis — M10 by
+its own entry, or `KnowledgeGraph` in v0.3, which §4.3 does give it.
+
+**What the work turned up, and the lesson worth keeping.** Two things, and
+neither was in the three clauses.
+
+The first is the `required_pair` gap above: a table written when there was
+one named list had a catch-all arm that silently became wrong the moment
+there were two. It was not a bug when it was written and nothing flagged it,
+because the arm it was hiding behind did not exist yet.
+
+The second is the conversion registry. `map_identifiers` was registered for
+`DataKind::EntitySet` alone, and `graph::propagate` guards a conversion's
+axis override on `converts(output)` — so a step declaring
+`conversion="map_identifiers"` and annotated to return a ranking would have
+carried the **input's** namespace onto an output that had crossed, which is a
+false statement about data, produced by the engine, of exactly the kind D38
+exists to prevent. The guard's own comment reasons about a kind whose
+`applies` says it has no such axis; a `RankedList` has one, so the guard
+stopped protecting anything and started hiding something. The row now names
+both kinds, and `map_identifiers_crosses_for_a_ranked_list_too` pins it.
+
+The lesson is that adding a second member to a category rewrites every
+"the only kind that…" assumption in the codebase, and that those assumptions
+are mostly not written down as assumptions — they are catch-all match arms
+and single-element lists that were exactly right when there was one. Three
+existing tests changed to say "either named list" where they had said "only a
+gene list", and each of those was a place the assumption *had* been written
+down. The two defects were the places it had not.
 
 ## M13 — Step library
 `ligase.steps`: typed steps that ship with their dimensions, their citation
@@ -398,6 +561,19 @@ and their canonical form, and the demo rewritten on them. D42.
 of its own; every library step has a fixture test, a citation that resolves
 and a page under `guide/steps/`; the validation suite still passes 81 of 81 at
 15% and 5%, with the same nine explained discrepancies at 2%.
+
+**Carried over from M12.** `lg.map_identifiers` is typed for an `EntitySet`,
+while the conversion *registry* covers a `RankedList` too, so a ranking
+crosses identifier spaces only through a step of the user's own declaring
+`conversion="map_identifiers"`. Widening the shipped library step is this
+milestone's, because what it needs decided is a presentation question rather
+than an engine one: a mapped ranking is shorter by the identifiers that did
+not cross, so its **ranks close up**, and if the top-ranked identifier had no
+mapping the second becomes first. The consequence is already recorded — see
+[D41](/project/decisions/#d41--in-a-ranked-list-rank-order-is-the-result)
+and
+[canonicalisation](/project/architecture/canonicalisation/#named-lists-the-one-pair-that-disagrees-on-purpose)
+— and what is missing is how a step says so to the person reading its output.
 
 ## M14 — Remote store
 The content-addressed store gains a blob tier with pluggable backends, on the

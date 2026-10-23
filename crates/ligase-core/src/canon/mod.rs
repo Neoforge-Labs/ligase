@@ -39,6 +39,15 @@
 //! bytes a record instead of a few hundred, and a sorted list of digests is
 //! still a claim about the whole multiset, duplicates included.
 //!
+//! One kind answers the question a third way. A [`DataKind::RankedList`] is
+//! a gene list whose rows are in rank order, and there the order is not
+//! "whatever order they came out in" but the result itself: the same twelve
+//! genes in two orders are two different answers about which of them matters
+//! most. So a ranking keeps its order (D41), which makes it the inverse of
+//! its own unranked sibling over the very same bytes — and the reason
+//! [`Digest::record`] has a counterpart, [`Digest::ordered_record`], rather
+//! than a flag.
+//!
 //! # What a file that will not parse hashes as
 //!
 //! Its bytes, tagged as such ([`Form::Raw`]). That is the conservative
@@ -68,6 +77,7 @@ mod alignment;
 mod entity_set;
 mod fasta;
 mod intervals;
+mod ranked_list;
 mod reads;
 mod report;
 mod variants;
@@ -190,6 +200,7 @@ fn canonicalise(kind: DataKind, path: &Path, digest: &mut Digest) -> Result<(), 
         DataKind::Intervals => intervals::canonicalise(path, digest),
         DataKind::ResistanceReport => report::canonicalise(path, digest),
         DataKind::EntitySet => entity_set::canonicalise(path, digest),
+        DataKind::RankedList => ranked_list::canonicalise(path, digest),
     }
 }
 
@@ -221,6 +232,10 @@ pub const fn describe(kind: DataKind) -> Option<&'static str> {
         DataKind::EntitySet => {
             "the header row kept, the rows below it compared as a set, so their order says \
              nothing"
+        }
+        DataKind::RankedList => {
+            "the header row kept, the rows below it compared in order, because the order is \
+             the ranking"
         }
     })
 }
@@ -347,6 +362,27 @@ impl Digest {
         self.records.push(*hasher.finalize().as_bytes());
     }
 
+    /// One record whose position in the file is part of what the file says.
+    ///
+    /// The counterpart of [`Self::record`], for the one kind whose order
+    /// *is* its result ([`DataKind::RankedList`], D41). It hashes the parts
+    /// to 32 bytes exactly as `record` does and then writes them straight
+    /// into the stream, where the position is fixed and nothing sorts.
+    ///
+    /// It exists as a second method rather than as an argument to the
+    /// first because the two mean opposite things and take the same
+    /// arguments: a canonicaliser that reached for `record` out of habit
+    /// would turn a ranking into a set and make two different answers
+    /// agree. Naming the choice at the call site is what makes that a
+    /// visible mistake rather than an invisible one.
+    pub(crate) fn ordered_record(&mut self, parts: &[&[u8]]) {
+        let mut hasher = blake3::Hasher::new();
+        for part in parts {
+            write(&mut hasher, part);
+        }
+        self.field("ranked", hasher.finalize().as_bytes());
+    }
+
     /// The canonical hash.
     fn finish(mut self) -> ContentHash {
         self.records.sort_unstable();
@@ -397,6 +433,37 @@ mod tests {
         backwards.text("contig", "1");
 
         assert_ne!(forwards.finish(), backwards.finish());
+    }
+
+    #[test]
+    fn the_order_ordered_records_arrive_in_does_change_the_hash() {
+        // The inverse of the test above it, and the mechanism D41 rests on.
+        // Both of these call sites hash the same two records; only the
+        // method differs, and that is the whole difference between a set of
+        // findings and a ranking.
+        let mut forwards = Digest::new(DataKind::RankedList, Form::Canonical);
+        forwards.ordered_record(&[b"one"]);
+        forwards.ordered_record(&[b"two"]);
+
+        let mut backwards = Digest::new(DataKind::RankedList, Form::Canonical);
+        backwards.ordered_record(&[b"two"]);
+        backwards.ordered_record(&[b"one"]);
+
+        assert_ne!(forwards.finish(), backwards.finish());
+    }
+
+    #[test]
+    fn an_ordered_record_is_not_the_record_beside_it() {
+        // Length prefixing again: two rows must not hash as one row whose
+        // text is both of them joined.
+        let mut apart = Digest::new(DataKind::RankedList, Form::Canonical);
+        apart.ordered_record(&[b"one"]);
+        apart.ordered_record(&[b"two"]);
+
+        let mut together = Digest::new(DataKind::RankedList, Form::Canonical);
+        together.ordered_record(&[b"onetwo"]);
+
+        assert_ne!(apart.finish(), together.finish());
     }
 
     #[test]

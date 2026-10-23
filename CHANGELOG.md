@@ -9,6 +9,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A `RankedList` type — the ranked table, where the order is the result.**
+  A ranking of differentially expressed genes, of predicted drug targets, of
+  candidate compounds, answers the question *which of these matters most*,
+  and rank is simply the row position. So a `RankedList` is an `EntitySet`
+  and one more thing: its canonical form **preserves row order**, where every
+  other type in Ligase sorts its records because the order they arrived in is
+  not a fact about the biology
+  ([D41](https://ligase.neoforgelabs.tech/project/decisions/)).
+
+  ```python
+  ranked = lg.ranked_list("results/degs_ranked.tsv", organism="Homo sapiens")
+  truth = lg.entity_set("truth/known_drivers.tsv", organism="Homo sapiens")
+  ```
+
+  It is the exact inverse of its own unranked sibling over the very same
+  bytes. Reorder a gene list and nothing downstream reruns; reorder a ranking
+  and everything below it does, because the two orderings are two different
+  answers and a cache that called them the same would serve the wrong one.
+  Both are right, and the choice of type is the choice of claim.
+
+  Everything else about the two types is identical, deliberately. A ranking
+  carries the same four dimensions — `organism`, `identifier_namespace`,
+  `subject`, `release` — reads its identifier space off its own identifiers
+  the same way, and notices the same `SEPT7`-eaten-by-a-spreadsheet
+  corruption. They share one loader; they do not share a canonical form,
+  because that is the one place they differ. A `score` column is an ordinary
+  attribute column and is compared **exactly**: no tolerance is declared for
+  one, because none has been measured.
+
+  This brings two refusals to a ranked result. A ranking of symbols scored
+  against a truth set of Ensembl IDs is refused rather than returning a
+  precision of nearly zero that reads as a verdict on your method. And a
+  ranking named by `HGNC 2026-09` scored against a set named by
+  `HGNC 2026-03` is refused too — the subtler one, since both files are
+  symbols and both look right, over six months in which a symbol can be
+  retired, renamed or moved to another gene. See
+  [comparing ranked lists](https://ligase.neoforgelabs.tech/guide/ranked-lists/).
+
+- **`ligase inspect FILE [FILE...]` — the whole idea, on files you already
+  have.** Until now the cheapest way to find out whether Ligase was worth
+  anything to you was to write a pipeline. `inspect` needs no pipeline, no
+  decorator and no commitment: it loads each file you name, says what kind it
+  read it as, and prints every dimension the loader worked out along with
+  **where it read each one from** — and, given two or more files, compares
+  them the way one step's inputs are compared and prints the diagnostic.
+  Nothing is executed, no tool is invoked, nothing is written and no cache
+  appears. It reads headers.
+
+  ```
+  Reference  refs/genome.fasta
+    genome.fasta.reference = 2 contigs, 40 bp (from FASTA contigs: refs/genome.fasta)
+    genome.fasta.contig_naming = bare (Ensembl/NCBI style) (from FASTA deflines: refs/genome.fasta)
+    genome.fasta.organism is unknown (a FASTA does not record its organism; declare it)
+    genome.fasta.release is unknown (a FASTA does not record which release it came from; declare it)
+    coordinates, sample_set, pairing, quality_encoding, subject, source_set and identifier_namespace do not apply to a Reference.
+  ```
+
+  Three states, and keeping them apart is most of what the command is for. A
+  dimension with a value is shown with its value *and its provenance*, which
+  is the half that lets you go and look. A dimension that applies without a
+  value is shown with the engine's reason, which is usually an instruction —
+  `declare it`, or, for a gene list a spreadsheet has eaten, *re-export the
+  file*. A dimension that does **not apply** is named once as not applying: a
+  FASTA is not missing a quality encoding, it has no such property to have,
+  and reporting it as unknown would send a reader after a declaration that
+  does not exist.
+
+  Given two or more files, the diagnostic is **the one a pipeline would have
+  printed**, because it is the same `check_step` over the same comparison. It
+  is rendered through the same helpers too, so the error quotes the
+  description's own lines rather than restating them: a reader who has read
+  the blocks has already read the error. The summary line then says which
+  dimensions the verdict covers, because "no disagreement" is a claim nobody
+  can size — a FASTQ and a BED share no dimension either of them records, and
+  they agree the way two sentences in different languages agree.
+
+  It exits 0 when the files agree, 1 when they disagree, and 2 when a file
+  could not be read at all — so `ligase inspect refs/*.fasta aln/*.bam &&
+  snakemake` refuses to start a run over files that disagree, and a file
+  nobody could read does not pass for a clean bill of health. A 2 withholds
+  the comparison rather than comparing whatever loaded, since a verdict over
+  two of three files reads as a verdict over all three; the files that did
+  load are still described, and each one that did not is named with the
+  engine's reason.
+
+  The loader is chosen by extension, with `.gz` and `.bgz` ignored: `.fasta`,
+  `.fa` and `.fna` as a `Reference`, `.fastq` and `.fq` as `Reads`, `.sam`
+  and `.bam` as an `Alignment`, `.vcf` as `Variants`, `.bed`, `.gff`,
+  `.gff3` and `.gtf` as `Intervals`, and `.tsv` as an `EntitySet`. There are
+  no declaration flags, on purpose: a declaration belongs where the data is
+  loaded, so that it reaches provenance and the cache key instead of a
+  prompt. The guide page is "Inspecting files you have", and the quickstart
+  now opens with it.
+
 - **A pipeline says where its data comes from, and the engine fetches it**
   (**D39**). The first step of nearly every pipeline is a fetch, and until now
   it sat outside everything Ligase promises — including in its own demo, where
@@ -101,6 +195,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `Dataset` gained `files`, every file a dataset is in order, and `origin`,
   where it was fetched from. `lg.remote` is typed on its `kind`, so it returns
   a `Reference` or a `Reads` rather than a bare `Dataset`.
+
 
 - **A gene list knows which identifier space it is in, and two spaces refuse
   to join** (**D38**). `TP53`, `ENSG00000141510`, `7157` and `P04637` are four
@@ -620,10 +715,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A `map_identifiers` step annotated to return a ranked list now declares
+  the space it arrived in.** The conversion registry listed `EntitySet`
+  alone, and the graph guards a conversion's axis override on whether the
+  conversion covers the step's output kind — so such a step carried the
+  *input's* identifier namespace onto an output that had crossed, which is a
+  false statement about data produced by the engine itself. Found while
+  adding `RankedList`, and not reachable before it existed.
+
+- **A ranking and a gene list joined in one step now demand an identifier
+  namespace of each other.** It was demanded between two gene lists and, by
+  a catch-all arm, of nothing else — so the mixed pair, which is what
+  scoring a ranking against a curated truth set is, could join by silence.
+  Two lists that each say nothing overlapping in nothing is the failure the
+  dimension exists to break.
+
 - The fetch releases the GIL. Holding it through a minutes-long download would
   freeze every other Python thread, and it deadlocked outright against a local
   server a test was fetching *from* — the server's thread could not run while
   the fetch it was answering held the lock.
+
 
 - **The errors reference showed a `ReferenceFrameError` nobody had run.** It
   was pasted in and hand-wrapped, and it named a fixture file

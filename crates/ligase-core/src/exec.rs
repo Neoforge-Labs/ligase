@@ -391,7 +391,7 @@ pub const fn output_suffix(kind: DataKind) -> &'static str {
         DataKind::Variants => ".vcf.gz",
         DataKind::Intervals => ".bed",
         DataKind::ResistanceReport => ".tsv",
-        DataKind::EntitySet => ".tsv",
+        DataKind::EntitySet | DataKind::RankedList => ".tsv",
     }
 }
 

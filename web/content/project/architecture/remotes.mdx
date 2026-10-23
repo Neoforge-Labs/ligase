@@ -223,6 +223,8 @@ record is about one computation.
 
 **The dedup rule for `source_set` is settled and not implemented.** See
 [D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)
-and the [M10 milestone](/project/milestones/#m10--remotes-and-replay): no
-kind applies that axis yet, and shipping an unexercised value type is the
-condition M7's standing requirement exists to prevent.
+and the [M10 milestone](/project/milestones/#m10--remotes-and-replay). No
+kind in v0.2 applies that axis — M8 and M12 each declined it with reasons,
+and a remote is not a kind at all — so the split travels to `KnowledgeGraph`
+in v0.3. Shipping an unexercised value type is the condition M7's standing
+requirement exists to prevent.

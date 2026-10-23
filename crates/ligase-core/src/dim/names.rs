@@ -158,8 +158,10 @@ pub type Organism = NameSet;
 ///
 /// Shares [`NameSet`]'s ASCII-case-insensitive dedup for now, and **must
 /// stop doing so when a kind first applies this axis**. No kind applies it
-/// yet; M10 settled what the split is and M12 is where it lands, together
-/// with this axis's `check::compare` and `graph::propagate` arms (D36).
+/// yet: M10 settled what the split is, M8 and M12 each declined the axis
+/// with reasons, and `KnowledgeGraph` in v0.3 is the first kind the feature
+/// spec gives it — so that is where the split lands, together with this
+/// axis's `check::compare` and `graph::propagate` arms (D36).
 ///
 /// # The rule, and why it is not this one
 ///

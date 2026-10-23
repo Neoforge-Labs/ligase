@@ -79,7 +79,13 @@ impl Conversion {
     pub const ALL: [Self; 1] = [Self {
         name: "map_identifiers",
         axis: Dimension::IdentifierNamespace,
-        kinds: &[DataKind::EntitySet],
+        // Both kinds of named list, because a ranking crosses spaces as
+        // readily as a set does and `graph::propagate` guards the axis
+        // override on this list: a `map_identifiers` step annotated to
+        // return a ranking and missing from here would carry the *input's*
+        // namespace onto an output that has crossed. The guard is for a
+        // kind with no such axis, and a ranked list has one.
+        kinds: &[DataKind::EntitySet, DataKind::RankedList],
         supplies: "a mapping table",
     }];
 

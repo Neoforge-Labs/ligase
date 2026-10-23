@@ -1,0 +1,197 @@
+---
+title: "Inspect"
+description: "How ligase inspect is put together: one code path with two sections, one renderer shared with check, the three dimension states, and why the exit codes are the ones they are."
+---
+
+# Inspect
+
+<Lede>
+`ligase inspect` is the smallest surface in the engine and the one most
+readers meet first. It introduces no new idea — every dimension it prints was
+defined by M7 and M8 — so almost all of its design is about what it says and
+in what order.
+</Lede>
+
+The user-facing page is [inspecting files you have](/guide/inspecting-files/).
+This is the account of how it works and what was rejected.
+
+## Where it lives
+
+| Piece | Where |
+|---|---|
+| The description of one dataset | `crates/ligase-core/src/inspect.rs` |
+| The dimensions several datasets share | the same, `comparable` |
+| The comparison | `check::check_step`, unchanged |
+| Choosing a loader, exit codes, summary lines | `python/ligase/cli.py` |
+
+The wording lives in Rust for the reason `Dataset.notes` already does: every
+surface should say the same thing about the same file. The command composes —
+which files to read, what order to print them in, what to return — and the
+engine speaks.
+
+## One path, two sections
+
+`inspect` has two jobs, describing one file and comparing several, and they
+are one code path. The per-file description block always prints; the
+comparison block appends itself when there is more than one file. A single
+file is not a second mode but the degenerate case: no pairs, so no
+comparison.
+
+Two paths were rejected because **the descriptions are the evidence for the
+diagnostic**. A comparison that printed only its verdict would give a reader
+the conclusion and withhold the data it rests on — and, given the next
+section, it would be withholding the very lines the diagnostic is made of.
+
+## One renderer, so a description *is* a diagnostic
+
+`check` renders a diagnostic's value lines through two private helpers:
+
+```
+{name}.{dimension} = {value} ({source})
+{name}.{dimension} is unknown ({reason})
+```
+
+`inspect::describe` renders through those same helpers, now `pub(crate)`. So
+a description line and a diagnostic line are one line defined once, and the
+error a reader gets after the descriptions visibly *quotes* the lines above
+it rather than restating them in different words.
+
+That invariant is pinned by a test rather than by this paragraph:
+`a_description_line_is_the_line_a_diagnostic_quotes` renders a FASTA, runs
+the comparison that fails on it, and asserts that the diagnostic's
+`contig_naming` line appears verbatim in the description.
+
+A file's handle — the `genome.fasta` in `genome.fasta.contig_naming` — is its
+basename, because that is what makes the diagnostic read like the one a
+pipeline prints, where the handles are the argument names `ref` and `aln`.
+The full path travels on the same line, inside the dimension's source.
+
+Distinctness is not cosmetic. The handles are the keys the comparison is
+given, so two files sharing one would be a *single* input with the second
+silently dropped. Files that share a basename therefore fall back to the path
+as typed, and a path typed twice is numbered — `_names` in `cli.py`, pinned
+by `test_every_file_given_gets_its_own_say`.
+
+## The three states
+
+The trap this surface exists to walk past.
+
+| State | Printed as |
+|---|---|
+| applies, known | the value and its source |
+| applies, unknown | the engine's reason |
+| does not apply | named once on a trailing line, as not applying |
+
+[`Dimensions::reason`](/project/architecture/type-system/) reads its field and
+nothing else — the `applies` gate lives on `DataKind`, which M7 ruled correct
+— so it answers for a dimension that does not apply to the kind as readily as
+for one that does, returning the default "not recorded in the file and not
+declared". Printing that would tell a reader a FASTA is *missing* a quality
+encoding. It is not a gap they can close: it is a category error, and it
+would send them after a declaration that does not exist.
+
+So `describe` filters on `DataKind::applies` before asking anything, and
+`a_dimension_the_kind_has_no_business_with_is_never_called_unknown` asserts
+that a `Reference` is never described as missing a quality encoding, a sample
+set, pairing, coordinates, a subject, a source set or an identifier
+namespace.
+
+The inapplicable dimensions are **named** rather than dropped. One line costs
+one line, and dropping them would leave a reader unable to tell "this file
+does not say" from "this question does not arise" — which is the distinction
+the dimension matrix is for. It is also, for a reader thirty seconds in, the
+difference between a tool that knows what a FASTA is and a tool that printed
+what it had.
+
+## What a verdict covers
+
+`inspect::comparable` returns the dimensions at least two of the datasets
+both apply and know, in `Dimension::ALL` order, and the summary line names
+them: `compared on reference and contig_naming`.
+
+Without it, "no disagreement" is a claim a reader cannot size. A FASTQ and a
+BED share no dimension either of them records, so they agree the way two
+sentences in different languages agree, and saying only that they agree would
+be false comfort. That case prints its own line instead — *nothing was
+compared: no dimension is stated by two of them*.
+
+Two details in that function are worth recording:
+
+**Contig naming is listed either way.** `check::joined_on` drops the naming
+dimension when two sides both know a reference, because the naming verdict
+then comes out of the reference relation and reporting one cause twice is
+noise. So naming is compared either through its own arm or through the
+reference's, and listing it is true in both cases.
+
+**A dimension nothing states can still be a disagreement.** Two gene lists
+that each say nothing about their identifier space produce an
+`UndeclaredDimensionError`, because `identifier_namespace` is in
+`check::required_pair` for that pair (D38). `comparable` is empty there and
+the exit code is still 1: failing to answer a demanded question is not
+agreement. The summary line drops the *compared on* clause rather than
+claiming a comparison that did not happen.
+
+## Exit codes
+
+| Code | Means |
+|---|---|
+| 0 | every file read, nothing disagrees |
+| 1 | every file read, they disagree |
+| 2 | a file could not be read, so there is no verdict |
+
+No code is invented: 1 and 2 are `FOUND_ERRORS` and `COULD_NOT_CHECK`,
+already meaning exactly this across `check`, `run`, `audit` and `methods` —
+a pipeline that is wrong against a pipeline we could not look at.
+
+The distinction is the reason `inspect` composes. `ligase inspect refs/*.fasta
+aln/*.bam && snakemake` means what it looks like it means only if "they
+disagree" and "I could not read that" are different answers.
+
+A `2` **withholds the comparison entirely**. Comparing whichever files
+happened to load would produce a verdict over a subset that reads as a
+verdict over the whole set. The files that loaded are still described, each
+file that did not is named on standard error with the engine's own
+`LoadError` text, and a line on standard output says there is no verdict and
+why.
+
+## Choosing a loader
+
+A private table in `cli.py`, extension to loader, with a compression suffix
+stripped first because every loader opens a gzipped file.
+
+It is in the command rather than in the engine or the public API on purpose.
+Which suffix means a FASTA is a question about filenames, not about biology,
+and a pipeline answers it by naming the loader it wants — `lg.reference(...)`,
+`lg.entity_set(...)`. `inspect` is the one surface with nobody to ask, so the
+table exists for it alone and nothing else depends on it. An unrecognised
+extension is a file that could not be read, and the message names the
+extensions that are known rather than only the one that is not.
+
+## No flags, and no pairing
+
+`inspect` takes no declaration flags. A dimension a file cannot record comes
+back unknown with its reason, which is the honest answer and also the
+instructive one — it says what there is to declare and where. A `--organism`
+flag would also be a declaration that went nowhere: declarations belong where
+the data is loaded, so that they reach provenance and the cache key.
+
+It never pairs FASTQs either. `load::reads` records paired-end only when a
+mate file is given, and `sample_name` strips the mate suffix, so
+`ligase inspect a_1.fastq a_2.fastq` reports two single-end read sets whose
+sample set is `[a]` on both — and so does *not* cry wolf about a sample-set
+mismatch, which would be the worst possible first impression. Grouping mates
+is `lg.samples()`'s job, where mis-pairing is an error rather than a guess.
+
+## No decision, and no concepts page
+
+M9 writes no entry in [the decision log](/project/decisions/). The spec's
+D35–D43 contains nothing about `inspect`, and it introduces no rule a future
+request could be measured against: it is a new way to reach the dimensions
+M7 and M8 defined.
+
+For the same reason it has no `concepts/` page.
+[Types and dimensions](/concepts/types-and-dimensions/) already says what a
+dimension is and why it is inferred wherever a file can say, and a second
+page saying it again from the command line would be a page to keep in step
+for nothing. The judgement is recorded here so that the absence reads as a
+decision rather than as an omission.

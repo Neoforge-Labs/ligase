@@ -35,22 +35,25 @@ fn a_gene_list_carries_organism_namespace_subject_and_release() {
 }
 
 #[test]
-fn no_kind_but_an_entity_set_has_an_identifier_namespace() {
+fn only_a_named_list_has_an_identifier_namespace() {
+    // Two kinds, since M12: a gene list and the ranked list that is a gene
+    // list which remembers its order. No sequence kind has a namespace,
+    // because no sequence kind names entities.
     for kind in DataKind::ALL {
         assert_eq!(
             kind.applies(Dimension::IdentifierNamespace),
-            kind == DataKind::EntitySet,
+            matches!(kind, DataKind::EntitySet | DataKind::RankedList),
             "{kind:?}"
         );
     }
 }
 
 #[test]
-fn an_entity_set_is_the_only_kind_with_a_subject() {
+fn only_a_named_list_has_a_subject() {
     for kind in DataKind::ALL {
         assert_eq!(
             kind.applies(Dimension::Subject),
-            kind == DataKind::EntitySet,
+            matches!(kind, DataKind::EntitySet | DataKind::RankedList),
             "{kind:?}"
         );
     }
@@ -58,9 +61,11 @@ fn an_entity_set_is_the_only_kind_with_a_subject() {
 
 #[test]
 fn source_set_still_has_no_kind() {
-    // D36 reserves the right to split the set type for `source_set`, and
-    // that obligation stays with M10 and M12: this milestone gives it no
-    // kind, so the shared `NameSet` dedup cannot bite anything yet.
+    // D36 reserves the right to split the set type for `source_set` before
+    // any kind applies it. M8 gave it none; M12 settled that a ranked list
+    // gives it none either, since spec §4.2 grants it four dimensions and
+    // that is not among them. So the shared `NameSet` dedup still cannot
+    // bite anything, and the question passes on with the kind that needs it.
     for kind in DataKind::ALL {
         assert!(!kind.applies(Dimension::SourceSet), "{kind:?}");
     }
@@ -78,8 +83,11 @@ fn two_gene_lists_must_both_say_which_space_they_are_in() {
 
 #[test]
 fn a_gene_list_demands_nothing_of_a_sequence_kind() {
+    // A ranked list is not a sequence kind: it is the other named list, and
+    // the namespace is demanded between the two of them. See
+    // `ranked_list.rs::two_named_lists_must_both_say_which_space_they_are_in`.
     for kind in DataKind::ALL {
-        if kind != DataKind::EntitySet {
+        if !matches!(kind, DataKind::EntitySet | DataKind::RankedList) {
             assert!(
                 check::required_pair(DataKind::EntitySet, kind).is_empty(),
                 "{kind:?}"

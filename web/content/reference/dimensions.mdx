@@ -6,7 +6,7 @@ description: "Every biological type carries dimensions. Each dimension is inferr
 
 Every biological type carries dimensions. Each dimension is inferred from the file where possible; otherwise the user declares it once and it propagates.
 
-| Dimension | Meaning | FASTA | FASTQ | BAM/SAM | VCF | BED/GFF | Gene list (TSV) |
+| Dimension | Meaning | FASTA | FASTQ | BAM/SAM | VCF | BED/GFF | Gene or ranked list (TSV) |
 |---|---|---|---|---|---|---|---|
 | organism | the organisms the data is about, as a **set**: HIV-1, or HIV-1 and Homo sapiens together | declared | declared | from reference | from header if present | declared | declared |
 | reference | build/accession, e.g. HXB2 (K03455), hg38 | sequence names + MD5 of contigs | n/a | @SQ lines (SN, LN, M5) | ##reference, ##contig | declared | n/a |
@@ -31,6 +31,15 @@ last column is mostly `n/a`: a list of gene names has no coordinate system,
 no contigs, no read pairing and no quality scores. Those are not gaps to be
 filled in but properties the data does not have, and demanding one is the
 category error this table exists to prevent.
+
+The last column covers **two** kinds, and that is the point rather than a
+shortcut. A `RankedList` — a ranking of genes, of drug targets, of candidates
+— carries exactly the dimensions an `EntitySet` carries. What differs is what
+their canonical forms keep: a set's rows are a set, and a ranking's order is
+its result
+([D41](/project/decisions/#d41--in-a-ranked-list-rank-order-is-the-result)).
+A dimension on one and not the other would mean that difference had spread
+past the one place it is meant to live.
 
 ## Rules
 
@@ -61,9 +70,11 @@ category error this table exists to prevent.
   failures rather than a rename
   ([D38](/project/decisions/#d38--identifier-namespaces-never-coerce)).
 - Unlike `release`, `subject` and `source_set`, an identifier namespace **is**
-  demanded where two gene lists are joined: a user can always meet the demand,
-  by declaring it or by letting the loader read it off the file, and two lists
-  that each say nothing would otherwise agree by silence.
+  demanded where two lists of named entities are joined: a user can always
+  meet the demand, by declaring it or by letting the loader read it off the
+  file, and two lists that each say nothing would otherwise agree by silence.
+  This holds in either combination, a ranking scored against a set included,
+  which is the commonest reason to join the two kinds at all.
 - Unknown dimensions are allowed only if no downstream step requires them; otherwise `check()` fails with a request to declare them.
 
 ### A dataset may be about more than one organism

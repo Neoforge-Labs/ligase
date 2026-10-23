@@ -24,6 +24,7 @@ use ligase::exec::{self, Host, Options, Recipe, Stores, Task};
 use ligase::graph::{Argument, Converted, Graph, NodeId, StepSpec};
 use ligase::hash::ContentHash;
 use ligase::hivdb;
+use ligase::inspect;
 use ligase::load::{self, Declared, IntervalFormat, LoadError as CoreLoadError};
 use ligase::note::Note;
 use ligase::prov::{self, Prov};
@@ -357,6 +358,21 @@ impl PyDataset {
                 .map(|contig| (contig.name.clone(), contig.length, contig.md5.clone()))
                 .collect(),
         )
+    }
+
+    /// Describe this dataset in words, under the name a message would use.
+    ///
+    /// For `ligase inspect`, which only looks: the kind, every dimension
+    /// that applies with its value and source or the reason it has none,
+    /// the dimensions that do not apply, and whatever loading noticed.
+    /// Rendered by the engine for the same reason `notes` is -- a
+    /// description and a diagnostic about one file should be the same
+    /// sentences, not two accounts of it.
+    fn describe(&self, name: &str) -> String {
+        inspect::describe(&Binding {
+            name: name.to_owned(),
+            dataset: self.inner.clone(),
+        })
     }
 
     /// What loading this noticed, as one sentence each.
@@ -721,6 +737,7 @@ fn resolve_remote(
         // settled before anything was fetched.
         DataKind::Intervals => load::intervals(primary, None, &declared),
         DataKind::EntitySet => load::entity_set(primary, None, &declared),
+        DataKind::RankedList => load::ranked_list(primary, None, &declared),
         DataKind::Reads => load::reads(primary, mates.first().map(PathBuf::as_path), &declared),
         DataKind::ResistanceReport => {
             return Err(PyValueError::new_err(
@@ -884,6 +901,31 @@ fn load_entity_set(
         .map_err(to_py)
 }
 
+/// Load a ranked list from a TSV with a header, highest rank first.
+#[pyfunction]
+#[pyo3(signature = (path, id_column=None, organism=None, identifier_namespace=None, subject=None, release=None))]
+fn load_ranked_list(
+    path: PathBuf,
+    id_column: Option<&str>,
+    organism: Option<Organisms>,
+    identifier_namespace: Option<String>,
+    subject: Option<String>,
+    release: Option<String>,
+) -> PyResult<PyDataset> {
+    let declared = Declared {
+        organism: organisms(organism)?,
+        build: None,
+        frame: None,
+        samples: None,
+        release: declared_label("release", release)?,
+        identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
+        subject: declared_label("subject", subject)?,
+    };
+    load::ranked_list(&path, id_column, &declared)
+        .map(|inner| PyDataset { inner })
+        .map_err(to_py)
+}
+
 #[pyfunction]
 #[pyo3(signature = (paths, paired, organism=None))]
 fn load_samples(
@@ -925,6 +967,20 @@ fn check_step(step: &str, bindings: Vec<(String, PyRef<'_, PyDataset>)>) -> Vec<
         .iter()
         .map(translate)
         .collect()
+}
+
+/// The dimensions two or more of these datasets state a value for.
+///
+/// What a verdict over several files covers, for `ligase inspect`. Ordered
+/// by the engine so that a report reads in the catalogue's own order rather
+/// than in the order files happened to be given.
+#[pyfunction]
+fn comparable(datasets: Vec<PyRef<'_, PyDataset>>) -> Vec<&'static str> {
+    let datasets: Vec<Dataset> = datasets
+        .into_iter()
+        .map(|dataset| dataset.inner.clone())
+        .collect();
+    inspect::comparable(&datasets)
 }
 
 /// A dependency graph, built from signatures and never executed.
@@ -1428,6 +1484,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_reference, m)?)?;
     m.add_function(wrap_pyfunction!(resolve_remote, m)?)?;
     m.add_function(wrap_pyfunction!(load_entity_set, m)?)?;
+    m.add_function(wrap_pyfunction!(load_ranked_list, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_axis, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_target_parameter, m)?)?;
     m.add_function(wrap_pyfunction!(map_identifiers, m)?)?;
@@ -1437,6 +1494,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_intervals, m)?)?;
     m.add_function(wrap_pyfunction!(load_samples, m)?)?;
     m.add_function(wrap_pyfunction!(check_step, m)?)?;
+    m.add_function(wrap_pyfunction!(comparable, m)?)?;
     m.add_function(wrap_pyfunction!(interpret_resistance, m)?)?;
     m.add_function(wrap_pyfunction!(resistance_algorithms, m)?)?;
     m.add_function(wrap_pyfunction!(default_resistance_algorithm, m)?)?;

@@ -156,6 +156,14 @@ export function collectPages() {
 // The data the components refer to
 
 /**
+ * The generated modules an MDX expression may name, each from its
+ * lib/<name>.generated.ts. Named here once and nowhere else: a new generator
+ * that a page imports needs one line added, and until this list has it the
+ * expression fails to resolve rather than rendering as its own source.
+ */
+const GENERATED = ['diagnostics', 'quickstart', 'ranked']
+
+/**
  * lib/*.generated.ts export plain literals (the engine's real output). Pages
  * pass them to components as `{diagnostics.contigNaming}`, so to render a
  * component to text the reference has to be resolved.
@@ -164,7 +172,7 @@ let generatedData
 function loadGenerated() {
   if (generatedData) return generatedData
   generatedData = {}
-  for (const name of ['diagnostics', 'quickstart']) {
+  for (const name of GENERATED) {
     const file = join(ROOT, 'lib', `${name}.generated.ts`)
     if (!existsSync(file)) {
       throw new Error(`lib/${name}.generated.ts is missing; run "npm run generate" first`)
@@ -399,10 +407,9 @@ export function toPlainMarkdown(source) {
         continue
       }
       if (top === 'Diagnostic' || top === 'RunReport') {
-        const { diagnostics, quickstart } = loadGenerated()
-        const value = new Function('diagnostics', 'quickstart', `return (${inner})`)(
-          diagnostics,
-          quickstart,
+        const data = loadGenerated()
+        const value = new Function(...GENERATED, `return (${inner})`)(
+          ...GENERATED.map((name) => data[name]),
         )
         emit(fenced(String(value)))
         i = end

@@ -378,16 +378,22 @@ pub const fn required_pair(left: DataKind, right: DataKind) -> &'static [Dimensi
         // A resistance report is the end of the line; it joins nothing.
         (K::ResistanceReport, _) | (_, K::ResistanceReport) => NONE,
 
-        // Two gene lists must each say which space they are named in.
+        // Two lists of named entities must each say which space they are
+        // named in -- whether ranked or not, and in either combination.
         // Unlike organism, this is a demand a user can always meet --
         // declare it, or let the loader read it off the identifiers -- and
         // unknown on both sides is the false agreement the dimension
         // exists to break: two lists that say nothing would join happily
         // and overlap in nothing.
-        (K::EntitySet, K::EntitySet) => IDENTIFIERS,
-        // A gene list and a sequence file share only organism, which is
+        //
+        // The mixed pair is written out rather than left to the catch-all
+        // below, because scoring a ranking against a curated truth set is
+        // the commonest reason to join these two kinds at all, and the
+        // catch-all would have quietly demanded nothing of it.
+        (K::EntitySet | K::RankedList, K::EntitySet | K::RankedList) => IDENTIFIERS,
+        // A named list and a sequence file share only organism, which is
         // demanded nowhere, so there is nothing to insist on.
-        (K::EntitySet, _) | (_, K::EntitySet) => NONE,
+        (K::EntitySet | K::RankedList, _) | (_, K::EntitySet | K::RankedList) => NONE,
 
         // Reads carry no reference yet -- introducing one is what `align`
         // does -- so a reference tells us nothing about them.
@@ -639,7 +645,7 @@ fn naming_conclusion(
 
 // ------------------------------------------------------------ rendering --
 
-fn value_line(binding: &Binding, dimension: Dimension, suffix: Option<&str>) -> String {
+pub(crate) fn value_line(binding: &Binding, dimension: Dimension, suffix: Option<&str>) -> String {
     let dimensions = binding.dataset.dimensions();
     let value = dimensions
         .render(dimension)
@@ -754,7 +760,7 @@ fn undeclared_all(step: &str, dimension: Dimension, unknown: &[&Binding]) -> Che
     }
 }
 
-fn unknown_line(binding: &Binding, dimension: Dimension) -> String {
+pub(crate) fn unknown_line(binding: &Binding, dimension: Dimension) -> String {
     let reason = binding
         .dataset
         .dimensions()

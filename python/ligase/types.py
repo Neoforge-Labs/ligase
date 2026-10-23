@@ -24,6 +24,7 @@ __all__ = [
     "DimensionValue",
     "EntitySet",
     "Intervals",
+    "RankedList",
     "Reads",
     "Reference",
     "RemoteOrigin",
@@ -286,6 +287,30 @@ class EntitySet(Dataset):
     scores. Those are not gaps to be filled in -- a list of gene names has
     no such properties to have -- so asking for one gets `None` rather than
     a reason.
+
+    The rows are a **set**: their order says nothing, and two files holding
+    them in different orders have the same semantic hash. For a list whose
+    order is its result, see `RankedList`.
+    """
+
+    __slots__ = ()
+
+
+class RankedList(Dataset):
+    """A ranked list of genes, proteins or candidates: order is the result.
+
+    An `EntitySet` and one more thing, and the one more thing is why the
+    type exists: its canonical form **preserves row order**, where every
+    other type in Ligase discards it. Rank is the row position, so the same
+    twelve genes in two orders are two different answers to the question
+    "which of these matters most?" -- and two files holding them have
+    different semantic hashes
+    ([D41](https://ligase.neoforgelabs.tech/project/decisions/)).
+
+    It carries exactly the dimensions an `EntitySet` carries: the identifier
+    space, the organism, the subject and the release. The difference between
+    the two types is canonicalisation, and nothing else. A `score` column is
+    optional and compared exactly, with no tolerance.
     """
 
     __slots__ = ()
@@ -305,5 +330,6 @@ KINDS: Mapping[str, type[Dataset]] = MappingProxyType(
         "Intervals": Intervals,
         "ResistanceReport": ResistanceReport,
         "EntitySet": EntitySet,
+        "RankedList": RankedList,
     }
 )

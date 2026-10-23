@@ -269,6 +269,42 @@ SCENARIOS: tuple[Scenario, ...] = (
         },
     ),
     Scenario(
+        key="rankedNamespace",
+        step="score",
+        expect="DimensionError",
+        description=(
+            "A ranked list of HGNC symbols scored against an Ensembl gene list."
+        ),
+        build=lambda lg: {
+            "ranked": lg.ranked_list(
+                fixture("ranked_degs.tsv"), organism="Homo sapiens"
+            ),
+            "truth": lg.entity_set(
+                fixture("entities_ensembl.tsv"), organism="Homo sapiens"
+            ),
+        },
+    ),
+    Scenario(
+        key="rankedRelease",
+        step="score",
+        expect="DimensionError",
+        description=(
+            "A ranking named by one HGNC release scored against a set named by another."
+        ),
+        build=lambda lg: {
+            "ranked": lg.ranked_list(
+                fixture("ranked_degs.tsv"),
+                organism="Homo sapiens",
+                release="HGNC 2026-09",
+            ),
+            "truth": lg.entity_set(
+                fixture("entities_hgnc.tsv"),
+                organism="Homo sapiens",
+                release="HGNC 2026-03",
+            ),
+        },
+    ),
+    Scenario(
         key="remoteMoved",
         step="",
         expect="RemoteError",
