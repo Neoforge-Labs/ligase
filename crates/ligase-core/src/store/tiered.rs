@@ -48,6 +48,7 @@
 
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::{Backend, BlobStore, FsStore, ObjectKey, StoreError};
@@ -96,6 +97,15 @@ pub struct TieredStore {
     remote: Option<Box<dyn BlobStore + Send + Sync>>,
     url: Option<String>,
     counters: Counters,
+    /// The first object the remote served that was not what its name
+    /// said, in the error's own words.
+    ///
+    /// Kept as well as counted because the clause is that a corrupted
+    /// object is "rejected on read with an error naming the hash
+    /// mismatch", and a count of one names nothing. The first is enough:
+    /// a store serving two wrong objects has the same single cause as one
+    /// serving one.
+    rejection: Mutex<Option<String>>,
 }
 
 impl fmt::Debug for TieredStore {
@@ -158,6 +168,7 @@ impl TieredStore {
             remote: Some(remote),
             url: Some(url.to_owned()),
             counters: Counters::default(),
+            rejection: Mutex::new(None),
         })
     }
 
@@ -167,6 +178,7 @@ impl TieredStore {
             remote: None,
             url: None,
             counters: Counters::default(),
+            rejection: Mutex::new(None),
         }
     }
 
@@ -205,6 +217,17 @@ impl TieredStore {
         }
     }
 
+    /// What the remote served that was not what its name said, if
+    /// anything was.
+    ///
+    /// For the run report. A rejection is the one store event a user has
+    /// to read rather than merely count: it means corruption, or a bucket
+    /// someone else can write to.
+    #[must_use]
+    pub fn rejection(&self) -> Option<String> {
+        self.rejection.lock().ok().and_then(|held| held.clone())
+    }
+
     /// Whether the remote answers at all, for `ligase store status`.
     ///
     /// Asks for an object that cannot exist, so the answer is about the
@@ -236,6 +259,9 @@ impl TieredStore {
             Ok(None) => Ok(None),
             Err(error @ StoreError::Mismatch { .. }) => {
                 self.counters.rejected.fetch_add(1, Ordering::Relaxed);
+                if let Ok(mut held) = self.rejection.lock() {
+                    held.get_or_insert_with(|| error.to_string());
+                }
                 Err(error)
             }
             Err(_) => {
@@ -336,6 +362,33 @@ impl BlobStore for TieredStore {
         self.local.put_file_as(staged, key)?;
         self.push(key, None, Some(&self.local.path_of(key)));
         Ok(())
+    }
+
+    fn get_row(&self, key: &ObjectKey) -> Result<Option<Vec<u8>>, StoreError> {
+        if key.suffix != super::ROW_SUFFIX {
+            return self.checked_get(key);
+        }
+        if let Some(bytes) = self.local.get(key)? {
+            return Ok(Some(bytes));
+        }
+        let Some(remote) = self.remote.as_ref() else {
+            return Ok(None);
+        };
+        // The one read of the remote that does not go through
+        // `checked_get`, because a row's name is not the hash of its
+        // contents and the comparison would refuse every row there is.
+        // Two things make it safe. The bytes are checked by the rule that
+        // *does* apply -- `published::fetch` requires the body to restate
+        // the table and key it was found under -- and they are **not
+        // promoted**: nothing enters the trusted local tier on this path,
+        // so an unverified byte cannot later be read as a verified one.
+        match remote.get(key) {
+            Ok(bytes) => Ok(bytes),
+            Err(_) => {
+                self.counters.unreachable.fetch_add(1, Ordering::Relaxed);
+                Ok(None)
+            }
+        }
     }
 
     fn local_path(&self, key: &ObjectKey) -> Result<Option<PathBuf>, StoreError> {

@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 use crate::hash::ContentHash;
 
 mod fs;
+pub mod published;
 mod remote;
 mod tiered;
 
@@ -111,6 +112,19 @@ pub enum StoreError {
         /// Where the offending object was found.
         at: PathBuf,
     },
+    /// A published row that answers a different question.
+    ///
+    /// A row's name is the hash of the question rather than of its
+    /// contents ([`published`]), so the body restating the question is
+    /// the only check it can carry. One that restates the wrong question
+    /// was written by hand or by accident, and a store holding one is a
+    /// store to look at rather than to read.
+    Impostor {
+        /// The object it was found under.
+        at: String,
+        /// What it says it is instead.
+        claims: String,
+    },
     /// A store URL this build cannot open.
     ///
     /// Either the URL names nothing Ligase knows, or it names a backend
@@ -142,6 +156,11 @@ impl fmt::Display for StoreError {
                 expected.to_hex(),
                 found.to_hex()
             ),
+            Self::Impostor { at, claims } => write!(
+                f,
+                "the row at {at} is not the row it was asked for: it is {claims}. \
+                 It has been refused rather than believed"
+            ),
             Self::Unsupported { url, reason } => write!(f, "{url}: {reason}"),
         }
     }
@@ -151,7 +170,7 @@ impl std::error::Error for StoreError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
-            Self::Mismatch { .. } | Self::Unsupported { .. } => None,
+            Self::Mismatch { .. } | Self::Impostor { .. } | Self::Unsupported { .. } => None,
         }
     }
 }
@@ -259,6 +278,30 @@ pub trait BlobStore {
     /// If the store cannot be consulted, or a lower tier cannot be read.
     fn local_path(&self, key: &ObjectKey) -> Result<Option<PathBuf>, StoreError>;
 
+    /// The bytes of a published row, which cannot be verified by hash.
+    ///
+    /// A row's name is the hash of the question it answers, not of its
+    /// contents ([`published`]), so [`checked_get`](BlobStore::checked_get)
+    /// would refuse every one of them. The check a row *can* carry is that
+    /// its body restates the table and key it was found under, and
+    /// [`published::fetch`] applies it on every read — including a read
+    /// served from a local tier, so a bad row cannot be laundered by
+    /// being cached.
+    ///
+    /// A key that is not a row's falls through to the ordinary, verified
+    /// read. That is what keeps this from being a way around verification:
+    /// it cannot fetch an *object* unverified however it is called.
+    ///
+    /// # Errors
+    ///
+    /// If the store cannot be read.
+    fn get_row(&self, key: &ObjectKey) -> Result<Option<Vec<u8>>, StoreError> {
+        if key.suffix != ROW_SUFFIX {
+            return self.checked_get(key);
+        }
+        self.get(key)
+    }
+
     /// The object's bytes, verified against the hash its key claims.
     ///
     /// `None` for an object that is not held: nothing to verify is not a
@@ -286,6 +329,13 @@ pub trait BlobStore {
         })
     }
 }
+
+/// The suffix of a published row.
+///
+/// Rows are the one object class whose name is the hash of the *question*
+/// rather than of the contents ([`published`]), so they cannot be read
+/// through the verified path and are told apart from objects by this.
+pub const ROW_SUFFIX: &str = ".row";
 
 /// The environment variable that names the store.
 ///
