@@ -1423,6 +1423,184 @@ something each backend author remembers separately. See
 [remote inputs](/project/architecture/remotes/) for the shape and what was
 given up to get it.
 
+## D40 — A stochastic step declares itself, or it is an error
+
+A step whose tool draws on randomness — IQ-TREE, RAxML, BEAST, AutoDock
+Vina, `seqtk sample`, any model training — **declares `stochastic=True` and
+names its seed parameter**. An unseeded stochastic step is a
+`StepDefinitionError` at decoration time, like an untyped return.
+
+```python
+@lg.step(tool="seqtk", stochastic=True, seed="seed")
+def subsample(reads: Reads, fraction: float = 0.1, seed: int = 20260101) -> Reads:
+    return lg.sh("seqtk sample -s{seed} {reads.r1} {fraction} > {out}")
+```
+
+The engine cannot look at a tool and know whether randomness is in it, and no
+amount of running a step twice can tell it either: two runs that agree agree
+for one of three reasons — the step is arithmetic, the step is seeded, or the
+step got lucky — and comparing outputs cannot distinguish them. Only the
+pipeline knows. So the pipeline says.
+
+### What the declaration is for
+
+The audit vocabulary already distinguishes *deterministic* from
+*reproducible* — [three verdicts, not two](/guide/semantic-hashing/#auditing-a-step),
+because every real tool records its own command line and byte equality is
+therefore too strict a test. This is what gives that distinction teeth.
+
+A verdict from `ligase audit` is a claim about the **step**, not about the
+pair of files in front of it. The question it answers is "if I ran this
+again, would I get the same answer". A correctly seeded stochastic step is
+byte-identical across two runs — that is the *success* case — and under byte
+equality alone it was reported `deterministic`.
+
+That word is false of it. It tells a reader there is no randomness in the
+step. Move the seed and the bytes move, so the reader has been told something
+untrue, by the engine, in the report they consulted to decide whether to
+trust the pipeline. An engine stating something false about data is the one
+thing this project exists not to do.
+
+So **`deterministic` requires byte equality *and* a step that declared
+nothing**, and a step that declared itself stochastic saturates at
+`reproducible`. A declaration adds no verdict. It takes one out of reach.
+
+"This pipeline is reproducible" is a far stronger claim once the engine
+refuses to let you write an irreproducible step by accident.
+
+### Why the verdict stays on the audit's own scale
+
+[D39](#d39--a-remote-is-pinned-or-recorded-and-both-are-replayable) put
+*pinned*, *replayed* and *live* in a separate `RemoteVerdict` rather than in
+`Verdict`, because the two are not on one scale: a remote's verdict is about
+where bytes came from, not about whether a step repeats. The same instinct
+applied here would give a `StochasticVerdict`, and would be wrong.
+
+The test is whether the new fact is on the audit's own axis. "This step draws
+on randomness" is a statement about whether a step repeats — the very
+question a `Verdict` answers. It changes what two runs can tell you about
+that question rather than answering a different question beside it. A second
+enum would make a reader combine two words to learn one fact, and would leave
+`Verdict::Deterministic` free to go on being wrong, which is what this
+decision exists to stop.
+
+The line is confirmed from the other side. `prov::bundle::Match::Identical`
+needs none of this and was not touched: `Match` compares one run against a
+*record*, a question about two artefacts, to which "identical" is a true
+answer however the step arrived at it. The two enums differ in subject, not
+in strictness.
+
+### The saturation is not a relabel
+
+Reporting `reproducible` and leaving the wording alone would make the report
+lie by a different route. The ordinary text for `reproducible` is "the bytes
+differ; what they mean does not", which is false of a byte-identical seeded
+step. So the report says what the equality rests on:
+
+```text
+reproducible     `permute`
+    the same bytes both times   6c636bdb27d9
+    because `seed` was held at 20260101, not because the step cannot wobble
+```
+
+And the most useful case is the worst one. A step that names a seed and still
+disagrees with itself has a declaration that is **false** — the parameter is
+not what the tool draws on, because the flag was renamed or a library reads
+the global generator or a parallel reduction adds in whatever order it
+finishes. Filing that under ordinary irreproducibility would waste the one
+thing the declaration bought, so the report names the parameter you believed
+was controlling the tool and tells you it is not.
+
+### Both keywords, or neither
+
+`stochastic=True` without `seed=` is the case this decision is named for. The
+other direction — `seed="seed"` without `stochastic=True` — is refused too,
+and the tempting reading is that it should not be: a user might reasonably
+mean "determinism by seeding, on a tool you have no opinion about".
+
+Rejected, because accepting it makes `stochastic=True` ceremony. Two
+spellings of one declaration is how a codebase acquires a second code path
+that nobody tests, and the content of this decision is that a stochastic step
+*declares itself*. A declaration with an optional half is not one. So there
+is exactly one spelling, and the wrong one gets an error that teaches it.
+
+Below the decorator the pair is a single `Option<String>` — the seed
+parameter's name, `None` for an ordinary step — so "stochastic with no seed"
+is unrepresentable in the engine rather than merely unreached.
+
+Three further refusals follow from *names its seed parameter*, all at
+decoration: a `seed=` naming a parameter the step does not take, one naming a
+parameter not typed `int`, and one naming a data parameter (caught by the
+same annotation check). The `int` requirement is not about what can be
+hashed. A seed that is a float, a timestamp or `None` is a seed somebody will
+set differently by accident, and the type is the cheapest place to say so.
+
+### The seed itself needs nothing new
+
+`CLAUDE.md` requires random seeds to be explicit, typed, hashed parameters,
+and a seed already was one: it is a plain parameter, so it is in the cache
+key like `min_freq`, and two seeds are two keys and two results. Nothing was
+built to arrange that, and this decision deliberately did not move it
+anywhere special — which is why `seed=` names a parameter rather than taking
+a value. The engine is not handed a seed to manage; it is told which of the
+step's own parameters already is one. The declaration adds knowledge, not
+machinery.
+
+The declaration is not in the key either: it says what a parameter *is*, not
+what it is set to, so it cannot change a result. Which is not the same as
+saying that adding it reruns nothing — a step's source is hashed *as written,
+decorator line included*, so editing the decorator moves the key exactly as
+editing a comment does, and
+[early cutoff](/concepts/caching/#why-outputs-are-named-after-their-contents)
+stops the rerun travelling downstream. The same has always been true of
+`cite=`, whose field is out of the key while the line it is typed on is not.
+
+### What the write-up had to change
+
+A methods section must state the seed, and a seed is a plain parameter, so
+the paragraph already *printed* it — `with seed = 20260101`, indistinguishable
+from `min_freq = 0.01`. That satisfies the clause's letter and fails its
+purpose: a reader cannot tell from it that the step samples, or that this is
+the number to copy to repeat the run. The sentence therefore says *seeded
+with*, in a clause of its own, last, so it ends on that number.
+
+One guard had to give way for it. `methods.rs::restating` drops a parameter
+whose value is merely the node's own scope, so that
+`sample_id = 'SRR8525904'` does not appear beside a sentence already naming
+four samples. That rule was written when every parameter was a setting, and
+its catch-all is too wide once one parameter is *obliged* to appear: a seed
+caught by it would vanish from the paragraph. The declared seed is exempt,
+and the exemption is principled rather than defensive — a seed never *merely
+restates* the scope, which is the only thing that function is for.
+
+### No `Tree` kind
+
+The example this decision is usually written with returns a phylogenetic
+tree, and no `Tree` kind was added, because
+[D35](#d35--a-kind-must-bring-a-dimension-that-catches-a-documented-silent-failure)
+refuses one. A tree's tip labels are identifiers, on the
+`identifier_namespace` axis an `EntitySet` already claims; its organisms are
+`organism`, set-valued since [D37](#d37--organism-is-set-valued); a reference
+tree's version is `release`. There is no axis a `Tree` brings that nothing
+has, and what is left of it is Newick with a schema — a parser, which D35
+says no to however convenient it would be for an example in a specification.
+
+Nothing here needs a new kind. A stochastic step is orthogonal to what it
+produces, which is the first evidence that the declaration is in the right
+place: it is a fact about the *step*, and it is recorded on the step.
+
+### What this does not promise
+
+The engine cannot read a tool, so `stochastic=True, seed="seed"` on a tool
+that ignores the flag is accepted. The declaration is a claim, and
+`ligase audit` is what tests it. That division is the same one everywhere
+else here: the pipeline declares, the engine checks what it can, and what
+cannot be checked at least cannot be left unsaid.
+
+See [steps that draw on randomness](/concepts/stochastic-steps/),
+[declaring one](/guide/stochastic-steps/) and
+[how the verdict is decided](/project/architecture/audit/).
+
 ## D41 — In a ranked list, rank order is the result
 
 Every canonical form in Ligase sorts its records, and the reason is stated

@@ -125,11 +125,41 @@ pub struct Task {
     /// References the step asks to be cited by, as written.
     ///
     /// Deliberately **not** a cache-key ingredient: a citation cannot
-    /// change a result, so adding one must not rerun a pipeline. For the
-    /// same reason it is not stored in a provenance record either, which
-    /// would go stale the moment it was edited — a methods section takes it
-    /// from the pipeline in front of it ([`crate::prov::methods`]).
+    /// change a result, so nothing about it belongs in
+    /// [`crate::key::Ingredients`]. For the same reason it is not stored in
+    /// a provenance record either, which would go stale the moment it was
+    /// edited — a methods section takes it from the pipeline in front of it
+    /// ([`crate::prov::methods`]).
+    ///
+    /// Which is not the same as saying that adding a citation reruns
+    /// nothing. The citation is written on the decorator line, and
+    /// `graph.py::_source` hashes a step's source *including* its
+    /// decorator, so editing it moves [`Self::code`] and the step reruns —
+    /// then early cutoff stops the rerun going any further, exactly as for
+    /// a comment-only edit. The field is out of the key; the line it was
+    /// typed on is not, and no field here could change that.
     pub citations: Vec<String>,
+    /// The parameter that seeds this step, for a step that declared itself
+    /// stochastic (D40). `None` for every ordinary step.
+    ///
+    /// One `Option` rather than a flag beside a name, because the pair
+    /// admits a fourth state — stochastic with no seed — that the decorator
+    /// has just made an error. Representing it here would mean every reader
+    /// of this field having to decide what it meant, so it is
+    /// unrepresentable instead: `Some(name)` *is* "declared stochastic,
+    /// seeded by `name`".
+    ///
+    /// The seed's *value* is in [`Self::parameters`], where it is hashed
+    /// into the key like any other parameter — which is all `CLAUDE.md`'s
+    /// rule that seeds be explicit, typed, hashed parameters requires. What
+    /// this adds is the engine knowing *which* parameter it is, so that
+    /// [`crate::audit`] can refuse to call the step deterministic and
+    /// [`crate::prov::methods`] can say it was seeded rather than merely
+    /// parameterised.
+    ///
+    /// Outside the key and outside a provenance record for the same reason
+    /// as [`Self::citations`], and with the same caveat.
+    pub seed: Option<String>,
 }
 
 /// What happened to one step.

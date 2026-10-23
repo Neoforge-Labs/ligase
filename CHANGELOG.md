@@ -67,6 +67,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   not after, because the top ten of a mapped ranking is the top ten of what
   crossed.
 
+- **Stochastic steps declare themselves, or they are refused.** A great deal
+  of computational biology is sampling — IQ-TREE and RAxML search tree space,
+  BEAST runs chains, AutoDock Vina docks from random starts, `seqtk sample`
+  takes a subset — and none of it gives the same answer twice unless it is
+  told to. Ligase can run a step twice and compare what came out; what it
+  cannot do is look at a tool and know whether randomness is in it. So the
+  step says:
+
+  ```python
+  @lg.step(tool="seqtk", stochastic=True, seed="seed")
+  def subsample(reads: Reads, fraction: float = 0.1, seed: int = 20260101) -> Reads:
+      return lg.sh("seqtk sample -s{seed} {reads.r1} {fraction} > {out}")
+  ```
+
+  Two new keyword arguments to `@lg.step`, and they are one declaration:
+  `stochastic=True` says there is randomness in the tool and `seed=` says
+  which parameter holds it still. Neither is accepted alone. A missing seed —
+  or one naming a parameter the step does not take, or one not typed `int` —
+  is a `StepDefinitionError` as the pipeline file is imported, in the same
+  breath as a missing return annotation, because an unseeded stochastic step
+  is not a step that fails. It is a step that works, caches a plausible
+  number, and gives a different one next Tuesday for reasons nothing records.
+
+  What it buys is a word that means what it says. `ligase audit` reports
+  `deterministic`, `reproducible` or `not reproducible`, and the first of
+  those now requires byte equality **and** a step that declared nothing. A
+  correctly seeded stochastic step is byte-identical across two runs — that is
+  the success case — and calling it `deterministic` would tell a reader there
+  is no randomness in the step. Move the seed and the bytes move. So such a
+  step saturates at `reproducible`, and the report says what the equality
+  rests on:
+
+  ```text
+  reproducible     `permute`
+      the same bytes both times   6c636bdb27d9
+      because `seed` was held at 20260101, not because the step cannot wobble
+  ```
+
+  The same body with nothing declared reports `deterministic` over the same
+  hash. A declaration adds no verdict; it takes one out of reach.
+
+  A step that names a seed and still disagrees with itself has a declaration
+  that is false — a renamed flag, a library reading the global generator, a
+  parallel reduction that adds in whatever order it finishes — and the audit
+  now names the parameter you believed was controlling the tool and says it is
+  not, rather than filing it under ordinary irreproducibility.
+
+  `ligase methods` states the seed as a seed: `seeded with seed = 20260101`,
+  not `with seed = 20260101`, because a reader of the latter cannot tell
+  whether the number is a sampling seed or a cutoff.
+
+  The seed itself needed nothing new. It is a plain typed parameter, so it is
+  already in the cache key, and two seeds are two keys and two results —
+  verified and now pinned, since two seeds sharing a key would serve the
+  second run the first one's answer in silence.
+  [D40](https://ligase.neoforgelabs.tech/project/decisions/) has the whole
+  argument, including why the verdict stays on the audit's own scale rather
+  than becoming a second enum beside it.
+
 - **Recorded queries — the second half of remote inputs, for a source that
   promises nothing.** `lg.remote` rests on a promise: NCBI undertakes that
   `K03455.1` will mean the same sequence next Tuesday, so a digest is how you
@@ -161,6 +220,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   which is the honest word for it, and every later run is *replayed*.
 
 ### Changed
+
+- **`exec::Task::citations` no longer claims that editing a citation reruns
+  nothing.** The field is outside the cache key, which is true and was being
+  read as a promise that it is free to edit. It is not: a step's source is
+  hashed *as written, decorator line included*, so editing `cite=` moves the
+  step's code and reruns it, with early cutoff then stopping the rerun
+  travelling downstream. The doc comment now says so, beside the new `seed`
+  field, which would otherwise have copied the error.
 
 - **A recorded response is canonicalised before it is hashed**, like every
   other kind: JSON keys sorted at every depth, arrays left alone because there

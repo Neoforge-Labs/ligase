@@ -75,7 +75,8 @@ COORDINATES = ("0-based half-open", "1-based closed")
 CACHE_DIR = ".ligase"
 
 #: One task as the engine takes it: node, code, command, callback, tools,
-#: parameters, citations. Exactly one of the command and the callback is set.
+#: parameters, citations, the seed parameter's name. Exactly one of the
+#: command and the callback is set.
 _Task = tuple[
     int,
     str,
@@ -84,6 +85,7 @@ _Task = tuple[
     list[str],
     list[tuple[str, str]],
     list[str],
+    str | None,
 ]
 
 #: A `lg.write` body, as the engine calls it: where to write, and the
@@ -139,6 +141,11 @@ class Step(Generic[P, R]):
             from the call rather than from here, read off the parameter the
             engine names.
         citations: References the step asks to be cited by.
+        stochastic: Whether the step declared that its tool draws on
+            randomness.
+        seed: The name of the parameter that seeds it, for a stochastic
+            step. Never set without `stochastic`, and never unset with it:
+            the two are one declaration in two parts, checked here.
         output: The kind of data the step's return annotation declares, read
             once when the step is defined.
         parameters: Every parameter the function takes, in declaration
@@ -153,6 +160,8 @@ class Step(Generic[P, R]):
         "function",
         "output",
         "parameters",
+        "seed",
+        "stochastic",
         "tool",
         "tools",
     )
@@ -165,6 +174,8 @@ class Step(Generic[P, R]):
         coordinates: str | None = None,
         cite: str | Sequence[str] | None = None,
         conversion: str | None = None,
+        stochastic: bool = False,
+        seed: str | None = None,
     ) -> None:
         """Read a function's signature, refusing one a graph cannot use."""
         self.function = function
@@ -173,11 +184,14 @@ class Step(Generic[P, R]):
         self.coordinates = coordinates
         self.conversion = conversion
         self.citations = _citations(cite)
+        self.stochastic = stochastic
+        self.seed = seed
         self._signature = inspect.signature(function)
         self.output = _output_kind(function)
         self.parameters = _parameters(function, self._signature)
         if conversion is not None:
             _check_conversion(self.name, conversion, self._signature)
+        _check_seed(function, self._signature, stochastic=stochastic, seed=seed)
 
     @property
     def name(self) -> str:
@@ -602,6 +616,7 @@ class Pipeline:
                     first_duration_ms=first_ms,
                     second_duration_ms=second_ms,
                     node=node,
+                    seed=seed,
                 )
                 for (
                     node,
@@ -614,6 +629,7 @@ class Pipeline:
                     second_canonical,
                     first_ms,
                     second_ms,
+                    seed,
                 ) in audited
             ],
             failures=[
@@ -794,6 +810,7 @@ class Pipeline:
                         for parameter in step.plain_parameters
                     ],
                     list(step.citations),
+                    step.seed,
                 )
             )
 
@@ -844,6 +861,93 @@ def _check_conversion(name: str, conversion: str, signature: inspect.Signature) 
         )
 
 
+def _seed_suggestion(function: Callable[..., Any], signature: inspect.Signature) -> str:
+    """How to help a step that declared itself stochastic and named no seed.
+
+    The commonest mistake by far is a step that already takes `seed: int`
+    and forgot to name it, and for that one the message can say what was
+    meant. For anything else it must not: `iterations: int` is an `int`
+    parameter and is not a seed, and `seed="iterations"` would be a
+    confident wrong answer that a reader might take. A guess is only worth
+    printing where it cannot be wrong, so this suggests a spelling only when
+    a parameter is actually called one, and otherwise says what it can see
+    and leaves the choice where it belongs.
+    """
+    hints = _hints(function)
+    ints = [
+        parameter for parameter in signature.parameters if hints.get(parameter) is int
+    ]
+    named = [parameter for parameter in ints if "seed" in parameter.lower()]
+
+    if named:
+        return (
+            f' It takes `{named[0]}: int`, so `seed="{named[0]}"` is '
+            "probably what you meant."
+        )
+    if ints:
+        listed = ", ".join(f"`{parameter}`" for parameter in ints)
+        return (
+            f" Its `int` parameters are {listed}; name the one the tool "
+            "seeds from, or add one."
+        )
+    return " It takes no `int` parameter, so add one for the seed."
+
+
+def _check_seed(
+    function: Callable[..., Any],
+    signature: inspect.Signature,
+    *,
+    stochastic: bool,
+    seed: str | None,
+) -> None:
+    """Refuse a stochastic declaration that does not hold together.
+
+    `stochastic=` and `seed=` are one declaration in two parts, so each half
+    alone is refused. Everything here is wrong when the step is *written*,
+    which is why it is said at decoration rather than at check time: a
+    pipeline that cannot repeat is a mistake in its source, and the sooner it
+    is said the less there is to read.
+    """
+    name = function.__name__
+
+    if stochastic and seed is None:
+        raise StepDefinitionError(
+            f"step `{name}` declares itself stochastic but names no seed, so "
+            "nothing says what makes it repeat. Add `seed=` naming the "
+            "parameter the tool draws its randomness from."
+            f"{_seed_suggestion(function, signature)}"
+        )
+
+    if seed is None:
+        return
+
+    if not stochastic:
+        raise StepDefinitionError(
+            f"step `{name}` names `{seed}` as its seed but does not declare "
+            "itself stochastic, so the engine has been told how the step "
+            "repeats without being told that it needs to. Add "
+            "`stochastic=True` beside it, or drop `seed=` if the tool draws "
+            "on no randomness"
+        )
+
+    if seed not in signature.parameters:
+        taken = ", ".join(f"`{parameter}`" for parameter in signature.parameters)
+        raise StepDefinitionError(
+            f"step `{name}` names `{seed}` as its seed, but takes no such "
+            f"parameter; it takes {taken}"
+        )
+
+    annotation = _hints(function).get(seed)
+    if annotation is not int:
+        raise StepDefinitionError(
+            f"step `{name}` names `{seed}` as its seed, but `{seed}` is "
+            f"{_name(annotation)} rather than `int`. A seed has to be a "
+            "value the engine can hash into the cache key and a methods "
+            "section can print, which is what makes two runs of a "
+            "stochastic step comparable at all"
+        )
+
+
 def _declared_conversion(produced: StepOutput) -> tuple[str, str] | None:
     """The conversion a call performs, and the target it declared.
 
@@ -869,6 +973,8 @@ def step(
     coordinates: str | None = None,
     cite: str | Sequence[str] | None = None,
     conversion: str | None = None,
+    stochastic: bool = False,
+    seed: str | None = None,
 ) -> Callable[[Callable[P, R]], Step[P, R]]: ...
 
 
@@ -880,6 +986,8 @@ def step(
     coordinates: str | None = None,
     cite: str | Sequence[str] | None = None,
     conversion: str | None = None,
+    stochastic: bool = False,
+    seed: str | None = None,
 ) -> Step[P, R] | Callable[[Callable[P, R]], Step[P, R]]:
     """Make a function a pipeline step, without ever running it.
 
@@ -918,6 +1026,32 @@ def step(
             `lg.map_identifiers` is an entry in the engine's conversion
             registry rather than a special case in the graph, which is what
             lets a future `liftover` be another entry.
+        stochastic: That the step's tool draws on randomness -- IQ-TREE,
+            RAxML, BEAST, AutoDock Vina, any model training. Given with
+            `seed`, never without it.
+
+            What it buys is in the audit. `ligase audit` distinguishes
+            *deterministic* from *reproducible*, and a step that declares
+            this is never called deterministic, however its bytes fall: a
+            seeded tool is byte-identical because its seed was held still,
+            and saying *deterministic* of it would tell a reader there is no
+            randomness in the step. "This pipeline is reproducible" is a far
+            stronger claim once the engine refuses to let you write an
+            irreproducible step by accident.
+        seed: The name of the parameter that seeds the step. It must be a
+            parameter the function takes and it must be annotated `int`;
+            either failing is a `StepDefinitionError` as the module is
+            imported, like a missing return annotation.
+
+            Given with `stochastic`, never without it. Naming a seed
+            without declaring the step stochastic is refused rather than
+            read as a shorthand, because one declaration with two spellings
+            is how a second untested path gets in -- and because what the
+            decision asks for is a step that *declares itself*.
+
+            The seed is an ordinary typed parameter besides, so its value is
+            hashed into the cache key like any other and two seeds are two
+            runs. Nothing special is done to arrange that.
 
     Returns:
         A `Step`, which a type checker sees as the function it decorated.
@@ -927,7 +1061,9 @@ def step(
             an unannotated parameter, a missing or non-Ligase return
             annotation, or `*args`/`**kwargs` — or if `conversion` names a
             conversion the engine does not have, or the step performs one
-            and takes no `to` parameter.
+            and takes no `to` parameter, or `stochastic` and `seed` do not
+            agree, or the named seed is not a parameter of the step typed
+            `int`.
         ValueError: If `coordinates` is not one of the two conventions, or
             a tool was named as an empty string.
     """
@@ -944,6 +1080,8 @@ def step(
             coordinates=coordinates,
             cite=cite,
             conversion=conversion,
+            stochastic=stochastic,
+            seed=seed,
         )
 
     if function is None:

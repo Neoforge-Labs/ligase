@@ -21,6 +21,46 @@
 //! match, [`Verdict::Reproducible`] when only the meaning does, and
 //! [`Verdict::NotReproducible`] when it does not.
 //!
+//! # Why a stochastic step is never deterministic
+//!
+//! A verdict here is a claim about the **step**, not about the pair of files
+//! in front of it. The question is "if I ran this again, would I get the
+//! same answer", and a step that declares itself stochastic (D40) has
+//! already answered part of it: it draws on randomness, and the only reason
+//! two runs of it agree is that its seed was held still.
+//!
+//! Such a step reaches byte equality whenever its seed really is what the
+//! tool draws on — which is the *success* case, and the case where byte
+//! equality alone would have reported [`Verdict::Deterministic`]. That word
+//! would be false. A reader given it concludes there is no randomness in the
+//! step; move the seed and the bytes move, so the conclusion is wrong, and
+//! an engine stating something false about data is the one thing this
+//! project exists not to do.
+//!
+//! So [`Verdict::Deterministic`] requires byte equality *and* a step that
+//! declared nothing. A declaration adds no verdict; it removes one from
+//! reach, and [`Verdict::Reproducible`] is where a stochastic step
+//! saturates.
+//!
+//! This stays on the same scale rather than becoming its own type, which is
+//! where it differs from [`RemoteVerdict`]: a remote's verdict is about
+//! where bytes came from, a question beside this one, while "this step draws
+//! on randomness" is a statement about whether a step repeats — the very
+//! question a [`Verdict`] answers. A second enum would make a reader combine
+//! two words to learn one fact, and would leave `Deterministic` free to go
+//! on being wrong.
+//!
+//! Note that [`crate::prov::bundle::Match`] needs none of this and is
+//! correct as it stands. `Match::Identical` compares one run against a
+//! record — a question about two artefacts, to which "identical" is a true
+//! answer however the step arrived at it. The two enums differ in subject,
+//! not in strictness.
+//!
+//! What the saturation must not become is a relabel. The ordinary wording
+//! for [`Verdict::Reproducible`] is "the bytes differ; what they mean does
+//! not", and that is false of a byte-identical seeded step — so [`AuditReport::text`]
+//! says what actually happened, and says the seed it happened under.
+//!
 //! # What an audit does to the cache
 //!
 //! Nothing. Its two runs write into scratch files and are thrown away:
@@ -64,12 +104,21 @@ pub struct Subject<'a> {
 /// What two runs of a step showed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Verdict {
-    /// The two runs wrote the same bytes.
+    /// The two runs wrote the same bytes, and the step declared no seed.
+    ///
+    /// Never the verdict for a step that declared itself stochastic,
+    /// however its bytes fall — see the module note. Both halves are the
+    /// condition, not just the first.
     Deterministic,
-    /// The two runs wrote different bytes that mean the same thing.
+    /// The two runs agreed on the result.
     ///
     /// The ordinary verdict for a real tool, and not a problem: a `@PG`
     /// line or a timestamp moved, and no result did.
+    ///
+    /// Also where a step that declared itself stochastic saturates, whether
+    /// its bytes moved or not. For such a step this is the *best* available
+    /// verdict rather than a middling one — it says the seed held, which is
+    /// the whole of what a seeded tool can promise.
     Reproducible,
     /// The two runs did not agree on the result.
     NotReproducible,
@@ -108,6 +157,14 @@ pub struct StepAudit {
     pub first_duration: Duration,
     /// How long the second run took.
     pub second_duration: Duration,
+    /// The seed this step declared, and the value it was held at.
+    ///
+    /// `None` for an ordinary step. Both halves, because the parameter's
+    /// name alone is not what a reader needs: a verdict reached under
+    /// `seed = 42` was reached under *that* seed, and reporting the name
+    /// without the value would leave the one number that makes the run
+    /// repeatable off the report.
+    pub seed: Option<(String, String)>,
 }
 
 impl StepAudit {
@@ -207,6 +264,23 @@ impl AuditReport {
                         short(step.first)
                     ));
                 }
+                // A seeded step whose bytes matched. Saying "the bytes
+                // differ" of it would be false, and leaving it at "the same
+                // bytes both times" would read as the line above — so the
+                // report says what the equality rests on, which is the one
+                // thing a reader of `reproducible` here needs to know.
+                Verdict::Reproducible if step.first == step.second => {
+                    lines.push(format!(
+                        "    the same bytes both times   {}",
+                        short(step.first)
+                    ));
+                    if let Some((name, value)) = &step.seed {
+                        lines.push(format!(
+                            "    because `{name}` was held at {value}, not because the step \
+                             cannot wobble"
+                        ));
+                    }
+                }
                 Verdict::Reproducible => {
                     lines.push(format!(
                         "    the bytes differ            {} / {}",
@@ -217,6 +291,9 @@ impl AuditReport {
                         "    what they mean does not     {}",
                         short(step.first_canonical)
                     ));
+                    if let Some((name, value)) = &step.seed {
+                        lines.push(format!("    seeded by `{name}` = {value}"));
+                    }
                 }
                 Verdict::NotReproducible => {
                     lines.push(format!(
@@ -224,6 +301,18 @@ impl AuditReport {
                         short(step.first_canonical),
                         short(step.second_canonical)
                     ));
+                    // The most useful line in the milestone. A step that
+                    // names a seed and still disagrees with itself has a
+                    // declaration that is false — the parameter is not what
+                    // the tool draws on — and filing that under ordinary
+                    // irreproducibility would waste the one thing the
+                    // declaration bought.
+                    if let Some((name, value)) = &step.seed {
+                        lines.push(format!(
+                            "    `{name}` was held at {value} and the result moved anyway: the \
+                             seed does not control this tool"
+                        ));
+                    }
                 }
             }
         }
@@ -412,12 +501,33 @@ fn twice(
     let (first, first_canonical, first_duration) = runs[0];
     let (second, second_canonical, second_duration) = runs[1];
 
-    let verdict = if first == second {
-        Verdict::Deterministic
-    } else if first_canonical == second_canonical {
-        Verdict::Reproducible
-    } else {
+    // The seed this step declared, with the value it was held at. Both are
+    // on the task: the name because the step declared it, the value because
+    // a seed is an ordinary parameter besides.
+    let seed = task.seed.as_ref().and_then(|parameter| {
+        task.parameters
+            .iter()
+            .find(|(name, _)| name == parameter)
+            .map(|(name, value)| (name.clone(), value.clone()))
+    });
+
+    let verdict = if first_canonical != second_canonical {
         Verdict::NotReproducible
+    } else if first == second && task.seed.is_none() {
+        // Both halves. A step that declared a seed is byte-identical
+        // *because the seed was held still*, and calling that deterministic
+        // would tell a reader there is no randomness in it — see the module
+        // note. Do not simplify this to byte equality.
+        //
+        // The test is `task.seed`, the declaration, and not `seed`, the
+        // pair found for it above. They agree for anything the decorator
+        // built, since it refuses a seed naming no parameter — but a
+        // verdict is the wrong place to depend on that. If the two ever
+        // part company, a declared step must come out `Reproducible` with
+        // no value to show, never `Deterministic`.
+        Verdict::Deterministic
+    } else {
+        Verdict::Reproducible
     };
 
     Ok(StepAudit {
@@ -431,6 +541,7 @@ fn twice(
         second_canonical,
         first_duration,
         second_duration,
+        seed,
     })
 }
 

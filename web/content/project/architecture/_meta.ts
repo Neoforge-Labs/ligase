@@ -3,10 +3,11 @@ import type { MetaRecord } from 'nextra'
 /*
  * The internals, outside in: where things live, what a type is, the surface
  * that only looks at one, how the graph is built from it, the steps the
- * project ships ready-built, how it runs, what is cached, how outputs are
- * canonicalised before hashing, how a conversion crosses an axis, where an
- * input is fetched from, what a step noticed about its own work, what is
- * recorded, the one domain interpreter, and how the site is dressed.
+ * project ships ready-built, how it runs, what is cached, how a step is run
+ * twice and judged, how outputs are canonicalised before hashing, how a
+ * conversion crosses an axis, where an input is fetched from, what a step
+ * noticed about its own work, what is recorded, the one domain interpreter,
+ * and how the site is dressed.
  */
 const meta: MetaRecord = {
   workspace: 'Workspace',
@@ -16,6 +17,7 @@ const meta: MetaRecord = {
   'step-library': 'Step library',
   execution: 'Execution',
   cache: 'Cache',
+  audit: 'Audit',
   canonicalisation: 'Canonicalisation',
   conversions: 'Conversions',
   remotes: 'Remote inputs',

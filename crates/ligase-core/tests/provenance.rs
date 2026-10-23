@@ -156,8 +156,23 @@ impl Bench {
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
                 .collect(),
             citations: Vec::new(),
+            seed: None,
         });
         node
+    }
+
+    /// Declare a step stochastic, naming the parameter that seeds it.
+    ///
+    /// The declaration travels on the task beside the parameters, because
+    /// the name alone is not the fact a paragraph has to state: "`seed`,
+    /// held at 42" is.
+    fn declare_seed(&mut self, node: NodeId, parameter: &str) {
+        let task = self
+            .tasks
+            .iter_mut()
+            .find(|task| task.node == node)
+            .unwrap();
+        task.seed = Some(parameter.to_owned());
     }
 
     /// Rewrite a step's recorded code, as editing a comment in it would.
@@ -1116,4 +1131,98 @@ fn a_bundle_names_every_remote_by_locator_and_digest() {
     // bundle holding gigabytes of reads would buy nothing.
     let readme = fs::read_to_string(into.join("README.md")).unwrap();
     assert!(readme.contains("remotes.tsv"), "{readme}");
+}
+
+/// A methods paragraph with its line wrapping undone.
+///
+/// The generator wraps at 76 columns, so a phrase these tests are about can
+/// land across two lines. What is asserted is the prose, not where it broke.
+fn flowed(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+// ------------------------------------------------------- a seed, in prose --
+//
+// M11. D40 asks the methods paragraph to state the seed. A seed is a plain
+// parameter, so the paragraph already *printed* it before any of this --
+// `with seed = 42`, indistinguishable from `min_freq = 0.01`. That passes
+// the clause's letter and fails its purpose: a reader cannot tell from it
+// that the step is stochastic, or that this is what makes it repeat.
+
+#[test]
+fn a_stochastic_steps_paragraph_says_it_was_seeded() {
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with(
+        "tree",
+        "cat {in} > {out}",
+        &[("in", input)],
+        &[("seed", "42")],
+        &[],
+    );
+    bench.declare_seed(node, "seed");
+
+    let report = bench.run(&[node]);
+    let text = methods_of(&bench, &[node], &report).text();
+
+    assert!(
+        flowed(&text).contains("seeded with seed = 42"),
+        "named as a seed, not merely as a parameter: {text}"
+    );
+}
+
+#[test]
+fn an_undeclared_parameter_called_seed_is_just_a_parameter() {
+    // The engine does not guess. A step that happens to take a parameter
+    // named `seed` and did not declare itself stochastic gets the ordinary
+    // sentence, because the only thing that can know is the pipeline.
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with(
+        "tree",
+        "cat {in} > {out}",
+        &[("in", input)],
+        &[("seed", "42")],
+        &[],
+    );
+
+    let report = bench.run(&[node]);
+    let text = methods_of(&bench, &[node], &report).text();
+
+    assert!(flowed(&text).contains("seed = 42"), "{text}");
+    assert!(!flowed(&text).contains("seeded"), "{text}");
+}
+
+#[test]
+fn a_seed_is_named_even_where_it_reads_like_the_sample() {
+    // `restating` drops a parameter whose value is just the node's own
+    // scope, so that `sample_id = 'SRR8525904'` does not appear beside a
+    // sentence already naming four samples. That rule was written when
+    // every parameter was a setting; a seed caught by it would vanish from
+    // the paragraph, and D40 requires the paragraph to carry it.
+    //
+    // The exemption is principled rather than defensive: a seed never
+    // *merely restates* the scope. It is the one parameter the paragraph is
+    // obliged to state, so where the two rules meet, D40 wins.
+    let mut bench = Bench::new();
+    let sample = bench.sample("42", "ACGT");
+    let node = bench.step_with(
+        "tree",
+        "cat {reads} > {out}",
+        &[("reads", sample)],
+        &[("seed", "42")],
+        &[],
+    );
+    bench.declare_seed(node, "seed");
+
+    let report = bench.run(&[node]);
+    let methods = methods_of(&bench, &[node], &report);
+    let text = methods.text();
+
+    assert!(
+        methods.groups[0].per_sample.is_empty(),
+        "the seed is not a restatement of the sample: {:?}",
+        methods.groups[0].per_sample
+    );
+    assert!(flowed(&text).contains("seeded with seed = 42"), "{text}");
 }

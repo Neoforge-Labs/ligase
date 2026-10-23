@@ -113,8 +113,8 @@ Three verdicts, and the middle one is the point:
 
 | Verdict | What it means | What to do |
 |---|---|---|
-| `deterministic` | The two runs wrote the same bytes. | Nothing. |
-| `reproducible` | The bytes differ; the result does not. | Nothing. This is every tool that signs its own work. |
+| `deterministic` | The two runs wrote the same bytes, and the step declared no seed. | Nothing. |
+| `reproducible` | The two runs agreed on the result. | Nothing. This is every tool that signs its own work, and every correctly [seeded](/guide/stochastic-steps/) one. |
 | `not reproducible` | The two runs disagree about the result. | Find the unseeded randomness. |
 
 A tool that stamps the time of day into its output is `reproducible`, not
@@ -182,18 +182,22 @@ ligase: no step named `allign` in examples/hiv-resistance/pipeline.py; it has `a
 If an audit says `not reproducible`, the cause is almost always a number
 nobody wrote down.
 
-**Seed everything, as a parameter.** A seed is an ordinary typed parameter,
-so it is hashed like any other and the engine will rerun the step when you
-change it:
+**Seed everything, and say so.** A seed is an ordinary typed parameter, so
+it is hashed like any other and the engine will rerun the step when you
+change it — and `stochastic=True, seed=` tells the engine which parameter
+that is:
 
 ```python
-@lg.step(tool="some-sampler")
+@lg.step(tool="some-sampler", stochastic=True, seed="seed")
 def subsample(reads: Reads, fraction: float = 0.1, seed: int = 20260101) -> Reads:
     return lg.sh("some-sampler --seed {seed} --fraction {fraction} {reads.r1} -o {out}")
 ```
 
 A step that draws on a seed it did not declare is not reproducible, and no
-cache can make it so.
+cache can make it so. Once it is declared, the engine refuses an unseeded
+version of it and this page's `deterministic` becomes unreachable for it,
+which is [the point](/concepts/stochastic-steps/): a word that could be said
+of a tree search is a word worth nothing.
 
 **Check the tool's own flags.** Many tools are deterministic only when told
 to be, or only at a fixed batch size.
