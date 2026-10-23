@@ -25,9 +25,18 @@ OUT = Path(__file__).resolve().parents[1] / "content/reference/cli.mdx"
 # What each command is for, beyond its one-line argparse help: the sentence a
 # reader needs before the table of flags means anything.
 PREAMBLE: dict[str, str] = {
+    "inspect": (
+        "The only command that needs no pipeline, and the one to try first "
+        "on files you already have. It loads each file, says what kind it "
+        "read it as, and prints every dimension the loader worked out "
+        "along with **where it read each one from** — and, given two or "
+        "more files, compares them exactly as one step's inputs are "
+        "compared and prints the diagnostic. Nothing is executed, nothing "
+        "is cached, and no `pipeline.py` has to exist."
+    ),
     "check": (
-        "The one to reach for first, and the one that makes the rest of "
-        "Ligase worth having. It imports your pipeline file, builds the "
+        "What makes the rest of Ligase worth having, and the command a "
+        "pipeline lives or dies by. It imports your pipeline file, builds the "
         "graph from the step signatures, and compares every connection's "
         "dimensions. **No step body runs**, nothing is computed, and no "
         "tool is invoked — it reads file headers only, so it finishes in "
@@ -58,6 +67,17 @@ PREAMBLE: dict[str, str] = {
 
 # A worked invocation per command, so the page shows use and not just syntax.
 EXAMPLES: dict[str, list[tuple[str, str]]] = {
+    "inspect": [
+        ("ligase inspect refs/genome.fasta", "say what one file is"),
+        (
+            "ligase inspect refs/genome.fasta aln/sample01.bam",
+            "and whether two of them agree",
+        ),
+        (
+            "ligase inspect refs/genome.fasta aln/*.bam && snakemake",
+            "refuse to start a run over files that disagree",
+        ),
+    ],
     "check": [
         ("ligase check", "check `pipeline.py` in the current directory"),
         ("ligase check analysis/variants.py", "check a pipeline somewhere else"),
@@ -97,9 +117,13 @@ def options_of(parser: argparse.ArgumentParser) -> tuple[list[Any], list[Any]]:
 
 
 def flags(action: Any) -> str:
-    """`-j, --jobs N` — how the option is written at a prompt."""
+    """`-j, --jobs N` — how the option is written at a prompt.
+
+    A positional is named by its metavar where it has one, so the table and
+    the usage line above it call the same argument the same thing.
+    """
     if not action.option_strings:
-        return f"`{action.dest}`"
+        return f"`{action.metavar or action.dest}`"
     metavar = action.metavar or (action.dest.upper() if action.nargs != 0 else "")
     joined = ", ".join(action.option_strings)
     return f"`{joined}{' ' + metavar if metavar else ''}`"
@@ -218,15 +242,24 @@ def main() -> int:
         "# Command line",
         "",
         "<Lede>",
-        "Four commands. `check` type-checks a pipeline without running it, `run`",
-        "computes what is not already known, `audit` asks whether a step repeats,",
-        "and `methods` says how the results were produced.",
+        "Five commands. `inspect` says what Ligase makes of files you already",
+        "have, `check` type-checks a pipeline without running it, `run` computes",
+        "what is not already known, `audit` asks whether a step repeats, and",
+        "`methods` says how the results were produced.",
         "</Lede>",
         "",
-        "Every command takes the pipeline file as its last argument and defaults to",
-        "`pipeline.py` in the current directory. `run`, `audit` and `methods` all",
-        "check the pipeline first, so `check` is never a prerequisite — it is the",
-        "fast way to ask the question on its own.",
+        "`inspect` is the one that stands alone: it takes files rather than a",
+        "pipeline, and there is nothing to write before running it. The other four",
+        "take the pipeline file as their last argument and default to `pipeline.py`",
+        "in the current directory. `run`, `audit` and `methods` all check the",
+        "pipeline first, so `check` is never a prerequisite — it is the fast way to",
+        "ask the question on its own.",
+        "",
+        "Every command exits 0 when all is well, 1 on a finding — a dimension",
+        "mismatch, a failed step, a step that does not repeat — and 2 when it could",
+        "not look at all, because a file is missing or a pipeline will not import.",
+        "The difference between 1 and 2 is what lets `ligase inspect a b && …`",
+        "mean what it looks like it means.",
         "",
         '<Note kind="tip" title="This page is generated from the parser">',
         "",

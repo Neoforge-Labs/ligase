@@ -78,6 +78,19 @@ def run_cli(*argv: str) -> str:
     return printed.getvalue().rstrip("\n")
 
 
+def exit_code(*argv: str) -> int:
+    """Run the CLI in-process and return only its exit code.
+
+    The quickstart claims `inspect` exits non-zero on a mismatch, which is
+    the whole reason it composes in a shell. A claim about an exit code has
+    to be checked by reading one.
+    """
+    from ligase.cli import main
+
+    with redirect_stdout(io.StringIO()):
+        return main(list(argv))
+
+
 def expect(key: str, text: str, must_contain: str) -> str:
     """Fail the build when an output no longer says what the page says it does."""
     if must_contain not in text:
@@ -127,6 +140,13 @@ def main() -> int:
         os.chdir(project)
         try:
             captured = {
+                # No pipeline is read, which is the page's claim about
+                # this command: there is nothing to write first.
+                "inspect": expect(
+                    "inspect",
+                    run_cli("inspect", "refs/genome.fasta", "aln/sample01.sam"),
+                    "ContigNamingError",
+                ),
                 "checkFails": expect(
                     "checkFails", run_cli("check"), "ContigNamingError"
                 ),
@@ -135,6 +155,15 @@ def main() -> int:
                 "secondRun": "",
                 "methods": "",
             }
+            # The page says this exits non-zero so it composes in a shell.
+            mismatch = exit_code("inspect", "refs/genome.fasta", "aln/sample01.sam")
+            if mismatch == 0:
+                raise SystemExit(
+                    "inspect: the quickstart says `ligase inspect` exits "
+                    "non-zero when two files disagree, and it exited 0. "
+                    "Either the engine stopped seeing the mismatch or the "
+                    "page is now wrong; both need a human."
+                )
             # The page's fix: rename the contigs to match the reference.
             (project / "aln/sample01.sam").write_text(ALIGNMENT_FIXED)
             captured["checkPasses"] = expect(
@@ -151,6 +180,7 @@ def main() -> int:
     captured["checkDiagnostic"] = diagnostic_of(captured["checkFails"])
 
     described = {
+        "inspect": "`ligase inspect` on the two files, with no pipeline written.",
         "checkDiagnostic": "The diagnostic alone, as <Diagnostic> renders it.",
         "checkFails": "`ligase check` on the mismatched files. Nothing runs.",
         "checkPasses": "`ligase check` once the contigs are renamed to match.",
