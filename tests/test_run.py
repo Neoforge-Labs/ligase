@@ -18,10 +18,19 @@ from ligase.types import Alignment, Reference, ResistanceReport, Variants
 from tests.conftest import fixture
 
 
-@lg.step(tool="wc")
+#: `awk` rather than the `wc` this used to be, and the reason is a defect
+#: M13 fixed. The engine records `<tool> --version` as a tool's version, and
+#: it used to ignore the exit status -- so on a BSD userland, where
+#: `wc --version` prints `wc: illegal option` and exits non-zero, that
+#: sentence *was* wc's recorded version. The same sentence for every release,
+#: which is a cache key that cannot move when the tool does. `awk` answers
+#: `--version` on both userlands, as a tool a step names has to.
+@lg.step(tool="awk")
 def align(ref: Reference) -> Alignment:
     """Stand in for an aligner: whatever it is, it is a shell command."""
-    return lg.sh("wc -c < {ref} > {out}")
+    # The same number `wc -c` printed, so nothing downstream of this
+    # stand-in had to change with it.
+    return lg.sh("awk '{{ n += length($0) + 1 }} END {{ print n }}' {ref} > {out}")
 
 
 @lg.step
@@ -285,7 +294,7 @@ def test_a_step_can_name_several_tools() -> None:
 
 def test_a_step_that_names_no_tool_has_none() -> None:
     assert call.tools == ()
-    assert align.tools == ("wc",)
+    assert align.tools == ("awk",)
 
 
 def test_a_tool_named_as_an_empty_string_is_refused() -> None:
