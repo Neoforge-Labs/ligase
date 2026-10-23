@@ -50,7 +50,7 @@ use crate::note::Note;
 use crate::remote::fetch::{FetchError, Transport};
 use crate::remote::locator::{Locator, LocatorError};
 use crate::store::{BlobStore, ObjectKey, StoreError};
-use crate::types::DataKind;
+use crate::types::{DataKind, Origin, RemoteVerdict};
 
 /// Where a resolved remote's bytes came from on this run.
 ///
@@ -88,6 +88,22 @@ pub struct Resolved {
     pub from: Source,
     /// What resolving it noticed (D26).
     pub notes: Vec<Note>,
+}
+
+impl Resolved {
+    /// The summary that travels with the loaded dataset.
+    #[must_use]
+    pub fn origin(&self) -> Origin {
+        Origin {
+            locator: self.record.locator.clone(),
+            digest: self.record.digest,
+            bytes: self.record.bytes,
+            fetched_at: self.record.fetched_at,
+            // Served from the store or fetched on this run, the digest was
+            // checked either way, so the claim is the same.
+            verdict: RemoteVerdict::Pinned,
+        }
+    }
 }
 
 /// What is known about a fetch, for provenance and the methods paragraph.

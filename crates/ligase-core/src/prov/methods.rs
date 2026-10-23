@@ -36,10 +36,11 @@
 
 use std::collections::BTreeSet;
 
-use super::{Prov, ProvError, Record, ReferenceRecord, cite};
+use super::{Prov, ProvError, Record, ReferenceRecord, cite, day};
 use crate::canon::Note;
 use crate::exec::{RunReport, Task};
 use crate::graph::{Graph, NodeId};
+use crate::types::Origin;
 
 /// Stands in for a space that must not be broken across lines.
 ///
@@ -172,6 +173,56 @@ impl Methods {
         seen
     }
 
+    /// Every remote any step was given, with no duplicates, in the order
+    /// they were first seen.
+    ///
+    /// De-duplicated by locator: a reference fetched once and handed to
+    /// three steps is one fetch, and a paragraph that said so three times
+    /// would be describing the pipeline rather than the work.
+    #[must_use]
+    pub fn remotes(&self) -> Vec<Origin> {
+        let mut seen: Vec<Origin> = Vec::new();
+        for group in &self.groups {
+            for remote in &group.record.remotes {
+                if !seen.iter().any(|held| held.locator == remote.locator) {
+                    seen.push(remote.clone());
+                }
+            }
+        }
+        seen
+    }
+
+    /// The sentence a methods section wants about what was fetched.
+    ///
+    /// `None` where nothing was. The wording says *what*, *from where* and
+    /// *when*, because for a remote input those are the three things a
+    /// reader cannot work out from anything else — and the digest, because
+    /// a date alone does not identify bytes.
+    #[must_use]
+    pub fn fetched_sentence(&self) -> Option<String> {
+        let remotes = self.remotes();
+        if remotes.is_empty() {
+            return None;
+        }
+        let described: Vec<String> = remotes
+            .iter()
+            .map(|remote| {
+                format!(
+                    "`{}` on {} (BLAKE3 {})",
+                    remote.locator,
+                    day(remote.fetched_at),
+                    remote.digest.to_hex()
+                )
+            })
+            .collect();
+        Some(format!(
+            "Input data was retrieved from {}. Each is pinned by the digest \
+             of its canonical form, so a rerun anywhere verifies the same \
+             bytes before any step runs.",
+            join_names(&described)
+        ))
+    }
+
     /// The reference list, and the tools that have no reference.
     ///
     /// The second half is the point: a tool with nothing to cite is named,
@@ -211,6 +262,10 @@ impl Methods {
             "Analyses were run with Ligase {} on {}.",
             self.engine, self.platform
         ))];
+
+        if let Some(fetched) = self.fetched_sentence() {
+            paragraphs.push(wrap(&fetched));
+        }
 
         for group in &self.groups {
             paragraphs.push(wrap(&group.sentence()));

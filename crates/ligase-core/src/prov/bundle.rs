@@ -42,7 +42,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{Methods, Noticed, Prov, ProvError, Record};
+use super::{Methods, Noticed, Prov, ProvError, Record, day};
 use crate::exec::RunReport;
 use crate::graph::{Graph, NodeId};
 use crate::hash::ContentHash;
@@ -506,6 +506,25 @@ pub fn write(into: &Path, request: &Request<'_>) -> Result<Summary, BundleError>
     }
     put(into, "references.tsv", &references.finish())?;
 
+    // ---- what was fetched, and from where
+    //
+    // The locators and their digests, not the bytes. That is the whole
+    // point of a *pinned* remote: anyone can obtain it from the source and
+    // check it against the digest recorded here, so copying gigabytes of
+    // reads into every bundle would buy nothing. A recorded *query* is the
+    // opposite case -- its source promises nothing -- and its body travels.
+    let mut remotes = Table::new(&["locator", "verdict", "fetched", "digest", "bytes"]);
+    for remote in request.methods.remotes() {
+        remotes.row(&[
+            &remote.locator,
+            &remote.verdict.to_string(),
+            &day(remote.fetched_at),
+            &remote.digest.to_hex(),
+            &remote.bytes.to_hex(),
+        ]);
+    }
+    put(into, "remotes.tsv", &remotes.finish())?;
+
     // ---- what it was run with
     let mut environment = Table::new(&["name", "value"]);
     environment.row(&["ligase", &request.methods.engine]);
@@ -686,6 +705,7 @@ fn readme(methods: &Methods) -> String {
          | `inputs.tsv` | Every input file, by content hash. |\n\
          | `notes.tsv` | What canonicalising an output noticed. Usually empty. |\n\
          | `references.tsv` | Every reference, by accession and checksum. |\n\
+         | `remotes.tsv` | Every remote input, by locator and digest. |\n\
          | `environment.tsv` | The engine, the platform and every tool's version. |\n\
          | `steps/` | The source of every step. |\n\
          | `pipeline/` | The pipeline file itself, where one was given. |\n\
@@ -693,8 +713,13 @@ fn readme(methods: &Methods) -> String {
          ## What is not here\n\n\
          The data. Sequencing runs are gigabytes and a bundle is meant to be\n\
          readable, so inputs are *named* rather than carried: every one by\n\
-         content hash, and every reference by accession and checksum. Fetch\n\
-         them by those identifiers; nothing else will satisfy the check.\n\n\
+         content hash, every reference by accession and checksum, and every\n\
+         remote by locator. Fetch them by those identifiers; nothing else\n\
+         will satisfy the check.\n\n\
+         A remote in `remotes.tsv` is *pinned*, which means the source\n\
+         promises the same bytes forever: `ligase run` on the pipeline in\n\
+         `pipeline/` obtains it and checks it against the digest recorded\n\
+         here before any step runs.\n\n\
          ## How to check it\n\n\
          With the data in place and the pipeline to hand:\n\n\
          ```\n\

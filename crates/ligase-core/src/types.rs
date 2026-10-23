@@ -1,8 +1,10 @@
 //! Biological data types, and which dimensions each one can speak to.
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::dim::{Dimension, Dimensions};
+use crate::hash::ContentHash;
 use crate::note::Note;
 
 /// What kind of biological data a dataset holds.
@@ -140,10 +142,61 @@ impl DataKind {
     }
 }
 
+/// What a remote input's reproducibility rests on.
+///
+/// Reported beside a step's own verdict rather than folded into it, because
+/// the two are not on one scale: a replayed query is not a worse pinned
+/// remote, and a pipeline's verdict should not degrade for using one.
+///
+/// Only `Pinned` exists yet. `Replayed` and `Live` arrive with
+/// `RecordedQuery`, which is the other half of D39.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RemoteVerdict {
+    /// The same bytes forever, from the source, pinned by digest. Anyone,
+    /// anywhere, at any time gets this input.
+    Pinned,
+}
+
+impl fmt::Display for RemoteVerdict {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Pinned => "pinned",
+        })
+    }
+}
+
+/// Where a dataset was fetched from.
+///
+/// The summary that travels with the dataset, as against the full record in
+/// the cache: a locator and a kind are enough to find that record again, and
+/// everything here is what a methods paragraph or an audit report prints.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Origin {
+    /// The locator as the pipeline wrote it, which is what a reader can go
+    /// and look up. Not the URL that answered, which is a different fact.
+    pub locator: String,
+    /// The digest of what the fetched files mean, which is what the pin is
+    /// over.
+    pub digest: ContentHash,
+    /// The digest of their bytes.
+    pub bytes: ContentHash,
+    /// When they were fetched, as seconds since the epoch.
+    pub fetched_at: i64,
+    /// What this input's reproducibility rests on.
+    pub verdict: RemoteVerdict,
+}
+
 /// A piece of data, its kind, and the dimensions it carries.
 #[derive(Clone, Debug)]
 pub struct Dataset {
     kind: DataKind,
+    /// Where this came from, when it did not come from a local file.
+    ///
+    /// `None` for the ordinary case — a path the user gave — and `Some` for
+    /// a remote, which is what lets provenance, the methods paragraph and
+    /// the audit report say that a result rests on something fetched rather
+    /// than on something somebody already had.
+    origin: Option<Origin>,
     path: Option<PathBuf>,
     /// The other files of the same dataset: the second mate of a pair.
     ///
@@ -170,6 +223,7 @@ impl Dataset {
     pub const fn new(kind: DataKind, path: Option<PathBuf>, dimensions: Dimensions) -> Self {
         Self {
             kind,
+            origin: None,
             path,
             mates: Vec::new(),
             dimensions,
@@ -186,6 +240,23 @@ impl Dataset {
     pub fn with_notes(mut self, notes: Vec<Note>) -> Self {
         self.notes = notes;
         self
+    }
+
+    /// The same dataset, with where it was fetched from.
+    ///
+    /// A builder for the reason [`Self::with_notes`] is one: a local file
+    /// has no origin, which is nearly every dataset, and saying nothing
+    /// should need no change at any call site.
+    #[must_use]
+    pub fn with_origin(mut self, origin: Origin) -> Self {
+        self.origin = Some(origin);
+        self
+    }
+
+    /// Where this was fetched from, if it was fetched.
+    #[must_use]
+    pub const fn origin(&self) -> Option<&Origin> {
+        self.origin.as_ref()
     }
 
     /// The same dataset, with a second file belonging to it.
