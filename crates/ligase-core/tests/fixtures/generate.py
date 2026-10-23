@@ -38,6 +38,64 @@ C9 = "AAAAAAAAAACCCCCCCCCC"
 # its sequence, so the bases are synthetic like every other fixture here.
 POL = "ACGT" * 753
 
+# ------------------------------------------------- the step library's set --
+#
+# `ligase.steps` needs fixtures a real aligner will take, and the ones above
+# are not that: 20 bp contigs and 10 bp reads are below every aligner's seed
+# length, so minimap2's `sr` preset finds no minimizer in them and `bwa mem`
+# no seed. These are the smallest thing the five tools of M13 can actually be
+# run on.
+#
+# Deliberately *not* biological. The sequence comes from a linear congruential
+# generator with a fixed seed below, because what these fixtures have to be is
+# long enough to index, varied enough to align uniquely, and identical on
+# every machine for ever. A real virus would be none of the first two by
+# accident and the third only by luck.
+
+#: The step-library reference's length, in bases.
+STEPS_LENGTH = 2000
+#: The contig it holds. Bare, so no contig-naming question arises here.
+STEPS_CONTIG = "steps1"
+#: Where the planted substitution is, 1-based, as a caller would report it.
+#:
+#: Mid-contig, so reads cover it from both mates at full depth rather than
+#: at an end where coverage tails off and a threshold test would be about
+#: the edge instead of about the variant.
+STEPS_VARIANT_AT = 1001
+#: What the reads carry there, where the reference carries something else.
+#: Resolved against the generated sequence in `steps_sequence`.
+STEPS_VARIANT_TO = "G"
+#: How long each read is, and how far apart the mates sit.
+STEPS_READ = 100
+STEPS_FRAGMENT = 300
+#: The stride between fragments. 20 bases gives about elevenfold coverage at
+#: the variant, which is enough for an allele fraction to mean something and
+#: small enough to keep the files a few hundred kilobytes.
+STEPS_STRIDE = 20
+
+
+def steps_sequence() -> str:
+    """The step-library reference, generated the same way every time.
+
+    A linear congruential generator with a fixed seed. Not random and not
+    meant to be: it has to be reproducible on every machine, because the
+    committed fixtures are compared against it by `git diff --exit-code`.
+    """
+    bases = "ACGT"
+    state = 0x2545F491
+    out = []
+    for _ in range(STEPS_LENGTH):
+        # Numerical Recipes' constants; any full-period LCG would do.
+        state = (1664525 * state + 1013904223) % (2**32)
+        out.append(bases[(state >> 16) % 4])
+    return "".join(out)
+
+
+def revcomp(sequence: str) -> str:
+    """The reverse complement, for the second mate of a pair."""
+    pairs = {"A": "T", "C": "G", "G": "C", "T": "A"}
+    return "".join(pairs[base] for base in reversed(sequence))
+
 
 def m5(sequence: str) -> str:
     """Return the MD5 the SAM specification prescribes for an ``@SQ M5`` tag.
@@ -105,6 +163,66 @@ def fastq(name: str, qualities: list[str]) -> None:
     for index, quality in enumerate(qualities, start=1):
         lines += [f"@read{index}", C1[: len(quality)], "+", quality]
     write(HERE / name, "\n".join(lines) + "\n")
+
+
+def steps_fixtures() -> None:
+    """Write the reference, read pairs and unsorted SAM `ligase.steps` uses.
+
+    One reference, one pair of FASTQs tiling it with a substitution planted
+    at `STEPS_VARIANT_AT`, and one deliberately out-of-order SAM for
+    `steps.samtools.sort` to have something to sort.
+    """
+    reference = steps_sequence()
+    fasta("steps_ref.fasta", [(STEPS_CONTIG, "step library reference", reference)])
+
+    # The reads carry the substitution; the reference does not. Everything
+    # the caller should find at that position comes from this one line.
+    at = STEPS_VARIANT_AT - 1
+    assert reference[at] != STEPS_VARIANT_TO, (
+        f"the planted allele is the reference base at {STEPS_VARIANT_AT}; "
+        "change STEPS_VARIANT_TO"
+    )
+    altered = reference[:at] + STEPS_VARIANT_TO + reference[at + 1 :]
+
+    # Q40 throughout bar the two ends, which are Q20. The point of the Q20
+    # bases is the encoding: 53 is below anything Phred+64 can write, so the
+    # loader resolves the encoding rather than returning unknown, and Q20 is
+    # comfortably above the base quality `bcftools mpileup` discards at.
+    quality = "5" + "I" * (STEPS_READ - 2) + "5"
+
+    forward: list[str] = []
+    reverse: list[str] = []
+    starts = range(0, STEPS_LENGTH - STEPS_FRAGMENT + 1, STEPS_STRIDE)
+    for index, start in enumerate(starts, start=1):
+        fragment = altered[start : start + STEPS_FRAGMENT]
+        forward += [f"@fx{index}", fragment[:STEPS_READ], "+", quality]
+        reverse += [
+            f"@fx{index}",
+            revcomp(fragment[STEPS_FRAGMENT - STEPS_READ :]),
+            "+",
+            quality,
+        ]
+
+    write(HERE / "steps_reads_1.fastq", "\n".join(forward) + "\n")
+    write(HERE / "steps_reads_2.fastq", "\n".join(reverse) + "\n")
+
+    # Six records over the same reference, written in no coordinate order
+    # at all. `steps.samtools.sort` must put them in order -- and the
+    # alignment canonicaliser sorts records before hashing, so sorting
+    # changes the file's bytes and not its meaning. That contrast is what
+    # `tests/test_steps.py` asserts, and it is why a sort is cheap to
+    # insert into a pipeline.
+    lines = [
+        "@HD\tVN:1.6\tSO:unknown",
+        f"@SQ\tSN:{STEPS_CONTIG}\tLN:{STEPS_LENGTH}\tM5:{m5(reference)}",
+        "@RG\tID:rg0\tSM:steps_sample\tPL:ILLUMINA",
+    ]
+    for index, start in enumerate([1200, 40, 900, 300, 1700, 600], start=1):
+        lines.append(
+            f"out{index}\t0\t{STEPS_CONTIG}\t{start}\t60\t{STEPS_READ}M\t*\t0\t0\t"
+            f"{reference[start - 1 : start - 1 + STEPS_READ]}\t{quality}\tRG:Z:rg0"
+        )
+    write(HERE / "steps_unsorted.sam", "\n".join(lines) + "\n")
 
 
 def bed(name: str, intervals: list[tuple[str, int, int]], header: bool) -> None:
@@ -243,6 +361,9 @@ def main() -> None:
     gff("tiny_no_region.gff", [], [("1", 1, 10)], fasta_section=True)
     # A GTF: same coordinate convention, different extension.
     gff("tiny_bare.gtf", [], [("1", 1, 10), ("2", 6, 15)], fasta_section=False)
+
+    print("the step library's set:")
+    steps_fixtures()
 
     print()
     print("checksums (SAM @SQ M5 / VCF ##contig md5):")
