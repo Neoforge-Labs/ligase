@@ -1441,17 +1441,20 @@ pub fn render(graph: &Graph, roots: &[NodeId], report: &RunReport) -> String {
     // question: "it worked" and "it worked without asking anybody" are
     // different statements, and D39 asks that the report always say which
     // of the two this was.
-    let mut remotes: Vec<&Origin> = Vec::new();
+    let mut remotes: Vec<(&Origin, &[Note])> = Vec::new();
     for node in graph.reachable_nodes(roots) {
-        if let Some(origin) = graph.dataset(node).and_then(Dataset::origin)
-            && !remotes.iter().any(|held| held.locator == origin.locator)
+        if let Some(dataset) = graph.dataset(node)
+            && let Some(origin) = dataset.origin()
+            && !remotes
+                .iter()
+                .any(|(held, _)| held.locator == origin.locator)
         {
-            remotes.push(origin);
+            remotes.push((origin, dataset.notes()));
         }
     }
     if !remotes.is_empty() {
         lines.push(String::new());
-        for origin in remotes {
+        for (origin, notes) in remotes {
             let what = match origin.verdict {
                 RemoteVerdict::Pinned => format!("pinned, fetched {}", day(origin.fetched_at)),
                 RemoteVerdict::Replayed => {
@@ -1460,6 +1463,13 @@ pub fn render(graph: &Graph, roots: &[NodeId], report: &RunReport) -> String {
                 RemoteVerdict::Live => format!("answered live on {}", day(origin.fetched_at)),
             };
             lines.push(format!("input     {} -- {what}", quoted(&origin.locator)));
+            // What resolving it noticed: drift a refresh found, a field
+            // dropped from a recorded response, a source that rewrote a
+            // pinned file. Printed here rather than in the `noticed` block
+            // above, which is about what a *step* saw in its own output.
+            for note in notes {
+                lines.push(format!("          {note}"));
+            }
         }
     }
 

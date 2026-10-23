@@ -278,6 +278,53 @@ def test_a_refresh_reports_drift_without_overwriting_the_record(
     assert len([held for held in records if held.is_file()]) >= 2
 
 
+def test_a_refresh_names_both_bodies_in_the_run_report(
+    server: Server, tmp_path: Path
+) -> None:
+    # "Reports the drift" means a user sees it, not that the engine computed
+    # it: the note travels with the dataset into the run report.
+    server.serve("/genes", GENES)
+    url = server.url("/genes")
+
+    @lg.step
+    def rank(genes: lg.EntitySet) -> lg.RankedList:
+        """Turn a scored gene list into a ranking."""
+        return lg.sh("cp {genes} {out}")
+
+    store = tmp_path / "store"
+    lg.Pipeline(rank(ask(url))).run(cache=store)
+
+    server.serve("/genes", GENES_CHANGED)
+    lg.remotes.configure(mode="refresh")
+    refreshed = lg.Pipeline(rank(ask(url))).run(cache=store)
+
+    assert "has changed since it was recorded" in refreshed.text
+    # Both bodies named, so the two records can be compared rather than
+    # merely disagreed about.
+    assert "Both records are kept" in refreshed.text
+
+
+def test_a_refresh_that_finds_the_same_answer_reports_no_drift(
+    server: Server, tmp_path: Path
+) -> None:
+    server.serve("/genes", GENES)
+    url = server.url("/genes")
+
+    @lg.step
+    def rank(genes: lg.EntitySet) -> lg.RankedList:
+        """Turn a scored gene list into a ranking."""
+        return lg.sh("cp {genes} {out}")
+
+    store = tmp_path / "store"
+    lg.Pipeline(rank(ask(url))).run(cache=store)
+
+    lg.remotes.configure(mode="refresh")
+    quiet = lg.Pipeline(rank(ask(url))).run(cache=store)
+
+    # A quiet quarter costs nothing and says nothing.
+    assert "has changed since it was recorded" not in quiet.text
+
+
 def test_a_refresh_with_no_record_is_a_first_record_rather_than_drift(
     server: Server,
 ) -> None:

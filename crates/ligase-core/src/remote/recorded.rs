@@ -439,11 +439,26 @@ pub fn resolve(
                     previous_at: previous.recorded_at,
                 },
             };
+
+            // Drift is *reported*, which means it travels with the dataset
+            // rather than being computed and dropped. A note is how this
+            // engine says what it saw (D26): it reaches the run report, and
+            // a source that promises nothing is entitled to change its
+            // answer, so the honest form is a note and not a failure.
+            let mut notes = stored.record.notes.clone();
+            if let Drift::Changed { was, now, .. } = &drift {
+                notes.push(Note::QueryDrifted {
+                    locator: written.clone(),
+                    was: was.to_hex(),
+                    now: now.to_hex(),
+                });
+            }
+
             Ok(ResolvedQuery {
                 path: path_of(cache, &stored.record)?,
                 digest: stored.record.digest,
                 served: Served::Refreshed { drift },
-                notes: stored.record.notes.clone(),
+                notes,
                 record: stored.record,
             })
         }
