@@ -1,0 +1,184 @@
+---
+title: "Inspecting files you have"
+description: "ligase inspect: what Ligase makes of a file, where it read each dimension from, and whether two files agree — with no pipeline, nothing executed and nothing cached."
+---
+
+# Inspecting files you have
+
+<Lede>
+Someone has sent you a reference and a BAM and said they go together. This is
+how you find out, in one command, before you write anything.
+</Lede>
+
+`ligase inspect` is the only command that needs no pipeline. It loads each
+file you name, says what it read it as, prints every dimension it worked out
+along with where it read that from — and, given two or more files, compares
+them the way one step's inputs are compared.
+
+Nothing is executed. No step body runs, no tool is invoked, nothing is
+written and no cache appears. It reads headers.
+
+## One file
+
+```bash
+ligase inspect refs/genome.fasta
+```
+
+```
+Reference  refs/genome.fasta
+  genome.fasta.reference = 2 contigs, 40 bp (from FASTA contigs: refs/genome.fasta)
+  genome.fasta.contig_naming = bare (Ensembl/NCBI style) (from FASTA deflines: refs/genome.fasta)
+  genome.fasta.organism is unknown (a FASTA does not record its organism; declare it)
+  genome.fasta.release is unknown (a FASTA does not record which release it came from; declare it)
+  coordinates, sample_set, pairing, quality_encoding, subject, source_set and identifier_namespace do not apply to a Reference.
+
+1 file, so nothing to compare: two or more are compared the way one step's inputs are.
+```
+
+There are **three** states in there, and telling them apart is most of what
+the command is for.
+
+A dimension with a value is shown with the value *and where it came from*.
+`from FASTA deflines: refs/genome.fasta` is the half that makes it actionable:
+you can go and look at that file rather than take Ligase's word for it. See
+[types and dimensions](/concepts/types-and-dimensions/) for what each
+dimension means.
+
+A dimension that applies but has no value is shown with the **reason**, and
+the reason is usually an instruction. `a FASTA does not record its organism;
+declare it` is how you discover
+[declaring dimensions](/guide/declaring-dimensions/). Sometimes it is an
+instruction to go and fix the file instead — a gene list whose symbols a
+spreadsheet has turned into dates says so, and says why declaring a namespace
+would be the wrong fix.
+
+A dimension that **does not apply** to the kind is named once, on the last
+line, as not applying. A FASTA is not *missing* a quality encoding: it has no
+such property to have, and listing it as unknown would send you looking for a
+declaration that does not exist.
+
+<Note kind="note" title="And what the file itself has wrong with it">
+Anything the loader noticed about the file appears as a `noticed` line in the
+block. That is how you find out a gene list came back from Excel with `SEPT7`
+as `2-Sep` — see [fixing a noticed line](/guide/notes/).
+</Note>
+
+## Two or more
+
+```bash
+ligase inspect refs/genome.fasta aln/sample01.bam
+```
+
+Each file gets its own block, and then the comparison:
+
+```
+ContigNamingError in step `inspect`:
+  genome.fasta.contig_naming = bare (Ensembl/NCBI style) (from FASTA deflines: refs/genome.fasta)
+  sample01.bam.contig_naming = chr-prefixed (UCSC style) (from SAM @SQ header: aln/sample01.bam)
+  The contigs are otherwise identical. Add a renaming step, or use one naming style throughout.
+
+2 files, compared on reference and contig_naming: 1 disagreement.
+```
+
+The full transcript, from a real run, is on
+[the quickstart](/start/quickstart/#2-inspect-them-first).
+
+Two things in that output are worth knowing about.
+
+The diagnostic's lines are **the lines from the blocks above it**. There is
+one renderer, so an error never describes a file in different words from the
+description you just read — it quotes them.
+
+The heading says `in step \`inspect\``. There is no step: `inspect` ran the
+comparison a step's inputs get, outside any pipeline, and it names itself as
+the thing that did the comparing. The error is otherwise the one a pipeline
+would have printed, which is deliberate — it is the same code, so this
+diagnostic cannot drift from the one you get later.
+
+### What the verdict covers
+
+The last line names the dimensions at least two of the files state a value
+for, and reading it matters:
+
+```
+2 files, but nothing was compared: no dimension is stated by two of them.
+```
+
+A FASTQ and a BED share no dimension either of them records. They do not
+agree; there was nothing to agree about, and a bare "no disagreement" would
+be false comfort. Declare what the files cannot say about themselves and
+there will be something to compare.
+
+A dimension nothing states can still be a disagreement. Two gene lists that
+each say nothing about their identifier space do not pass:
+`identifier_namespace` is demanded where two of them are joined, because two
+lists agreeing by silence is exactly the failure the dimension exists for.
+That is an `UndeclaredDimensionError`, and a finding like any other.
+
+## Exit codes
+
+`inspect` is built to go in a shell pipeline, so the exit code carries the
+answer and you never have to parse the output.
+
+| Code | Means |
+|---|---|
+| `0` | every file read, and nothing disagrees |
+| `1` | every file read, and they disagree |
+| `2` | a file could not be read, so there is no verdict |
+
+```bash
+# Refuse to start a run over files that do not agree.
+ligase inspect refs/genome.fasta aln/*.bam && snakemake --cores 8
+```
+
+The difference between `1` and `2` is the one worth having. A file that could
+not be read has no verdict at all, so a `2` withholds the comparison rather
+than giving you one over whichever files happened to load — a clean bill of
+health over two of three files reads as a clean bill of health over all
+three. The files that *did* load are still described, and every file that did
+not is named on standard error with the engine's reason.
+
+## What it reads
+
+The loader is chosen by extension, with a `.gz` or `.bgz` suffix ignored:
+
+| Extensions | Read as |
+|---|---|
+| `.fasta` `.fa` `.fna` | `Reference` |
+| `.fastq` `.fq` | `Reads` |
+| `.sam` `.bam` | `Alignment` |
+| `.vcf` | `Variants` |
+| `.bed` `.gff` `.gff3` `.gtf` | `Intervals` |
+| `.tsv` | `EntitySet` |
+
+Anything else is a file it cannot read: exit `2`, naming the extensions it
+knows. In a pipeline you say what a file is by calling the loader for it —
+`lg.reference(...)`, `lg.entity_set(...)` — and `inspect` is the one surface
+with nobody to ask.
+
+## What it does not do
+
+`inspect` takes no declaration flags, and that is on purpose. A dimension a
+file cannot record comes back unknown with the reason, which is the honest
+answer and also the useful one: it tells you what there is to declare and
+where. Declaring happens where you load the data, in the pipeline, so that
+the declaration is recorded in provenance and hashed into the cache key
+rather than typed at a prompt and forgotten.
+
+It also never pairs files up. Two FASTQs named `sample_1.fastq` and
+`sample_2.fastq` are inspected as two files, not as one paired sample —
+though both report the sample as `sample`, because the mate suffix is not
+part of a sample's name. Grouping mates is
+[`lg.samples()`](/guide/building-a-pipeline/)'s job, and it is a job with a
+wrong answer worth refusing rather than guessing at.
+
+## Next
+
+- [The quickstart](/start/quickstart/) — the same two files, then the
+  pipeline they belong in.
+- [Declaring dimensions](/guide/declaring-dimensions/) — what to do about
+  every `is unknown` line.
+- [Types and dimensions](/concepts/types-and-dimensions/) — what the
+  dimensions are and why they are inferred wherever a file can say.
+- [Command line](/reference/cli/) — every command and flag, generated from
+  the parser.

@@ -49,6 +49,7 @@ pub mod exec;
 pub mod graph;
 pub mod hash;
 pub mod hivdb;
+pub mod inspect;
 pub mod key;
 pub mod load;
 pub mod note;
