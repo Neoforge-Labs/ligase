@@ -1,6 +1,6 @@
 ---
 title: "Quickstart"
-description: "Five minutes: a two-step pipeline, a type error caught before anything runs, then a real run and a cache hit. No aligner needed."
+description: "Five minutes: two files inspected before anything is written, a type error caught before anything runs, then a real run and a cache hit. No aligner needed."
 ---
 
 import { quickstart } from '../../lib/quickstart.generated'
@@ -8,8 +8,9 @@ import { quickstart } from '../../lib/quickstart.generated'
 # Quickstart
 
 <Lede>
-A pipeline with a mistake in it, caught before anything computes — then the
-same pipeline running, and then not running because nothing changed. **No
+Two files that disagree, inspected in one command before a line is written —
+then the same mistake caught inside a pipeline before anything computes, then
+that pipeline running, and then not running because nothing changed. **No
 aligner, no reference genome, no downloads.** Everything below is files you
 create here, and every output on this page came from running exactly these
 commands.
@@ -48,7 +49,44 @@ and `2`, the SAM calls them `chr1` and `chr2`. Same sequence, same lengths,
 different names. In a real project those two files come from different places
 months apart, and nobody looks carefully.
 
-## 2. A pipeline
+## 2. Inspect them first
+
+Before writing anything at all, ask what Ligase makes of the two files:
+
+```bash
+ligase inspect refs/genome.fasta aln/sample01.sam
+```
+
+<RunReport>{quickstart.inspect}</RunReport>
+
+**That is the whole of Ligase in one command, and it needed no pipeline.**
+Read it in three parts.
+
+Each file gets a block headed by what it was read as. Inside it, the
+dimensions Ligase worked out — `2 contigs, 40 bp`, `chr-prefixed (UCSC
+style)`, `[sample01]` — each with **where it read that from**, which is the
+part that lets you go and look rather than guess.
+
+Then the dimensions that have no value, with the reason. Those are an
+invitation: `organism is unknown (a FASTA does not record its organism;
+declare it)` is how you find out what
+[declaring](/guide/declaring-dimensions/) is for. And the last line of each
+block names the dimensions that **do not apply** at all — a FASTA is not
+missing a quality encoding, it has no such property to have.
+
+Finally the comparison: the same `ContigNamingError` a pipeline would have
+given you, and a line saying which dimensions the verdict covers. It exits
+non-zero, so `ligase inspect refs/*.fasta aln/*.bam && snakemake` refuses to
+start a run over files that disagree.
+
+<Note kind="tip" title="This is the ten-second version">
+`inspect` is the whole feature on files you already have — no pipeline, no
+decorator, nothing executed. See [inspecting files](/guide/inspecting-files/).
+Everything below is what you get once the files are in a pipeline: caching,
+fan-out, and a methods paragraph.
+</Note>
+
+## 3. A pipeline
 
 ```python filename="pipeline.py"
 """A two-step pipeline, with a mistake in it."""
@@ -93,7 +131,7 @@ this step needs no external tool. A real step would use
 `lg.Pipeline(...)` builds the graph. **It does not run anything** — calling
 `call(aln, ref)` records a call rather than performing one.
 
-## 3. Check it
+## 4. Check it
 
 ```bash
 ligase check
@@ -101,16 +139,19 @@ ligase check
 
 <Diagnostic note="nothing ran">{quickstart.checkDiagnostic}</Diagnostic>
 
-That took milliseconds, and the step body never ran. Note what the message
-gives you: both values, **the header each one was read from**, the fact that
-the contigs are otherwise identical — so this is a naming problem and not the
-wrong genome — and what to do about it.
+The same mismatch as in step 2, and that is the point: `inspect` compared two
+files you named, while `check` compared the inputs **the pipeline itself
+wires together** — every connection, every step, every sample, under the
+argument names your step declares. On a pipeline over four hundred samples
+that is a different question with the same answer, and the one `run` refuses
+to proceed past.
 
-Without that check, this pipeline would have succeeded. Tools match contigs by
-name, so the variant caller would have found no overlap between the alignment
-and the reference, written a valid empty VCF, and exited zero.
+It took milliseconds, and the step body never ran. Without the check, this
+pipeline would have succeeded: tools match contigs by name, so the variant
+caller would have found no overlap between the alignment and the reference,
+written a valid empty VCF, and exited zero.
 
-## 4. Fix it
+## 5. Fix it
 
 Rename the contigs in the SAM to match the reference:
 
@@ -121,7 +162,7 @@ ligase check
 
 <RunReport>{quickstart.checkPasses}</RunReport>
 
-## 5. Run it
+## 6. Run it
 
 ```bash
 ligase run
@@ -137,7 +178,7 @@ Nothing recomputed. A step's key is built from its code, its parameters, its
 inputs' *contents* and its tools' versions — and none of those moved. Edit the
 step body, or a byte of the input, and it runs again.
 
-## 6. Say how it was produced
+## 7. Say how it was produced
 
 ```bash
 ligase methods

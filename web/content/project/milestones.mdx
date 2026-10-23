@@ -95,7 +95,7 @@ that the demo's organism survives inheritance through two steps.
 
 ## The v0.2 roadmap
 
-Everything below is planned and none of it is built. v0.2 exists to make
+M8 and M9 are built; everything from M10 down is planned. v0.2 exists to make
 Ligase useful to a scientist who has never heard of this project, and three
 things carry that: the commonest silent bug in biology — identifiers from one
 namespace joined to another — becomes a refused connection; the fetch that
@@ -225,6 +225,73 @@ existing `generate_cli.py`.
 same `ContigNamingError` the home page shows and exits non-zero; a single file
 prints every dimension with its source; the quickstart gains an "inspect
 first" section captured by `capture_quickstart.py`.
+
+**Done.** All three clauses, each pinned by a named test.
+See [the internals](/project/architecture/inspect/).
+
+`ligase inspect tiny_bare.fasta tiny_prefixed.sam` prints the
+`ContigNamingError` and returns 1, in
+`test_two_disagreeing_files_print_the_diagnostic_and_exit_non_zero`. It is
+the *same* error in the sense that matters: the same `check_step` over the
+same comparison, rendered through the same helpers, with the same values,
+the same provenance and the same conclusion. Two things necessarily differ,
+and both are deliberate. The heading names the step `inspect`, because that
+is what did the comparing and there is no step. And the handles are the
+files' basenames rather than a pipeline's argument names, since on a command
+line there are no argument names to use;
+`a_description_line_is_the_line_a_diagnostic_quotes` pins the rendering
+itself, by asserting that the diagnostic's line appears verbatim in the
+description printed above it.
+
+A single file prints every dimension with its source, in
+`test_a_single_file_prints_every_dimension_with_its_source` and in
+`inspect.rs`'s own tests. The clause the spec did not write is the one that
+took the care: a dimension that does not *apply* to the kind must not be
+printed as a gap, because `Dimensions::reason` answers for it as readily as
+for an applicable one.
+`a_dimension_the_kind_has_no_business_with_is_never_called_unknown` and
+`test_a_dimension_that_does_not_apply_is_not_reported_as_a_gap` pin that a
+`Reference` is never described as missing a quality encoding, and
+`the_dimensions_that_do_not_apply_are_named_once_as_not_applying` pins that
+they are still named, on a line saying they do not apply — because dropping
+them silently would leave a reader unable to tell "this file does not say"
+from "this question does not arise".
+
+The quickstart's "Inspect them first" is §2 of
+[the quickstart](/start/quickstart/#2-inspect-them-first), captured by
+`capture_quickstart.py` from a real run on the two files the page has just
+told the reader to create. The capture also reads the exit code, because the
+page claims `inspect` exits non-zero on a mismatch and a claim about an exit
+code can only be checked by reading one.
+
+**No decision, and no concepts page.** The spec's D35–D43 holds nothing about
+`inspect` and M9 adds none: it introduces no rule a future request could be
+measured against, only a new way to reach the dimensions M7 and M8 defined.
+For the same reason it ships a `guide/` page and no `concepts/` one —
+[types and dimensions](/concepts/types-and-dimensions/) already says what a
+dimension is and why it is inferred, and a second page saying it again from
+the command line would be a page to keep in step for nothing.
+
+**What the work caught, and the lesson worth keeping.** Two bugs, both found
+by tests written before the code, and both in the same place: the handles
+that name a file in a message.
+
+The handles are the *keys* the comparison is given, so two files sharing one
+collapsed into a single input and the second was silently dropped —
+`ligase inspect a/sample.sam b/sample.sam` compared one file with itself and
+reported agreement. And the summary line returned 0 whenever
+`comparable` was empty, which is exactly the case where two gene lists that
+each declare nothing produce an `UndeclaredDimensionError`: the surface built
+to catch M8's failure reported it as a clean bill of health.
+
+The lesson is that a name chosen to read well is still a key, and that a
+verdict assembled from two sources — the errors, and what there was to
+compare — has to be read from the one that can say *no*. Both are now pinned:
+`test_every_file_given_gets_its_own_say`,
+`test_the_same_file_twice_is_still_two_files` and
+`test_two_gene_lists_that_each_state_nothing_are_refused`. A third test,
+`test_files_with_nothing_in_common_do_not_claim_to_agree`, holds the inverse
+— that files sharing no stated dimension are not told they agree.
 
 ## M10 — Remotes and replay
 `PinnedRemote` and `RecordedQuery`, with record, replay and refresh; the

@@ -9,6 +9,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`ligase inspect FILE [FILE...]` — the whole idea, on files you already
+  have.** Until now the cheapest way to find out whether Ligase was worth
+  anything to you was to write a pipeline. `inspect` needs no pipeline, no
+  decorator and no commitment: it loads each file you name, says what kind it
+  read it as, and prints every dimension the loader worked out along with
+  **where it read each one from** — and, given two or more files, compares
+  them the way one step's inputs are compared and prints the diagnostic.
+  Nothing is executed, no tool is invoked, nothing is written and no cache
+  appears. It reads headers.
+
+  ```
+  Reference  refs/genome.fasta
+    genome.fasta.reference = 2 contigs, 40 bp (from FASTA contigs: refs/genome.fasta)
+    genome.fasta.contig_naming = bare (Ensembl/NCBI style) (from FASTA deflines: refs/genome.fasta)
+    genome.fasta.organism is unknown (a FASTA does not record its organism; declare it)
+    genome.fasta.release is unknown (a FASTA does not record which release it came from; declare it)
+    coordinates, sample_set, pairing, quality_encoding, subject, source_set and identifier_namespace do not apply to a Reference.
+  ```
+
+  Three states, and keeping them apart is most of what the command is for. A
+  dimension with a value is shown with its value *and its provenance*, which
+  is the half that lets you go and look. A dimension that applies without a
+  value is shown with the engine's reason, which is usually an instruction —
+  `declare it`, or, for a gene list a spreadsheet has eaten, *re-export the
+  file*. A dimension that does **not apply** is named once as not applying: a
+  FASTA is not missing a quality encoding, it has no such property to have,
+  and reporting it as unknown would send a reader after a declaration that
+  does not exist.
+
+  Given two or more files, the diagnostic is **the one a pipeline would have
+  printed**, because it is the same `check_step` over the same comparison. It
+  is rendered through the same helpers too, so the error quotes the
+  description's own lines rather than restating them: a reader who has read
+  the blocks has already read the error. The summary line then says which
+  dimensions the verdict covers, because "no disagreement" is a claim nobody
+  can size — a FASTQ and a BED share no dimension either of them records, and
+  they agree the way two sentences in different languages agree.
+
+  It exits 0 when the files agree, 1 when they disagree, and 2 when a file
+  could not be read at all — so `ligase inspect refs/*.fasta aln/*.bam &&
+  snakemake` refuses to start a run over files that disagree, and a file
+  nobody could read does not pass for a clean bill of health. A 2 withholds
+  the comparison rather than comparing whatever loaded, since a verdict over
+  two of three files reads as a verdict over all three; the files that did
+  load are still described, and each one that did not is named with the
+  engine's reason.
+
+  The loader is chosen by extension, with `.gz` and `.bgz` ignored: `.fasta`,
+  `.fa` and `.fna` as a `Reference`, `.fastq` and `.fq` as `Reads`, `.sam`
+  and `.bam` as an `Alignment`, `.vcf` as `Variants`, `.bed`, `.gff`,
+  `.gff3` and `.gtf` as `Intervals`, and `.tsv` as an `EntitySet`. There are
+  no declaration flags, on purpose: a declaration belongs where the data is
+  loaded, so that it reaches provenance and the cache key instead of a
+  prompt. The guide page is "Inspecting files you have", and the quickstart
+  now opens with it.
+
 - **A gene list knows which identifier space it is in, and two spaces refuse
   to join** (**D38**). `TP53`, `ENSG00000141510`, `7157` and `P04637` are four
   correct names for one gene and no two of them are equal as strings, and a
