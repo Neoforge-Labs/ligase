@@ -52,22 +52,27 @@ fn every_dimension_round_trips_through_its_name_and_asks_a_question() {
 }
 
 // M7 added these three axes with a kind for `release` alone, and asserted
-// here that nothing else claimed any of them. M8 gives `release` a second
+// here that nothing else claimed any of them. M8 gave `release` a second
 // kind and `subject` its first: a gene list has a release (which HGNC
-// download named these genes) and a subject (what the list is about). Only
+// download named these genes) and a subject (what the list is about). M12
+// gave each of them a third and second, because a ranked list is a gene
+// list that remembers its order and carries the same axes. Only
 // `source_set` is still unclaimed, and the obligation to re-examine its
-// deduplication before a kind takes it stays with M10 and M12 (D36).
+// deduplication before a kind takes it travels on with that kind (D36).
 #[test]
-fn release_applies_to_a_reference_and_to_a_gene_list() {
+fn release_applies_to_a_reference_and_to_either_named_list() {
     for kind in DataKind::ALL {
         assert_eq!(
             kind.applies(Dimension::Release),
-            matches!(kind, DataKind::Reference | DataKind::EntitySet),
+            matches!(
+                kind,
+                DataKind::Reference | DataKind::EntitySet | DataKind::RankedList
+            ),
             "{kind:?}"
         );
         assert_eq!(
             kind.applies(Dimension::Subject),
-            kind == DataKind::EntitySet,
+            matches!(kind, DataKind::EntitySet | DataKind::RankedList),
             "{kind:?}"
         );
         assert!(!kind.applies(Dimension::SourceSet), "{kind:?}");
