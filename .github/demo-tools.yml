@@ -1,4 +1,10 @@
-# The tools the HIV-1 reference demo shells out to, pinned by version.
+# The tools CI must have installed for the demo and the step library.
+#
+# Three of them are what the HIV-1 reference demo shells out to. `bwa` is not
+# in the demo and is here anyway, because `ligase.steps.bwa.mem` ships in the
+# step library and its fixture test is written to *fail* rather than skip on a
+# machine that says it was prepared for the demo. A library step whose test
+# skips everywhere is a step nobody has run.
 #
 # These come from bioconda rather than from apt, because a step's cache key
 # includes its tools' versions: an aligner that changes underneath us would
@@ -19,3 +25,9 @@ dependencies:
   - minimap2=2.31
   - samtools=1.24
   - bcftools=1.24
+  # Added in M13, with the step library. Not in the demo, so bumping it
+  # recomputes nothing the demo cached -- but it does move every cache key of
+  # every step declaring `tool="bwa"`, which as of M13 it honestly can: the
+  # engine used to record bwa's complaint about `--version` as its version,
+  # identically for every release.
+  - bwa=0.7.19
