@@ -108,6 +108,18 @@ pub enum StoreError {
         /// Where the offending object was found.
         at: PathBuf,
     },
+    /// A store URL this build cannot open.
+    ///
+    /// Either the URL names nothing Ligase knows, or it names a backend
+    /// this build was not compiled with. The two are deliberately one
+    /// variant with two reasons, because what a user needs is the reason
+    /// and not the category.
+    Unsupported {
+        /// The URL as it was given.
+        url: String,
+        /// Why it cannot be opened, and what to do instead.
+        reason: String,
+    },
 }
 
 impl fmt::Display for StoreError {
@@ -127,6 +139,7 @@ impl fmt::Display for StoreError {
                 expected.to_hex(),
                 found.to_hex()
             ),
+            Self::Unsupported { url, reason } => write!(f, "{url}: {reason}"),
         }
     }
 }
@@ -135,7 +148,7 @@ impl std::error::Error for StoreError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
-            Self::Mismatch { .. } => None,
+            Self::Mismatch { .. } | Self::Unsupported { .. } => None,
         }
     }
 }
@@ -247,6 +260,97 @@ pub trait BlobStore {
                 .unwrap_or_else(|| PathBuf::from(key.to_string())),
         })
     }
+}
+
+/// The environment variable that names the store.
+///
+/// The one Ligase-owned name in the whole of this feature. Everything else
+/// a backend needs -- endpoint, region, credentials -- comes from the
+/// provider's own environment, so a user who already has `aws s3 ls`
+/// working has Ligase working (D43).
+pub const STORE_VARIABLE: &str = "LIGASE_STORE";
+
+/// The URL schemes a store can be named by.
+///
+/// Closed and listed, on the same ground as a remote locator's four
+/// schemes (D39): a set extensible by configuration would be a promise the
+/// engine could not keep.
+pub const SCHEMES: [&str; 4] = ["file", "s3", "gs", "az"];
+
+/// What a store URL turned out to name.
+///
+/// Parsed before anything connects. A URL that cannot work is then an
+/// error with the alternatives in it, rather than a run that starts, gets
+/// an hour in, and misses on every lookup because the store it was told
+/// about does not exist.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Backend {
+    /// A directory, which may be a network mount. Served by [`FsStore`],
+    /// so it needs no feature and no dependency: a lab with an NFS share
+    /// already has somewhere to put a shared store.
+    Local(PathBuf),
+    /// An object store, served by the `remote-store` feature.
+    Remote {
+        /// The URL, passed to the backend as it was given.
+        url: String,
+    },
+}
+
+impl Backend {
+    /// What this URL names, or why it cannot name anything.
+    ///
+    /// Note that a bucket URL parses in *every* build, including one
+    /// compiled without the feature. Opening it is what fails there, and
+    /// the difference matters: "this build has no remote-store support"
+    /// sends a user to their installation, and "unknown scheme" would send
+    /// them to fix a URL that is correct.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Unsupported`] for a URL with no scheme, an unknown
+    /// scheme, or nothing after the scheme.
+    pub fn parse(url: &str) -> Result<Self, StoreError> {
+        let unsupported = |reason: &str| StoreError::Unsupported {
+            url: url.to_owned(),
+            reason: reason.to_owned(),
+        };
+
+        let Some((scheme, rest)) = url.split_once("://") else {
+            return Err(unsupported(&format!(
+                "a store URL needs a scheme, one of {}",
+                SCHEMES.join(", ")
+            )));
+        };
+        if rest.is_empty() {
+            return Err(unsupported("a store URL needs something after its scheme"));
+        }
+        if !SCHEMES.contains(&scheme) {
+            return Err(unsupported(&format!(
+                "`{scheme}` is not a store Ligase knows; it reads {}",
+                SCHEMES.join(", ")
+            )));
+        }
+
+        if scheme == "file" {
+            return Ok(Self::Local(PathBuf::from(rest)));
+        }
+        Ok(Self::Remote {
+            url: url.to_owned(),
+        })
+    }
+}
+
+/// The store the environment names, if it names one.
+///
+/// Read here rather than threaded through every caller so that one
+/// variable configures every entry point at once, and read *only* here so
+/// that a test can hand [`tiered::TieredStore::open`] a URL directly
+/// without touching a process-wide variable other tests are reading.
+#[must_use]
+pub fn configured() -> Option<String> {
+    std::env::var(STORE_VARIABLE)
+        .ok()
+        .filter(|url| !url.trim().is_empty())
 }
 
 /// Everything after the first dot of a file's name, so `.vcf.gz` survives.

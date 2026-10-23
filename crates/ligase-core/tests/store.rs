@@ -14,9 +14,10 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
+use std::path::PathBuf;
 
 use ligase::hash::ContentHash;
-use ligase::store::{BlobStore, FsStore, ObjectKey, StoreError};
+use ligase::store::{Backend, BlobStore, FsStore, ObjectKey, StoreError};
 use tempfile::TempDir;
 
 fn store() -> (TempDir, FsStore) {
@@ -238,4 +239,57 @@ fn put_file_as_accepts_a_staged_file_that_is_what_it_claims() {
     store.put_file_as(&staged, &key).unwrap();
 
     assert_eq!(store.get(&key).unwrap().as_deref(), Some(&bytes[..]));
+}
+
+// ------------------------------------------------------------- store URLs --
+//
+// M14. A store is named by a URL before anything connects, so a value that
+// cannot work is an error with a list in it rather than a failure at the
+// first cache miss -- an hour into a run, on a machine the author is not
+// sitting at.
+
+#[test]
+fn a_file_url_is_a_local_directory() {
+    assert_eq!(
+        Backend::parse("file:///srv/ligase/store").unwrap(),
+        Backend::Local(PathBuf::from("/srv/ligase/store"))
+    );
+}
+
+#[test]
+fn an_unknown_scheme_names_the_ones_that_work() {
+    let error = Backend::parse("ftp://host/bucket").unwrap_err().to_string();
+    assert!(error.contains("ftp"), "{error}");
+    for scheme in ligase::store::SCHEMES {
+        assert!(error.contains(scheme), "{error} does not name {scheme}");
+    }
+}
+
+#[test]
+fn a_bare_path_is_not_a_store_url() {
+    // A typo must not quietly become a directory in the working tree: the
+    // store it names would be empty, every lookup would miss, and the run
+    // would merely be slow.
+    let error = Backend::parse("/srv/ligase/store").unwrap_err().to_string();
+    assert!(error.contains("scheme"), "{error}");
+}
+
+#[test]
+fn a_bucket_url_parses_in_every_build() {
+    // Parsing is not opening. A default build must be able to say "this
+    // build has no remote-store support" rather than "unknown scheme",
+    // because the second sends a user to fix a URL that is correct.
+    for url in ["s3://lab-cache", "gs://lab-cache/prefix", "az://container"] {
+        assert!(
+            matches!(Backend::parse(url), Ok(Backend::Remote { .. })),
+            "{url} did not parse"
+        );
+    }
+}
+
+#[test]
+fn an_empty_store_url_is_refused() {
+    // `LIGASE_STORE=` is how a shell says "unset" by accident.
+    assert!(Backend::parse("").is_err());
+    assert!(Backend::parse("s3://").is_err());
 }
