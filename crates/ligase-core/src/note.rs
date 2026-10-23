@@ -177,6 +177,29 @@ pub enum Note {
         /// How many, named or not.
         count: u32,
     },
+    /// A ranking whose ranks moved because the mapping lost rows above
+    /// them.
+    ///
+    /// Every other note about a conversion is about the identifiers that
+    /// did *not* cross. This one is about the ones that did, and it exists
+    /// because for a ranking they do not come out unchanged. Rank is the
+    /// row position (D41), so dropping a row renumbers every row beneath
+    /// it: the output's rank 3 is not the input's rank 3, and if the
+    /// top-ranked identifier had no mapping then the second is now first.
+    ///
+    /// A file cannot say this about itself. The output is a well-formed
+    /// ranking of the entities that crossed, with ranks 1..n and nothing
+    /// anywhere in it to show that n is not the number it started with —
+    /// which is why taking the top ten of a mapped ranking is not the same
+    /// as mapping the top ten, and why that has to be said out loud.
+    RanksRenumbered {
+        /// What rank the output's first row held in the input.
+        ///
+        /// `1` where the top of the ranking crossed and the renumbering is
+        /// all below it; higher where it did not, and then this is how far
+        /// down the input the new leader came from.
+        first: u32,
+    },
     /// A remote whose bytes the source rewrote without changing what they
     /// mean (D39).
     ///
@@ -285,6 +308,7 @@ impl Note {
             Self::IdentifierAmbiguous { .. } => "identifier-ambiguous",
             Self::IdentifierCollides { .. } => "identifier-collides",
             Self::IdentifiersDidNotCross { .. } => "identifiers-did-not-cross",
+            Self::RanksRenumbered { .. } => "ranks-renumbered",
         }
     }
 
@@ -333,6 +357,7 @@ impl Note {
             | Self::IdentifierAmbiguous { identifier }
             | Self::IdentifierCollides { identifier } => identifier.clone(),
             Self::IdentifiersDidNotCross { count } => format!("count={count}"),
+            Self::RanksRenumbered { first } => format!("first={first}"),
         }
     }
 
@@ -390,6 +415,9 @@ impl Note {
             }),
             "identifiers-did-not-cross" => Some(Self::IdentifiersDidNotCross {
                 count: counted(value, "count")?,
+            }),
+            "ranks-renumbered" => Some(Self::RanksRenumbered {
+                first: counted(value, "first")?,
             }),
             "remote-rewritten" => Some(Self::RemoteRewritten {
                 locator: value.to_owned(),
@@ -478,6 +506,10 @@ impl Note {
                 "Compare this against the size of your input before reading the result: check \
                  the mapping table's release if it is more than a small fraction."
             }
+            Self::RanksRenumbered { .. } => {
+                "Take any cut-off -- a top ten, a significance line -- on the ranking before \
+                 it was mapped, not after, and map the cut-off's members instead."
+            }
         }
     }
 
@@ -565,6 +597,13 @@ impl Note {
                 "The output is smaller than the input by this many entities. A conversion is a \
                  lookup, not a rename, so a count that is a large share of the input usually \
                  means the mapping table is from a different release than the list."
+            }
+            Self::RanksRenumbered { .. } => {
+                "Rank is the row position, so every row below a dropped one has moved up and \
+                 no rank in this output is the rank it had in the input. The ranking is still \
+                 a true ranking of the entities that crossed; what it is not is the same \
+                 ranking with some entities removed, which is what a top-n taken after \
+                 mapping quietly assumes."
             }
         }
     }
@@ -660,6 +699,12 @@ impl fmt::Display for Note {
                 f,
                 "{count} identifiers did not cross into the target space, so the output is \
                  {count} entities smaller than the input"
+            ),
+            Self::RanksRenumbered { first } => write!(
+                f,
+                "the ranks were renumbered by the mapping: rank 1 of this ranking was rank \
+                 {first} of the list that was mapped, and every rank below a dropped row has \
+                 moved up by as many rows as were dropped above it"
             ),
         }
     }
@@ -870,6 +915,7 @@ mod tests {
                 identifier: "TP53P1".to_owned(),
             },
             Note::IdentifiersDidNotCross { count: 4000 },
+            Note::RanksRenumbered { first: 4 },
         ]
     }
 

@@ -1691,3 +1691,94 @@ a space it is not in, and it is visible rather than silent, because every
 identifier that did not cross is named and counted in the run report, in
 provenance, in a bundle and in the methods paragraph
 ([D26](#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).
+
+## D42 — A library step ships with its dimensions, its citation and its canonical form
+
+`ligase.steps` is a curated library, not a convenience wrapper. A step is
+admitted only when it declares its tool's version capture, its citation, the
+dimensions of its output and how that output canonicalises. **A step that
+cannot say what it produces is not a library step.**
+
+### Why an entrance exam and not a bag of wrappers
+
+Every workflow framework grows a library of wrappers, and they are all the
+same thing: the tool's command line with its arguments renamed. Ligase
+cannot use that. Its whole claim is that it understands what flows between
+steps — the organism, the build, the coordinate convention, the sample set —
+and that understanding does not come from the file. It comes from what the
+steps *declare*. A wrapper that renames `-t` to `threads` has declared
+nothing, and a pipeline of those is one where the checker has nothing to
+check and the cache nothing to key on.
+
+So the four declarations are the price of being in the library, and each is
+checked rather than claimed. `ligase.steps.LIBRARY` holds them as data so
+that one parametrised test iterates them, and the half that needs no tool
+installed runs on every machine — because a criterion that only fails in CI
+is a criterion nobody is held to while they are writing the step.
+
+### What the last sentence has kept out
+
+It is the clause that does the work, and its first two uses were both
+refusals. Neither is about an obscure tool.
+
+**`samtools index`** writes a `.bai`. Declared `Alignment → Alignment` that
+is false twice over: the output is an index rather than an alignment, and the
+engine would not notice, because `canon::hash` falls back to hashing the
+*bytes* of a file that does not parse as its kind. An index's bytes would
+stand in for an alignment's meaning and everything downstream would accept
+it. Nor does a new kind help: an index brings no dimension, so under
+[D35](#d35--a-kind-must-bring-a-dimension-that-catches-a-documented-silent-failure)
+it earns none.
+
+**Trimming paired reads** — `fastp`, and every read trimmer — cannot be a
+step at all. A step's output is exactly one file and paired reads are two, so
+`Reads → Reads` has no honest reading for a pair: one mate inherits
+`pairing = paired-end` from its input and is a false dimension the graph then
+propagates, and an interleaved FASTQ loads as `Pairing::Single`, which is the
+same falsehood with extra steps.
+
+Both are one missing engine feature — a step that can produce more than one
+file — and naming it as a gap is worth more than a step with a false type on
+it. [The architecture page](/project/architecture/step-library/) says what
+closing it would take.
+
+### The version capture clause, and why it is first
+
+Because writing it down found the engine breaking its own promise.
+`exec::tool_version` ran `<tool> --version`, read stdout, fell back to
+stderr, and **ignored the exit status**. `bwa` does not understand
+`--version`: it prints `[main] unrecognized command '--version'` and exits
+non-zero. So any step declaring `tool="bwa"` recorded that sentence as bwa's
+version, in provenance, in the methods paragraph and in the cache key.
+
+The cache consequence is the serious one. That sentence is identical for
+every bwa ever released, so **upgrading the aligner did not move a single
+key**, and every alignment computed by the old one would have been served for
+the new. Preventing exactly that is the only thing `tool=` promises.
+
+A tool therefore declares how it is asked — arguments, whether a non-zero
+exit is expected, and which line of the output holds the version — and a
+probe that fails unexpectedly, or stops finding its line, is an error rather
+than a usage banner hashed as a version.
+
+### The citation clause is curated, not declared
+
+`cite=` is how a step *you* wrote says what it wants cited. A step the
+project ships does not get to take that liberty on the project's behalf, so
+its tools resolve in the engine's own table instead — which keeps
+[D24](#d24--a-citation-is-curated-or-declared-never-guessed)'s bargain
+intact: one promise, kept in one place, and a tool with nothing to cite named
+as uncited rather than omitted.
+
+The table's doc comment now says it holds two sets of tools, the reference
+pipeline's and the library's, so that the next person to add a row knows
+which bar they are clearing.
+
+### Four steps is not a shortfall
+
+A long list of half-checked declarations would be worth less than a short
+list of checked ones, for the same reason the citation table is deliberately
+small. Four is what the project is prepared to stand behind. `@lg.step` is
+not reserved, nothing in the library is privileged, and a step you write can
+declare everything a library step declares — the difference is who is
+answerable for it.

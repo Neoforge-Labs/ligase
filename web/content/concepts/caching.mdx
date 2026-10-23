@@ -18,7 +18,7 @@ $ ligase run examples/hiv-resistance/pipeline.py
 running 12 steps in examples/hiv-resistance/pipeline.py
 
 ran       `align` (sample SRR8525904)        4.5s
-ran       `call` (sample SRR8525904)         513ms
+ran       `mpileup_call` (sample SRR8525904) 513ms
 ran       `resistance` (sample SRR8525904)   3ms
 ran       `align` (sample SRR8525908)        9.4s
 ...
@@ -33,7 +33,7 @@ $ ligase run examples/hiv-resistance/pipeline.py
 running 12 steps in examples/hiv-resistance/pipeline.py
 
 cached    `align` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
-cached    `call` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
+cached    `mpileup_call` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
 cached    `resistance` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
 
 12 steps: 12 from cache.
@@ -92,13 +92,14 @@ unchanged and nothing below it is redone:
 ```console
 $ ligase run pipeline.py      # after a comment-only edit to `align`
 ran       `align`   17ms
-skipped   `call`
+skipped   `mpileup_call`
 
 2 steps: 1 ran, 1 skipped.
 ```
 
 `align` reran — its code changed, and the cache is not in the business of
-deciding which edits matter. But its output did not change, so `call` had
+deciding which edits matter. But its output did not change, so `mpileup_call`
+had
 nothing to do. The report distinguishes the two cases on purpose: `cached`
 means nothing above it ran, `skipped` means something did and came out the
 same.
@@ -120,10 +121,10 @@ twelve hundred:
 ```console
 $ ligase run pipeline.py      # one more sample arrived
 ran       `align` (sample SRR8525942)        8.2s
-ran       `call` (sample SRR8525942)         430ms
+ran       `mpileup_call` (sample SRR8525942) 430ms
 ran       `resistance` (sample SRR8525942)   0ms
 cached    `align` for SRR8525904, SRR8525908, SRR8525920
-cached    `call` for SRR8525904, SRR8525908, SRR8525920
+cached    `mpileup_call` for SRR8525904, SRR8525908, SRR8525920
 cached    `resistance` for SRR8525904, SRR8525908, SRR8525920
 
 12 steps: 3 ran, 9 from cache.

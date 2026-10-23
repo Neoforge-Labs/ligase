@@ -24,7 +24,9 @@ Cargo workspace (`ligase-core`, `ligase-py`), maturin, `python/ligase`, CI runni
 **Done when:**
 - The demo runs end to end on 3–4 runs from PRJNA517147.
 - A second run completes entirely from cache.
-- Changing `min_freq` reruns only `call` and `resistance`.
+- Changing `min_freq` reruns only `call` and `resistance`. (M13 rewrote the
+  demo on `ligase.steps`, so `call` is now `mpileup_call`; the criterion is
+  unchanged and `tests/test_demo.py` still asserts it.)
 - Adding one sample processes only that sample.
 
 ## M4 — Semantic hashing and early cutoff
@@ -776,20 +778,172 @@ and their canonical form, and the demo rewritten on them. D42.
 **Done when:** `examples/hiv-resistance/pipeline.py` contains no `lg.sh` call
 of its own; every library step has a fixture test, a citation that resolves
 and a page under `guide/steps/`; the validation suite still passes 81 of 81 at
-15% and 5%, with the same nine explained discrepancies at 2%.
+15% and 5%, with the same explained discrepancies at 2%.
 
-**Carried over from M12.** `lg.map_identifiers` is typed for an `EntitySet`,
-while the conversion *registry* covers a `RankedList` too, so a ranking
-crosses identifier spaces only through a step of the user's own declaring
-`conversion="map_identifiers"`. Widening the shipped library step is this
-milestone's, because what it needs decided is a presentation question rather
-than an engine one: a mapped ranking is shorter by the identifiers that did
-not cross, so its **ranks close up**, and if the top-ranked identifier had no
-mapping the second becomes first. The consequence is already recorded — see
+**Done.** The demo contains no shell command of its own — alignment and
+variant calling come from `ligase.steps.minimap2` and
+`ligase.steps.bcftools`, and `resistance` stays because
+`lg.hivdb.interpret` is this pipeline's own subject rather than a tool
+anybody's pipeline begins with. `tests/test_demo.py`'s fourteen acceptance
+tests pass on the rewritten pipeline and `tests/test_validation.py` passes 81
+of 81 at 15% and at 5%.
+
+**The number in that clause was wrong, and the file was right.** The clause
+above said "the same nine explained discrepancies at 2%", and so does the
+spec. `tests/test_validation.py` says there *were* nine, that six went when
+codons started being read from read-level haplotypes
+([D31](/project/decisions/#d31--a-codon-no-read-spans-keeps-its-per-base-reading)),
+and that **three** remain — all Sample 30's V75A, a sensitivity limit of
+aligning to HXB2. `KNOWN_AT_TWO_PERCENT` holds three entries and
+`test_every_remaining_discrepancy_is_the_one_missed_mutation` asserts exactly
+those three. The clause was written before D31 landed and was never
+corrected; the number to hold is **three**, and it is unchanged by this
+milestone, which is the whole point of running that suite over a rewritten
+demo.
+
+### Four steps, and two refusals
+
+`minimap2.align`, `bwa.mem`, `samtools.sort` and `bcftools.mpileup_call`. The
+other two rows of §5.5's table were **refused**, and
+[D42](/project/decisions/#d42--a-library-step-ships-with-its-dimensions-its-citation-and-its-canonical-form)'s
+last clause is why: a step that cannot say what it produces is not a library
+step. A criterion whose first two uses are admissions is not a criterion.
+
+`samtools index` produces an index, which is not a dataset. It brings no
+dimension, so under [D35](/project/decisions/) it earns no kind; and declared
+`Alignment → Alignment` its output would be a BAI whose *bytes* the engine
+hashes as an alignment's meaning, because a file that does not parse as its
+kind falls back to `Form::Raw` without complaint — so everything downstream
+would accept an index as an alignment.
+
+Paired-end trimming cannot be a step at all. A step's output is exactly one
+file and paired reads are two, and every single-file reading of
+`Reads → Reads` is a false dimension: one mate inherits `paired-end` from its
+input and the graph propagates it, while an interleaved FASTQ loads as
+`Pairing::Single` and `Pairing` has no third value.
+
+Both are one missing engine feature — a step that can produce more than one
+file — together with a third symptom from the other side: the two aligners are
+paired-end only and nothing in their signatures says so, because a step can
+*declare* what it writes but cannot *require* a value of an input's
+dimension. [The architecture page](/project/architecture/step-library/) says
+what closing it would take. Shipping a step with a false type on it to avoid
+writing that down would have been the worse trade.
+
+### What the work turned up
+
+Four things, and none of them was in the clauses.
+
+**The engine recorded a tool's complaint as its version, and the cache key
+therefore never moved when the tool did.** `exec::tool_version` ran
+`<tool> --version`, read stdout, fell back to stderr, and ignored the exit
+status. `bwa` does not understand `--version`: it prints
+`[main] unrecognized command '--version'` and exits non-zero, so that
+sentence *was* bwa's recorded version — in provenance, in the methods
+paragraph, and in the cache key. It is identical for every bwa ever released,
+so upgrading the aligner moved no key and every alignment computed by the old
+one would have been served for the new. That is the only thing `tool=`
+promises. There is now a probe table, and a probe that fails unexpectedly or
+loses its marker line is an error. The suite's own stand-in tool had to change
+from `wc` to `awk` for the same reason.
+
+**`bcftools mpileup -f` wrote a `.fai` into the content-addressed store.** It
+indexes beside the path it is handed, and in a run that path is an object
+named after the hash of its own bytes. The demo on `main` had left one there.
+An unaddressed file in an addressed store is a lie about what the store is,
+it will not travel with the object when M14 gives the store a blob tier, and
+on a read-only or remote store the write is not untidy but a failure. The
+library step indexes a symlink in a directory of its own.
+
+**Every step the package exports was published in the API reference as a
+`repr()` line with its documentation thrown away.** `@lg.step` replaces a
+function with a `Step` *instance*, which is neither a class nor a routine, so
+`generate_api.py` fell through to its plain-value branch — and the branch that
+fails the build on a missing docstring was never reached. `lg.map_identifiers`
+had been published as `map_identifiers: Step = <Step map_identifiers ->
+EntitySet>` since M8. The generator documents the decorated function now, and
+its coverage contract walks nested submodules so `steps.minimap2.align` has to
+be grouped and documented rather than hiding behind `steps.minimap2`.
+
+**A string parameter reaches the shell with Python's quotes around it.** Found
+and deliberately **not** fixed. `graph.py` serialises every plain parameter
+with `repr()` — right for a cache key, where it is what tells `f(1)` from
+`f("1")`, and wrong for shell substitution. So the demo's BAMs carry
+`@RG SM:'SRR8525904'` and the VCFs below them name their sample column the
+same way. Since a sample set is a dimension, and a BAM's read groups and a
+VCF's sample names are the one field canonicalisation *refuses* to drop
+([D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)),
+every semantic hash in the demo is taken over a sample identifier that is not
+the sample's identifier. The science is unaffected, which is why it went
+unseen: Ligase takes sample identity from the declared dimension rather than
+from the file. It is still false, and it is hashed.
+
+It is not fixed here because the fix is not a one-liner, and because
+`graph.py` was M11's while this was built: a parameter has to travel as two
+forms, the one that enters the key and the one that enters the command, across
+the Python layer, the bindings and `exec.rs`, and it retires every cache key
+of every step with a string parameter. `str()` is not the fix — it would make
+`f(1)` and `f("1")` share a key. It is recorded as a strict
+`xfail`, `test_a_string_parameter_should_reach_the_shell_as_its_value`, so the
+day it is fixed the test fails the other way and the workaround cannot be left
+behind.
+
+### A step is a script now, not a pipeline
+
+Every step whose body runs more than one program writes a file between stages,
+under `set -e`, in a directory it removes on exit. That looks like a step
+backwards from the one-line pipelines the demo had, and it is not: the engine
+runs a recipe as `sh -c`, and **`sh -c 'a | b'` reports only `b`'s status**. A
+dead aligner left `samtools sort` writing a perfectly valid, empty BAM and the
+step *succeeded* — which downstream reads as a sample with no variants, which
+for this demo reads as a patient susceptible to everything. POSIX `sh` has no
+`pipefail` to reach for, so the answer is to stop depending on a pipeline's
+status.
+
+### Carried over from M12, and decided
+
+`lg.map_identifiers` was typed for an `EntitySet` while the conversion
+registry covered a `RankedList` too, so the registry advertised an edge no
+shipped step crossed. **Decided: ship it**, as `lg.map_ranked_identifiers`.
+
+A ranking of what crossed is still a ranking — rank has always been relative
+to the set that was ranked, and
 [D41](/project/decisions/#d41--in-a-ranked-list-rank-order-is-the-result)
-and
-[canonicalisation](/project/architecture/canonicalisation/#named-lists-the-one-pair-that-disagrees-on-purpose)
-— and what is missing is how a step says so to the person reading its output.
+claims that row order *is* the result, not that output rank equals input rank.
+Refusing would have pushed a very ordinary operation off the typed path
+entirely, which is the opposite of what v0.2 is for. It is a second step
+rather than an argument because `@lg.step` reads the output kind off the
+return annotation once, and one function cannot produce both kinds; the
+mapping itself needed no change, because `convert.rs` already streams the
+input and writes survivors in input order.
+
+What was missing was the presentation half the M12 entry named, and it is a
+real gap: the existing notes are about the identifiers that did **not** cross.
+For a ranking the consequence is about the ones that did — every surviving
+rank has moved. So there is a `ranks-renumbered` note carrying what rank the
+output's first row held in the input, and its `how_to_fix` is the thing a
+reader will otherwise get wrong: take a cut-off *before* mapping, because the
+top ten of a mapped ranking is the top ten of what crossed.
+
+That number is computed from the three files rather than from the mapping's
+own notes, and the reason is a trap worth recording: the named identifiers are
+**capped** for a long list, so counting them would give a number that was too
+small. A note with a wrong number in it is worse than no note.
+
+### The lesson worth keeping
+
+Three of the four findings above are the same shape. A step declares something
+about its output, the engine has no way to check the declaration, and so the
+declaration is prose. `tool=` claimed a version the engine could not read
+honestly; a return annotation claimed a kind the engine would silently stop
+believing; a docstring claimed documentation a generator silently dropped.
+None of them failed loudly, and each had been true-looking for several
+milestones.
+
+So the three accessors this milestone added to the bindings —
+`tool_version`, `citation`, `canonical_form` — are the deliverable as much as
+the four steps are. D42 asks a step for four declarations, and a declaration
+nothing can check is a comment.
 
 ## M14 — Remote store
 The content-addressed store gains a blob tier with pluggable backends, on the

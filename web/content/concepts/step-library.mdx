@@ -1,0 +1,107 @@
+---
+title: "What a curated step is"
+description: "Why ligase.steps is a library with an entrance exam rather than a bag of wrappers, what the four declarations are, and what the criterion has already kept out."
+---
+
+# What a curated step is
+
+<Lede>
+`ligase.steps` saves you typing, and that is not why it exists. It exists
+because a step that cannot say what it produces is a step whose output the
+engine cannot reason about — and four of those in a pipeline is a pipeline
+Ligase cannot check.
+</Lede>
+
+## The problem a wrapper does not solve
+
+Every workflow framework grows a library of wrappers. They are useful and
+they are all the same thing: the tool's command line, with the arguments
+renamed.
+
+Ligase cannot use that. Its whole claim is that it understands the data
+flowing between steps — the organism, the build, the coordinate convention,
+the sample set — and that understanding does not come from the file. It comes
+from what the steps *declare*. A wrapper that renames `-t` to `threads` has
+declared nothing, and a pipeline made of those is a pipeline where the type
+checker has nothing to check and the cache has nothing to key on.
+
+So the library has an entrance exam instead, and
+[D42](/project/decisions/) is it.
+
+## The four declarations
+
+A step is in `ligase.steps` only when it says all four, and is tested on all
+four.
+
+**Its tool's version capture.** `tool=` names every program the body runs,
+and each one's version joins the step's cache key — so an upgrade that could
+have changed a result reruns the steps it could have changed. A tool that
+does not answer `--version` needs an entry in the engine's version-probe
+table before it can be named, because a version the engine cannot read
+honestly is a key that does not move when the tool does.
+
+**Its citation.** Every tool a library step names resolves to a reference in
+the engine's own [citation table](/concepts/provenance/), so `ligase methods`
+prints a reference list a reviewer can check. A step you write yourself says
+what it wants cited with `cite=`; a step the project ships does not get to
+take that liberty on the project's behalf, so the reference is curated
+instead.
+
+**The dimensions of its output.** Which the step mostly does not *choose* —
+the engine propagates dimensions from the inputs — but which it must not
+*lose*. Both aligners in the library take a `sample_id` for exactly this
+reason: neither writes a read group of its own, a BAM without one has no
+sample set, and a sample set is a dimension this engine exists to keep
+straight.
+
+**How that output canonicalises.** Every kind in Ligase has a
+[canonical form](/concepts/semantic-hashing/), so this is a claim about the
+*file*: it has to parse as the kind the step says it is. A step whose output
+does not parse is not an error — the engine hashes the bytes instead and tags
+them, which is the conservative direction and the right one — and that is
+precisely why it has to be checked here. The fallback is silent, and it costs
+[early cutoff](/concepts/caching/) everything below that step.
+
+## The clause that does the work
+
+> A step that cannot say what it produces is not a library step.
+
+That sentence has already kept more out than the four declarations have let
+in, and both exclusions are worth knowing because they are not about the
+tools being obscure. They are about the engine.
+
+**`samtools index`** writes an index, and an index is not a dataset. It
+brings no dimension, so it earns no kind; declared as an `Alignment` its
+output would have an index's bytes standing in for an alignment's meaning,
+with nothing saying so. See [sorting an
+alignment](/guide/steps/samtools/).
+
+**Trimming paired reads** — `fastp`, and every other read trimmer — cannot be
+a step at all. A step's output is one file; paired reads are two. There is no
+honest version of `Reads → Reads` for a pair, and the dishonest versions are
+each a false dimension written into a hash.
+
+Both are symptoms of one missing engine feature, and naming it as a gap is
+more use than shipping a step with a false type on it. The
+[architecture page](/project/architecture/step-library/) has the argument in
+full.
+
+## What it is not
+
+It is not a goal to cover the tools people use. Four steps is not a
+shortcoming to be fixed by adding twelve; a long list of half-checked
+declarations would be worth less than a short list of checked ones, for the
+same reason the [citation table](/concepts/provenance/) is deliberately
+small.
+
+And it is not a restriction. `@lg.step` is the same decorator the library
+uses, nothing in it is reserved, and a step you write yourself can declare
+all four things the library declares. The library is what the project is
+prepared to stand behind, not what the engine is prepared to run.
+
+## See also
+
+- [Steps you do not have to write](/guide/steps/minimap2/) — the four, one
+  page each.
+- [How the library is put together](/project/architecture/step-library/)
+- [D42](/project/decisions/) — the decision itself.

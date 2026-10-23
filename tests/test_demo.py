@@ -5,7 +5,7 @@ rather than on a contrivance. For M3:
 
 - the demo runs end to end on 3-4 runs from PRJNA517147,
 - a second run completes entirely from cache,
-- changing `min_freq` reruns only `call` and `resistance`,
+- changing `min_freq` reruns only `mpileup_call` and `resistance`,
 - adding one sample processes only that sample.
 
 For M4: rerunning alignment with a different thread count produces the same
@@ -180,7 +180,7 @@ def test_a_second_run_comes_entirely_from_cache(demo: ModuleType, shared: Path) 
 # ------------------------------------------- a parameter moves downstream --
 
 
-def test_changing_min_freq_reruns_only_call_and_resistance(
+def test_changing_min_freq_reruns_only_the_caller_and_resistance(
     demo: ModuleType, shared: Path
 ) -> None:
     demo.pipeline(runs=RUNS).run(cache=shared)
@@ -188,7 +188,7 @@ def test_changing_min_freq_reruns_only_call_and_resistance(
     changed = demo.pipeline(runs=RUNS, min_freq=0.95).run(cache=shared)
 
     assert set(by_step(changed, "align")) == {"cached"}
-    assert set(by_step(changed, "call")) == {"ran"}
+    assert set(by_step(changed, "mpileup_call")) == {"ran"}
     # `resistance` is reconsidered rather than served: it ran wherever the
     # stricter threshold changed the calls, and was cut off wherever it did
     # not, which is the cache working rather than failing to.
@@ -242,7 +242,7 @@ def test_a_different_thread_count_is_the_same_alignment(
         assert aligned.canonical == before[sample].canonical, sample
 
     # So nothing below it had anything to redo.
-    assert set(by_step(wider, "call")) == {"skipped"}, wider.text
+    assert set(by_step(wider, "mpileup_call")) == {"skipped"}, wider.text
     assert set(by_step(wider, "resistance")) == {"skipped"}, wider.text
     assert wider.summary == "9 steps: 3 ran, 6 skipped."
 
@@ -272,7 +272,7 @@ def test_auditing_the_caller_finds_it_reproducible(
     demo: ModuleType, shared: Path
 ) -> None:
     """The caller stamps the time of day into its header, and nothing else."""
-    report = demo.pipeline(runs=RUNS[:1]).audit("call", cache=shared)
+    report = demo.pipeline(runs=RUNS[:1]).audit("mpileup_call", cache=shared)
 
     [audited] = report.steps
     assert audited.verdict == "reproducible", report.text
@@ -449,7 +449,8 @@ def test_a_bundle_notices_a_result_that_moved(
 ) -> None:
     """A bundle that could not fail this way would not be worth writing.
 
-    `min_freq` is raised far enough to change the variant calls, so `call`
+    `min_freq` is raised far enough to change the variant calls, so
+    `mpileup_call`
     and `resistance` land somewhere else while the alignments do not.
     """
     pipe = demo.pipeline(runs=RUNS[:1])
@@ -463,7 +464,7 @@ def test_a_bundle_notices_a_result_that_moved(
     assert checked is not None
     assert not checked.reproduced, checked.text
     moved = {check.step for check in checked.differing}
-    assert "call" in moved, checked.text
+    assert "mpileup_call" in moved, checked.text
     # The alignments are untouched by a calling threshold, and the bundle
     # says so rather than reporting the whole pipeline as changed.
     assert "align" not in moved, checked.text

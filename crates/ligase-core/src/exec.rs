@@ -370,18 +370,80 @@ impl Host for NoCallbacks {
 /// the exceptions visible, and keeps them to one place.
 const BUILT_IN: &[&str] = &["hivdb", "ligase"];
 
+/// How to ask one tool what version it is.
+///
+/// Almost every bioinformatics tool answers `--version` on stdout and exits
+/// zero, which is [`DEFAULT_PROBE`]. The ones that do not are the reason
+/// this is a type rather than a hardcoded argument, and `bwa` is why it
+/// exists at all: see [`PROBES`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct VersionProbe {
+    /// What to pass the tool. Empty for a tool whose bare usage banner is
+    /// the only place it says its version.
+    arguments: &'static [&'static str],
+    /// Whether the probe is expected to exit non-zero.
+    ///
+    /// A tool that prints its version and exits 1 is unusual but not wrong.
+    /// What *is* wrong is treating an unexpected failure as an answer, so
+    /// this is declared per tool rather than ignored for all of them.
+    failure_expected: bool,
+    /// The marker of the line that holds the version, where the probe
+    /// prints more than the version.
+    ///
+    /// `None` keeps the whole output, because the parts a tool prints below
+    /// the first line — the htslib a samtools was built against, say —
+    /// change results too. `Some` is for a probe whose output is a usage
+    /// banner: the banner holds a contact address and a command list, none
+    /// of which is a version, and all of which would then be hashed as one.
+    marker: Option<&'static str>,
+}
+
+/// What a tool is asked unless it is named in [`PROBES`].
+const DEFAULT_PROBE: VersionProbe = VersionProbe {
+    arguments: &["--version"],
+    failure_expected: false,
+    marker: None,
+};
+
+/// The tools that do not answer `--version`.
+///
+/// `bwa` is the whole reason this table exists, and the reason it is worth
+/// reading before adding to it. `bwa --version` prints
+/// `[main] unrecognized command '--version'` **to stderr** and exits
+/// non-zero. Before this table, [`tool_version`] took that sentence as
+/// bwa's version — and that sentence is the same for every bwa ever
+/// released, so upgrading the aligner did not move any cache key and every
+/// alignment computed by the old one was served for the new one. `tool=`
+/// exists to prevent precisely that, so the gap was not cosmetic: it was
+/// the guarantee failing silently on one of the two commonest aligners in
+/// the field.
+///
+/// Bare `bwa` prints a usage banner whose third line is
+/// `Version: 0.7.19-r1273`, so that is what is asked and that is the line
+/// that is kept.
+const PROBES: &[(&str, VersionProbe)] = &[(
+    "bwa",
+    VersionProbe {
+        arguments: &[],
+        failure_expected: true,
+        marker: Some("Version:"),
+    },
+)];
+
 /// The version a step's dependency reports.
 ///
-/// For a built-in, what the engine carries. For everything else, the
-/// whole of `<tool> --version`, because the parts a tool prints below the
-/// first line — the htslib a samtools was built against, say — change
-/// results too.
+/// For a built-in, what the engine carries. For everything else, what the
+/// tool's own probe prints — `<tool> --version` for almost all of them,
+/// and whatever [`PROBES`] declares for the rest.
 ///
 /// # Errors
 ///
-/// If the tool is not installed or prints nothing. Hashing an absent tool
-/// as "no version" would let two machines with different tools agree on a
-/// key, which is exactly the failure this is here to prevent.
+/// If the tool is not installed, prints nothing, fails when its probe did
+/// not expect it to, or stops printing the line its probe looks for.
+/// Hashing an absent tool as "no version" would let two machines with
+/// different tools agree on a key, which is exactly the failure this is
+/// here to prevent — and so would hashing a tool's complaint about the
+/// question.
 pub fn tool_version(tool: &str) -> Result<String, String> {
     match tool {
         "hivdb" => return crate::hivdb::ruleset::fingerprint(),
@@ -393,19 +455,102 @@ pub fn tool_version(tool: &str) -> Result<String, String> {
         "a built-in tool with no version of its own"
     );
 
+    let probe = probe_for(tool);
     let output = Command::new(tool)
-        .arg("--version")
+        .args(probe.arguments)
         .output()
         .map_err(|error| format!("`{tool}` could not be run: {error}"))?;
 
-    let mut text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    if text.is_empty() {
-        text = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    version_from(
+        tool,
+        &probe,
+        output.status.success(),
+        &String::from_utf8_lossy(&output.stdout),
+        &String::from_utf8_lossy(&output.stderr),
+    )
+}
+
+/// How this tool is asked its version.
+fn probe_for(tool: &str) -> VersionProbe {
+    PROBES
+        .iter()
+        .find(|(named, _)| *named == tool)
+        .map_or(DEFAULT_PROBE, |(_, probe)| *probe)
+}
+
+/// What a probe's output says the version is.
+///
+/// Separate from running the process so that every refusal below can be
+/// tested on a machine with none of these tools installed. A version that
+/// is wrong is worse than one that is missing: the missing one stops the
+/// run, and the wrong one is hashed into every key beneath it.
+fn version_from(
+    tool: &str,
+    probe: &VersionProbe,
+    succeeded: bool,
+    stdout: &str,
+    stderr: &str,
+) -> Result<String, String> {
+    let asked = describe_probe(tool, probe);
+
+    if !succeeded && !probe.failure_expected {
+        let said = complaint(stdout, stderr);
+        return Err(format!(
+            "`{asked}` failed, so what it printed is not a version: {said}. \
+             A tool that answers the question differently needs an entry in \
+             this engine's version-probe table; one recorded from a failed \
+             probe would be the same text for every release of the tool, and \
+             upgrading it would not move a single cache key"
+        ));
     }
+
+    let text = first_nonempty(stdout, stderr);
     if text.is_empty() {
-        return Err(format!("`{tool} --version` printed nothing"));
+        return Err(format!("`{asked}` printed nothing"));
     }
-    Ok(text)
+
+    match probe.marker {
+        None => Ok(text.trim().to_owned()),
+        Some(marker) => text
+            .lines()
+            .find(|line| line.contains(marker))
+            .map(|line| line.trim().to_owned())
+            .ok_or_else(|| {
+                format!(
+                    "`{asked}` printed no line containing `{marker}`, so this \
+                     engine cannot tell which part of its output is the \
+                     version. Keeping the rest would hash a usage banner as a \
+                     version; update the version-probe table for `{tool}`"
+                )
+            }),
+    }
+}
+
+/// The probe as a command line, for a message to quote.
+fn describe_probe(tool: &str, probe: &VersionProbe) -> String {
+    if probe.arguments.is_empty() {
+        tool.to_owned()
+    } else {
+        format!("{tool} {}", probe.arguments.join(" "))
+    }
+}
+
+/// Whichever stream said anything, stdout first.
+fn first_nonempty<'a>(stdout: &'a str, stderr: &'a str) -> &'a str {
+    if stdout.trim().is_empty() {
+        stderr
+    } else {
+        stdout
+    }
+}
+
+/// One line of what a failed probe said, for a message that stays readable.
+fn complaint(stdout: &str, stderr: &str) -> String {
+    let text = first_nonempty(stdout, stderr).trim();
+    match text.lines().find(|line| !line.trim().is_empty()) {
+        Some(line) => format!("`{}`", line.trim()),
+        None => "nothing at all".to_owned(),
+    }
 }
 
 /// The file extension an output of this kind is given.
@@ -1654,6 +1799,113 @@ mod tests {
         assert_ne!(
             Recipe::Shell("a".into()).describe(),
             Recipe::Shell("b".into()).describe()
+        );
+    }
+
+    // ------------------------------------------------ version probes --
+    //
+    // Over `version_from` rather than over installed tools, so every
+    // refusal is tested on a machine that has none of them. The one test
+    // that does need a tool is in `tests/versions.rs`.
+
+    #[test]
+    fn the_usual_tool_answers_on_stdout_and_is_kept_whole() {
+        let version = version_from(
+            "samtools",
+            &DEFAULT_PROBE,
+            true,
+            "samtools 1.24\nUsing htslib 1.24\n",
+            "",
+        )
+        .unwrap();
+
+        // Both lines: the htslib a samtools was built against changes
+        // results, so dropping it would be dropping part of the version.
+        assert_eq!(version, "samtools 1.24\nUsing htslib 1.24");
+    }
+
+    #[test]
+    fn a_tool_that_prints_only_to_stderr_is_still_read() {
+        assert_eq!(
+            version_from("tool", &DEFAULT_PROBE, true, "", "tool 2.0\n").unwrap(),
+            "tool 2.0"
+        );
+    }
+
+    #[test]
+    fn a_probe_that_fails_unexpectedly_is_an_error_and_not_a_version() {
+        // This is the defect the probe table exists for: `bwa --version`
+        // exits non-zero and complains, and that complaint used to be
+        // recorded as bwa's version -- identically for every release, so
+        // upgrading the aligner moved no cache key at all.
+        let error = version_from(
+            "bwa",
+            &DEFAULT_PROBE,
+            false,
+            "",
+            "[main] unrecognized command '--version'\n",
+        )
+        .unwrap_err();
+
+        assert!(error.contains("failed"), "{error}");
+        assert!(error.contains("unrecognized command"), "{error}");
+        assert!(
+            error.contains("would not move a single cache key"),
+            "the message has to say why a wrong version is worse than a \
+             missing one: {error}"
+        );
+    }
+
+    #[test]
+    fn a_probe_that_was_expected_to_fail_is_read_anyway() {
+        let probe = probe_for("bwa");
+        assert!(probe.failure_expected, "bwa's probe exits non-zero");
+
+        let version = version_from(
+            "bwa",
+            &probe,
+            false,
+            "",
+            "\nProgram: bwa (alignment via Burrows-Wheeler transformation)\n\
+             Version: 0.7.19-r1273\n\
+             Contact: Heng Li <hli@ds.dfci.harvard.edu>\n\n\
+             Usage:   bwa <command> [options]\n",
+        )
+        .unwrap();
+
+        // The banner's other lines are not a version. A contact address
+        // hashed into a cache key is noise that never changes; the command
+        // list is noise that changes when the usage text is reworded.
+        assert_eq!(version, "Version: 0.7.19-r1273");
+    }
+
+    #[test]
+    fn a_probe_whose_marker_has_gone_is_an_error_rather_than_a_banner() {
+        let error = version_from(
+            "bwa",
+            &probe_for("bwa"),
+            false,
+            "",
+            "Usage: bwa <command> [options]\n",
+        )
+        .unwrap_err();
+
+        assert!(error.contains("no line containing `Version:`"), "{error}");
+        assert!(error.contains("version-probe table"), "{error}");
+    }
+
+    #[test]
+    fn a_probe_that_prints_nothing_is_an_error() {
+        let error = version_from("tool", &DEFAULT_PROBE, true, "", "").unwrap_err();
+        assert_eq!(error, "`tool --version` printed nothing");
+    }
+
+    #[test]
+    fn a_probe_with_no_arguments_is_quoted_as_the_bare_command() {
+        assert_eq!(describe_probe("bwa", &probe_for("bwa")), "bwa");
+        assert_eq!(
+            describe_probe("samtools", &DEFAULT_PROBE),
+            "samtools --version"
         );
     }
 }
