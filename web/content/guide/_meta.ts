@@ -19,6 +19,9 @@ import type { MetaRecord } from 'nextra'
  * The two remote pages come after them and in that order, because a pinned
  * remote is the simpler promise and a recorded query is explained by
  * contrast with it.
+ *
+ * Declaring a stochastic step follows checking that a step repeats, because
+ * what the declaration changes is what that page's audit is allowed to say.
  */
 const meta: MetaRecord = {
   'inspecting-files': 'Inspecting files you have',
@@ -31,6 +34,7 @@ const meta: MetaRecord = {
   remotes: 'Fetching your inputs',
   'recorded-queries': 'Recording a live query',
   'semantic-hashing': 'Checking that a step repeats',
+  'stochastic-steps': 'Declaring a stochastic step',
   notes: 'Fixing a noticed line',
   'resistance-interpretation': 'Interpreting resistance',
 }
