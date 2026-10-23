@@ -246,7 +246,12 @@ def render_sub(
         for heading, actions in (("Arguments", positionals), ("Options", optionals)):
             if not actions:
                 continue
-            out += [f"#### {heading}", "", f"| {heading[:-1]} | Description |", "|---|---|"]
+            out += [
+                f"#### {heading}",
+                "",
+                f"| {heading[:-1]} | Description |",
+                "|---|---|",
+            ]
             for action in actions:
                 if not action.help:
                     where = (
