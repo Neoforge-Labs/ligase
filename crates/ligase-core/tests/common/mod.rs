@@ -11,6 +11,8 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
+pub mod mock_http;
+
 use noodles::sam::alignment::io::Write as _;
 use noodles::{bam, sam};
 use tempfile::TempDir;

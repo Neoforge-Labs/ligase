@@ -26,8 +26,10 @@
 //! # What is here
 //!
 //! [`locator`] reads where a remote comes from, out of a closed set of four
-//! schemes.
+//! schemes. [`fetch`] gets the bytes, through a [`fetch::Transport`] so that
+//! the tests can take the network away.
 
+pub mod fetch;
 pub mod locator;
 
 pub use locator::{Locator, LocatorError, SCHEMES, Scheme};

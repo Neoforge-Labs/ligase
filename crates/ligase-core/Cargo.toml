@@ -29,6 +29,7 @@ noodles = { workspace = true, features = [
 ] }
 rayon = { workspace = true }
 rusqlite = { workspace = true }
+ureq = { workspace = true }
 
 [dev-dependencies]
 # The tests that pin the scheduler's behaviour queue work on the pool a
