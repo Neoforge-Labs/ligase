@@ -20,7 +20,7 @@ from __future__ import annotations
 from glob import glob
 from typing import TYPE_CHECKING
 
-from . import _core, hivdb
+from . import _core, hivdb, remotes
 from .audit import AuditReport, StepAudit
 from .convert import map_identifiers
 from .errors import (
@@ -51,6 +51,7 @@ from .recipes import Shell, Written, sh, write
 from .run import RunError, RunReport, StepFailure, StepRun
 from .samples import Samples
 from .types import (
+    KINDS,
     Alignment,
     Contig,
     Dataset,
@@ -88,6 +89,7 @@ __all__ = [
     "Reads",
     "Reference",
     "ReferenceFrameError",
+    "RemoteError",
     "Report",
     "ResistanceReport",
     "ResultCheck",
@@ -118,6 +120,7 @@ __all__ = [
     "map_identifiers",
     "reads",
     "reference",
+    "remote",
     "samples",
     "sh",
     "step",
@@ -131,6 +134,14 @@ __version__: str = _core.version()
 
 #: Raised when a file cannot be read or does not parse as its format.
 LoadError = _core.LoadError
+
+#: Raised when a remote cannot be fetched, or is not what its digest says.
+#:
+#: Its own class rather than a `LoadError`, because the two ask different
+#: things of a reader: a `LoadError` is about a file that is wrong, and this
+#: is about a *source* that is unreachable, has moved, or served something
+#: other than what was asked for.
+RemoteError = _core.RemoteError
 
 
 def version() -> str:
@@ -415,6 +426,127 @@ def entity_set(
     return EntitySet(
         _core.load_entity_set(
             path, id_column, organism, identifier_namespace, subject, release
+        )
+    )
+
+
+def remote(
+    locator: str,
+    *,
+    kind: type[Dataset] | str,
+    digest: str | None = None,
+    organism: str | Sequence[str] | None = None,
+    build: str | None = None,
+    frame: tuple[str, int] | None = None,
+    release: str | None = None,
+    samples: list[str] | None = None,
+    identifier_namespace: str | None = None,
+    subject: str | None = None,
+) -> Dataset:
+    """Fetch a pinned remote input, and load what arrives.
+
+    The first step of nearly every pipeline is a fetch, and until now it sat
+    outside everything this engine promises: a shell script downloaded some
+    reads and the engine took its word for what had arrived. A remote
+    declared here is an input like any other, with dimensions read from its
+    own bytes and a content hash in every cache key below it.
+
+    **A pinned remote promises the same bytes forever, from the source.** An
+    SRA run, an NCBI accession, a numbered release: the archive undertakes
+    not to change them, so anyone, anywhere, at any time can obtain this
+    input and check it. That is what makes `digest=` worth writing, and why
+    a digest that does not match is a loud failure rather than a quiet
+    re-fetch. A source that promises nothing needs the other half of this
+    design, a recorded query, and is not what this function is for.
+
+    ## When it happens, and what it costs
+
+    It resolves when you call it, while the pipeline is still being read.
+    That is not an optimisation to be deferred: a remote's dimensions cannot
+    be known until its bytes are in hand, and the engine checks dimensions
+    before any compute. So a wrong digest fails before any step runs,
+    because the failure happens before the graph is even built.
+
+    On a second run nothing is fetched. The locator and its digest are in
+    the store, the objects are there, and resolution is a lookup -- which is
+    why a pipeline built on remotes runs offline once it has run online.
+
+    ## What `digest` is over
+
+    What the file *means*, not what its bytes are: the canonical form of
+    what arrives, read as `kind`, folded over its files in order. A source
+    that reflows a FASTA or rewords a defline has not changed the biology,
+    and a pin that broke on that would teach you to bump pins without
+    reading -- after which the one that matters gets bumped too. Such a
+    rewrite is reported as a note instead. A change in what the data
+    *means* is the failure.
+
+    Leave it out on the first run: the digest of what arrived is reported
+    and recorded, and you paste it in to make every later run a checked one.
+
+    Args:
+        locator: Where it comes from, as one of four schemes.
+            `sra:SRR32217726` is an SRA run, served by ENA as a pair of
+            gzipped FASTQs. `ncbi:K03455.1` is an NCBI nucleotide
+            accession, fetched as FASTA. `ensembl:release-110/...` is a path
+            under Ensembl's public tree. `https://...` is an exact URL, for
+            everything else. Anything else is an error naming the four.
+        kind: What the bytes are, as one of the types in `ligase.types` or
+            its name: `Reference` for a FASTA, `Reads` for a FASTQ pair.
+            Required, and not inferred from the locator, because it decides
+            how the file is read and therefore what its digest is over.
+        digest: The digest this input must have, as the 64 hexadecimal
+            characters a previous run reported. `None` fetches whatever the
+            source serves and records its digest, which is how you get the
+            value to pin.
+        organism: The organism, as for the matching loader. A fetched file
+            records no more about itself than a local one does.
+        build: A human label for the reference build. Display only.
+        frame: Which coordinate frame a reference's positions are numbered
+            along, as `(frame, first)`.
+        release: Which release of the data this is. Compared by equality.
+        samples: The sample identifiers, where the file does not name them.
+        identifier_namespace: Which identifier space an entity set's names
+            live in.
+        subject: What the data is about, when that is one named thing.
+
+    Returns:
+        The loaded data, of the class `kind` named, carrying the dimensions
+        inferred from what arrived and a record of where it came from. That
+        record is what puts the fetch in the methods paragraph and the
+        reproducibility bundle.
+
+    Raises:
+        RemoteError: If the locator names no scheme Ligase has, if the
+            source cannot be reached, if what arrives cannot be read as
+            `kind` -- an archive asked for an accession it does not have
+            answers with an error page and a 200 -- or if the digest does
+            not match.
+        ValueError: If `kind` is not a kind of data Ligase knows, if
+            `digest` is not 64 hexadecimal characters, or if a declared
+            dimension is blank.
+        LoadError: If what arrives cannot be parsed.
+    """
+    named = kind if isinstance(kind, str) else kind.__name__
+    wanted = KINDS.get(named)
+    if wanted is None:
+        known = ", ".join(sorted(KINDS))
+        message = f"`{named}` is not a kind of data Ligase knows. The kinds are {known}"
+        raise ValueError(message)
+
+    return wanted(
+        _core.resolve_remote(
+            locator,
+            named,
+            digest,
+            str(remotes.cache_directory()),
+            organism,
+            build,
+            frame,
+            release,
+            samples,
+            identifier_namespace,
+            subject,
         )
     )
 

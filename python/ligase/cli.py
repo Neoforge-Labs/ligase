@@ -16,6 +16,12 @@ asking. It distinguishes a step whose *bytes* move from one whose *result*
 does: the first is every tool that records its own command line, and the
 second is a finding.
 
+`ligase run` also resolves the pipeline's remote inputs, which happens
+before the graph is built: a remote whose digest does not match the one the
+pipeline pins is a failure before any step has run, and on a second run
+nothing is fetched because the bytes and their digest are already in the
+store.
+
 `ligase methods` says how the results were produced: tool versions,
 parameters, every reference by accession and checksum, and the references to
 cite. It runs the pipeline first — normally and through the cache — because
@@ -32,6 +38,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from . import remotes
 from .errors import CheckError
 from .graph import CACHE_DIR, Pipeline
 from .run import RunError
@@ -213,6 +220,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         failed, 2 when the pipeline could not be read at all.
     """
     arguments = build_parser().parse_args(argv)
+
+    # Before anything imports a pipeline file. A remote resolves when the
+    # pipeline declares it -- that is what makes a wrong digest fail before
+    # any step runs -- so by the time `pipeline.run(cache=...)` is reached
+    # the fetching is already done, and `--cache` would have been ignored.
+    remotes.configure(cache=getattr(arguments, "cache", None))
+
     if arguments.command == "run":
         return _run(
             arguments.pipeline, arguments.jobs, arguments.force, arguments.cache

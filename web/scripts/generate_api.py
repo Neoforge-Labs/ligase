@@ -69,6 +69,7 @@ GROUPS: tuple[Group, ...] = (
             "variants",
             "intervals",
             "entity_set",
+            "remote",
         ),
     ),
     Group(
@@ -186,6 +187,7 @@ GROUPS: tuple[Group, ...] = (
             "StepTypeError",
             "StepDefinitionError",
             "LoadError",
+            "RemoteError",
             "RunError",
             "StepFailure",
             "InputCheck",

@@ -10,6 +10,9 @@ from typing import final
 class LoadError(Exception):
     """A file could not be read or did not parse as the expected format."""
 
+class RemoteError(Exception):
+    """A remote input could not be fetched, or is not what its digest says."""
+
 class FrameError(ValueError):
     """A reference is not numbered along the frame a step's coordinates mean.
 
@@ -29,6 +32,7 @@ class Dataset:
     def unknown_reason(self, name: str) -> str | None: ...
     def notes(self) -> list[str]: ...
     def contigs(self) -> list[tuple[str, int | None, str | None]] | None: ...
+    def origin(self) -> tuple[str, str, str, int, str] | None: ...
     def samples(self) -> list[str] | None: ...
 
 def version() -> str: ...
@@ -48,6 +52,19 @@ def load_reference(
     build: str | None = None,
     frame: tuple[str, int] | None = None,
     release: str | None = None,
+) -> Dataset: ...
+def resolve_remote(
+    locator: str,
+    kind: str,
+    digest: str | None = None,
+    cache: str | None = None,
+    organism: str | Sequence[str] | None = None,
+    build: str | None = None,
+    frame: tuple[str, int] | None = None,
+    release: str | None = None,
+    samples: list[str] | None = None,
+    namespace: str | None = None,
+    subject: str | None = None,
 ) -> Dataset: ...
 def load_entity_set(
     path: str,
