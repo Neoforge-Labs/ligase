@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::dim::{Dimension, Dimensions};
+use crate::note::Note;
 
 /// What kind of biological data a dataset holds.
 ///
@@ -23,17 +24,20 @@ pub enum DataKind {
     Intervals,
     /// An interpreted drug-resistance report.
     ResistanceReport,
+    /// A set of genes or proteins, named in one identifier space (TSV).
+    EntitySet,
 }
 
 impl DataKind {
     /// Every kind, so the Python layer can enumerate them.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Reads,
         Self::Reference,
         Self::Alignment,
         Self::Variants,
         Self::Intervals,
         Self::ResistanceReport,
+        Self::EntitySet,
     ];
 
     /// The name used in messages and in the Python API.
@@ -46,6 +50,7 @@ impl DataKind {
             Self::Variants => "Variants",
             Self::Intervals => "Intervals",
             Self::ResistanceReport => "ResistanceReport",
+            Self::EntitySet => "EntitySet",
         }
     }
 
@@ -116,6 +121,21 @@ impl DataKind {
 
             (Self::ResistanceReport, Dimension::SampleSet) => true,
             (Self::ResistanceReport, _) => false,
+
+            // The first kind here that holds no sequence, and the place
+            // this table earns the warning above it. A gene list has no
+            // coordinate system, no contigs, no read pairing and no
+            // quality scores -- not as gaps to be filled in, but because
+            // a list of gene names has no such properties to have. What
+            // it does have is the space its names live in, which is the
+            // dimension it was admitted for (D35), the organism those
+            // genes belong to, what the list is about, and the release of
+            // whatever named them.
+            (
+                Self::EntitySet,
+                Dimension::IdentifierNamespace | Dimension::Subject | Dimension::Release,
+            ) => true,
+            (Self::EntitySet, _) => false,
         }
     }
 }
@@ -132,6 +152,16 @@ pub struct Dataset {
     /// message names.
     mates: Vec<PathBuf>,
     dimensions: Dimensions,
+    /// What loading this noticed, which its dimensions cannot say.
+    ///
+    /// Until now a [`Note`] could only come out of a step: either the
+    /// canonical form of its output or the body's own account of its work.
+    /// That leaves a file nobody computes with nothing to say, and a gene
+    /// list is exactly such a file — its symbols can arrive corrupted by a
+    /// spreadsheet, which is a fact about the input and not about any step.
+    /// So a loader may attach notes to what it loaded, and they travel with
+    /// the dataset to whoever is looking at it, `ligase inspect` included.
+    notes: Vec<Note>,
 }
 
 impl Dataset {
@@ -143,7 +173,19 @@ impl Dataset {
             path,
             mates: Vec::new(),
             dimensions,
+            notes: Vec::new(),
         }
+    }
+
+    /// The same dataset, with what loading it noticed.
+    ///
+    /// A builder rather than an argument to [`Self::new`], so that every
+    /// loader that notices nothing — which is all of them but one — needs
+    /// no change and says nothing by saying nothing.
+    #[must_use]
+    pub fn with_notes(mut self, notes: Vec<Note>) -> Self {
+        self.notes = notes;
+        self
     }
 
     /// The same dataset, with a second file belonging to it.
@@ -179,5 +221,15 @@ impl Dataset {
     #[must_use]
     pub const fn dimensions(&self) -> &Dimensions {
         &self.dimensions
+    }
+
+    /// What loading this noticed, which its dimensions cannot say.
+    ///
+    /// Empty for almost every file. A note is not an error and never stops
+    /// a run; it is something true of the data that a user cannot act on
+    /// without being told.
+    #[must_use]
+    pub fn notes(&self) -> &[Note] {
+        &self.notes
     }
 }

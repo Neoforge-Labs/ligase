@@ -325,14 +325,20 @@ impl Host for NoCallbacks {
 /// program to run.
 ///
 /// `tool=` means "something whose version changes the answer". Almost
-/// always that is an external program, probed with `--version`. The
-/// resistance algorithm is the exception: it is a body of versioned
-/// knowledge compiled into the engine, with no process to run and no
-/// `--version` to print, and it changes answers exactly as a tool does.
+/// always that is an external program, probed with `--version`. Two are
+/// not, and both are compiled into this engine with no process to run and
+/// no `--version` to print, while changing answers exactly as a tool does.
 ///
-/// Naming it here rather than special-casing it inside the probe keeps
-/// the exception visible, and keeps it to one place.
-const BUILT_IN: &[&str] = &["hivdb"];
+/// `hivdb` is a body of versioned knowledge — the resistance rules.
+/// `ligase` is the engine's own work: a conversion such as
+/// `map_identifiers` is code in this crate, so what a step declaring it
+/// depends on is the crate. Nothing else would put that in a cache key: a
+/// step body that only calls into the engine hashes the same however the
+/// engine changes underneath it.
+///
+/// Naming them here rather than special-casing them inside the probe keeps
+/// the exceptions visible, and keeps them to one place.
+const BUILT_IN: &[&str] = &["hivdb", "ligase"];
 
 /// The version a step's dependency reports.
 ///
@@ -347,9 +353,15 @@ const BUILT_IN: &[&str] = &["hivdb"];
 /// as "no version" would let two machines with different tools agree on a
 /// key, which is exactly the failure this is here to prevent.
 pub fn tool_version(tool: &str) -> Result<String, String> {
-    if BUILT_IN.contains(&tool) {
-        return crate::hivdb::ruleset::fingerprint();
+    match tool {
+        "hivdb" => return crate::hivdb::ruleset::fingerprint(),
+        "ligase" => return Ok(format!("ligase {}", env!("CARGO_PKG_VERSION"))),
+        _ => {}
     }
+    debug_assert!(
+        !BUILT_IN.contains(&tool),
+        "a built-in tool with no version of its own"
+    );
 
     let output = Command::new(tool)
         .arg("--version")
@@ -379,6 +391,7 @@ pub const fn output_suffix(kind: DataKind) -> &'static str {
         DataKind::Variants => ".vcf.gz",
         DataKind::Intervals => ".bed",
         DataKind::ResistanceReport => ".tsv",
+        DataKind::EntitySet => ".tsv",
     }
 }
 

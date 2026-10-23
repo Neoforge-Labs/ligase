@@ -65,6 +65,7 @@
 //! provenance, the bundle and the methods section (D26).
 
 mod alignment;
+mod entity_set;
 mod fasta;
 mod intervals;
 mod reads;
@@ -188,6 +189,7 @@ fn canonicalise(kind: DataKind, path: &Path, digest: &mut Digest) -> Result<(), 
         DataKind::Variants => variants::canonicalise(path, digest),
         DataKind::Intervals => intervals::canonicalise(path, digest),
         DataKind::ResistanceReport => report::canonicalise(path, digest),
+        DataKind::EntitySet => entity_set::canonicalise(path, digest),
     }
 }
 
@@ -216,6 +218,10 @@ pub const fn describe(kind: DataKind) -> Option<&'static str> {
         }
         DataKind::Intervals => "intervals sorted; `track`, `browser` and comment lines dropped",
         DataKind::ResistanceReport => "the header row kept, the rows below it sorted",
+        DataKind::EntitySet => {
+            "the header row kept, the rows below it compared as a set, so their order says \
+             nothing"
+        }
     })
 }
 

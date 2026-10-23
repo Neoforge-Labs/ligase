@@ -14,6 +14,7 @@ const meta: MetaRecord = {
   'declaring-dimensions': 'Declaring dimensions',
   'running-a-pipeline': 'Running a pipeline',
   provenance: 'Writing up a pipeline',
+  'mapping-identifiers': 'Crossing identifier spaces',
   'semantic-hashing': 'Checking that a step repeats',
   notes: 'Fixing a noticed line',
   'resistance-interpretation': 'Interpreting resistance',

@@ -90,6 +90,7 @@ impl Bench {
                 name: name.to_owned(),
                 output,
                 coordinates: None,
+                conversion: None,
                 arguments: vec![Argument {
                     param: "in".to_owned(),
                     declared,

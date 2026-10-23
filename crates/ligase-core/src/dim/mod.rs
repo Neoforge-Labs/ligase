@@ -2,7 +2,7 @@
 //!
 //! The catalogue is `web/content/reference/dimensions.mdx`: organism,
 //! reference, contig naming, coordinates, sample set, pairing, quality
-//! encoding, release, subject and source set. Every value travels with its provenance, so an error message can
+//! encoding, release, subject, source set and identifier namespace. Every value travels with its provenance, so an error message can
 //! say *where* a value came from without reconstructing it after the fact.
 //! That provenance is the part that makes the error useful: "these two
 //! references disagree" sends a user hunting, while "one came from a BAM
@@ -10,13 +10,15 @@
 //! change.
 
 mod names;
+mod namespace;
 mod reference;
 
 use std::fmt;
 use std::path::PathBuf;
 
 pub(crate) use names::english_list;
-pub use names::{Label, NameSet, Organism, Release, SourceSet, Subject};
+pub use names::{IdentifierNamespace, Label, NameSet, Organism, Release, SourceSet, Subject};
+pub use namespace::KnownNamespace;
 pub use reference::{Contig, ContigOrder, Frame, ReferenceId, Relation, Verdict, relate};
 
 /// Where a dimension's value came from.
@@ -160,12 +162,14 @@ pub enum Dimension {
     Subject,
     /// The upstream sources a dataset was assembled from.
     SourceSet,
+    /// Which identifier space the entities are named in.
+    IdentifierNamespace,
 }
 
 impl Dimension {
     /// Every dimension: the catalogue's seven in catalogue order, then the
     /// axes added since, in the order they were added.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Organism,
         Self::Reference,
         Self::ContigNaming,
@@ -176,6 +180,7 @@ impl Dimension {
         Self::Release,
         Self::Subject,
         Self::SourceSet,
+        Self::IdentifierNamespace,
     ];
 
     /// The name used in messages and in the Python API.
@@ -192,6 +197,7 @@ impl Dimension {
             Self::Release => "release",
             Self::Subject => "subject",
             Self::SourceSet => "source_set",
+            Self::IdentifierNamespace => "identifier_namespace",
         }
     }
 
@@ -222,6 +228,10 @@ impl Dimension {
             Self::Release => "These must match. Did one input come from a different release?",
             Self::Subject => "These must match. Did you join data about different subjects?",
             Self::SourceSet => "These must match. Was a source added or removed upstream?",
+            Self::IdentifierNamespace => {
+                "These must match. Add a `map_identifiers` step; identifiers are never \
+                 renamed implicitly."
+            }
         }
     }
 }
@@ -401,6 +411,8 @@ pub struct Dimensions {
     pub subject: Dim<Subject>,
     /// The upstream sources the data was assembled from.
     pub source_set: Dim<SourceSet>,
+    /// Which identifier space the entities are named in.
+    pub identifier_namespace: Dim<IdentifierNamespace>,
 }
 
 impl Default for Dimensions {
@@ -417,6 +429,7 @@ impl Default for Dimensions {
             release: Dim::unknown(NOT_SET),
             subject: Dim::unknown(NOT_SET),
             source_set: Dim::unknown(NOT_SET),
+            identifier_namespace: Dim::unknown(NOT_SET),
         }
     }
 }
@@ -451,6 +464,9 @@ impl Dimensions {
             Dimension::Release => self.release.value().map(ToString::to_string),
             Dimension::Subject => self.subject.value().map(ToString::to_string),
             Dimension::SourceSet => self.source_set.value().map(ToString::to_string),
+            Dimension::IdentifierNamespace => {
+                self.identifier_namespace.value().map(ToString::to_string)
+            }
         }
     }
 
@@ -471,6 +487,7 @@ impl Dimensions {
             Dimension::Release => self.release.source(),
             Dimension::Subject => self.subject.source(),
             Dimension::SourceSet => self.source_set.source(),
+            Dimension::IdentifierNamespace => self.identifier_namespace.source(),
         }
     }
 
@@ -494,6 +511,7 @@ impl Dimensions {
             Dimension::Release => self.release.reason(),
             Dimension::Subject => self.subject.reason(),
             Dimension::SourceSet => self.source_set.reason(),
+            Dimension::IdentifierNamespace => self.identifier_namespace.reason(),
         }
     }
 

@@ -61,7 +61,15 @@ GROUPS: tuple[Group, ...] = (
             'result: `dataset.dimension("reference").source` says `declared` or '
             "names the header it came from."
         ),
-        names=("reference", "reads", "samples", "alignment", "variants", "intervals"),
+        names=(
+            "reference",
+            "reads",
+            "samples",
+            "alignment",
+            "variants",
+            "intervals",
+            "entity_set",
+        ),
     ),
     Group(
         slug="steps",
@@ -71,7 +79,16 @@ GROUPS: tuple[Group, ...] = (
             "its signature; the graph is built from those signatures without calling "
             "any of them."
         ),
-        names=("step", "sh", "write", "handle", "Pipeline", "Step", "Shell"),
+        names=(
+            "step",
+            "sh",
+            "write",
+            "handle",
+            "map_identifiers",
+            "Pipeline",
+            "Step",
+            "Shell",
+        ),
     ),
     Group(
         slug="checking",
@@ -97,6 +114,7 @@ GROUPS: tuple[Group, ...] = (
             "Alignment",
             "Variants",
             "Intervals",
+            "EntitySet",
             "Contig",
             "DimensionValue",
             "StepOutput",

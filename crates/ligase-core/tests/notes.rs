@@ -79,6 +79,7 @@ impl Bench {
                 name: "call".to_owned(),
                 output: DataKind::Variants,
                 coordinates: None,
+                conversion: None,
                 arguments: vec![Argument {
                     param: "calls".to_owned(),
                     declared: DataKind::Variants,

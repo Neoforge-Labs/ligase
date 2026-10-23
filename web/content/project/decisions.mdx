@@ -1072,3 +1072,146 @@ There is still no alias table. `["human"]` and `["Homo sapiens"]` are two
 different sets and are reported as a mismatch, because equating them means
 guessing, and a wrong guess passes `check()` silently. Declare one spelling
 and use it.
+
+## D38 — Identifier namespaces never coerce
+
+`TP53`, `ENSG00000141510`, `7157`, `P04637`, `NM_000546` and `HGNC:11998` are
+six correct names for one gene, and no two of them are equal as strings. A
+gene list records nowhere which of those spaces its names are in: a TSV has a
+column called `id`, and which space its contents belong to was settled by
+whatever exported it — `featureCounts` gives Ensembl IDs, a GEO supplementary
+table usually gives symbols, a proteomics search gives accessions.
+
+So joining two lists is a string comparison between two naming conventions.
+It does not fail. A join of two columns with nothing in common returns the
+rows they share, which is none, and an empty result is an ordinary thing for a
+join to produce. The failure is written up as
+[my gene-set overlap is empty](/silent-failures/mixed-identifiers/), and what
+makes it the worst kind is that the answer is rarely zero: a few identifiers
+collide, or one list was already mixed, so the overlap is small and non-zero
+and reads as a measurement of poor concordance rather than as a mismatch.
+
+So `identifier_namespace` is a dimension, compared by **equality**, and two
+lists in different spaces are refused.
+
+### Why the obvious convenience is refused
+
+The tempting thing is to coerce: recognise that one side is symbols and the
+other Ensembl IDs, map between them, and let the join succeed. Every ad-hoc
+`df["gene"].str.upper()` and every hand-written `dict` lookup in the field is
+that convenience, implemented once per analysis.
+
+It is refused because mapping between spaces is **a lookup with failures**,
+not a rename. Going from `TP53` to `ENSG00000141510` has four outcomes, not
+one. Most identifiers find a row. Some find none, because they were renamed or
+retired since the mapping table was downloaded. Some find several, because one
+symbol legitimately covers more than one gene. And some arrive where another
+identifier in the same list arrives, because the table holds both a deprecated
+symbol and its replacement.
+
+A dimension that coerced silently would have to decide what to do with the
+last three on the user's behalf, invisibly, and every available decision is
+bad. Drop them, and the output is quietly smaller than the
+input — the thing [D26](#d26--a-field-that-cannot-be-dropped-is-noticed-instead)
+exists to refuse. Carry them over unchanged, and a name from the old space is
+sitting in a set that declares the new one, which makes the output's own
+declaration false. Take the first of several, and the result depends on the
+order of rows in somebody's file. Let two identifiers collapse onto one, and
+the output names a single entity twice with two sets of attributes, so it is
+not a set and anything counting it double-counts.
+
+### What the rule buys
+
+The only way across is a `map_identifiers` step, which turns all four
+outcomes into things a user can see. Its output **declares** the space it has
+arrived in, so everything downstream is checked against a true statement. The
+identifiers that did not cross are **named**, and **counted**, in the run
+report, in provenance, in a reproducibility bundle and in the methods
+paragraph, so the output being smaller than the input is a recorded fact
+rather than a discrepancy somebody notices six months later. Counted as well
+as named because a conversion that leaves four thousand identifiers behind
+needs a number before it needs four thousand sentences — so the named ones
+stop at twenty, which is enough to see a pattern, and the total carries the
+rest. And its mapping table is a
+typed input, so the table's contents join the cache key and the table's own
+space is checked against the list being mapped — an Entrez table handed to a
+list of symbols is refused before anything runs.
+
+This also makes the conversion the **first edge of the conversion graph**
+([D5](#d5--dimensions-as-types-units-analogy)) rather than a
+special case beside the checker. `liftover` and `rename_contigs` are later
+rows in the same registry: each declares the one axis it crosses and reads its
+destination from the same parameter, and the engine's planned automatic fixes
+are a path search over those rows. See
+[conversions](/project/architecture/conversions/).
+
+### Inference, and three refusals to guess
+
+The space is the one dimension the engine can usually read without being told.
+Six of the seven spaces it recognises carry a marker — a prefix, an
+underscore, a colon, or being digits throughout — and the seventh, `HGNC
+symbol`, carries none, which is why the shapes are tried most specific first
+and the symbol is the fallback. `P04637` reaches `UniProt accession` rather
+than being read as an unusual gene name.
+
+Inference then succeeds only when every identifier in the file resolves to the
+same space, and declines in three cases:
+
+- **a file that mixes two spaces** — precisely the corruption the dimension
+  exists to catch, where taking the majority would hide it;
+- **a file with no rows** — every shape fits all zero identifiers, so an
+  answer would declare a space for a file that names nothing;
+- **a file holding one identifier nothing claims** — `2-Sep` is in no space,
+  and a space declared over such a file would be a claim about names the
+  engine could not read.
+
+Where it declines, the dimension is unknown with a reason. And unlike
+`release`, `subject` and `source_set`, this axis **is** demanded where two
+gene lists are joined: a user can always satisfy it, and two lists that each
+say nothing would otherwise agree by silence, which is the failure itself in
+its purest form.
+
+### A declaration is recorded, not verified
+
+Where the user declares the space, the identifiers are not consulted. That
+looks like a missed check and is deliberate. The catalogue knows seven spaces
+and there are more than seven: a hand-curated resistance panel, a lab's
+internal accessions, a consortium's own numbering are each a real space, named
+in a way the engine has never seen, with the same right to be compared as
+`Ensembl gene` has. If a declaration had to match the catalogue, the dimension
+would be unusable for exactly the in-house truth sets that most need it,
+because those are the files nobody else can validate for you.
+
+So the engine cannot distinguish an unknown-but-correct space from a wrong
+one. What it can do is refuse to connect two sides whose statements disagree,
+and read the space off the file when nothing is declared — which is the
+stronger position wherever the identifiers are recognisable.
+
+### And there is still no alias table
+
+`HGNC symbol` and `HGNC symbols` are two different spaces; so are `Ensembl`
+and `Ensembl gene`. They are reported as a mismatch, on the same grounds that
+keep `human` and `Homo sapiens` apart
+([D37](#d37--organism-is-set-valued)): equating two spellings means guessing
+that they mean the same thing, and a wrong guess passes `check()` in silence.
+Declare one spelling and use it.
+
+### The spreadsheet case
+
+A list of symbols opened in Excel comes back with some of them converted to
+dates: `SEPT7` to `2-Sep`, `MARCH1` to `1-Mar`. This is measured across the
+supplementary files of published genomics papers at rates high enough that
+HGNC renamed the affected gene families to stop it happening.
+
+Such a file **loads**, because it is valid TSV and refusing it would turn a
+format problem into an engine failure
+([D21](#d21--canonicalisation-falls-back-to-the-bytes)).
+What the loader does instead is notice it: `the identifier '2-Sep' is a date,
+not a name`. A note, not an error, because the file is what it is and the fix
+— re-exporting with the column typed as text — belongs to whoever has the
+original. There is no repair option, because `2-Sep` could have been `SEPT7`
+or `SEPT2` and the engine will not guess which gene was meant.
+
+The other corruption, a symbol turned into a date *serial* such as `42615`, is
+deliberately not detected: it is indistinguishable from an Entrez gene ID, and
+a rule that flagged it would report real identifiers as mistakes.

@@ -202,3 +202,14 @@ pub type Release = Label;
 
 /// Who or what the data is about, when that is one named thing.
 pub type Subject = Label;
+
+/// Which identifier space a set of entities is named in.
+///
+/// A [`Label`] because the rule is the same as `release`'s: one name, and a
+/// different name is a different space. It is deliberately not a closed set
+/// of the namespaces the engine recognises — a curated list's own spelling
+/// is a namespace too, and refusing it would make the dimension unusable for
+/// exactly the in-house truth sets that most need it
+/// ([`KnownNamespace`](crate::dim::KnownNamespace) is what inference reads,
+/// not what a declaration is checked against).
+pub type IdentifierNamespace = Label;

@@ -60,6 +60,7 @@ fn spec(name: &str, output: DataKind, arguments: Vec<Argument>) -> StepSpec {
         name: name.to_owned(),
         output,
         coordinates: None,
+        conversion: None,
         arguments,
     }
 }

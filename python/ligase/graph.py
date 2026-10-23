@@ -134,6 +134,10 @@ class Step(Generic[P, R]):
         tools: Those tools as a tuple, whose versions join the cache key.
         coordinates: The coordinate convention the step writes, for the one
             output kind that does not imply one.
+        conversion: The registered conversion this step performs, if it
+            crosses a dimension rather than inheriting it. The target comes
+            from the call rather than from here, read off the parameter the
+            engine names.
         citations: References the step asks to be cited by.
         output: The kind of data the step's return annotation declares, read
             once when the step is defined.
@@ -144,6 +148,7 @@ class Step(Generic[P, R]):
     __slots__ = (
         "_signature",
         "citations",
+        "conversion",
         "coordinates",
         "function",
         "output",
@@ -159,16 +164,20 @@ class Step(Generic[P, R]):
         tool: str | Sequence[str] | None = None,
         coordinates: str | None = None,
         cite: str | Sequence[str] | None = None,
+        conversion: str | None = None,
     ) -> None:
         """Read a function's signature, refusing one a graph cannot use."""
         self.function = function
         self.tool = tool
         self.tools = _tools(tool)
         self.coordinates = coordinates
+        self.conversion = conversion
         self.citations = _citations(cite)
         self._signature = inspect.signature(function)
         self.output = _output_kind(function)
         self.parameters = _parameters(function, self._signature)
+        if conversion is not None:
+            _check_conversion(self.name, conversion, self._signature)
 
     @property
     def name(self) -> str:
@@ -370,6 +379,7 @@ class Pipeline:
                 value.step.output,
                 arguments,
                 value.step.coordinates,
+                _declared_conversion(value),
             )
             value._attach(self._graph, node)
             # A run asks each handle how its output is produced, so the
@@ -808,6 +818,46 @@ class Pipeline:
         return f"<Pipeline {len(self.steps)} steps, {len(self)} nodes>"
 
 
+def _check_conversion(name: str, conversion: str, signature: inspect.Signature) -> None:
+    """Refuse a step that claims a conversion it cannot perform.
+
+    Two things can be wrong, and both are wrong when the step is *written*
+    rather than when a pipeline runs: the conversion may not be one the
+    engine has, and the step may not say where it converts to. The engine
+    owns both answers -- which conversions exist, and what the target
+    parameter is called -- so that the decorator and the graph cannot
+    disagree about them.
+    """
+    try:
+        _core.conversion_axis(conversion)
+    except ValueError as error:
+        raise StepDefinitionError(
+            f"step `{name}` declares conversion={conversion!r}, but {error}"
+        ) from error
+
+    target = _core.conversion_target_parameter()
+    if target not in signature.parameters:
+        raise StepDefinitionError(
+            f"step `{name}` performs the `{conversion}` conversion but takes "
+            f"no `{target}` parameter, so nothing says where it converts to. "
+            f"Add `{target}:` and name the value the output is in"
+        )
+
+
+def _declared_conversion(produced: StepOutput) -> tuple[str, str] | None:
+    """The conversion a call performs, and the target it declared.
+
+    `None` for an ordinary step. For a conversion, the target is read off
+    the call rather than off the step, because one written
+    `map_identifiers` converts to whichever space its `to=` named.
+    """
+    conversion = produced.step.conversion
+    if conversion is None:
+        return None
+    target = _core.conversion_target_parameter()
+    return conversion, str(produced.arguments[target])
+
+
 @overload
 def step(function: Callable[P, R], /) -> Step[P, R]: ...
 
@@ -818,6 +868,7 @@ def step(
     tool: str | Sequence[str] | None = None,
     coordinates: str | None = None,
     cite: str | Sequence[str] | None = None,
+    conversion: str | None = None,
 ) -> Callable[[Callable[P, R]], Step[P, R]]: ...
 
 
@@ -828,6 +879,7 @@ def step(
     tool: str | Sequence[str] | None = None,
     coordinates: str | None = None,
     cite: str | Sequence[str] | None = None,
+    conversion: str | None = None,
 ) -> Step[P, R] | Callable[[Callable[P, R]], Step[P, R]]:
     """Make a function a pipeline step, without ever running it.
 
@@ -854,6 +906,18 @@ def step(
             methods section reports that tool as uncited. A citation never
             joins the cache key — it cannot change a result, so adding one
             must not rerun anything.
+        conversion: The registered conversion this step performs, named as
+            the engine knows it — `"map_identifiers"` is the only one
+            today. A conversion step is the one kind that *crosses* a
+            dimension instead of inheriting it: its output declares the
+            value its call's `to=` names, and every other dimension travels
+            through unchanged. The step must take a `to` parameter, or it
+            has not said where it converts to.
+
+            Ordinary steps leave this alone. It exists so that
+            `lg.map_identifiers` is an entry in the engine's conversion
+            registry rather than a special case in the graph, which is what
+            lets a future `liftover` be another entry.
 
     Returns:
         A `Step`, which a type checker sees as the function it decorated.
@@ -861,7 +925,9 @@ def step(
     Raises:
         StepDefinitionError: If the signature is one a graph cannot use —
             an unannotated parameter, a missing or non-Ligase return
-            annotation, or `*args`/`**kwargs`.
+            annotation, or `*args`/`**kwargs` — or if `conversion` names a
+            conversion the engine does not have, or the step performs one
+            and takes no `to` parameter.
         ValueError: If `coordinates` is not one of the two conventions, or
             a tool was named as an empty string.
     """
@@ -872,7 +938,13 @@ def step(
         )
 
     def decorate(inner: Callable[P, R]) -> Step[P, R]:
-        return Step(inner, tool=tool, coordinates=coordinates, cite=cite)
+        return Step(
+            inner,
+            tool=tool,
+            coordinates=coordinates,
+            cite=cite,
+            conversion=conversion,
+        )
 
     if function is None:
         return decorate

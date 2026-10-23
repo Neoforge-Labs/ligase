@@ -371,11 +371,23 @@ pub const fn required_pair(left: DataKind, right: DataKind) -> &'static [Dimensi
     const REF_AND_SAMPLES: &[Dimension] = &[Dimension::Reference, Dimension::SampleSet];
     const SAMPLES: &[Dimension] = &[Dimension::SampleSet];
     const SAMPLES_AND_PAIRING: &[Dimension] = &[Dimension::SampleSet, Dimension::Pairing];
+    const IDENTIFIERS: &[Dimension] = &[Dimension::IdentifierNamespace];
     const NONE: &[Dimension] = &[];
 
     match (left, right) {
         // A resistance report is the end of the line; it joins nothing.
         (K::ResistanceReport, _) | (_, K::ResistanceReport) => NONE,
+
+        // Two gene lists must each say which space they are named in.
+        // Unlike organism, this is a demand a user can always meet --
+        // declare it, or let the loader read it off the identifiers -- and
+        // unknown on both sides is the false agreement the dimension
+        // exists to break: two lists that say nothing would join happily
+        // and overlap in nothing.
+        (K::EntitySet, K::EntitySet) => IDENTIFIERS,
+        // A gene list and a sequence file share only organism, which is
+        // demanded nowhere, so there is nothing to insist on.
+        (K::EntitySet, _) | (_, K::EntitySet) => NONE,
 
         // Reads carry no reference yet -- introducing one is what `align`
         // does -- so a reference tells us nothing about them.
@@ -429,6 +441,9 @@ fn compare(
         Dimension::Release => a.release.value() == b.release.value(),
         Dimension::Subject => a.subject.value() == b.subject.value(),
         Dimension::SourceSet => a.source_set.value() == b.source_set.value(),
+        Dimension::IdentifierNamespace => {
+            a.identifier_namespace.value() == b.identifier_namespace.value()
+        }
         Dimension::Reference => unreachable(),
     };
     if same {
@@ -507,7 +522,11 @@ fn name_set(dimensions: &Dimensions, dimension: Dimension) -> Option<&NameSet> {
         | Dimension::Pairing
         | Dimension::QualityEncoding
         | Dimension::Release
-        | Dimension::Subject => None,
+        | Dimension::Subject
+        // A namespace is a `Label`, not a `NameSet`: there is no set
+        // difference to point at, and the two value lines say everything
+        // there is to say about one label against another.
+        | Dimension::IdentifierNamespace => None,
     }
 }
 

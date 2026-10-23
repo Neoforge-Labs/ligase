@@ -1,0 +1,164 @@
+---
+title: "My overlap with the published gene set is empty"
+description: "A gene list in one identifier space joined to a table in another. Both files are well formed, the join succeeds, and the intersection is empty or small — which reads as a biological result rather than as a mismatch."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# My overlap with the published gene set is empty
+
+<Lede>
+You have 400 differentially expressed genes. The paper you are comparing
+against has 380. You intersect them and get nine. Both files are valid, the
+merge ran without complaint, and the number is low enough to be interesting —
+so you start writing about poor concordance between platforms, when what you
+have is a list of **symbols** intersected with a list of **Ensembl IDs**.
+</Lede>
+
+## What actually happened
+
+A gene has many names. `TP53` is an HGNC symbol; `ENSG00000141510` is the
+Ensembl gene it corresponds to; `7157` is its Entrez ID; `P04637` is the
+UniProt accession of the protein. `NM_000546` is a RefSeq transcript. Each is
+a correct name for the same piece of biology, and none of them matches any of
+the others as a string.
+
+Nothing in a gene list says which of those spaces it is in. A TSV with a
+column called `id`, or `gene`, or `Gene`, is a column of text. The space is in
+the head of whoever exported it, and in the name of the tool that did —
+`featureCounts` gives you Ensembl IDs, a GEO supplementary table usually
+gives you symbols, a proteomics search gives you accessions.
+
+So the join is a string comparison between two different naming conventions.
+It does not fail. A join of two columns with nothing in common returns the
+rows they have in common, which is none of them, and an empty result is a
+perfectly ordinary thing for a join to produce.
+
+## Why the answer is plausible rather than absurd
+
+If the overlap were exactly zero, you would notice. It usually is not.
+
+Three things put a handful of rows in it. Some identifiers are valid in both
+spaces: a symbol like `C1QA` and an Entrez ID are never confused, but short
+numeric symbols and numeric IDs can collide. Some lists are already mixed,
+because they were assembled from two sources, so a fraction of them match.
+And `2-Sep` is in neither space and matches nothing anywhere.
+
+The result is a small, non-zero overlap. That is the worst possible output: it
+looks like a measurement. A zero would have sent you looking for a bug.
+
+## The spreadsheet makes it worse
+
+Open a list of gene symbols in Excel and it converts some of them to dates.
+`SEPT7` becomes `2-Sep`. `MARCH1` becomes `1-Mar`. `DEC1`, `OCT4`, `MAR1` go
+the same way. Save, and the symbols are gone — not flagged, not quoted,
+replaced.
+
+This is not a rare accident. It has been measured across the supplementary
+files of published genomics papers repeatedly, at rates high enough that HGNC
+eventually renamed the affected gene families to stop it happening. The
+corrupted rows are then absent from every join for the rest of the analysis,
+and because they are absent rather than wrong, nothing downstream has anything
+to object to.
+
+## Why nothing crashed
+
+A merge in pandas, in R, in SQL, or in a shell `join` is a comparison of
+strings. None of those tools has a concept of an identifier *space*, so none
+of them can tell you that the two columns are named in different ones. They
+are not being careless; they have no basis on which to object.
+
+The same is true of the step after the join. A hypergeometric enrichment test
+handed nine overlapping genes computes a p-value for nine overlapping genes.
+It cannot know that the number should have been two hundred.
+
+## What Ligase says
+
+The identifier space is a dimension. A gene list declares it, or the loader
+reads it off the identifiers themselves where they agree unambiguously — and
+two lists in different spaces are refused before anything runs.
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.mixedIdentifiers}</Diagnostic>
+
+Three things are worth noticing.
+
+Neither side was declared. Both say `from the identifiers' own pattern`,
+naming the file: every identifier in the first matches the shape of an HGNC
+symbol and nothing more specific, every identifier in the second matches
+`ENSG` followed by eleven digits, so the loader filled the dimension in and
+said where it got it. You can open the file it names and check.
+
+The two spaces are printed in full, under the names the step binds them to. It
+says `HGNC symbol` and `Ensembl gene`, not "identifier mismatch".
+
+And the closing question sends you to a **step**, not to a setting:
+*add a `map_identifiers` step; identifiers are never renamed implicitly*.
+There is no flag that makes this join work, because going from one space to
+another is a lookup that can fail, and the engine will not do a lookup behind
+your back and keep the failures to itself. That is
+[D38](/project/decisions/#d38--identifier-namespaces-never-coerce).
+
+## How it is caught
+
+Load each list as an `EntitySet`. Nothing is declared here, because the
+identifiers settle it:
+
+```python
+import ligase as lg
+
+mine = lg.entity_set("results/degs.tsv", organism="Homo sapiens")
+published = lg.entity_set("truth/published_set.tsv", organism="Homo sapiens")
+
+# Nothing has run. This reads the two files' identifier columns.
+lg.check_step("score", {"truth": published, "found": mine})
+```
+
+That refuses with the message above. To get the join you wanted, convert —
+which is one step, and which tells you what it could not convert:
+
+```python
+hgnc_to_ensembl = lg.entity_set(
+    "refs/hgnc_to_ensembl.tsv",
+    organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
+    release="HGNC 2026-09",
+)
+
+in_ensembl = lg.map_identifiers(
+    mine,
+    hgnc_to_ensembl,
+    column="ensembl_gene_id",
+    to="Ensembl gene",
+)
+```
+
+`in_ensembl` declares `Ensembl gene`, so it joins `published` and the check
+passes. Every symbol that did not cross — one the table has no row for, one it
+maps to several genes — is named in the run report rather than quietly left
+out. See [crossing identifier spaces](/guide/mapping-identifiers/) for the
+whole worked example.
+
+<Note kind="warning" title="A declaration is recorded, not verified">
+Where you declare `identifier_namespace` yourself, the engine takes your word
+for it and does not look at the identifiers. It has to: it recognises seven
+spaces and there are more than seven, so an in-house list's own spelling is a
+space it has never heard of and must still accept. It therefore cannot tell
+that space from a wrong declaration.
+
+What it can do is refuse to join two lists that disagree, and read the space
+off the file when you leave it unset. Leaving it unset is the stronger
+position where the identifiers are recognisable.
+</Note>
+
+<Note kind="note" title="And the spreadsheet damage is reported">
+A list holding `2-Sep` or `1-Mar` loads, and the loader says what it saw:
+`the identifier '2-Sep' is a date, not a name`. It is a note rather than an
+error, because the file is valid and the fix is yours to make — re-export with
+the column typed as text. It also stops the space being inferred for that
+file, because one identifier the engine cannot place is a file it will not
+guess about. See [what a result rests on](/concepts/notes/).
+</Note>
+
+For why a space is a dimension at all, see
+[identifier spaces](/concepts/identifiers/); for how it sits alongside the
+others, [the dimension catalogue](/reference/dimensions/).

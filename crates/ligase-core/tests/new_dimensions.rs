@@ -38,6 +38,7 @@ fn the_three_axes_are_appended_so_earlier_reports_keep_their_order() {
             "release",
             "subject",
             "source_set",
+            "identifier_namespace",
         ]
     );
 }
@@ -50,14 +51,25 @@ fn every_dimension_round_trips_through_its_name_and_asks_a_question() {
     }
 }
 
+// M7 added these three axes with a kind for `release` alone, and asserted
+// here that nothing else claimed any of them. M8 gives `release` a second
+// kind and `subject` its first: a gene list has a release (which HGNC
+// download named these genes) and a subject (what the list is about). Only
+// `source_set` is still unclaimed, and the obligation to re-examine its
+// deduplication before a kind takes it stays with M10 and M12 (D36).
 #[test]
-fn release_applies_to_a_reference_and_to_nothing_else() {
-    assert!(DataKind::Reference.applies(Dimension::Release));
+fn release_applies_to_a_reference_and_to_a_gene_list() {
     for kind in DataKind::ALL {
-        if kind != DataKind::Reference {
-            assert!(!kind.applies(Dimension::Release), "{kind:?}");
-        }
-        assert!(!kind.applies(Dimension::Subject), "{kind:?}");
+        assert_eq!(
+            kind.applies(Dimension::Release),
+            matches!(kind, DataKind::Reference | DataKind::EntitySet),
+            "{kind:?}"
+        );
+        assert_eq!(
+            kind.applies(Dimension::Subject),
+            kind == DataKind::EntitySet,
+            "{kind:?}"
+        );
         assert!(!kind.applies(Dimension::SourceSet), "{kind:?}");
     }
 }

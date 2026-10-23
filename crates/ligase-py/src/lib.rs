@@ -18,9 +18,10 @@ use pyo3::prelude::*;
 use ligase::audit;
 use ligase::cache::Cache;
 use ligase::check::{Binding, CheckError, check_step as core_check_step, render, summarise};
+use ligase::convert::{self, Conversion};
 use ligase::dim::{CoordinateSystem, Dimension};
 use ligase::exec::{self, Host, Options, Recipe, Stores, Task};
-use ligase::graph::{Argument, Graph, NodeId, StepSpec};
+use ligase::graph::{Argument, Converted, Graph, NodeId, StepSpec};
 use ligase::hivdb;
 use ligase::load::{self, Declared, IntervalFormat, LoadError as CoreLoadError};
 use ligase::note::Note;
@@ -347,6 +348,15 @@ impl PyDataset {
         )
     }
 
+    /// What loading this noticed, as one sentence each.
+    ///
+    /// Rendered here rather than handed over as codes, the way
+    /// `StepRun.notes` already is: the wording belongs to the engine, so
+    /// that every surface says the same thing about the same file.
+    fn notes(&self) -> Vec<String> {
+        self.inner.notes().iter().map(ToString::to_string).collect()
+    }
+
     /// The samples this data covers, in order, if they are known.
     fn samples(&self) -> Option<Vec<String>> {
         Some(
@@ -410,6 +420,62 @@ fn interpret_resistance(
         hivdb::ReportError::Frame(detail) => FrameError::new_err(detail),
         hivdb::ReportError::Other(detail) => PyValueError::new_err(detail),
     })
+}
+
+/// Why a name is not a registered conversion, naming the ones that are.
+///
+/// Built here rather than inline, because the decorator and the graph both
+/// refuse an unknown conversion and a user should get the same sentence
+/// whichever of them catches it.
+fn unregistered(name: &str) -> String {
+    let known: Vec<&str> = Conversion::ALL.iter().map(|entry| entry.name).collect();
+    format!(
+        "`{name}` is not a registered conversion; this engine ships {}",
+        known.join(" and ")
+    )
+}
+
+/// The axis a registered conversion crosses, or an error naming the ones
+/// that exist.
+///
+/// Asked by the step decorator, so that a step claiming a conversion the
+/// engine does not have is refused where it is written.
+#[pyfunction]
+fn conversion_axis(name: &str) -> PyResult<&'static str> {
+    Conversion::by_name(name)
+        .map(|conversion| conversion.axis.name())
+        .ok_or_else(|| PyValueError::new_err(unregistered(name)))
+}
+
+/// The parameter every conversion reads its target from.
+#[pyfunction]
+fn conversion_target_parameter() -> &'static str {
+    Conversion::TARGET
+}
+
+/// Rewrite a gene list's identifiers through a mapping table.
+///
+/// Returns what the conversion noticed, as pairs of a note's code and its
+/// value: what `lg.write` expects a body to hand back, so the engine says
+/// it in the run report, provenance, a bundle and the methods section.
+/// Every identifier that did not cross is named there.
+#[pyfunction]
+fn map_identifiers(
+    entities: PathBuf,
+    id_column: &str,
+    table: PathBuf,
+    table_id_column: &str,
+    column: &str,
+    out: PathBuf,
+) -> PyResult<Vec<(String, String)>> {
+    convert::map_identifiers(&entities, id_column, &table, table_id_column, column, &out)
+        .map(|notes| {
+            notes
+                .iter()
+                .map(|note| (note.code().to_owned(), note.value()))
+                .collect()
+        })
+        .map_err(PyValueError::new_err)
 }
 
 /// Every resistance algorithm this engine ships, newest first.
@@ -487,12 +553,19 @@ fn organisms(organism: Option<Organisms>) -> PyResult<Option<Vec<String>>> {
     Ok(Some(names))
 }
 
-/// A declared release, refusing a blank one as [`organisms`] refuses blank names.
-fn declared_release(release: Option<String>) -> PyResult<Option<String>> {
-    match release {
-        Some(label) if label.trim().is_empty() => Err(PyValueError::new_err(
-            "release was given a blank value; name the release, or leave it out",
-        )),
+/// A declared label, refusing a blank one as [`organisms`] refuses blank names.
+///
+/// One helper for every scalar declaration — `release`, `subject`,
+/// `identifier_namespace` — so there is one message template rather than
+/// three that could drift apart. The core reads a blank as unknown too, but
+/// a user who wrote `release=""`, or `subject=config.get("subject", "")`,
+/// has made a mistake worth naming here, where the message is read, rather
+/// than finding the dimension unexpectedly unknown later.
+fn declared_label(name: &str, value: Option<String>) -> PyResult<Option<String>> {
+    match value {
+        Some(label) if label.trim().is_empty() => Err(PyValueError::new_err(format!(
+            "{name} was given a blank value; name the {name}, or leave it out"
+        ))),
         label => Ok(label),
     }
 }
@@ -511,7 +584,9 @@ fn load_reference(
         build,
         frame,
         samples: None,
-        release: declared_release(release)?,
+        release: declared_label("release", release)?,
+        identifier_namespace: None,
+        subject: None,
     };
     load::reference(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -532,6 +607,8 @@ fn load_alignment(
         frame: None,
         samples,
         release: None,
+        identifier_namespace: None,
+        subject: None,
     };
     load::alignment(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -552,6 +629,8 @@ fn load_variants(
         frame: None,
         samples,
         release: None,
+        identifier_namespace: None,
+        subject: None,
     };
     load::variants(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -572,6 +651,8 @@ fn load_reads(
         samples,
         frame: None,
         release: None,
+        identifier_namespace: None,
+        subject: None,
     };
     load::reads(&r1, r2.as_deref(), &declared)
         .map(|inner| PyDataset { inner })
@@ -600,8 +681,35 @@ fn load_intervals(
         frame: None,
         samples: None,
         release: None,
+        identifier_namespace: None,
+        subject: None,
     };
     load::intervals(&path, format, &declared)
+        .map(|inner| PyDataset { inner })
+        .map_err(to_py)
+}
+
+/// Load a gene or protein list from a TSV with a header.
+#[pyfunction]
+#[pyo3(signature = (path, id_column=None, organism=None, identifier_namespace=None, subject=None, release=None))]
+fn load_entity_set(
+    path: PathBuf,
+    id_column: Option<&str>,
+    organism: Option<Organisms>,
+    identifier_namespace: Option<String>,
+    subject: Option<String>,
+    release: Option<String>,
+) -> PyResult<PyDataset> {
+    let declared = Declared {
+        organism: organisms(organism)?,
+        build: None,
+        frame: None,
+        samples: None,
+        release: declared_label("release", release)?,
+        identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
+        subject: declared_label("subject", subject)?,
+    };
+    load::entity_set(&path, id_column, &declared)
         .map(|inner| PyDataset { inner })
         .map_err(to_py)
 }
@@ -619,6 +727,8 @@ fn load_samples(
         samples: None,
         frame: None,
         release: None,
+        identifier_namespace: None,
+        subject: None,
     };
     load::samples(&paths, paired, &declared)
         .map(|datasets| {
@@ -668,13 +778,19 @@ impl PyGraph {
     }
 
     /// Add a step over nodes that already exist, propagating its output.
-    #[pyo3(signature = (name, output, arguments, coordinates=None))]
+    ///
+    /// `conversion` is the registered conversion this step performs and the
+    /// target its call declared, as `(name, to)`. It is resolved against
+    /// the registry here rather than on the Python side so that the two
+    /// surfaces cannot disagree about which conversions exist.
+    #[pyo3(signature = (name, output, arguments, coordinates=None, conversion=None))]
     fn add_step(
         &mut self,
         name: &str,
         output: &str,
         arguments: Vec<PyArgument>,
         coordinates: Option<&str>,
+        conversion: Option<(String, String)>,
     ) -> PyResult<usize> {
         let output = kind(output)?;
         let coordinates = match coordinates {
@@ -688,6 +804,18 @@ impl PyGraph {
                     known.join(" or ")
                 ))
             })?),
+            None => None,
+        };
+
+        let conversion = match conversion {
+            Some((registered, to)) => {
+                let found = Conversion::by_name(&registered)
+                    .ok_or_else(|| PyValueError::new_err(unregistered(&registered)))?;
+                Some(Converted {
+                    conversion: found,
+                    target: found.target(&to).map_err(PyValueError::new_err)?,
+                })
+            }
             None => None,
         };
 
@@ -707,6 +835,7 @@ impl PyGraph {
                 name: name.to_owned(),
                 output,
                 coordinates,
+                conversion,
                 arguments,
             })
             .map(NodeId::index)
@@ -1127,6 +1256,10 @@ fn version() -> &'static str {
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(load_reference, m)?)?;
+    m.add_function(wrap_pyfunction!(load_entity_set, m)?)?;
+    m.add_function(wrap_pyfunction!(conversion_axis, m)?)?;
+    m.add_function(wrap_pyfunction!(conversion_target_parameter, m)?)?;
+    m.add_function(wrap_pyfunction!(map_identifiers, m)?)?;
     m.add_function(wrap_pyfunction!(load_alignment, m)?)?;
     m.add_function(wrap_pyfunction!(load_variants, m)?)?;
     m.add_function(wrap_pyfunction!(load_reads, m)?)?;

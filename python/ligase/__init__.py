@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from . import _core, hivdb
 from .audit import AuditReport, StepAudit
+from .convert import map_identifiers
 from .errors import (
     CheckError,
     ContigNamingError,
@@ -54,6 +55,7 @@ from .types import (
     Contig,
     Dataset,
     DimensionValue,
+    EntitySet,
     Intervals,
     Reads,
     Reference,
@@ -75,6 +77,7 @@ __all__ = [
     "Dataset",
     "DimensionError",
     "DimensionValue",
+    "EntitySet",
     "InputCheck",
     "Intervals",
     "LoadError",
@@ -108,9 +111,11 @@ __all__ = [
     "alignment",
     "check_step",
     "dimension_errors",
+    "entity_set",
     "handle",
     "hivdb",
     "intervals",
+    "map_identifiers",
     "reads",
     "reference",
     "samples",
@@ -346,6 +351,72 @@ def intervals(
             or its format cannot be told from its name.
     """
     return Intervals(_core.load_intervals(path, format, organism, build))
+
+
+def entity_set(
+    path: str,
+    *,
+    id_column: str = "id",
+    organism: str | Sequence[str] | None = None,
+    identifier_namespace: str | None = None,
+    subject: str | None = None,
+    release: str | None = None,
+) -> EntitySet:
+    """Load a set of genes or proteins from a TSV with a header.
+
+    The first type here that holds no sequence. What it carries instead is
+    the identifier space its names live in, which is the dimension it exists
+    for: a list of HGNC symbols joined to a table of Ensembl IDs overlaps in
+    nothing, and until now nothing said so.
+
+    Args:
+        path: The TSV, optionally gzipped. It must have a header row.
+        id_column: The column holding the identifiers. Every other column is
+            an attribute, carried without being read.
+        organism: The organism these entities belong to. A gene list does
+            not record it. Give a list for data about more than one
+            organism; two sets of organisms are equal when they name the
+            same ones, whatever the order.
+        identifier_namespace: Which space the identifiers are in, such as
+            `HGNC symbol`, `Ensembl gene`, `Entrez gene` or
+            `UniProt accession` -- or whatever an in-house list calls its
+            own spelling, since a curated set's names are a space too.
+
+            Leave it out and the space is read off the identifiers
+            themselves, but only where every one of them matches a single
+            known pattern: a file mixing two spaces, a file with no rows,
+            and a file holding one name the engine cannot place all come
+            back with the dimension unknown rather than guessed. Declared,
+            it is *recorded* rather than checked -- the engine knows seven
+            spaces and there are more than seven, so it cannot tell a space
+            it has never heard of from a wrong declaration.
+        subject: What the list is about when that is one named thing: a
+            disease, a cell line, a cohort. Compared by equality.
+        release: Which release named these entities, such as
+            `HGNC 2026-09` or `Ensembl 110`. Compared by equality, so
+            `HGNC 2026-03` and `HGNC 2026-09` do not match -- which is the
+            point, because a symbol can mean different genes in two
+            releases.
+
+    Returns:
+        The loaded set. Anything the loader noticed about the identifiers --
+        a symbol a spreadsheet has turned into a date, say -- is on `notes`.
+
+    Raises:
+        ValueError: If `organism` names no organism (an empty list, or only
+            blank names), or if `identifier_namespace`, `subject` or
+            `release` is blank.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
+        LoadError: If the file cannot be read, has no header row, has no
+            column named `id_column`, or holds a row its header cannot
+            account for.
+    """
+    return EntitySet(
+        _core.load_entity_set(
+            path, id_column, organism, identifier_namespace, subject, release
+        )
+    )
 
 
 def samples(

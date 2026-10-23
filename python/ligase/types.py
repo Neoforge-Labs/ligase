@@ -22,6 +22,7 @@ __all__ = [
     "Contig",
     "Dataset",
     "DimensionValue",
+    "EntitySet",
     "Intervals",
     "Reads",
     "Reference",
@@ -144,6 +145,19 @@ class Dataset:
         return self._core.unknown_reason(name)
 
     @property
+    def notes(self) -> tuple[str, ...]:
+        """What loading this noticed, as one sentence each.
+
+        Usually empty. A note is not a failure and never stops anything: it
+        is something true of the data that you cannot act on without being
+        told. A gene list is the file this exists for — its symbols can
+        arrive already corrupted by a spreadsheet, which is a fact about the
+        input rather than about any step, so no step's output could report
+        it.
+        """
+        return tuple(self._core.notes())
+
+    @property
     def contigs(self) -> list[Contig] | None:
         """The contigs of the reference this data is on, in file order."""
         contigs = self._core.contigs()
@@ -203,6 +217,22 @@ class ResistanceReport(Dataset):
     __slots__ = ()
 
 
+class EntitySet(Dataset):
+    """A set of genes or proteins, named in one identifier space.
+
+    The first type here that holds no sequence, and the one whose dimension
+    is the commonest silent bug in biology: a list of HGNC symbols joined to
+    a table of Ensembl IDs overlaps in nothing, and nothing says so.
+
+    It has no coordinate system, no contigs, no read pairing and no quality
+    scores. Those are not gaps to be filled in -- a list of gene names has
+    no such properties to have -- so asking for one gets `None` rather than
+    a reason.
+    """
+
+    __slots__ = ()
+
+
 #: Every type a step may annotate, by the name the engine knows it as.
 #:
 #: Annotating a step with anything else is refused when it is decorated,
@@ -216,5 +246,6 @@ KINDS: Mapping[str, type[Dataset]] = MappingProxyType(
         "Variants": Variants,
         "Intervals": Intervals,
         "ResistanceReport": ResistanceReport,
+        "EntitySet": EntitySet,
     }
 )

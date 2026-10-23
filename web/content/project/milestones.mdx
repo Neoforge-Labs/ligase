@@ -133,6 +133,90 @@ accessions and wrong for object keys, and `source_set` gets a type of its own
 if it is to hold the latter
 ([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)).
 
+**Done.** All four clauses, each pinned by a named test.
+
+An `EntitySet` of HGNC symbols and one of Ensembl IDs refuse to join, with
+D38's leading question, in
+`conversions.rs::two_gene_lists_in_different_spaces_refuse_to_join` and in
+`tests/test_conversions.py::test_two_spaces_refuse_to_join_and_say_what_to_do_about_it`.
+The message itself is captured from a real run into
+[my gene-set overlap is empty](/silent-failures/mixed-identifiers/) by a
+`capture_diagnostics.py` scenario, so the page cannot drift from the engine.
+A clause the spec did not ask for is pinned beside it: two gene lists that
+each declare *nothing* are refused too, because
+`identifier_namespace` is in `required_pair` for that pair and two lists
+agreeing by silence is the failure in its purest form.
+
+`map_identifiers` across them succeeds, declares Ensembl and names every
+unmapped symbol, in
+`test_a_mapped_list_declares_ensembl_and_joins_an_ensembl_list` and
+`test_running_it_names_every_symbol_that_did_not_cross`. Two kinds of
+identifier do not cross and both are named rather than dropped: one the table
+has no row for, and one it maps to several targets.
+
+The fixture set includes `SEPT7`-style symbols a spreadsheet has corrupted to
+dates, and the loader notices them —
+`the_loader_notices_a_symbol_excel_turned_into_a_date` and
+`test_the_loader_says_which_symbols_a_spreadsheet_ate`, over
+`entities_excel_dates.tsv`. The detector cost one correction found by test:
+matching a month by prefix read the intact `SEPT7-1` and `MARCH1-2` as dates,
+flagging the very symbols the note exists to report the corruption *of*, so a
+month is now matched in full.
+
+Namespace inference is exercised by fixtures for HGNC, Ensembl, Entrez and
+UniProt, and declines when a file mixes two —
+`a_namespace_is_inferred_from_the_identifiers_themselves`,
+`a_file_that_mixes_two_namespaces_declines_to_infer`, and
+`test_every_namespace_the_catalogue_knows_is_inferred`. It declines in two
+further cases the spec did not name and a user will meet: a file with a header
+and no rows, where every pattern fits all zero identifiers, and a file holding
+one identifier nothing claims.
+
+**The standing requirement is half discharged.** An `EntitySet` claims
+`identifier_namespace`, `subject` and `release`, so each of those axes now has
+its `check.rs::compare` arm and its `graph.rs::propagate` arm pinned —
+`each_axis_an_entity_set_claims_compares_its_own_field` and
+`a_step_over_a_gene_list_carries_every_axis_it_claims`. It claims **no**
+`source_set`, because the feature spec's §4.1 gives it four dimensions and
+that is not among them, so the deduplication question stays open and the
+obligation stays with M10 and M12 below. Nothing in this milestone touches the
+shared set type.
+
+One existing assertion changed, and it is the milestone's point: M7's
+`release_applies_to_a_reference_and_to_nothing_else` said no kind but a
+`Reference` has a release and nothing at all has a subject. Both are now
+false, so it reads
+`release_applies_to_a_reference_and_to_a_gene_list` and still pins that
+`source_set` has no kind.
+
+**What the review caught, and the lesson worth keeping.** A fresh review of
+the finished branch found two paths that produced the very failure the
+milestone exists to break, and both were in the half of the work that *looks*
+like detail.
+
+A ten-character TrEMBL accession — `A0A024R161`, and most of UniProt is
+TrEMBL — fell through the accession shape, which had been written for the
+six-character reviewed form only, and was claimed by the gene-symbol shape
+instead. So a protein list and a gene-symbol list both inferred `HGNC symbol`
+and **agreed**, and the join between them succeeded with an empty overlap:
+D38's own failure, caused by the engine rather than by the user. And a
+many-to-one mapping — a table holding both a deprecated symbol and its
+replacement, with a list holding both — collapsed two entities onto one
+identifier with no note at all, which is the exact mirror of the one-to-many
+case the plan had flagged and tested.
+
+The lesson is that a shape too *narrow* only declines to infer, which is
+inconvenient, while a shape too *broad* claims another space's identifiers,
+which is the silent failure itself; and that a rule written for one direction
+of a mapping needs checking in the other. The catalogue now admits what
+people actually have — versioned Ensembl IDs, mixed-case symbols such as
+`C9orf72`, readthrough symbols, the whole RefSeq prefix set — and
+`the_identifiers_a_biologist_actually_has_resolve_to_their_own_space` is a
+standing table asserting that each resolves to its own space or to nothing,
+never to another's. A CR-only TSV, which Excel for Mac 2011 wrote, had also
+been loading as an empty gene list without a word; it is now read as the rows
+it holds.
+
 ## M9 — Inspect
 `ligase inspect`, generated into [the CLI reference](/reference/cli/) by the
 existing `generate_cli.py`.
