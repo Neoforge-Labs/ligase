@@ -18,6 +18,16 @@
 //! `https:` is the escape hatch for everything else, and it is deliberately
 //! the only one: it says "these exact bytes, from this exact URL", which is
 //! a promise the user makes rather than one the engine makes for them.
+//!
+//! # The one exception, and why it is not a fifth scheme
+//!
+//! A loopback address may be written `http://`. TLS protects a channel
+//! against something sitting in it, and between two ends of a loopback
+//! socket there is no channel to sit in — so requiring it there buys nothing
+//! and costs the ability to run a local server, which is how both the
+//! engine's own tests and anyone's mock of an archive work. The host must be
+//! exactly `127.0.0.1`, `::1` or `localhost`; `http://` to anywhere else is
+//! the error that names the four.
 
 use std::fmt;
 
@@ -145,6 +155,14 @@ impl Locator {
         // `https://` keeps its slashes, because the body is a whole URL; the
         // other three are `scheme:body`.
         if let Some(body) = written.strip_prefix("https://") {
+            return Self::finish(written, Scheme::Https, body);
+        }
+        // Plain HTTP to a loopback address, which is the same scheme by a
+        // different name: see the module documentation for why that is not
+        // a hole.
+        if let Some(body) = written.strip_prefix("http://")
+            && is_loopback(body)
+        {
             return Self::finish(written, Scheme::Https, body);
         }
 
@@ -330,6 +348,23 @@ impl fmt::Display for Locator {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.written)
     }
+}
+
+/// Whether a URL's authority is a loopback address.
+///
+/// Exactly the three spellings of "this machine", because a prefix match
+/// would accept `localhost.example.org`, which is not this machine at all.
+fn is_loopback(after_scheme: &str) -> bool {
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(after_scheme);
+    let host = authority
+        .rsplit_once(':')
+        .map_or(authority, |(host, _)| host)
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    matches!(host, "127.0.0.1" | "::1" | "localhost")
 }
 
 /// The suffix a URL's last path segment implies, dots and all.

@@ -27,9 +27,13 @@
 //!
 //! [`locator`] reads where a remote comes from, out of a closed set of four
 //! schemes. [`fetch`] gets the bytes, through a [`fetch::Transport`] so that
-//! the tests can take the network away.
+//! the tests can take the network away. [`pinned`] resolves a pinned
+//! remote: a store hit whose digest satisfies the declaration needs no
+//! network at all, and a digest that does not match is refused before
+//! anything downstream has run.
 
 pub mod fetch;
 pub mod locator;
+pub mod pinned;
 
 pub use locator::{Locator, LocatorError, SCHEMES, Scheme};

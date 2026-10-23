@@ -32,6 +32,10 @@ rusqlite = { workspace = true }
 ureq = { workspace = true }
 
 [dev-dependencies]
+# A fetched `.fastq.gz` has to be really gzipped for the remote tests to
+# exercise the same path the demo does; already in the tree, so this costs
+# nothing new.
+flate2 = { workspace = true }
 # The tests that pin the scheduler's behaviour queue work on the pool a
 # step is running on, which is what hashing inside a step does (D27).
 rayon = { workspace = true }

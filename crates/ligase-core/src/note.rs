@@ -177,6 +177,18 @@ pub enum Note {
         /// How many, named or not.
         count: u32,
     },
+    /// A remote whose bytes the source rewrote without changing what they
+    /// mean (D39).
+    ///
+    /// NCBI reflows a FASTA or rewords a defline from time to time. The pin
+    /// is over what the file means, so such a rewrite does not break it —
+    /// but a user who is told nothing will not know that the archive has
+    /// started serving different bytes, and that is worth knowing before the
+    /// next change is not cosmetic.
+    RemoteRewritten {
+        /// The locator, as the pipeline wrote it.
+        locator: String,
+    },
     /// Codons read base by base because no read spans them (D31).
     CodonsUnphased {
         /// The gene.
@@ -233,6 +245,7 @@ impl Note {
             Self::GeneBarelyRead { .. } => "gene-barely-read",
             Self::CodonsUnread { .. } => "codons-unread",
             Self::CodonsUnphased { .. } => "codons-unphased",
+            Self::RemoteRewritten { .. } => "remote-rewritten",
             Self::IdentifierIsADate { .. } => "identifier-is-a-date",
             Self::IdentifierUnmapped { .. } => "identifier-unmapped",
             Self::IdentifierAmbiguous { .. } => "identifier-ambiguous",
@@ -252,6 +265,7 @@ impl Note {
     pub fn value(&self) -> String {
         match self {
             Self::SampleIsAFile { sample } => sample.clone(),
+            Self::RemoteRewritten { locator } => locator.clone(),
             Self::ReadingWithoutCoverage => String::new(),
             Self::GeneUnread { gene, depth } => format!("gene={gene} depth={depth}"),
             Self::GeneBarelyRead {
@@ -337,6 +351,9 @@ impl Note {
             "identifiers-did-not-cross" => Some(Self::IdentifiersDidNotCross {
                 count: counted(value, "count")?,
             }),
+            "remote-rewritten" => Some(Self::RemoteRewritten {
+                locator: value.to_owned(),
+            }),
             "codons-unphased" => Some(Self::CodonsUnphased {
                 gene: named(value, "gene")?.to_owned(),
                 unphased: counted(value, "unphased")?,
@@ -378,6 +395,10 @@ impl Note {
             Self::CodonsUnphased { .. } => {
                 "Read a mutation at such a codon as a candidate, and sequence longer reads to \
                  settle it."
+            }
+            Self::RemoteRewritten { .. } => {
+                "Nothing needs doing: the pin still holds. Update it only if you would rather \
+                 pin the new bytes."
             }
             Self::IdentifierIsADate { .. } => {
                 "Export the file again with the identifier column typed as text, or recover the \
@@ -441,6 +462,11 @@ impl Note {
                 "A codon read base by base holds every combination of the alleles the caller \
                  credited at its three bases, so it can name a mutation no single read carries, \
                  which overstates resistance where a phased reading would not."
+            }
+            Self::RemoteRewritten { .. } => {
+                "Nothing downstream moves: the pin is over what the file means, and that is \
+                 unchanged. What has changed is the source's habits, which is worth knowing \
+                 before a change that is not cosmetic arrives."
             }
             Self::IdentifierIsADate { .. } => {
                 "A date is in no identifier space, so this entity matches nothing in any other \
@@ -523,6 +549,11 @@ impl fmt::Display for Note {
                 "{unphased} of {gene}'s codons were read base by base because no read spans \
                  all three of their bases {depth} times over, so a combination of bases no \
                  read carries may be reported there"
+            ),
+            Self::RemoteRewritten { locator } => write!(
+                f,
+                "the source rewrote `{locator}`: its bytes differ from the ones recorded, and \
+                 what it means does not, so the pin still holds"
             ),
             Self::IdentifierIsADate { identifier } => write!(
                 f,

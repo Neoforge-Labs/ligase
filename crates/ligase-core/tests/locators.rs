@@ -104,6 +104,31 @@ fn surrounding_space_is_forgiven() {
 }
 
 #[test]
+fn plain_http_to_a_loopback_address_is_the_https_scheme_by_another_name() {
+    // TLS protects a channel against something sitting in it, and between
+    // two ends of a loopback socket there is nothing to sit in. Requiring
+    // it there would buy nothing and cost the ability to run a local
+    // server, which is how a mock archive works.
+    for attempt in [
+        "http://127.0.0.1:8080/x.fasta",
+        "http://localhost:3000/x.fasta",
+        "http://[::1]:9000/x.fasta",
+    ] {
+        let locator = Locator::parse(attempt).unwrap();
+        assert_eq!(locator.scheme(), Scheme::Https, "{attempt}");
+        assert_eq!(locator.urls().unwrap(), vec![attempt.to_owned()]);
+    }
+}
+
+#[test]
+fn a_host_that_merely_begins_with_localhost_is_not_this_machine() {
+    // `localhost.example.org` resolves wherever its owner says, so a prefix
+    // match on the host would be a hole rather than an exception.
+    assert!(Locator::parse("http://localhost.example.org/x").is_err());
+    assert!(Locator::parse("http://127.0.0.1.example.org/x").is_err());
+}
+
+#[test]
 fn plain_http_is_not_one_of_the_four() {
     // Pinning by digest over a channel anyone can rewrite is a pin that
     // proves nothing about where the bytes came from, only that they hash
