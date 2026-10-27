@@ -97,12 +97,11 @@ compounds double-counts the ones that were duplicated.
 says so; a vendor file does not. Comparing your hits to ChEMBL measures the
 difference between your preparation and theirs, and comes out plausible.
 
-**Stereochemistry, which is the one with a clinical edge.** RDKit's tautomer
-canonicaliser discards stereochemistry at an sp3 centre inside a tautomeric
-system, and a carboxylic acid's alpha-carbon is inside one. So ibuprofen's two
-enantiomers both become `HEFNNWSXXWATRW-UHFFFAOYSA-N`. A tautomer-normalised
-set cannot tell an active enantiomer from an inactive one, and will match
-either against either.
+**Stereochemistry, which is the one with a clinical edge** and has a page of
+its own, because its symptom is the opposite of this one's: RDKit's tautomer
+canonicaliser discards stereochemistry, so two enantiomers become one key and
+an overlap comes back too **large** rather than too small. See [my inactive
+enantiomer came back as a hit](/silent-failures/discarded-stereo/).
 
 ## What Ligase says instead
 

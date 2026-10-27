@@ -110,6 +110,48 @@ fn converting_spec(name: &str, input: NodeId, to: &str) -> StepSpec {
 // ----------------------------------------------------------- registry --
 
 #[test]
+fn the_registry_took_a_python_bodied_entry_without_changing_shape() {
+    // The claim `liftover` will depend on, pinned rather than asserted in
+    // prose. `map_identifiers` is implemented in this crate;
+    // `standardize` is implemented in `ligase.chem`, because computing an
+    // InChIKey needs RDKit and the engine has no chemistry (D49). If the
+    // registry had needed a second shape for that -- a flag, an optional
+    // body, a second table -- it would not be the row-per-conversion
+    // design D5 asked for, and the next two entries would each be a
+    // redesign.
+    //
+    // So: both entries satisfy the *same* contract, and nothing in it
+    // mentions a body. A field added for one of them alone would fail
+    // here.
+    let entries: Vec<&str> = Conversion::ALL.iter().map(|entry| entry.name).collect();
+    assert_eq!(entries, ["map_identifiers", "standardize"]);
+
+    for conversion in &Conversion::ALL {
+        // Found by name, and the only way across its axis.
+        assert_eq!(Conversion::by_name(conversion.name), Some(conversion));
+        assert_eq!(Conversion::across(conversion.axis), Some(conversion));
+        // Converts at least one kind, and says what the user supplies.
+        assert!(!conversion.kinds.is_empty(), "{}", conversion.name);
+        assert!(!conversion.supplies.is_empty(), "{}", conversion.name);
+        // Reads its destination from the one spelling, and refuses a blank
+        // -- two blanks would compare equal, so a conversion that accepted
+        // one would produce two outputs agreeing about being nowhere.
+        assert!(conversion.target("").is_err(), "{}", conversion.name);
+    }
+
+    // And the axis each crosses has a target type, which is the part that
+    // would have needed a new arm rather than a new row. A registry entry
+    // whose axis has none is an error naming the axis, not a panic, so this
+    // asserts the arm exists rather than that the call happens to work.
+    assert!(
+        Conversion::by_name("standardize")
+            .expect("registered")
+            .target("inchikey; salt-stripped")
+            .is_ok()
+    );
+}
+
+#[test]
 fn the_registry_names_the_only_way_across_each_axis_it_covers() {
     for conversion in &Conversion::ALL {
         assert_eq!(Conversion::by_name(conversion.name), Some(conversion));

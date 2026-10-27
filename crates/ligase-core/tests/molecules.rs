@@ -785,3 +785,33 @@ fn standardize_is_registered_across_representation() {
          agree about being in no particular state"
     );
 }
+
+#[test]
+fn stereo_discarded_is_the_only_difference_this_page_is_about() {
+    // The fixture pair behind the silent-failures page, pinned so the page
+    // and the engine cannot drift apart. Both libraries hold the same four
+    // drugs, salt-stripped and neutralised; one of them was also tautomer
+    // normalised, so ibuprofen's stereo layer is gone and its key is
+    // `HEFNNWSXXWATRW-UHFFFAOYSA-N` instead of `...-JTQLQIEISA-N`.
+    //
+    // This is the dangerous direction: two enantiomers collapse onto one
+    // name, so a join matches a pair that is not a pair.
+    let errors = check_step(
+        "score",
+        &[
+            bind("library", molecules("molecules_library.tsv")),
+            bind("hits", molecules("molecules_library_stereo_lost.tsv")),
+        ],
+    );
+    let found: Vec<_> = errors
+        .iter()
+        .filter(|error| error.dimension() == Some(Dimension::Representation))
+        .collect();
+    assert_eq!(found.len(), 1, "got: {errors:#?}");
+
+    let said = found[0].to_string();
+    assert!(
+        said.contains("hits also lists stereo-discarded"),
+        "the one operation that differs is the only part worth reading: {said}"
+    );
+}

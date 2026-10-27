@@ -1,0 +1,154 @@
+---
+title: "My inactive enantiomer came back as a hit"
+description: "A tautomer-normalised compound set cannot tell two enantiomers apart: both become one InChIKey. So a hit matches the wrong substance, the overlap is too large rather than too small, and every file involved is correct."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# My inactive enantiomer came back as a hit
+
+<Lede>
+Your screen flags a compound your assay says is inactive. You check the
+structure in the vendor's catalogue and it is the right molecule. You check
+the key and it matches. What you cannot see is that the key you matched on
+stopped distinguishing the two enantiomers somewhere upstream, so the hit is
+the *other* one — and the one that works is in your set too, under the same
+name.
+</Lede>
+
+## What actually happened
+
+Standardising a compound set usually involves picking one tautomer per
+tautomeric form, so that warfarin's keto and enol forms stop being two
+compounds. That is correct and recommended. RDKit does it with
+`TautomerEnumerator().Canonicalize`.
+
+It also **discards stereochemistry** at an sp3 centre inside a tautomeric
+system. A carboxylic acid's alpha-carbon is inside one. So:
+
+```text
+ibuprofen (S)   C[C@@H](c1ccc(CC(C)C)cc1)C(=O)O   HEFNNWSXXWATRW-JTQLQIEISA-N
+ibuprofen (R)   C[C@H](c1ccc(CC(C)C)cc1)C(=O)O    HEFNNWSXXWATRW-SNVBAGLBSA-N
+
+both, after tautomer normalisation                 HEFNNWSXXWATRW-UHFFFAOYSA-N
+```
+
+Two keys become one. The `JTQLQIEISA` and `SNVBAGLBSA` blocks are the stereo
+layer, and after normalisation there is no stereo layer: `UHFFFAOYSA` is what
+an InChIKey says when there is nothing to say.
+
+This is RDKit behaving as documented, not a bug in it. Nothing was corrupted
+and no file is malformed. What changed is what a name in the file *means*.
+
+## Why this is the dangerous direction
+
+[The other standardisation failure](/silent-failures/mixed-standardisation/)
+makes an overlap too **small**: two sets disagree about one substance, so they
+fail to match where they should. You notice an empty answer eventually.
+
+This one makes an overlap too **large**, and specifically *wrong*. Two
+substances collapse onto one name, so a join matches a pair that is not a
+pair. For a racemic library against a stereo-resolved hit list, every single
+compound matches something — and roughly half of those matches are the
+enantiomer you did not mean.
+
+For a drug set that is not a technicality. Two enantiomers are routinely one
+active compound and one inactive one, and sometimes one drug and one toxin.
+Thalidomide is the example everybody knows; ibuprofen, levodopa,
+esomeprazole and dozens of marketed single-enantiomer drugs are the reason
+anybody resolves a racemate in the first place.
+
+## Why nothing in the file says so
+
+An InChIKey carries its stereo layer *in* the key, so the information is not
+hidden — it is **absent**. `HEFNNWSXXWATRW-UHFFFAOYSA-N` is a complete,
+well-formed key for a molecule with no defined stereochemistry, and a column
+of those is indistinguishable from a column describing genuinely achiral
+compounds. There is nowhere in a table of keys to record that stereochemistry
+was *lost* rather than never present.
+
+And the structure column, if the file has one, agrees with the key: the
+canonical tautomer's SMILES is `CC(C)Cc1ccc(C(C)C(=O)O)cc1`, with the `[C@@H]`
+gone. So the file is internally consistent and externally wrong.
+
+## Why the design was wrong about this
+
+Worth recording, because it was. §4.4 of the v0.2 design specified the
+standardisation state as "salt-stripped, tautomer-normalised,
+charge-neutralised, **stereo kept**" — four things you ask for, with stereo
+among them.
+
+Stereo is not something you keep. It is something tautomer normalisation
+takes, and no option in the design would have brought it back. The
+measurement that found this is on
+[the architecture page](/project/architecture/molecules/); the project's habit
+is to record where a specification was wrong rather than quietly correct it.
+
+So `representation` records `stereo-discarded` as an operation that **was
+applied** — observed, not requested — and the standardiser checks what it did
+against what it was asked for.
+
+## What Ligase says instead
+
+Two libraries alike in every other respect, one of which lost its
+stereochemistry:
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.molecularStereo}</Diagnostic>
+
+One line names the operation, and it is the only part worth reading: the two
+value lines are otherwise identical.
+
+## And the check that stops it at the source
+
+A set only reaches that state by being standardised, so the standardiser
+refuses to produce one that does not admit what it did:
+
+```python
+clean = lg.chem.standardize(library, to="inchikey; tautomer-normalised")
+```
+
+```text
+ValueError: standardising discarded stereochemistry on 418 of 2314 molecules,
+and the state you asked for does not say so. RDKit removes stereochemistry at
+an sp3 centre inside a tautomeric system, and a carboxylic acid's
+alpha-carbon is inside one -- so ibuprofen's two enantiomers both become
+HEFNNWSXXWATRW-UHFFFAOYSA-N. Add `stereo-discarded` to `to=`, so this set
+refuses to join one that still knows which enantiomer it holds, or drop
+`tautomer-normalised` to keep the difference.
+```
+
+You get the count before you choose, and the two choices are real ones:
+
+- **Add `stereo-discarded`.** The set is then honest about what it has lost,
+  and will refuse to join a set that kept the distinction — which is this
+  page's diagnostic, arriving before the join rather than after the
+  conclusion.
+- **Drop `tautomer-normalised`.** You keep the enantiomers apart and lose the
+  tautomer matching.
+
+There is no third option that gives you both, because RDKit does not offer
+one.
+
+<Note kind="caution" title="The reverse is only a note, and that is deliberate">
+Declaring `stereo-discarded` when nothing was discarded is **not** an error.
+It can only cause a refusal you fix by declaring one thing consistently,
+which is recoverable; failing to declare it when stereo *was* lost makes two
+sets agree while one of them has lost the difference between an active
+compound and an inactive one, which is not. The asymmetry is the one the
+project already took for case folding
+([D47](/project/decisions/#d47--a-molecules-identity-is-its-standardisation-not-its-structure)).
+</Note>
+
+## Where it bites hardest
+
+**A racemic library screened against a resolved hit list.** Every compound
+matches, half of the matches are the wrong enantiomer, and the enrichment
+figure is meaningless rather than merely noisy.
+
+**A chiral QSAR model.** Two enantiomers with different measured activities
+become one training example with two labels. The model is being asked to
+learn a contradiction, and will report that this endpoint is hard to predict.
+
+**Deduplicating a catalogue.** A racemate and its resolved forms count as one
+compound, so "unique compounds" is an undercount and nothing says by how
+much.
