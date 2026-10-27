@@ -36,10 +36,13 @@
 
 use std::collections::BTreeSet;
 
+use super::claim::{self, Claim, ClaimCheck, ClaimVerdict, Restated, Unbacked};
 use super::{Prov, ProvError, Record, ReferenceRecord, cite, day};
 use crate::canon::Note;
 use crate::exec::{RunReport, Task};
 use crate::graph::{Graph, NodeId};
+use crate::hash::ContentHash;
+use crate::key::StepKey;
 use crate::types::{Origin, RemoteVerdict};
 
 /// Stands in for a space that must not be broken across lines.
@@ -133,6 +136,28 @@ pub struct Noticed {
     pub note: Note,
 }
 
+/// One result, and the computation that produced it.
+///
+/// Not a duplicate of [`Group`]: a group is a set of nodes *run the same
+/// way* and keeps one representative [`Record`], discarding the other nodes'
+/// keys. A claim binds to a computation (D45), so the keys are what it needs,
+/// and this is where they are kept.
+#[derive(Clone, Debug)]
+pub struct Produced {
+    /// The step's name, as written.
+    pub step: String,
+    /// What tells this node from its siblings, e.g. the sample identifier.
+    pub scope: Option<String>,
+    /// The step key: the identity of the computation.
+    pub key: StepKey,
+    /// The canonical hash of what it produced.
+    pub canonical: ContentHash,
+    /// When the computation happened, which is not when this run was.
+    pub recorded_at: i64,
+    /// The platform it happened on.
+    pub platform: String,
+}
+
 /// Everything needed to write a methods section.
 #[derive(Clone, Debug, Default)]
 pub struct Methods {
@@ -142,6 +167,14 @@ pub struct Methods {
     pub gaps: Vec<Gap>,
     /// What canonicalising the outputs noticed, in graph order (D26).
     pub noticed: Vec<Noticed>,
+    /// Every result this write-up accounts for, in graph order.
+    pub produced: Vec<Produced>,
+    /// Each claim the pipeline declared, and what became of it (D45).
+    ///
+    /// Empty until [`Methods::bind`] is called, and empty afterwards for a
+    /// pipeline that declared none — which is why nothing about an existing
+    /// write-up changes.
+    pub claims: Vec<ClaimCheck>,
     /// The version of Ligase that produced the results.
     pub engine: String,
     /// The platform they were produced on.
@@ -149,6 +182,36 @@ pub struct Methods {
 }
 
 impl Methods {
+    /// Check each of these claims against this write-up (D45).
+    ///
+    /// An operation over the finished write-up rather than an argument to
+    /// [`methods`], because every check a claim needs is against this value:
+    /// the steps it accounts for, the samples they ran on, the parameters and
+    /// tools they recorded, and the keys in [`Self::produced`]. Nothing about
+    /// building a methods section depends on the claims, so nothing about
+    /// building one changes.
+    ///
+    /// Calling it replaces whatever was bound before, so binding an empty
+    /// list is how a pipeline says it declares none.
+    pub fn bind(&mut self, claims: &[Claim]) {
+        self.claims = claims
+            .iter()
+            .map(|claim| claim::check(self, claim))
+            .collect();
+    }
+
+    /// The claims this write-up cannot stand behind.
+    ///
+    /// Contradicted ones included: a number the run positively disagrees
+    /// with is not a number the write-up stands behind.
+    #[must_use]
+    pub fn unbacked(&self) -> Vec<&ClaimCheck> {
+        self.claims
+            .iter()
+            .filter(|check| !check.verdict.is_bound())
+            .collect()
+    }
+
     /// Every tool named by any step, with the version it ran at.
     #[must_use]
     pub fn tools(&self) -> Vec<(String, String)> {
@@ -336,6 +399,25 @@ impl Methods {
             )));
         }
 
+        // The claims, after the reference list and the uncited admission,
+        // because all three are remarks about the write-up rather than
+        // sentences about the science -- and because an unbacked claim is
+        // the same shape of complaint as an uncited tool (D24).
+        //
+        // Nothing at all for a pipeline that declared no claims: a heading
+        // over an empty section is a promise nobody made.
+        if !self.claims.is_empty() {
+            out.push_str("\n\nClaims\n\n");
+            out.push_str(
+                &self
+                    .claims
+                    .iter()
+                    .map(|check| wrap_hanging(&claim_sentence(check)))
+                    .collect::<Vec<_>>()
+                    .join("\n\n"),
+            );
+        }
+
         // Last, and outside the paragraph a reader would paste into a
         // manuscript: this is a remark about the pipeline rather than a
         // sentence about the science.
@@ -407,10 +489,29 @@ impl Methods {
         let total = accounted + missing;
         let noun = if total == 1 { "step" } else { "steps" };
 
-        if missing == 0 {
-            return format!("{total} {noun}, all accounted for.");
+        let mut line = if missing == 0 {
+            format!("{total} {noun}, all accounted for.")
+        } else {
+            format!("{total} {noun}: {accounted} accounted for, {missing} not.")
+        };
+
+        // A second sentence only where there are claims, so a pipeline that
+        // declares none reads exactly as it read before this milestone.
+        if !self.claims.is_empty() {
+            let claims = self.claims.len();
+            let unbacked = self.unbacked().len();
+            let noun = if claims == 1 { "claim" } else { "claims" };
+            line.push(' ');
+            if unbacked == 0 {
+                line.push_str(&format!("{claims} {noun}, all bound."));
+            } else {
+                line.push_str(&format!(
+                    "{claims} {noun}: {} bound, {unbacked} not.",
+                    claims - unbacked
+                ));
+            }
         }
-        format!("{total} {noun}: {accounted} accounted for, {missing} not.")
+        line
     }
 }
 
@@ -544,6 +645,7 @@ pub fn methods(
     let mut groups: Vec<Group> = Vec::new();
     let mut gaps: Vec<Gap> = Vec::new();
     let mut noticed: Vec<Noticed> = Vec::new();
+    let mut produced: Vec<Produced> = Vec::new();
 
     // Graph order, so the paragraph reads in the order the pipeline runs.
     for result in &report.results {
@@ -572,6 +674,17 @@ pub fn methods(
                 note: note.clone(),
             });
         }
+
+        // One row per result rather than per group, because this is what a
+        // claim binds to and a group keeps only its first node's key.
+        produced.push(Produced {
+            step: record.step.clone(),
+            scope: scope_of(node),
+            key: result.key,
+            canonical: record.output_canonical,
+            recorded_at: record.recorded_at,
+            platform: record.platform.clone(),
+        });
 
         let template = template_of(node);
         let seed = seed_of(node);
@@ -618,6 +731,10 @@ pub fn methods(
         groups,
         gaps,
         noticed,
+        produced,
+        // Filled by `Methods::bind`, which the caller holding the claims
+        // calls. Nothing about building a write-up depends on them.
+        claims: Vec::new(),
         engine,
         platform,
     })
@@ -695,8 +812,178 @@ fn restating(record: &Record, scope: Option<&str>, seed: Option<&str>) -> Vec<St
         .collect()
 }
 
+/// What a write-up says about one claim.
+///
+/// The claim's own sentence first and in quotes, because that is what a
+/// reader greps the write-up for: they have the manuscript open beside it.
+fn claim_sentence(check: &ClaimCheck) -> String {
+    let claim = &check.claim;
+    let step = &claim.step;
+
+    match &check.verdict {
+        ClaimVerdict::Bound => {
+            let mut sentence = format!("\"{}\" rests on `{step}`", claim.text);
+            match check.bound.as_slice() {
+                // One computation, so its key belongs in the sentence.
+                [only] => {
+                    if let Some(scope) = &only.scope {
+                        sentence.push_str(&format!(" ({scope})"));
+                    }
+                    sentence.push_str(&restated_clause(claim));
+                    sentence.push_str(&format!(
+                        ", at key {}, recorded {} on {}.",
+                        short(&only.key),
+                        day(only.recorded_at),
+                        only.platform
+                    ));
+                }
+                bound => {
+                    let scopes: Vec<String> =
+                        bound.iter().filter_map(|row| row.scope.clone()).collect();
+                    sentence.push_str(&format!(
+                        " on {}",
+                        counted(bound.len(), &scopes, Some("sample"))
+                    ));
+                    sentence.push_str(&restated_clause(claim));
+                    // Every key, because naming beats counting (D15) and a
+                    // reviewer checking one sample needs that sample's.
+                    let keys: Vec<String> = bound
+                        .iter()
+                        .map(|row| match &row.scope {
+                            Some(scope) => format!("{scope} at {}", short(&row.key)),
+                            None => short(&row.key),
+                        })
+                        .collect();
+                    sentence.push_str(&format!(". Keys: {}.", keys.join(", ")));
+                }
+            }
+            sentence
+        }
+        ClaimVerdict::Contradicted { stated, recorded } => {
+            let (what, held) = match &claim.restates {
+                Some(Restated::Parameter { name, .. }) => (
+                    format!("{name}{KNIT}={KNIT}{stated}"),
+                    format!("{name}{KNIT}={KNIT}{recorded}"),
+                ),
+                Some(Restated::Tool { name, .. }) => {
+                    (format!("{name} {stated}"), describe_tool(name, recorded))
+                }
+                // Unreachable: nothing is compared without a restatement.
+                None => (stated.clone(), recorded.clone()),
+            };
+            format!(
+                "\"{}\" states {what}, and `{step}` ran with {held}. One of \
+                 the two is wrong, and this write-up cannot tell you which.",
+                claim.text
+            )
+        }
+        ClaimVerdict::Unbacked(why) => {
+            format!(
+                "\"{}\" has nothing behind it: {}",
+                claim.text,
+                why_of(claim, why)
+            )
+        }
+    }
+}
+
+/// The clause naming the value a claim restates, as the run recorded it.
+fn restated_clause(claim: &Claim) -> String {
+    match &claim.restates {
+        Some(Restated::Parameter { name, value }) => {
+            format!(", where {name}{KNIT}={KNIT}{value} as this claim states")
+        }
+        Some(Restated::Tool { name, version }) => {
+            format!(", which ran {name} {version} as this claim states")
+        }
+        None => String::new(),
+    }
+}
+
+/// Why nothing stands behind a claim, and what to do about it.
+///
+/// Each reason names what there *was*, for the reason the check and run
+/// reports name their samples (D15): a reader who has to go and find out
+/// which steps exist has a shorter report rather than a better one. And each
+/// names what the claim asked for, so the two can be read side by side
+/// without going back to the pipeline file.
+fn why_of(claim: &Claim, why: &Unbacked) -> String {
+    let step = &claim.step;
+    match why {
+        Unbacked::NoSuchStep { produced } => format!(
+            "nothing in this pipeline produces `{step}`. It produces {}. \
+             Name the step that produces this number, or drop the claim.",
+            join_names(&quoted(produced))
+        ),
+        Unbacked::NoRecord => format!(
+            "`{step}` is in the cache from a run that recorded no provenance, \
+             so nothing is known about how this number was produced. \
+             `ligase run --force` runs it again and records it."
+        ),
+        Unbacked::NoSuchScope { ran_on } => {
+            let wanted = claim.scope.as_deref().unwrap_or("");
+            match ran_on.as_slice() {
+                // A step with one node has no scope at all: the graph gives
+                // one only where something tells siblings apart (D15). So
+                // the answer is not "it ran on nothing" but "there is
+                // nothing here to name", and a claim on such a step should
+                // drop its sample rather than correct it.
+                [] => format!(
+                    "`{step}` ran once and nothing tells its nodes apart, so \
+                     there is no sample called `{wanted}` or anything else. \
+                     Drop the sample from this claim."
+                ),
+                ran_on => format!(
+                    "`{step}` ran on no sample called `{wanted}`. It ran on {}.",
+                    join_names(&quoted(ran_on))
+                ),
+            }
+        }
+        Unbacked::NoSuchParameter { takes } => {
+            let wanted = match &claim.restates {
+                Some(Restated::Parameter { name, .. }) => format!(" `{name}`"),
+                _ => String::new(),
+            };
+            match takes.as_slice() {
+                [] => format!("`{step}` takes no parameters at all."),
+                takes => format!(
+                    "`{step}` takes no parameter{wanted}. It takes {}.",
+                    join_names(&quoted(takes))
+                ),
+            }
+        }
+        Unbacked::NoSuchTool { ran } => {
+            let wanted = match &claim.restates {
+                Some(Restated::Tool { name, .. }) => format!(" called `{name}`"),
+                _ => String::new(),
+            };
+            match ran.as_slice() {
+                [] => format!("`{step}` ran no external tool at all."),
+                ran => format!(
+                    "`{step}` ran no tool{wanted}. It ran {}.",
+                    join_names(&quoted(ran))
+                ),
+            }
+        }
+    }
+}
+
+/// Names in backticks, as a sentence about code writes them.
+fn quoted(names: &[String]) -> Vec<String> {
+    names.iter().map(|name| format!("`{name}`")).collect()
+}
+
+/// A key as a sentence names one: enough to find it, not the whole 64.
+///
+/// Sixteen hex characters is 64 bits, which is more than enough to identify
+/// one computation among a pipeline's own and short enough to read aloud.
+/// The whole key is in the bundle's `claims.tsv`.
+fn short(key: &StepKey) -> String {
+    key.to_hex().chars().take(16).collect()
+}
+
 /// A rendered value with one layer of surrounding quotes removed.
-fn unquote(value: &str) -> &str {
+pub(super) fn unquote(value: &str) -> &str {
     for quote in ['\'', '"'] {
         if let Some(inner) = value
             .strip_prefix(quote)

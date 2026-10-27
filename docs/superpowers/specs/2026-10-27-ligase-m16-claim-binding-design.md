@@ -336,11 +336,29 @@ Named as a boundary on the architecture page, not papered over.
 
 **Rust** (`crates/ligase-core/src/prov/claim.rs`, new; `methods.rs` extended):
 
-- `prov::Claim { text, step, scope, parameter, tool, value }` — the declaration.
-- `prov::ClaimCheck { claim, verdict, key, canonical, recorded_at, platform }`.
+- `prov::Claim { text, step, scope, restates: Option<Restated> }`, where
+  `Restated` is `Parameter { name, value } | Tool { name, version }`. A sum
+  type rather than three optional fields, so the core **cannot hold** a claim
+  that restates both a parameter and a tool. The Python surface is flat
+  (`parameter=`, `tool=`, `value=`) because that is how a user writes one, and
+  its `__post_init__` is the one place the incoherent combinations are
+  refused.
+- `prov::ClaimCheck { claim, verdict, bound: Vec<Bound> }`, with
+  `Bound { scope, key, canonical, recorded_at, platform }` — one row per
+  computation, because an unscoped claim over a four-sample step is bound to
+  four of them.
 - `prov::ClaimVerdict::{ Bound, Unbacked(Unbacked), Contradicted { stated, recorded } }`.
-- `prov::methods()` gains a `claims: &[Claim]` argument.
-- `Methods::claims`, and its sections in `text()` and `summary()`.
+- `Methods::produced: Vec<Produced>` — every result the write-up accounts for,
+  one row per node with its key, output hash, date and platform. Not a
+  duplicate of `groups`: a `Group` keeps one representative `Record` and
+  discards the other nodes' keys, and a claim binds to a computation.
+- `Methods::bind(&mut self, claims: &[Claim])`, which fills `Methods::claims`.
+  **Not** a new argument to `prov::methods()`: every check a claim needs is
+  against the `Methods` value itself, so binding is an operation over the
+  built write-up rather than part of building it — and `methods()`' eleven
+  existing call sites keep working unchanged, which clause 10 is about.
+- `Methods::claims`, `Methods::unbacked()`, and their sections in `text()` and
+  `summary()`.
 
 **Bindings** (`crates/ligase-py/src/lib.rs`): `PyClaim` in, `PyClaimCheck` out,
 carried in `PyMethods` as a tenth element.
