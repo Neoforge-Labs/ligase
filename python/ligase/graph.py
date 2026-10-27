@@ -38,7 +38,10 @@ from . import _core
 from .audit import AuditReport, StepAudit
 from .errors import CheckError, StepDefinitionError, build
 from .provenance import (
+    BoundTo,
     Bundle,
+    Claim,
+    ClaimCheck,
     InputCheck,
     Methods,
     MethodsGap,
@@ -92,6 +95,19 @@ _Task = tuple[
 #: inputs by parameter name. It hands back what it noticed about its own
 #: work, which is almost always nothing.
 _Callback = Callable[[str, list[tuple[str, list[str]]]], list[Noticed]]
+
+#: One claim as the engine takes it: the sentence, the step, the sample, the
+#: parameter it restates, the tool it restates, the value it gives either.
+_Claim = tuple[str, str, str | None, str | None, str | None, str | None]
+
+#: One computation a claim rests on: sample, key, canonical hash, when that
+#: computation happened, where.
+_BoundTo = tuple[str | None, str, str, int, str]
+
+#: One claim as the engine reports it: the claim, the verdict, the sentence
+#: the write-up prints, what was recorded where it disagrees, the
+#: computations it rests on.
+_ClaimCheck = tuple[_Claim, str, str | None, str | None, list[_BoundTo]]
 
 #: A bundle as the engine reports it: where it is, what is in it, how many
 #: steps it accounts for, how many it could not.
@@ -346,9 +362,14 @@ class Pipeline:
     signatures and from the dimensions the inputs were loaded with.
     """
 
-    __slots__ = ("_graph", "_handles", "_outputs", "_roots")
+    __slots__ = ("_claims", "_graph", "_handles", "_outputs", "_roots")
 
-    def __init__(self, outputs: Dataset | Iterable[Dataset]) -> None:
+    def __init__(
+        self,
+        outputs: Dataset | Iterable[Dataset],
+        *,
+        claims: Sequence[Claim] = (),
+    ) -> None:
         """Build the graph that produces these outputs.
 
         Args:
@@ -356,6 +377,14 @@ class Pipeline:
                 `samples.map(...)` returns. A type checker sees handles as
                 the data types their steps return, which is how a mis-wired
                 pipeline is caught before `check()` ever runs.
+            claims: Numbers or phrases a paper states, each naming the step
+                that produced it. They are read when the pipeline is written
+                up and at no other time: a claim is in no cache key, so
+                editing one reruns nothing, and a claim can never make
+                `check()` fail — a pipeline whose write-up names a renamed
+                step is not a pipeline that must refuse to run. `ligase
+                methods` finds them here, which is why they are declared on
+                the pipeline rather than passed to `methods()`.
 
         Raises:
             ValueError: If no outputs were given.
@@ -364,6 +393,7 @@ class Pipeline:
         """
         self._graph = _core.Graph()
         self._handles: dict[int, StepOutput] = {}
+        self._claims: tuple[Claim, ...] = tuple(claims)
         self._outputs: list[object] = list(_as_outputs(outputs))
         if not self._outputs:
             raise ValueError(
@@ -416,6 +446,11 @@ class Pipeline:
     def steps(self) -> tuple[str, ...]:
         """The steps this pipeline runs, in dependency order."""
         return tuple(self._graph.step_names(self._roots))
+
+    @property
+    def claims(self) -> tuple[Claim, ...]:
+        """The claims this pipeline declares, as they were written."""
+        return self._claims
 
     def report(self) -> Report:
         """Check every step and return everything found, without raising."""
@@ -712,6 +747,7 @@ class Pipeline:
                 None if verify is None else str(verify),
                 [str(path) for path in include],
                 thin,
+                [_declared(claim) for claim in self._claims],
             ),
             jobs,
         )
@@ -722,6 +758,7 @@ class Pipeline:
             references,
             citations,
             uncited,
+            claims,
             engine,
             platform,
             summary,
@@ -777,6 +814,7 @@ class Pipeline:
             ],
             citations=list(citations),
             uncited=list(uncited),
+            claims=[_checked(check) for check in claims],
             engine=engine,
             platform=platform,
             summary=summary,
@@ -1229,6 +1267,53 @@ def _citations(cite: str | Sequence[str] | None) -> tuple[str, ...]:
             message = "a citation cannot be blank"
             raise ValueError(message)
     return references
+
+
+def _declared(claim: Claim) -> _Claim:
+    """One claim as the engine takes it.
+
+    Flat on both sides of this boundary, and a sum type beyond it: the engine
+    cannot hold a claim that restates both a parameter and a tool, and
+    `Claim.__post_init__` has already refused one that tried.
+    """
+    return (
+        claim.text,
+        claim.step,
+        claim.scope,
+        claim.parameter,
+        claim.tool,
+        claim.rendered,
+    )
+
+
+def _checked(check: _ClaimCheck) -> ClaimCheck:
+    """One claim as the engine reported it."""
+    (text, step, scope, parameter, tool, value), verdict, reason, recorded, bound = (
+        check
+    )
+    return ClaimCheck(
+        claim=Claim(
+            text=text,
+            step=step,
+            scope=scope,
+            parameter=parameter,
+            tool=tool,
+            value=value,
+        ),
+        verdict=verdict,
+        reason=reason or "",
+        recorded=recorded,
+        bound=[
+            BoundTo(
+                scope=held,
+                key=key,
+                canonical=canonical,
+                recorded_at=recorded_at,
+                platform=platform,
+            )
+            for held, key, canonical, recorded_at, platform in bound
+        ],
+    )
 
 
 def _bundle(written: _Bundle | None) -> Bundle | None:

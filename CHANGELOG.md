@@ -7,7 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Claim binding: a number in a paper, bound to the computation behind it.**
+  `lg.Claim` names a sentence a manuscript states and the step that produced
+  it, declared on the `Pipeline` beside the outputs it is about, and
+  `ligase methods` reports what the run has to say about each one — `bound`,
+  `unbacked` or `contradicted`.
+
+  The asymmetry it closes: the engine already names an uncited tool rather
+  than omitting it (D24), names a sample identifier that is really a file
+  name (D26), and names a step whose production it cannot account for. Three
+  instances of one promise, that the record names what it cannot account for.
+  The number in the paper was the one thing it could not account for and
+  never mentioned, because nothing had told it what that number was.
+
+  ```python
+  pipe = lg.Pipeline(
+      call(hxb2, min_freq=0.05),
+      claims=[
+          lg.Claim(
+              "variants were called above 1% allele frequency",
+              step="call",
+              parameter="min_freq",
+              value=0.01,
+          ),
+      ],
+  )
+  ```
+
+  The threshold moved and the sentence did not, so the write-up states both
+  numbers and `ligase methods` exits non-zero. An unbacked or contradicted
+  claim raises the exit code where an uncited tool does not — an uncited tool
+  is a stated absence you cite by hand, and a number the analysis does not
+  support is a finding. CI is the only place a drifting manuscript is caught.
+
+  Five checks keep the declaration from being prose: the step is one the
+  write-up accounts for, the sample is one it ran on, the parameter or tool
+  it restates is one the record holds, the value agrees, and a step that is
+  only a methods gap stops the chain — a claim resting on a step nothing is
+  known about rests on nothing. Each failure names what there *was*, so a
+  renamed step, a dropped sample, a renamed parameter and a swapped tool are
+  four one-line fixes rather than one hunt. The claim's *text* is never
+  checked and cannot be, which is why the sentence and the value are separate
+  fields: a paper writes 1% and a pipeline holds 0.01, and comparing them
+  would be a guess about arithmetic in English.
+
+  A claim binds to the **computation**, not the occasion (D45). The key is
+  already the identity of a computation, so a step served from the cache
+  backs its claim completely and the date reported is when that computation
+  happened — which may be long before the run that wrote the paper up.
+  Binding only what the current run recomputed would make
+  `ligase methods --force` the only honest way to write up a paper. And a
+  claim is in no cache key, so editing a manuscript reruns nothing: a
+  mechanism costing a re-alignment per draft would not be kept current.
+
+  Claims travel in the bundle as `claims.tsv`, one row per computation with
+  the whole key, including the unbacked ones — the same promise the methods
+  paragraph makes about a step it cannot account for. `pyproject.toml`,
+  `Cargo.toml` and the dependency tree are untouched.
+
+  What the engine does **not** do: read a number out of your output file. It
+  could do that for the formats it knows and would have to skip the rest,
+  which is some numbers verified and the others silently waved through. A
+  claim with a value is compared; a claim without one is bound to a key, a
+  hash and a date, and the documentation says which is which.
+
+  New public names: `Claim`, `ClaimCheck`, `BoundTo`, `Methods.claims`,
+  `Methods.unbacked`, the verdict constants, and `claims=` on `Pipeline`.
+  See [a number in a paper](https://ligase.neoforgelabs.tech/concepts/claims/),
+  [binding a number you published](https://ligase.neoforgelabs.tech/guide/claims/)
+  and [the internals](https://ligase.neoforgelabs.tech/project/architecture/provenance/#claims).
+
 ### Changed
+
+- **`Methods.accounted_for` covers claims as well as gaps.** It was
+  `not self.gaps` and is now `not self.gaps and not self.unbacked`. A
+  write-up that states a number the analysis does not support has a hole in
+  it, whatever else is complete, and a property with that name returning
+  `True` for one would be making the engine's own promise falsely. Nothing
+  changes for a pipeline that declares no claims — including the methods
+  text and summary, which are byte-identical, since a heading over an empty
+  section is a promise nobody made.
 
 - **The README explains the project rather than announcing it.** It had a
   paragraph of premise, a status line and an install command, and not one

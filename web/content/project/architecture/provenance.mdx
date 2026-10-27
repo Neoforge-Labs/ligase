@@ -13,10 +13,18 @@ Three pieces, each answering a different question:
 |---|---|
 | `prov/mod.rs` | What was recorded about how a step ran? |
 | `prov/methods.rs` | What would I write in a paper? |
+| `prov/claim.rs` | What is behind a number I already wrote? |
 | `prov/bundle.rs` | Would someone else get the same thing? |
 | `prov/cite.rs` | Who do I credit for this tool? |
 
+The third runs the opposite way from the others, which is the point: the rest
+of this module answers *how was this result produced*, and `claim.rs` answers
+*what produced this number*.
+
 ## The store
+
+A claim is read at write-up time and stored nowhere, so it adds no table to
+the store below and no column to the ones that are there.
 
 `provenance.sqlite`, in the cache directory and **not** in `cache.sqlite`.
 One row per step key in `produced`, with four child tables —
@@ -167,12 +175,195 @@ A node whose key has no record becomes a `Gap`, reported by name with
 `ligase run --force` as the remedy. Nothing can reconstruct such a command,
 which is exactly the trade D22 made.
 
+## Claims
+
+`prov/claim.rs`, reached through `Methods::bind`.
+
+### Why the engine owes this and not more
+
+The feature was specified in three sentences and the first design question
+was whether it belonged at all. The obvious test to apply is
+[D35](/project/decisions/#d35--a-kind-must-bring-a-dimension-that-catches-a-documented-silent-failure),
+and applying its *letter* here would be a category error — and a convenient
+one. D35 asks a **kind** to bring a dimension. Claim binding is not a kind
+and brings no dimension; neither does `ligase audit`, the bundle, early
+cutoff or the citation table, and each of those is load-bearing.
+
+So what it was held to is the reasoning D35 rests on: **does it catch a
+documented silent failure that passes unremarked today, and is the engine
+already holding what it needs to catch it?**
+
+It is. D24 names an uncited tool, D26 names a field that cannot be dropped,
+and a `Gap` names a step nothing is known about — three instances of one
+promise, that the record names what it cannot account for. The number in the
+paper was the one thing the record could not account for and did not mention.
+This is the fourth instance of an existing promise rather than a new
+capability, which is also why it cost no new store, no new dimension and no
+new dependency.
+
+### `Methods::bind`, and not an argument to `methods`
+
+Every check a claim needs is against the `Methods` value itself: the steps it
+accounts for, the samples they ran on, the parameters and tools their records
+hold, and the keys in `Methods::produced`. Nothing about *building* a methods
+section depends on the claims, so binding is an operation over the finished
+write-up — which is why `prov::methods`' eleven existing call sites are
+untouched and why a pipeline declaring no claims produces byte-identical
+text.
+
+### `Methods::produced`
+
+A `Group` is a set of nodes run the same way and keeps **one** representative
+`Record`, discarding the other nodes' keys. A claim binds to a computation,
+so the keys are exactly what it needs — and that is the field. It is not a
+duplicate of `groups`; it is the thing grouping was throwing away.
+
+An unscoped claim over a four-sample step therefore has four `Bound` rows,
+one per key. That is the honest answer to *what is behind this number*, where
+binding it to the group's representative key would have named one sample's
+computation and implied it covered four.
+
+### The five checks and the three verdicts
+
+In order, each failing to `Unbacked` with its own reason: the step is one the
+write-up accounts for; the sample, where one is named, is one that step ran
+on; something is known about how it was produced (a step that is only a `Gap`
+stops here); the parameter or tool it restates is one the record holds; and
+the value agrees.
+
+The last one fails to `Contradicted` rather than `Unbacked`, because it is
+the stronger statement: the claim *is* bound, to a computation that
+contradicts the paper. Both numbers are printed and the write-up does not say
+which is wrong, since it cannot know whether the manuscript or the pipeline
+is the thing that should move.
+
+`Unbacked` has five variants rather than one flag. A renamed step, a dropped
+sample, a renamed parameter and a swapped tool are four ordinary edits with
+four different one-line fixes, and a complaint that merely said *unbacked*
+would send a reader looking for all four. Each names what there **was**, for
+the reason the check and run reports name their samples
+([D15](/project/decisions/#d15--an-error-identifies-its-node-not-just-its-step)).
+
+One case the tests pinned and the design had not foreseen: a step with a
+single node has **no scope at all**, because `Graph::scopes` gives one only
+where something tells siblings apart. So a claim naming a sample of such a
+step is told there is nothing there to name, and advised to drop the sample
+rather than to correct it.
+
+### A sum type in the core, flat at the surface
+
+`Restated` is `Parameter { name, value } | Tool { name, version }`, so a
+claim that restates both **cannot be constructed**. Python's `Claim` is flat
+— `parameter=`, `tool=`, `value=` — because that is how a person writes one,
+and `__post_init__` is the single place an incoherent combination is refused:
+both names, a value with neither, or either with no value. Each of those is a
+declaration with nothing behind it, and M13's rule is that a declaration
+nothing can check is a comment.
+
+### Comparing a tool version
+
+`version_states` is textual and never numeric, and three tools this project
+runs each break equality in a different way:
+
+| Tool | `--version` prints | Why equality fails |
+|---|---|---|
+| `samtools` | `samtools 1.24` | its own name is in the string |
+| `python3` | `Python 3.15.0` | a name that is **not** the invoked name |
+| `minimap2` | `2.31-r1287` | a build suffix a paper would omit |
+
+So the stated version is tried against the whole first line and against each
+way of trimming a leading name off it — the tool's own name, or everything
+before the first digit — and one match is enough. That generosity is safe
+only because of the rule that does the work: a prefix must end at a
+**component boundary**, so `2.4` does not claim `2.41`. A version line with
+no digit in it is left whole, which is why a claim against `bwa`'s
+`[main] unrecognized command '--version'` banner — the string D42 found the
+engine recording as a version — is wrong rather than accidentally right.
+
+The `python3` case was found by a test, not by design: the first
+implementation stripped only the tool's own name and called a correct claim
+contradicted.
+
+### `MethodsGap` keeps its shape
+
+§5.6 of the v0.2 spec says claim binding "extends `Methods` and
+`MethodsGap`". The first it does. The second it deliberately does not, and
+the reason is worth recording because the literal reading was available and
+cheaper.
+
+A `MethodsGap` is `(step, scopes, nodes)`. A claim has no `nodes` — it is one
+sentence, not a count of graph nodes — one `scope` rather than a list, and
+five distinguishable reasons where a step's gap has one. Forcing a claim
+through that shape would mean a `nodes` column that is always 1 and means
+nothing, a `scopes` list always of length 0 or 1, and a reason with nowhere
+to live: a record whose columns are not true, which is the one thing a
+provenance store may not be.
+
+So what extends is the **gap-reporting that `MethodsGap` stands for** — same
+section, same consequence, same promise — in a type honest about what a claim
+is. Every existing use of `MethodsGap` is untouched.
+
+### An unbacked claim is a finding; an uncited tool is not
+
+`ligase methods` exits non-zero on a gap and not on an uncited tool, and the
+distinction is sound: an uncited tool is a stated absence with nothing wrong
+behind it, and a gap is a hole in the record. An unbacked claim is worse than
+a gap — a number in a paper the analysis does not support — and a
+contradicted one worse again. Both raise the exit code; a bound one does not.
+CI is the only place a drifting manuscript is actually caught, so this is
+what makes a claim enforceable.
+
+For the same reason `Methods.accounted_for` widened from `not gaps` to `not
+gaps and not unbacked`. A property with that name returning `True` for a
+write-up that states an unsupported number would be making the engine's own
+promise falsely.
+
+### What claims deliberately do not do
+
+**No number is read out of an output.** The engine does not open a VCF and
+count its rows. It could do so for the formats it knows and would have to
+skip the rest, which is the lenient-canonicalisation failure
+[`canon`'s own module comment](/project/architecture/canonicalisation/)
+warns about: some numbers verified, the others silently waved through. A
+claim with a value is compared; a claim without one is bound to a key, a hash
+and a date, and the pages say which is which.
+
+**A claim's text is never checked.** It cannot be. If `min_freq` moves and
+the claim states its value, check 5 catches it; if the claim states only a
+sentence, the key in the write-up and in `claims.tsv` is what a reviewer
+compares.
+
+**No claim verdict in `verify`.** A claim names a key, and whether that key's
+result still reproduces elsewhere is what `results.tsv`'s verdict already
+says. A parallel verdict path would duplicate that comparison in a second
+place that could disagree with the first.
+
+**A note behind a bound claim is not surfaced on the claim.** D26's notes are
+already reported in their own section of the same write-up, and linking the
+two would be a fourth verdict for a connection a reader makes anyway.
+
+**No claim reaches a cache key, and no claim can fail `check()`.** Both halves
+of [D45](/project/decisions/#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it).
+A claim in a key would mean editing a manuscript reruns the aligner;
+`check()` is about dimensions, and a write-up naming a renamed step is not a
+pipeline that must refuse to run.
+
 ## The bundle
 
 `prov::bundle::write` takes a `Request` and produces a directory. Seven flat
 TSV tables, the source of every step, whatever files the caller asked to
 carry along (the CLI passes the pipeline file), and a `MANIFEST` hashing all
 of it with BLAKE3.
+
+An eighth, `claims.tsv`, where the pipeline declared any — one row per
+computation, with the whole key rather than the sixteen characters a sentence
+prints, since this is the table a key is looked up in. It is written only
+where there are claims: `verify` reads tables by position, so a file that
+appeared for every bundle would be one more thing a later version has to keep
+meaning the same, and an empty table is a promise nobody made. It belongs
+here for the reason this module's own decision is titled — *a bundle states a
+claim and can be checked* (D25) — with the bundle's standing claim being
+about reproducibility and a `Claim` being the paper's.
 
 Fields are escaped — `\\`, `\t`, `\n`, `\r` — so a command containing a tab
 cannot shift a column, and `unescape` reads them back.

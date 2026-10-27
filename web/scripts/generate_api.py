@@ -179,12 +179,16 @@ GROUPS: tuple[Group, ...] = (
         blurb=(
             "What a run recorded about itself: the versions every tool actually ran "
             "at, every parameter as it was hashed, and the references by accession "
-            "and checksum."
+            "and checksum \u2014 and, the other way round, what a number you "
+            "published rests on."
         ),
         names=(
             "Methods",
             "StepMethods",
             "MethodsGap",
+            "Claim",
+            "ClaimCheck",
+            "BoundTo",
             "Bundle",
             "Verification",
             "PinnedReference",
