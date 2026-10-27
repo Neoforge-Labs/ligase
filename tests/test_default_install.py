@@ -22,7 +22,7 @@ import sys
 import pytest
 
 import ligase as lg
-from tests.conftest import fixture
+from tests.conftest import REPO_ROOT, fixture
 
 
 def test_importing_ligase_imports_no_chemistry() -> None:
@@ -81,3 +81,29 @@ def test_standardising_without_the_toolkit_names_the_extra(
     # And it says what *does* work without it, so a user reading this knows
     # whether they need it at all.
     assert "works on a default install" in said
+
+
+def test_the_api_reference_can_be_generated_without_the_toolkit() -> None:
+    # The architecture page claims the docs site builds with no chemistry
+    # toolkit, and a site that could not be built without the optional extra
+    # would have made it mandatory in everything but name. `generate_api.py`
+    # is the generator that names `chem.standardize` and so the one that
+    # could acquire the dependency: it introspects the function rather than
+    # calling it, which works only because the import is inside the body.
+    #
+    # Run in a subprocess with `import rdkit` blocked, which is what a
+    # default install is.
+    probe = (
+        "import sys;"
+        "sys.modules['rdkit'] = None;"
+        "sys.argv = ['generate_api'];"
+        "path = 'web/scripts/generate_api.py';"
+        "exec(open(path).read(), {'__name__': '__main__', '__file__': path})"
+    )
+    generated = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+    )
+    assert generated.returncode == 0, generated.stderr
