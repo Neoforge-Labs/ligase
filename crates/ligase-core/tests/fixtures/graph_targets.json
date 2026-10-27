@@ -1,0 +1,33 @@
+{
+  "nodes": [
+    {
+      "id": "ENSG00000141510",
+      "type": "gene",
+      "ids": ["HGNC:11998", "P04637"],
+      "sources": ["open-targets"]
+    },
+    {
+      "id": "ENSG00000012048",
+      "type": "gene",
+      "ids": ["HGNC:1100"],
+      "sources": ["open-targets"]
+    },
+    { "id": "ENSG00000146648", "type": "gene", "sources": ["open-targets"] }
+  ],
+  "edges": [
+    {
+      "source": "ENSG00000141510",
+      "target": "ENSG00000012048",
+      "type": "interacts_with",
+      "sources": ["open-targets"],
+      "score": 0.82
+    },
+    {
+      "source": "ENSG00000012048",
+      "target": "ENSG00000146648",
+      "type": "interacts_with",
+      "sources": ["open-targets"],
+      "score": 0.41
+    }
+  ]
+}

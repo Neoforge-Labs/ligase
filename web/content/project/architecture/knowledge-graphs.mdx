@@ -1,0 +1,237 @@
+---
+title: "Knowledge graphs"
+description: "How the KnowledgeGraph kind is read, how source_set got its own value type, how the canonical form is computed, and the three things this milestone deliberately does not do."
+---
+
+# Knowledge graphs
+
+<Lede>
+The first kind in Ligase that is assembled rather than measured, and the only
+one that applies `source_set`. It is also where three obligations recorded
+through v0.2 came due at once, and this page is mostly about those.
+</Lede>
+
+## Where it lives
+
+| File | What it does |
+|---|---|
+| `load/graph.rs` | reads the node/edge JSON, strictly, for the loader *and* the canonicaliser |
+| `load/knowledge_graph.rs` | the kind's dimensions, and the union that fills `source_set` |
+| `canon/knowledge_graph.rs` | the canonical form |
+| `dim/names.rs` | `NameSet<M>`, and the two rules `M` can be |
+
+`load/graph.rs` is shared the way `load/table.rs` is shared by the named-list
+loaders and their canonicalisers, and for the same reason: deciding what a
+node *is*, once, is the part where disagreeing would be a bug. A loader that
+read a node the canonicaliser did not would report dimensions for a graph
+whose hash was computed over something else.
+
+## The reader is strict, because the fallback depends on it
+
+A node needs a string `id`; an edge needs a string `source`, `target` and
+`type`; a `sources` or `ids` list, where present, must hold strings. Anything
+else is rejected, and `canon::hash` then falls back to the file's own bytes,
+tagged `raw` so it can never collide with a canonical form.
+
+That is the conservative direction — a stricter test can cost time but cannot
+produce a wrong answer — and it is why reading leniently would be worse than
+useless. A reader that took the nodes it understood and skipped the rest would
+make two files that differ only in the skipped part agree, which is the
+failure the whole module exists to prevent.
+
+What the reader does **not** check is that every edge endpoint names a node. A
+canonical form is a claim about what a file says, not a validation of it, and
+a graph assembled in shards legitimately holds edges into nodes another shard
+carries. An edge pointing nowhere is a fact about the graph and is hashed as
+one.
+
+## `source_set` is read, and an empty reading is a gap
+
+`load::source_set` takes both paths: a declaration if there is one, else the
+union of every `sources` list the reader found, else unknown with a reason. It
+is the only set-valued axis a file can speak to, which is why the helper takes
+a `Source` describing where the reading came from — the error message a
+mismatch produces has to tell a user whether anybody declared these.
+
+The empty case is the one worth stating. `SourceSet::of([])` is a legal
+*value* and must never reach a `Dim::known`, because two known empty sets
+compare equal and that is a false agreement. So an empty declaration and an
+empty reading are both gaps, which is the rule `load::organism` already holds
+for `organism=[]` and which `tests/declared_dimensions.rs` enforces for any
+new set-valued loader.
+
+## The split: `NameSet<M>`
+
+D36 reserved the right to give `source_set` its own value type for whichever
+milestone first applied the axis. M8, M10 and M12 each declined the axis and
+recorded that the obligation travelled on; this is the milestone it reached,
+and the rule it carries out was settled by M10a: **a source must not fold
+ASCII case.**
+
+Three shapes were available.
+
+**Copy `NameSet` into a second struct.** Rejected on D36's own argument for
+sharing the type in the first place — "a rule implemented twice is a rule that
+will eventually be implemented differently". The set algebra is the part worth
+having exactly once.
+
+**A `fold_case: bool` field.** Rejected. This is the shape
+`Digest::record` / `ordered_record` was deliberately split to avoid: two
+meanings behind one call, chosen by an argument a caller can get wrong
+silently. It would also let one dimension carry two rules at runtime, which is
+what D36 forbids outright.
+
+**A type parameter.** Taken:
+
+```rust
+pub trait Matching {
+    fn same(left: &str, right: &str) -> bool;
+    const DESCRIBE: &'static str;
+}
+
+pub struct NameSet<M: Matching> { members: Vec<String>, how: PhantomData<M> }
+
+pub type Organism = NameSet<FoldsAsciiCase>;
+pub type SourceSet = NameSet<Exactly>;
+```
+
+The algebra — insertion-order dedup, difference, English rendering, equality by
+length and containment — is written once. Each rule is written once. And the
+two axes are now two *types*, which is the part that matters beyond tidiness:
+
+> **M7's standing requirement is weaker than the compiler.** The requirement
+> exists because `Organism` and `SourceSet` were one type, so a `check::compare`
+> arm written against the wrong field compiled, and only a test over a kind
+> that *applied* the axis could reach it. They are no longer one type. An arm
+> that reads `organism` where it means `source_set` is now a build failure.
+> `Release` and `Subject` are still one type, so the requirement still stands
+> for those.
+
+`M` has no default, deliberately. A bare `NameSet` would be whichever rule the
+default happened to be, which is how the two axes came to share a rule nobody
+had chosen for both.
+
+### What moved with it
+
+`check::name_set` returned `Option<&NameSet>` for both axes and cannot, now
+that they are two types. It is replaced by `check::set_difference`, generic
+over `Matching`, which takes the two values and returns the *sentence* rather
+than the set:
+
+```
+theirs also lists disgenet.
+```
+
+One formatting path, two typed reads. The wording is what a user reads, so it
+stays shared; the field each caller reads is what the split was for, so that
+is not.
+
+## The canonical form
+
+Nodes and edges go through `Digest::record`, which hashes each to 32 bytes and
+sorts them at the end — the ordinary rule, not the ranked list's exception. The
+order a graph's nodes came off whatever assembled them is not a fact about the
+biology.
+
+Each record leads with a discriminator, `node` or `edge`. Both go into one
+sorted list, so without it a node and an edge whose parts happened to line up
+would be one record.
+
+The `ids` and `sources` lists inside a node or an edge are sorted,
+deduplicated and joined on ASCII unit separator before hashing. Sorted because
+they are sets; joined on `\x1f` because no identifier, URL or accession holds
+one, so two different sets cannot join into one string. Deduplicated
+**exactly**, never folding case, so that the canonical form and `SourceSet`
+agree on what two names are — a hash that folded `A.json` into `a.json` would
+make two graphs the dimension checker refuses to join agree on their content,
+which is the two halves of the engine contradicting each other.
+
+Every other key is carried: re-serialised through `serde_json`, whose map is a
+`BTreeMap` with `preserve_order` off, so the keys sort at every depth without
+a traversal of ours to get wrong. That is the same mechanism, and the same
+reason, as [a recorded response](/project/architecture/remotes/).
+
+### Volatile keys, and why only at the top
+
+`remote::response::is_volatile` is now `pub(crate)` and the knowledge-graph
+canonicaliser calls it. The closed set is the thing worth having exactly once:
+a graph fetched from a service and a graph on disk must agree on what counts
+as a signature, or the same graph would hash two ways depending on how it
+arrived.
+
+Dropping them at all is
+[D22](/project/decisions/#d22--a-tools-signature-is-not-part-of-its-result). At
+the top level **only** is
+[D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead):
+inside a node or an edge the same key is what that record *says*, and a graph
+of clinical trials carrying a `timestamp` on every node would be quietly
+gutted by a recursive filter. Each drop emits a `Note::GraphFieldDropped`.
+
+That note is its own variant rather than `QueryFieldDropped` with an empty
+locator. A note's detail columns are read back out of the cache, so a blank
+field there would have to mean something.
+
+## The JSON branch, now exercised end to end
+
+`architecture/remotes.mdx` recorded that no kind in v0.2 read JSON, so
+`response.rs`'s JSON branch — keys sorted at every depth, volatile fields
+dropped from the top level — was exercised by unit tests and never through a
+whole pipeline. This kind reads JSON, so M15 closed that rather than naming it
+again.
+
+Four tests in `tests/test_queries.py` take a graph through the recorder, into
+the store, and back out through the loader:
+`test_a_recorded_graph_replays_with_the_server_down`,
+`test_a_queried_graphs_sources_are_read_out_of_the_answer`,
+`test_a_graph_that_gained_a_source_upstream_is_a_different_answer` and
+`test_a_servers_signature_does_not_make_a_graph_a_new_graph`. The last is the
+branch's whole point: the same graph served a minute later, with a different
+`generatedAt`, is the same graph — and without the drop, every run would see
+drift and everything below the query would rerun.
+
+## What this does not do, and why
+
+Three gaps, named here rather than papered over.
+
+**No conversion crosses a graph.** `map_identifiers` renames a column. A
+graph's identifiers are node ids *and* edge endpoints, and a conversion that
+rewrote one and not the other would produce a graph whose edges point at
+nothing. Registering the existing conversion for the kind would therefore be
+the false claim [D38](/project/decisions/#d38--identifier-namespaces-never-coerce)
+refuses — and `graph::propagate` guards a conversion's axis override on
+`converts(output)`, so the guard would hold today and would become a hiding
+place the moment somebody registered it. The way across is a
+`map_identifiers` step on the *list* being joined to the graph. A conversion
+of a graph is a real feature and a different one: it has to rewrite endpoints
+and merge the nodes that collide, and merging nodes is a decision about
+biology, not a rename.
+
+**No third-party graph format is read.** Open Targets' Parquet, Monarch's
+dumps, Neo4j and RDF exports are all outside it; what is read is the node/edge
+JSON on [the guide](/guide/knowledge-graphs/). That is a real limit on who can
+use the kind today, and it is the honest consequence of the scope rule:
+defining a shape is not what earns a kind its place, so Ligase defined the
+cheapest envelope that carries per-edge provenance and stopped there. A reader
+for somebody else's format is a parser, and it can be written when a pipeline
+needs one.
+
+**The whole file is parsed into memory.** Bounded like a recorded body is, and
+for the same reason: the keys have to be sorted at every depth to
+canonicalise, which needs the document whole, so a streaming parse would buy
+nothing. A graph larger than memory is not readable today and nothing
+pretends otherwise.
+
+## Why the kind is here at all
+
+Worth restating, because the scope rule
+([D35](/project/decisions/#d35--a-kind-must-bring-a-dimension-that-catches-a-documented-silent-failure))
+is the first thing a reviewer should ask about a new kind. It brings
+`source_set`, which no other kind in Ligase applies, because no other kind is
+assembled from anything. Take that axis away and this is a JSON parser, and
+Ligase does not need more parsers.
+
+The axis had been in the catalogue since M7, applied by nothing, while M8, M10
+and M12 each declined it with reasons. Shipping it unapplied was never the
+plan: an unexercised value type is precisely the condition M7's standing
+requirement exists to prevent, which is why the type split waited for the kind
+that had a use for it rather than landing with the dimension.

@@ -244,6 +244,19 @@ pub enum Note {
         /// The field, spelled as the server spelled it.
         field: String,
     },
+    /// A key a server writes about itself, dropped from a knowledge
+    /// graph's canonical form.
+    ///
+    /// The same rule and the same closed set as [`Self::QueryFieldDropped`],
+    /// reached from the other direction: a graph on disk has no locator,
+    /// because nobody asked a server for it on this run. It is a separate
+    /// note rather than that one with an empty locator, because a note's
+    /// detail columns are read back out of the cache and a blank field
+    /// there would have to mean something.
+    GraphFieldDropped {
+        /// The field, spelled as the file spelled it.
+        field: String,
+    },
     /// Codons read base by base because no read spans them (D31).
     CodonsUnphased {
         /// The gene.
@@ -302,6 +315,7 @@ impl Note {
             Self::CodonsUnphased { .. } => "codons-unphased",
             Self::RemoteRewritten { .. } => "remote-rewritten",
             Self::QueryFieldDropped { .. } => "query-field-dropped",
+            Self::GraphFieldDropped { .. } => "graph-field-dropped",
             Self::QueryDrifted { .. } => "query-drifted",
             Self::IdentifierIsADate { .. } => "identifier-is-a-date",
             Self::IdentifierUnmapped { .. } => "identifier-unmapped",
@@ -327,6 +341,7 @@ impl Note {
             Self::QueryFieldDropped { locator, field } => {
                 format!("field={field} locator={locator}")
             }
+            Self::GraphFieldDropped { field } => format!("field={field}"),
             Self::QueryDrifted { locator, was, now } => {
                 format!("was={was} now={now} locator={locator}")
             }
@@ -426,6 +441,9 @@ impl Note {
                 field: named(value, "field")?.to_owned(),
                 locator: named(value, "locator")?.to_owned(),
             }),
+            "graph-field-dropped" => Some(Self::GraphFieldDropped {
+                field: named(value, "field")?.to_owned(),
+            }),
             "query-drifted" => Some(Self::QueryDrifted {
                 was: named(value, "was")?.to_owned(),
                 now: named(value, "now")?.to_owned(),
@@ -480,6 +498,11 @@ impl Note {
             Self::QueryFieldDropped { .. } => {
                 "Nothing needs doing where the field was the server's own. If it was your data, \
                  ask for it under another name: this one is on the list the engine drops."
+            }
+            Self::GraphFieldDropped { .. } => {
+                "Nothing needs doing where the field was the serving system's own. If it was \
+                 your data, move it onto the nodes or edges it belongs to, where nothing is \
+                 dropped."
             }
             Self::QueryDrifted { .. } => {
                 "Read what changed before you rely on the new answer. Nothing else needs doing: \
@@ -563,6 +586,12 @@ impl Note {
                  when the server's own bookkeeping changes -- which is the point. The cost is \
                  that a field of yours that shares one of those names is not in the record \
                  either, and this is how you find out."
+            }
+            Self::GraphFieldDropped { .. } => {
+                "The field is not in this graph's canonical hash, so the graph compares equal \
+                 to the same graph served at another moment -- which is the point. The cost is \
+                 that a top-level field of yours sharing one of those names is outside the \
+                 comparison, and this is how you find out."
             }
             Self::QueryDrifted { .. } => {
                 "Everything below this input has a new content hash, so every step that uses \
@@ -668,6 +697,11 @@ impl fmt::Display for Note {
                 f,
                 "`{field}` was dropped from the recorded response to `{locator}`: a field of \
                  that name is the server's account of how it answered, not part of the answer"
+            ),
+            Self::GraphFieldDropped { field } => write!(
+                f,
+                "`{field}` was dropped from this graph's canonical form: a top-level field of \
+                 that name is an account of how the graph was served, not part of what it says"
             ),
             Self::QueryDrifted { locator, was, now } => write!(
                 f,

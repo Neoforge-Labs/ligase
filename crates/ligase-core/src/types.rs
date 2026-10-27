@@ -36,11 +36,22 @@ pub enum DataKind {
     /// the same, dimensions included, so a change to either that is not
     /// about order belongs to both.
     RankedList,
+    /// Typed nodes and edges with per-edge provenance (JSON).
+    ///
+    /// The first kind here that is *assembled* rather than measured. What a
+    /// graph holds is a function of which evidence sources were folded into
+    /// it, no node or edge says what that list was, and two graphs that
+    /// differ only in it join and score against each other in silence — so
+    /// the sources are a dimension, which is what admits the kind under
+    /// D35. See [`Dimension::SourceSet`], and
+    /// [`load::knowledge_graph`](crate::load::knowledge_graph) for the
+    /// failure in full.
+    KnowledgeGraph,
 }
 
 impl DataKind {
     /// Every kind, so the Python layer can enumerate them.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Reads,
         Self::Reference,
         Self::Alignment,
@@ -49,6 +60,7 @@ impl DataKind {
         Self::ResistanceReport,
         Self::EntitySet,
         Self::RankedList,
+        Self::KnowledgeGraph,
     ];
 
     /// The name used in messages and in the Python API.
@@ -63,6 +75,7 @@ impl DataKind {
             Self::ResistanceReport => "ResistanceReport",
             Self::EntitySet => "EntitySet",
             Self::RankedList => "RankedList",
+            Self::KnowledgeGraph => "KnowledgeGraph",
         }
     }
 
@@ -153,6 +166,24 @@ impl DataKind {
                 Dimension::IdentifierNamespace | Dimension::Subject | Dimension::Release,
             ) => true,
             (Self::EntitySet | Self::RankedList, _) => false,
+
+            // A knowledge graph answers the three above the same way, for
+            // the same reason: it names entities, it is about something,
+            // and whatever named its entities had a release. It has its own
+            // arm rather than joining the named lists' because of the
+            // fourth axis, which is the one it was admitted for. A graph is
+            // *assembled*, so which sources contributed is a fact about it
+            // — and `source_set` applies to no other kind, because no other
+            // kind is assembled from anything. Two named lists are each one
+            // file; a BAM is a measurement.
+            (
+                Self::KnowledgeGraph,
+                Dimension::IdentifierNamespace
+                | Dimension::Subject
+                | Dimension::Release
+                | Dimension::SourceSet,
+            ) => true,
+            (Self::KnowledgeGraph, _) => false,
         }
     }
 }

@@ -1008,19 +1008,34 @@ leading question rather than on the value: the same set comparison asks "did
 you pass data from the wrong organism?" on one axis and "was a source added or
 removed upstream?" on the other.
 
-**The sharing is settled for `organism` and provisional for `source_set`.**
-The set type collapses members that differ only in ASCII case, keeping the
-first spelling. For Latin binomials that is exactly right. For what
-`source_set` will hold it is mixed: `GSE12345` and `gse12345` are the same
-study, but `s3://bucket/A.vcf` and `s3://bucket/a.vcf` are two different
-objects, and the second would be dropped without a word. Nothing can go wrong
-today, because no kind applies `source_set`. The right to split it into a type
-of its own, with its own equality, is reserved for the milestone that gives
-the dimension a kind, and the obligation is written into
-[M8](/project/milestones/#m8--identifiers),
+**The sharing was settled for `organism` and provisional for `source_set`,
+and `source_set` has since been split out.** The set type collapsed members
+that differ only in ASCII case, keeping the first spelling. For Latin
+binomials that is exactly right. For what `source_set` holds it is mixed:
+`GSE12345` and `gse12345` are the same study, but `s3://bucket/A.vcf` and
+`s3://bucket/a.vcf` are two different objects, and the second would have been
+dropped without a word. Nothing could go wrong while no kind applied the axis.
+The right to split it into a type of its own, with its own equality, was
+reserved for the milestone that gave the dimension a kind, and the obligation
+was written into [M8](/project/milestones/#m8--identifiers),
 [M10](/project/milestones/#m10--remotes-and-replay) and
-[M12](/project/milestones/#m12--ranked-lists). Splitting it then is the
-decision recorded here being carried out, not reversed.
+[M12](/project/milestones/#m12--ranked-lists), each of which declined the axis
+with reasons.
+
+[M15](/project/milestones/#m15--knowledge-graphs) is the milestone that
+applied it, and the split landed there: the set type is generic over how two
+members are compared, `Organism` folds ASCII case and `SourceSet` does not.
+The algebra is still written exactly once, the two rules are each written
+once, and the two axes are now two *types* — so an arm of `check::compare`
+that read `organism` where it meant `source_set` no longer compiles, which is
+stronger than the test M7's standing requirement asks for. `Release` and
+`Subject` remain one type, so the requirement still stands for those. The
+rule itself was settled earlier, by
+[M10a](/project/milestones/#m10a--pinned-remotes-and-the-blob-tier), on the
+asymmetry of the two failures: folding case can only *drop* a member and
+produce a false agreement, while not folding it can only *add* one and
+produce a refusal a user can read. Splitting it was the decision recorded
+here being carried out, not reversed.
 
 ## D37 — Organism is set-valued
 
@@ -1917,3 +1932,69 @@ build is in front of you.
 No eviction in v0.2. An LRU whose source of truth is a remote turns a cache
 miss into a network failure mode, and there is no measurement yet to size
 one with. `ligase store gc` is a v0.3 item.
+
+## D44 — A graph's sources are read from its edges, not declared
+
+A knowledge graph is the first kind in Ligase that is **assembled** rather
+than measured, and the one dimension that follows from that is which evidence
+sources were folded into it. Add DisGeNET to a graph that had Open Targets
+and a literature-mined set, and edges appear, neighbourhoods widen and every
+propagated score moves. Two graphs that differ only in that are two different
+graphs, and nothing in either file says so — which is
+[my target ranking changed and I cannot find the analysis
+change](/silent-failures/mixed-sources/), and which is what admits the kind
+under [D35](#d35--a-kind-must-bring-a-dimension-that-catches-a-documented-silent-failure).
+
+The question this decision settles is where the value comes from, and the
+obvious answer — the user declares it, as they declare `organism`, `subject`
+and `release` — is wrong here. The sources **are in the file**. A graph that
+carries per-edge provenance says on every edge where that edge came from, and
+the dimension is the union over all of them. Asking the user for it would be
+the engine demanding something it is holding, and worse: a declaration the
+engine could have checked and did not is a declaration that drifts from the
+data it describes.
+
+So the loader reads it: the union of every `sources` list on a node, on an
+edge, and at the graph's top level, recorded as *inferred* and naming the
+file, so the reading is checkable. That is the same shape as a gene list's
+namespace inference — read where the data settles it — with one difference
+worth stating: namespace inference is a guess from a pattern and declines
+whenever it cannot be certain, while this is a reading of a field that means
+exactly what it says. There is nothing to be uncertain about.
+
+A declaration still **wins** where there is one. A graph's own names are
+sometimes a mirror, a shard, or an internal pipeline stage rather than the
+source a reader would recognise, and a user correcting that is telling the
+engine something it cannot read. As with `identifier_namespace`, a
+declaration is recorded rather than checked against the file: Ligase cannot
+tell a user's better name for a source from a wrong one.
+
+### An empty reading is a gap, not an empty set
+
+A graph whose nodes and edges name no sources leaves the axis **unknown**,
+with a reason. It is not recorded as a known, empty set, because two known
+empty sets compare *equal*, and two graphs that each recorded nothing would
+then agree on the one axis the kind exists for. That is the false agreement
+this engine exists to refuse, and it is the same rule
+[D37](#d37--organism-is-set-valued) already holds for `organism=[]`: a
+declaration naming nothing declares nothing.
+
+An empty declaration is refused outright on the Python surface rather than
+falling back to the file, because somebody who passed `source_set=[]` has made
+a mistake worth naming where the message is read.
+
+### What a graph is not admitted for
+
+There is no standard knowledge-graph file format, so this milestone defines
+the node/edge JSON Ligase reads. **Defining a shape is explicitly not what
+earns a kind its place** — a kind that is a file format with a schema is a
+parser, and D35 says Ligase does not need more parsers. The shape is the
+cheapest envelope that can carry per-edge provenance, and nothing more is
+claimed for it. Take `source_set` away and this kind should not exist.
+
+The honest consequence is a limit: a graph from Open Targets' own Parquet
+dumps, from Monarch, or from a Neo4j or RDF export is not readable today.
+That is named on
+[the architecture page](/project/architecture/knowledge-graphs/) rather than
+implied away, and a reader for one of those formats is a parser that can be
+written when a pipeline needs it.

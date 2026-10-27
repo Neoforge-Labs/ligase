@@ -61,8 +61,11 @@ The full catalogue, including which formats can state which dimension, is in
 | `identifier_namespace` | Which space a gene or protein list's names live in — `HGNC symbol` against `Ensembl gene` — read off the identifiers where it can be, and never coerced |
 
 `subject` and `source_set` complete the eleven, and are listed in the
-catalogue. `subject` applies to a gene list and to a ranking; `source_set`
-applies to no kind the engine reads yet.
+catalogue. `subject` applies to a gene list, a ranking and a knowledge graph;
+`source_set` applies to a knowledge graph alone, because a graph is the only
+kind in Ligase that is *assembled* rather than measured, and "which sources
+contributed" is not a fact about anything else. See
+[assembled data](/concepts/knowledge-graphs/).
 
 Each dimension is inferred from the file where the format records it, and
 declared by the user once where it does not. A FASTA cannot tell you its

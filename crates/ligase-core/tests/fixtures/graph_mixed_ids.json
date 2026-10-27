@@ -1,0 +1,14 @@
+{
+  "nodes": [
+    { "id": "ENSG00000141510", "type": "gene", "sources": ["open-targets"] },
+    { "id": "EFO_0000305", "type": "disease", "sources": ["open-targets"] }
+  ],
+  "edges": [
+    {
+      "source": "ENSG00000141510",
+      "target": "EFO_0000305",
+      "type": "associated_with",
+      "sources": ["open-targets"]
+    }
+  ]
+}

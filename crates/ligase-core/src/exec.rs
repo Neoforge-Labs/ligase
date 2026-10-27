@@ -580,6 +580,7 @@ pub const fn output_suffix(kind: DataKind) -> &'static str {
         DataKind::Intervals => ".bed",
         DataKind::ResistanceReport => ".tsv",
         DataKind::EntitySet | DataKind::RankedList => ".tsv",
+        DataKind::KnowledgeGraph => ".json",
     }
 }
 

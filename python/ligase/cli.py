@@ -54,6 +54,7 @@ from . import (
     dimension_errors,
     entity_set,
     intervals,
+    knowledge_graph,
     reads,
     reference,
     remotes,
@@ -102,6 +103,7 @@ LOADERS: Mapping[str, Callable[[str], Dataset]] = MappingProxyType(
         ".gff3": intervals,
         ".gtf": intervals,
         ".tsv": entity_set,
+        ".json": knowledge_graph,
     }
 )
 

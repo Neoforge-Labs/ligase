@@ -284,9 +284,16 @@ already structural, which is why there is no filter for it.
 Note the layering. This produces the bytes that go *into* the store; the
 stored body is then read as its declared kind by the ordinary loader. A
 query declared `EntitySet` over a TSV endpoint canonicalises to its bytes
-here and is parsed as a TSV there. **No kind in v0.2 reads JSON**, so the
-JSON branch is exercised by unit tests rather than end to end — D39 requires
-it and a JSON-reading kind is v0.3's `KnowledgeGraph`.
+here and is parsed as a TSV there. No kind in v0.2 read JSON, so the JSON
+branch was exercised by unit tests rather than end to end.
+[M15](/project/milestones/#m15--knowledge-graphs) closed that: a
+`KnowledgeGraph` reads JSON, and four tests in `tests/test_queries.py` now
+take a graph through the recorder, into the store and back out through the
+loader. The one that matters most is
+`test_a_servers_signature_does_not_make_a_graph_a_new_graph` — the same graph
+served a minute later, with a different `generatedAt`, is the same graph, and
+without the drop above every run would see drift and everything below the
+query would rerun.
 
 ## A secret has nowhere to be stored
 
@@ -407,10 +414,13 @@ cap go and buy nothing, since the JSON has to be parsed whole to sort its
 keys. A pinned remote still streams to disk and is never buffered, which is
 why the two caps are different numbers for different reasons.
 
-**The dedup rule for `source_set` is settled and not implemented.** See
-[D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)
-and the [M10 milestone](/project/milestones/#m10--remotes-and-replay). No
-kind in v0.2 applies that axis — M8 and M12 each declined it with reasons,
-and a remote is not a kind at all — so the split travels to `KnowledgeGraph`
-in v0.3. Shipping an unexercised value type is the condition M7's standing
-requirement exists to prevent.
+**The dedup rule for `source_set` was settled here and implemented in M15.**
+See [D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)
+and the [M10 milestone](/project/milestones/#m10--remotes-and-replay). No kind
+in v0.2 applied that axis — M8 and M12 each declined it with reasons, and a
+remote is not a kind at all — so the split travelled to
+[M15](/project/milestones/#m15--knowledge-graphs), where a `KnowledgeGraph`
+applies it and `SourceSet` became a type of its own with a case-sensitive
+equality. Shipping an unexercised value type would have been the condition
+M7's standing requirement exists to prevent, which is why the type waited for
+the kind rather than landing with the dimension.

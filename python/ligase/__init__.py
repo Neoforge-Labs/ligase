@@ -58,6 +58,7 @@ from .types import (
     DimensionValue,
     EntitySet,
     Intervals,
+    KnowledgeGraph,
     RankedList,
     Reads,
     Reference,
@@ -86,6 +87,7 @@ __all__ = [
     "EntitySet",
     "InputCheck",
     "Intervals",
+    "KnowledgeGraph",
     "LoadError",
     "Methods",
     "MethodsGap",
@@ -123,6 +125,7 @@ __all__ = [
     "handle",
     "hivdb",
     "intervals",
+    "knowledge_graph",
     "map_identifiers",
     "map_ranked_identifiers",
     "query",
@@ -516,6 +519,86 @@ def ranked_list(
     )
 
 
+def knowledge_graph(
+    path: str,
+    *,
+    organism: str | Sequence[str] | None = None,
+    identifier_namespace: str | None = None,
+    subject: str | None = None,
+    release: str | None = None,
+    source_set: Sequence[str] | None = None,
+) -> KnowledgeGraph:
+    """Load a knowledge graph of typed nodes and edges from JSON.
+
+    The first type here that is *assembled* rather than measured, and what
+    follows from that is the dimension it exists for. What a graph holds is
+    a function of which evidence sources were folded into it: add DisGeNET
+    to a graph that had Open Targets and a literature-mined set and edges
+    appear, neighbourhoods widen and every propagated score moves. Nothing
+    in the file says which sources went in, so two graphs that differ only
+    in that diff and score against each other without complaint, and the
+    difference reads as biology.
+
+    So the sources are a dimension, and this loader reads them off the
+    graph's own nodes and edges rather than asking you for them.
+
+    The JSON is one object with a `nodes` array and an `edges` array. A node
+    needs a string `id`; an edge needs a string `source`, `target` and
+    `type`. A `sources` list on a node, on an edge, or at the top level is
+    the per-edge provenance the dimension is read from, and a node's `ids`
+    are its other names. Everything else either carries is kept without
+    being read, exactly as a gene list's attribute columns are.
+
+    Args:
+        path: The JSON file, optionally gzipped.
+        organism: The organisms the graph's entities belong to. A graph does
+            not record them, and a graph joining human genes to evidence
+            from model organisms is legitimately about several -- give a
+            list for that.
+        identifier_namespace: Which space the node ids are in, such as
+            `Ensembl gene` or `HGNC symbol`. Left out, it is read off the
+            node ids where every one of them matches a single known
+            pattern; a graph holding more than one kind of entity will not,
+            which is ordinary rather than a fault, and leaves the dimension
+            unknown rather than guessed.
+        subject: What the graph is a graph of when that is one named thing:
+            a disease, a cohort, a therapeutic area. Compared by equality.
+        release: Which release the sources were drawn from, such as
+            `Open Targets 24.09`. Compared by equality, so 24.06 and 24.09
+            do not match -- which is the point.
+        source_set: The sources the graph was assembled from. Left out, the
+            loader reads them off the graph. Declare it where the graph's
+            own names are a mirror, a shard or an internal pipeline stage
+            rather than the source a reader would recognise. Compared
+            **exactly**, case included: `s3://bucket/A.json` and
+            `s3://bucket/a.json` are two objects by specification.
+
+    Returns:
+        The loaded graph.
+
+    Raises:
+        ValueError: If `organism` or `source_set` names none (an empty list,
+            or only blank names), or if `identifier_namespace`, `subject` or
+            `release` is blank.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
+        LoadError: If the file cannot be read, is not JSON, has no `nodes`
+            or `edges` array, or holds a node with no `id` or an edge with
+            no `source`, `target` or `type`.
+
+    Note:
+        A graph naming no sources anywhere leaves `source_set` **unknown**,
+        never an empty set. Two graphs that each named none would otherwise
+        agree on the axis, which is exactly the silence the dimension exists
+        to break.
+    """
+    return KnowledgeGraph(
+        _core.load_knowledge_graph(
+            path, organism, identifier_namespace, subject, release, source_set
+        )
+    )
+
+
 def remote(
     locator: str,
     *,
@@ -528,6 +611,7 @@ def remote(
     samples: list[str] | None = None,
     identifier_namespace: str | None = None,
     subject: str | None = None,
+    source_set: Sequence[str] | None = None,
 ) -> DatasetT:
     """Fetch a pinned remote input, and load what arrives.
 
@@ -602,6 +686,8 @@ def remote(
         identifier_namespace: Which identifier space an entity set's names
             live in.
         subject: What the data is about, when that is one named thing.
+        source_set: The sources a knowledge graph was assembled from. Left
+            out, they are read off the graph's own nodes and edges.
 
     Returns:
         The loaded data, of the class `kind` named -- so the call is typed
@@ -644,6 +730,7 @@ def remote(
             samples,
             identifier_namespace,
             subject,
+            list(source_set) if source_set is not None else None,
         )
     )
 
@@ -660,6 +747,7 @@ def query(
     samples: list[str] | None = None,
     identifier_namespace: str | None = None,
     subject: str | None = None,
+    source_set: Sequence[str] | None = None,
 ) -> DatasetT:
     """Record a live query's answer, or replay the answer already recorded.
 
@@ -730,6 +818,9 @@ def query(
             live in. Worth declaring for a query, because an API's own
             namespace is rarely the one the rest of your pipeline uses.
         subject: What the data is about, when that is one named thing.
+        source_set: The sources a knowledge graph was assembled from. Left
+            out, they are read off the graph's own nodes and edges -- which
+            for a query means off the answer the service gave.
 
     Returns:
         The loaded data, of the class `kind` named, carrying the dimensions
@@ -770,6 +861,7 @@ def query(
             samples,
             identifier_namespace,
             subject,
+            list(source_set) if source_set is not None else None,
         )
     )
 

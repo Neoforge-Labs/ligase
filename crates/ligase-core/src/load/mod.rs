@@ -9,7 +9,9 @@
 mod alignment;
 mod entity_set;
 mod fasta;
+mod graph;
 mod intervals;
+mod knowledge_graph;
 mod named_list;
 mod ranked_list;
 mod reads;
@@ -24,16 +26,18 @@ use std::path::{Path, PathBuf};
 
 use flate2::bufread::MultiGzDecoder;
 
-use crate::dim::{Dim, Organism, Release, Source, Subject};
+use crate::dim::{Dim, Organism, Release, Source, SourceSet, Subject};
 
 pub use alignment::alignment;
 pub use entity_set::entity_set;
 pub use fasta::reference;
 pub use intervals::{IntervalFormat, intervals};
+pub use knowledge_graph::knowledge_graph;
 pub use ranked_list::ranked_list;
 pub use reads::{reads, samples};
 pub use variants::variants;
 
+pub(crate) use graph::GraphReader;
 pub(crate) use table::{Row, Table};
 
 /// Dimensions the user states, for the ones a file cannot record.
@@ -83,8 +87,19 @@ pub struct Declared {
     /// What the data is about when that is one named thing: a disease, a
     /// cell line, a cohort.
     ///
-    /// Read by the two loaders of named lists. A blank declares nothing.
+    /// Read by the two loaders of named lists and by the graph loader. A
+    /// blank declares nothing.
     pub subject: Option<String>,
+    /// The sources the data was assembled from, e.g.
+    /// `["open-targets", "disgenet"]`.
+    ///
+    /// Read by `knowledge_graph`, the one kind that is assembled. Left
+    /// unset, the loader reads the sources off the graph's own nodes and
+    /// edges; a list naming none declares nothing and is treated as not
+    /// declared. Compared **exactly**, case included, because a source is
+    /// usually an object key or a URL and both are case-sensitive by
+    /// specification (D36).
+    pub source_set: Option<Vec<String>>,
 }
 
 /// The organism dimension a loader reports from what the user declared.
@@ -125,6 +140,39 @@ pub(crate) fn subject(declared: &Declared, reason: &'static str) -> Dim<Subject>
     match declared.subject.as_deref().map(Subject::new) {
         Some(subject) if !subject.is_empty() => Dim::known(subject, Source::Declared),
         _ => Dim::unknown(reason),
+    }
+}
+
+/// The source-set dimension: declared if stated, else what the file named.
+///
+/// The one set-valued axis a file can speak to, so this helper takes both
+/// paths rather than only the declaration. `found` is what the loader read
+/// out of the data, and `where_from` describes it for the error message a
+/// mismatch produces — which is the part that makes the error actionable: a
+/// user told that two graphs disagree on their sources needs to know whether
+/// anybody declared them.
+///
+/// An empty declaration *and* an empty reading are both gaps, for the reason
+/// [`organism`] gives: two graphs that each named no sources would otherwise
+/// agree on the axis, and that false agreement is what the dimension exists
+/// to break.
+pub(crate) fn source_set(
+    declared: &Declared,
+    found: Vec<&str>,
+    where_from: Source,
+    reason: &'static str,
+) -> Dim<SourceSet> {
+    if let Some(sources) = declared.source_set.as_deref().map(SourceSet::of)
+        && !sources.is_empty()
+    {
+        return Dim::known(sources, Source::Declared);
+    }
+
+    let read = SourceSet::of(found);
+    if read.is_empty() {
+        Dim::unknown(reason)
+    } else {
+        Dim::known(read, where_from)
     }
 }
 

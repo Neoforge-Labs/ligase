@@ -97,6 +97,7 @@ an XOR would lose.
 | `ResistanceReport` | the header row | the rows below it | trailing blanks |
 | `EntitySet` | the header row | the rows below it | — |
 | `RankedList` | the header row **and the rows below it** | — | — |
+| `KnowledgeGraph` | — | nodes, edges, and each one's `ids` and `sources` | the keys a server writes about itself, at the top level |
 
 The split is not a new judgement. It is
 [D14](/project/decisions/#d14--contig-order-is-compared-only-between-sequence-dictionaries),
@@ -249,6 +250,35 @@ named and counted in the run report, in provenance, in a bundle and in the
 methods paragraph (D26). The shipped `lg.map_identifiers` library step is
 typed for an `EntitySet`; a ranking crosses through a step of the user's own
 declaring `conversion="map_identifiers"`.
+
+### Knowledge graphs: sets all the way down
+
+The ordinary rule, reached one level further in than usual. Nodes and edges
+are records and sort, because the order a graph's nodes came off whatever
+assembled them is not a fact about the biology. Inside a node or an edge, the
+`ids` and `sources` lists are *also* sets, so they are sorted, deduplicated
+and joined on ASCII unit separator before the record is hashed — a graph
+re-serialised by a different library must not become a different graph.
+
+Each record leads with a discriminator, `node` or `edge`. Both go into one
+sorted list of record digests, so without it a node and an edge whose parts
+happened to line up would be one record.
+
+The deduplication inside a node is **exact**, never folding case, so that the
+canonical form and `SourceSet` agree on what two names are. A hash that folded
+`A.json` into `a.json` would make two graphs the dimension checker refuses to
+join agree on their content, which is the two halves of the engine
+contradicting each other.
+
+What is *not* dropped is which sources those are. A source folded in upstream
+is a different graph, and a cache that served the old answer for it would be
+serving the wrong one — which is the same reason `source_set` is a dimension.
+What *is* dropped is `remote::response`'s closed set of keys a serving system
+writes about itself, from the top level and nowhere else: inside a record a
+`timestamp` is what the record says, and recursing would silently delete a
+time series. Each drop emits a `Note::GraphFieldDropped`. The reasoning, and
+the three things the kind deliberately does not do, are on
+[knowledge graphs](/project/architecture/knowledge-graphs/).
 
 ## Tolerance
 

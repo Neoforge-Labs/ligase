@@ -1,0 +1,4 @@
+{
+  "nodes": [{ "type": "gene", "sources": ["open-targets"] }],
+  "edges": []
+}

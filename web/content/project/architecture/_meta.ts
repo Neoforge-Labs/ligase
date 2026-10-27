@@ -5,7 +5,8 @@ import type { MetaRecord } from 'nextra'
  * that only looks at one, how the graph is built from it, the steps the
  * project ships ready-built, how it runs, what is cached, how a step is run
  * twice and judged, how outputs are canonicalised before hashing, how a
- * conversion crosses an axis, where an input is fetched from, what a step
+ * conversion crosses an axis, the one kind that is assembled rather than
+ * measured, where an input is fetched from, what a step
  * noticed about its own work, what is recorded, the one domain interpreter,
  * and how the site is dressed.
  */
@@ -21,6 +22,7 @@ const meta: MetaRecord = {
   audit: 'Audit',
   canonicalisation: 'Canonicalisation',
   conversions: 'Conversions',
+  'knowledge-graphs': 'Knowledge graphs',
   remotes: 'Remote inputs',
   notes: 'Notes',
   provenance: 'Provenance',

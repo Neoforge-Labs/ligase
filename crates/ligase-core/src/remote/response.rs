@@ -144,7 +144,7 @@ fn without_volatile(
 ) -> Map<String, Value> {
     let mut kept = Map::new();
     for (name, value) in fields {
-        if VOLATILE.contains(&normalise(&name).as_str()) {
+        if is_volatile(&name) {
             notes.push(Note::QueryFieldDropped {
                 locator: locator.to_owned(),
                 field: name,
@@ -154,6 +154,17 @@ fn without_volatile(
         kept.insert(name, value);
     }
     kept
+}
+
+/// Whether this key is one a server writes about itself.
+///
+/// Public to the crate because a knowledge graph's canonical form drops the
+/// same closed set from its own top level, and the set is the thing worth
+/// having exactly once: a graph fetched from a service and a graph on disk
+/// must agree on what counts as a signature, or the same graph would hash
+/// two ways depending on how it arrived.
+pub(crate) fn is_volatile(name: &str) -> bool {
+    VOLATILE.contains(&normalise(name).as_str())
 }
 
 /// A key as [`VOLATILE`] spells it: lower-cased, with `-` and `_` removed.

@@ -17,7 +17,10 @@ use std::fmt;
 use std::path::PathBuf;
 
 pub(crate) use names::english_list;
-pub use names::{IdentifierNamespace, Label, NameSet, Organism, Release, SourceSet, Subject};
+pub use names::{
+    Exactly, FoldsAsciiCase, IdentifierNamespace, Label, Matching, NameSet, Organism, Release,
+    SourceSet, Subject,
+};
 pub use namespace::KnownNamespace;
 pub use reference::{Contig, ContigOrder, Frame, ReferenceId, Relation, Verdict, relate};
 

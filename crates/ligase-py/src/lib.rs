@@ -680,6 +680,31 @@ fn organisms(organism: Option<Organisms>) -> PyResult<Option<Vec<String>>> {
     Ok(Some(names))
 }
 
+/// What the loaders declare as the sources, refusing a declaration that
+/// names none.
+///
+/// [`organisms`]'s rule, for the other set-valued axis and for the same
+/// reason: a user who wrote `source_set=[]` has made a mistake worth naming
+/// where the message is read. The core treats an empty declaration as
+/// unknown too, but for a graph that would silently fall back to reading the
+/// sources off the file, which is not what somebody passing a list meant.
+fn sources(source_set: Option<Vec<String>>) -> PyResult<Option<Vec<String>>> {
+    let Some(names) = source_set else {
+        return Ok(None);
+    };
+    if names.is_empty() {
+        return Err(PyValueError::new_err(
+            "source_set was given an empty list; name at least one source, or leave it out",
+        ));
+    }
+    if names.iter().all(|name| name.trim().is_empty()) {
+        return Err(PyValueError::new_err(
+            "source_set was given only blank names; name at least one source, or leave it out",
+        ));
+    }
+    Ok(Some(names))
+}
+
 /// A declared label, refusing a blank one as [`organisms`] refuses blank names.
 ///
 /// One helper for every scalar declaration — `release`, `subject`,
@@ -710,7 +735,7 @@ fn declared_label(name: &str, value: Option<String>) -> PyResult<Option<String>>
 /// name rather than the value, because a bundle carries the pipeline file
 /// and a token written in the pipeline would travel in every bundle.
 #[pyfunction]
-#[pyo3(signature = (locator, kind, mode, cache=None, auth_env=None, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None))]
+#[pyo3(signature = (locator, kind, mode, cache=None, auth_env=None, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None, source_set=None))]
 #[expect(
     clippy::too_many_arguments,
     reason = "every declarable dimension, plus the three a query needs; \
@@ -729,6 +754,7 @@ fn resolve_query(
     samples: Option<Vec<String>>,
     namespace: Option<String>,
     subject: Option<String>,
+    source_set: Option<Vec<String>>,
 ) -> PyResult<PyDataset> {
     let parsed =
         Locator::parse(locator).map_err(|error| RemoteError::new_err(error.to_string()))?;
@@ -795,6 +821,7 @@ fn resolve_query(
         release: declared_label("release", release)?,
         identifier_namespace: declared_label("namespace", namespace)?,
         subject: declared_label("subject", subject)?,
+        source_set: sources(source_set)?,
     };
 
     // Loaded from the store exactly as a local file is, so a recorded
@@ -809,6 +836,7 @@ fn resolve_query(
         DataKind::EntitySet => load::entity_set(primary, None, &declared),
         DataKind::RankedList => load::ranked_list(primary, None, &declared),
         DataKind::Reads => load::reads(primary, None, &declared),
+        DataKind::KnowledgeGraph => load::knowledge_graph(primary, &declared),
         DataKind::ResistanceReport => {
             return Err(PyValueError::new_err(
                 "a resistance report is something Ligase produces, not \
@@ -867,7 +895,7 @@ fn kind_named(kind: &str) -> PyResult<DataKind> {
 /// here, while the pipeline is still being read, which is what makes "it
 /// fails before any step runs" true rather than merely intended.
 #[pyfunction]
-#[pyo3(signature = (locator, kind, digest=None, cache=None, offline=false, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None))]
+#[pyo3(signature = (locator, kind, digest=None, cache=None, offline=false, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None, source_set=None))]
 #[expect(
     clippy::too_many_arguments,
     reason = "every declarable dimension, plus the three a remote needs; \
@@ -886,6 +914,7 @@ fn resolve_remote(
     samples: Option<Vec<String>>,
     namespace: Option<String>,
     subject: Option<String>,
+    source_set: Option<Vec<String>>,
 ) -> PyResult<PyDataset> {
     let parsed =
         Locator::parse(locator).map_err(|error| RemoteError::new_err(error.to_string()))?;
@@ -942,6 +971,7 @@ fn resolve_remote(
         release: declared_label("release", release)?,
         identifier_namespace: declared_label("namespace", namespace)?,
         subject: declared_label("subject", subject)?,
+        source_set: sources(source_set)?,
     };
 
     // Loaded from the store exactly as a local file is, so a remote's
@@ -961,6 +991,7 @@ fn resolve_remote(
         DataKind::EntitySet => load::entity_set(primary, None, &declared),
         DataKind::RankedList => load::ranked_list(primary, None, &declared),
         DataKind::Reads => load::reads(primary, mates.first().map(PathBuf::as_path), &declared),
+        DataKind::KnowledgeGraph => load::knowledge_graph(primary, &declared),
         DataKind::ResistanceReport => {
             return Err(PyValueError::new_err(
                 "a resistance report is something Ligase produces, not \
@@ -996,6 +1027,7 @@ fn load_reference(
         release: declared_label("release", release)?,
         identifier_namespace: None,
         subject: None,
+        source_set: None,
     };
     load::reference(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -1018,6 +1050,7 @@ fn load_alignment(
         release: None,
         identifier_namespace: None,
         subject: None,
+        source_set: None,
     };
     load::alignment(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -1040,6 +1073,7 @@ fn load_variants(
         release: None,
         identifier_namespace: None,
         subject: None,
+        source_set: None,
     };
     load::variants(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -1062,6 +1096,7 @@ fn load_reads(
         release: None,
         identifier_namespace: None,
         subject: None,
+        source_set: None,
     };
     load::reads(&r1, r2.as_deref(), &declared)
         .map(|inner| PyDataset { inner })
@@ -1092,6 +1127,7 @@ fn load_intervals(
         release: None,
         identifier_namespace: None,
         subject: None,
+        source_set: None,
     };
     load::intervals(&path, format, &declared)
         .map(|inner| PyDataset { inner })
@@ -1117,6 +1153,7 @@ fn load_entity_set(
         release: declared_label("release", release)?,
         identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
         subject: declared_label("subject", subject)?,
+        source_set: None,
     };
     load::entity_set(&path, id_column, &declared)
         .map(|inner| PyDataset { inner })
@@ -1142,8 +1179,35 @@ fn load_ranked_list(
         release: declared_label("release", release)?,
         identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
         subject: declared_label("subject", subject)?,
+        source_set: None,
     };
     load::ranked_list(&path, id_column, &declared)
+        .map(|inner| PyDataset { inner })
+        .map_err(to_py)
+}
+
+/// Load a knowledge graph from JSON.
+#[pyfunction]
+#[pyo3(signature = (path, organism=None, identifier_namespace=None, subject=None, release=None, source_set=None))]
+fn load_knowledge_graph(
+    path: PathBuf,
+    organism: Option<Organisms>,
+    identifier_namespace: Option<String>,
+    subject: Option<String>,
+    release: Option<String>,
+    source_set: Option<Vec<String>>,
+) -> PyResult<PyDataset> {
+    let declared = Declared {
+        organism: organisms(organism)?,
+        build: None,
+        frame: None,
+        samples: None,
+        release: declared_label("release", release)?,
+        identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
+        subject: declared_label("subject", subject)?,
+        source_set: sources(source_set)?,
+    };
+    load::knowledge_graph(&path, &declared)
         .map(|inner| PyDataset { inner })
         .map_err(to_py)
 }
@@ -1163,6 +1227,7 @@ fn load_samples(
         release: None,
         identifier_namespace: None,
         subject: None,
+        source_set: None,
     };
     load::samples(&paths, paired, &declared)
         .map(|datasets| {
@@ -1816,6 +1881,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(seed_records, m)?)?;
     m.add_function(wrap_pyfunction!(load_entity_set, m)?)?;
     m.add_function(wrap_pyfunction!(load_ranked_list, m)?)?;
+    m.add_function(wrap_pyfunction!(load_knowledge_graph, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_axis, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_target_parameter, m)?)?;
     m.add_function(wrap_pyfunction!(map_identifiers, m)?)?;

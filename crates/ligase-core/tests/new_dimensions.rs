@@ -60,22 +60,37 @@ fn every_dimension_round_trips_through_its_name_and_asks_a_question() {
 // `source_set` is still unclaimed, and the obligation to re-examine its
 // deduplication before a kind takes it travels on with that kind (D36).
 #[test]
-fn release_applies_to_a_reference_and_to_either_named_list() {
+fn release_applies_to_a_reference_and_to_the_kinds_that_name_entities() {
+    // M15 added the third of those: a knowledge graph names entities, is
+    // about something, and was drawn from a release. What it also brings is
+    // `source_set`, which it is alone in applying -- see
+    // `knowledge_graph.rs::source_set_is_the_axis_this_kind_was_admitted_for`,
+    // where that axis's arms are pinned.
     for kind in DataKind::ALL {
         assert_eq!(
             kind.applies(Dimension::Release),
             matches!(
                 kind,
-                DataKind::Reference | DataKind::EntitySet | DataKind::RankedList
+                DataKind::Reference
+                    | DataKind::EntitySet
+                    | DataKind::RankedList
+                    | DataKind::KnowledgeGraph
             ),
             "{kind:?}"
         );
         assert_eq!(
             kind.applies(Dimension::Subject),
-            matches!(kind, DataKind::EntitySet | DataKind::RankedList),
+            matches!(
+                kind,
+                DataKind::EntitySet | DataKind::RankedList | DataKind::KnowledgeGraph
+            ),
             "{kind:?}"
         );
-        assert!(!kind.applies(Dimension::SourceSet), "{kind:?}");
+        assert_eq!(
+            kind.applies(Dimension::SourceSet),
+            kind == DataKind::KnowledgeGraph,
+            "{kind:?}"
+        );
     }
 }
 

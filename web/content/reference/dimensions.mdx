@@ -6,25 +6,27 @@ description: "Every biological type carries dimensions. Each dimension is inferr
 
 Every biological type carries dimensions. Each dimension is inferred from the file where possible; otherwise the user declares it once and it propagates.
 
-| Dimension | Meaning | FASTA | FASTQ | BAM/SAM | VCF | BED/GFF | Gene or ranked list (TSV) |
-|---|---|---|---|---|---|---|---|
-| organism | the organisms the data is about, as a **set**: HIV-1, or HIV-1 and Homo sapiens together | declared | declared | from reference | from header if present | declared | declared |
-| reference | build/accession, e.g. HXB2 (K03455), hg38 | sequence names + MD5 of contigs | n/a | @SQ lines (SN, LN, M5) | ##reference, ##contig | declared | n/a |
-| contig_naming | `chr1` vs `1` style | from names | n/a | @SQ SN | ##contig IDs | from records | n/a |
-| coordinates | 0-based half-open vs 1-based closed | n/a | n/a | 1-based closed (SAM *and* BAM) | 1-based closed | BED 0-based half-open, GFF 1-based closed | n/a |
-| sample_set | ordered sample IDs | n/a | from filename/declared | @RG SM | header sample columns | n/a | n/a |
-| strand/pairing | single/paired, read layout | n/a | from file pairing | flags | n/a | n/a | n/a |
-| quality_encoding | Phred+33 vs +64 | n/a | inferred from range | n/a | n/a | n/a | n/a |
-| release | which versioned external resource the data came from, e.g. `GRCh38.p14`, `Ensembl 110`, `ChEMBL 34` | declared | n/a | n/a | n/a | n/a | declared |
-| subject | what the data is about when that is one named thing: a disease, a cell line, a cohort | n/a | n/a | n/a | n/a | n/a | declared |
-| source_set | the sources a dataset was assembled from, as a **set**: kept in insertion order for display only, and compared as a set, so the order they were listed in is not part of the identity (unlike `sample_set`) | n/a | n/a | n/a | n/a | n/a | n/a |
-| identifier_namespace | which identifier space the entities are named in, e.g. `HGNC symbol`, `Ensembl gene`, `Entrez gene`, `UniProt accession` | n/a | n/a | n/a | n/a | n/a | from the identifiers' own pattern, or declared |
+| Dimension | Meaning | FASTA | FASTQ | BAM/SAM | VCF | BED/GFF | Gene or ranked list (TSV) | Knowledge graph (JSON) |
+|---|---|---|---|---|---|---|---|---|
+| organism | the organisms the data is about, as a **set**: HIV-1, or HIV-1 and Homo sapiens together | declared | declared | from reference | from header if present | declared | declared | declared |
+| reference | build/accession, e.g. HXB2 (K03455), hg38 | sequence names + MD5 of contigs | n/a | @SQ lines (SN, LN, M5) | ##reference, ##contig | declared | n/a | n/a |
+| contig_naming | `chr1` vs `1` style | from names | n/a | @SQ SN | ##contig IDs | from records | n/a | n/a |
+| coordinates | 0-based half-open vs 1-based closed | n/a | n/a | 1-based closed (SAM *and* BAM) | 1-based closed | BED 0-based half-open, GFF 1-based closed | n/a | n/a |
+| sample_set | ordered sample IDs | n/a | from filename/declared | @RG SM | header sample columns | n/a | n/a | n/a |
+| strand/pairing | single/paired, read layout | n/a | from file pairing | flags | n/a | n/a | n/a | n/a |
+| quality_encoding | Phred+33 vs +64 | n/a | inferred from range | n/a | n/a | n/a | n/a | n/a |
+| release | which versioned external resource the data came from, e.g. `GRCh38.p14`, `Ensembl 110`, `ChEMBL 34` | declared | n/a | n/a | n/a | n/a | declared | declared |
+| subject | what the data is about when that is one named thing: a disease, a cell line, a cohort | n/a | n/a | n/a | n/a | n/a | declared | declared |
+| source_set | the sources a dataset was assembled from, as a **set**: kept in insertion order for display only, and compared as a set, so the order they were listed in is not part of the identity (unlike `sample_set`). Compared **exactly**, case included, unlike `organism` | n/a | n/a | n/a | n/a | n/a | n/a | from the sources named on its nodes and edges, or declared |
+| identifier_namespace | which identifier space the entities are named in, e.g. `HGNC symbol`, `Ensembl gene`, `Entrez gene`, `UniProt accession` | n/a | n/a | n/a | n/a | n/a | from the identifiers' own pattern, or declared | from the node ids' own pattern, or declared |
 
 The last four arrived after the others and sit at the bottom on purpose: a report of
 several disagreements is ordered by this list, so slotting a new axis in
 beside the ones it resembles would have reordered every report that already
-existed. `source_set` applies to no kind the engine reads today and comes
-alive with the kinds that need it.
+existed. `source_set` was applied by no kind until M15, and is now applied by
+exactly one: a knowledge graph is the only kind in Ligase that is *assembled*
+rather than measured, so it is the only one for which "which sources
+contributed" is a fact at all.
 
 A gene list is the first kind here that holds no sequence, which is why the
 last column is mostly `n/a`: a list of gene names has no coordinate system,
@@ -32,14 +34,22 @@ no contigs, no read pairing and no quality scores. Those are not gaps to be
 filled in but properties the data does not have, and demanding one is the
 category error this table exists to prevent.
 
-The last column covers **two** kinds, and that is the point rather than a
-shortcut. A `RankedList` — a ranking of genes, of drug targets, of candidates
+The last column but one covers **two** kinds, and that is the point rather
+than a shortcut. A `RankedList` — a ranking of genes, of drug targets, of candidates
 — carries exactly the dimensions an `EntitySet` carries. What differs is what
 their canonical forms keep: a set's rows are a set, and a ranking's order is
 its result
 ([D41](/project/decisions/#d41--in-a-ranked-list-rank-order-is-the-result)).
 A dimension on one and not the other would mean that difference had spread
 past the one place it is meant to live.
+
+The last column is the one kind that is **assembled**. A knowledge graph
+answers three of the named list's questions identically — it names entities,
+it is about something, and whatever named its entities had a release — and
+brings a fourth that follows from being assembled rather than measured: which
+evidence sources were folded into it. That is the axis the kind was admitted
+for, and the failure it catches is
+[my target ranking changed and I cannot find the analysis change](/silent-failures/mixed-sources/).
 
 ## Rules
 
@@ -63,7 +73,20 @@ past the one place it is meant to live.
 - `release`, `subject` and `source_set` are never *demanded*: each is compared
   wherever both sides state it, and a file that records none is still
   loadable. A FASTA records no release, so requiring one would make an
-  ordinary reference unusable.
+  ordinary reference unusable; a graph assembled by hand names no sources, and
+  a demand a user cannot always meet is worse than a missed check.
+- A **source set** is compared by set equality like `organism`, and its
+  members are compared **exactly** where an organism's fold ASCII case. An
+  organism is a Latin binomial, a closed conventional vocabulary in which
+  `HIV-1` and `hiv-1` are one organism; a source is usually an object key or
+  a URL, and `s3://bucket/A.json` and `s3://bucket/a.json` are two objects by
+  specification. Folding case would drop a member silently; not folding it can
+  only produce a refusal you can read
+  ([D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)).
+- A knowledge graph's source set is **read off the graph**, from the `sources`
+  named on its nodes, its edges and its top level, and a graph naming none
+  leaves the axis unknown rather than known and empty
+  ([D44](/project/decisions/#d44--a-graphs-sources-are-read-from-its-edges-not-declared)).
 - An identifier namespace is compared by **equality** and never coerced. Two
   gene lists in different spaces do not join, and the only way across is a
   `map_identifiers` step, because mapping between spaces is a lookup with

@@ -24,6 +24,7 @@ __all__ = [
     "DimensionValue",
     "EntitySet",
     "Intervals",
+    "KnowledgeGraph",
     "RankedList",
     "Reads",
     "Reference",
@@ -325,6 +326,34 @@ class RankedList(Dataset):
     __slots__ = ()
 
 
+class KnowledgeGraph(Dataset):
+    """Typed nodes and edges with per-edge provenance, read from JSON.
+
+    The first type here that is **assembled** rather than measured, and the
+    one dimension that follows from it is why the type exists: which
+    evidence sources were folded into a graph decides what it holds. Add
+    DisGeNET to a graph that had Open Targets and a literature-mined set,
+    and edges appear, neighbourhoods widen and every propagated score moves
+    -- and nothing in the file says which sources went in. So two graphs
+    that differ only in their source composition diff and score against
+    each other without complaint, and the difference reads as biology.
+
+    `source_set` is therefore a dimension, and the loader reads it off the
+    graph's own nodes and edges rather than asking for it. It is compared
+    **exactly**, case included, because a source is usually an object key
+    or a URL and both are case-sensitive by specification -- unlike
+    `organism`, where `HIV-1` and `hiv-1` are one organism
+    ([D36](https://ligase.neoforgelabs.tech/project/decisions/)).
+
+    It also carries the organism set, the identifier space its node ids are
+    named in, what it is a graph of, and the release its sources were drawn
+    from. It has no coordinate system, no contigs, no pairing, no quality
+    scores and no samples.
+    """
+
+    __slots__ = ()
+
+
 #: Every type a step may annotate, by the name the engine knows it as.
 #:
 #: Annotating a step with anything else is refused when it is decorated,
@@ -340,5 +369,6 @@ KINDS: Mapping[str, type[Dataset]] = MappingProxyType(
         "ResistanceReport": ResistanceReport,
         "EntitySet": EntitySet,
         "RankedList": RankedList,
+        "KnowledgeGraph": KnowledgeGraph,
     }
 )
