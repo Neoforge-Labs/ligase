@@ -70,6 +70,7 @@ def resolve_remote(
     samples: list[str] | None = None,
     namespace: str | None = None,
     subject: str | None = None,
+    source_set: list[str] | None = None,
 ) -> Dataset: ...
 def resolve_query(
     locator: str,
@@ -84,6 +85,7 @@ def resolve_query(
     samples: list[str] | None = None,
     namespace: str | None = None,
     subject: str | None = None,
+    source_set: list[str] | None = None,
 ) -> Dataset: ...
 def seed_records(bundle: str, cache: str | None = None) -> int: ...
 def load_entity_set(
@@ -101,6 +103,14 @@ def load_ranked_list(
     identifier_namespace: str | None = None,
     subject: str | None = None,
     release: str | None = None,
+) -> Dataset: ...
+def load_knowledge_graph(
+    path: str,
+    organism: str | Sequence[str] | None = None,
+    identifier_namespace: str | None = None,
+    subject: str | None = None,
+    release: str | None = None,
+    source_set: Sequence[str] | None = None,
 ) -> Dataset: ...
 def load_alignment(
     path: str,

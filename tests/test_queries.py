@@ -13,6 +13,7 @@ down" is a closed port rather than a stubbed error.
 
 from __future__ import annotations
 
+import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -21,7 +22,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 import ligase as lg
-from ligase.types import EntitySet
+from ligase.types import EntitySet, KnowledgeGraph
 from tests.conftest import fixture
 
 if TYPE_CHECKING:
@@ -684,3 +685,163 @@ def test_a_thin_bundle_without_the_store_fails_before_any_step_runs(
     assert "thin bundle" in message, message
     assert str(bucket) in message, "it names the store it was told about"
     assert "--thin" in message, "and how to get a bundle that does not need it"
+
+
+# ------------------------------------------------ the JSON branch, for real --
+
+
+#: A knowledge graph, as a JSON query endpoint answers with one.
+#:
+#: The server's own bookkeeping is in it on purpose: `generatedAt` is exactly
+#: the field `response.py`'s closed set exists for, and a graph fetched twice
+#: a minute apart has to be one graph.
+GRAPH = json.dumps(
+    {
+        "generatedAt": "2026-10-27T09:14:02Z",
+        "nodes": [
+            {"id": "ENSG00000141510", "type": "gene", "sources": ["open-targets"]},
+            {"id": "ENSG00000012048", "type": "gene", "sources": ["open-targets"]},
+        ],
+        "edges": [
+            {
+                "source": "ENSG00000141510",
+                "target": "ENSG00000012048",
+                "type": "interacts_with",
+                "sources": ["open-targets"],
+            }
+        ],
+    }
+).encode()
+
+#: The same endpoint after one more source was folded in upstream, which is
+#: a different graph however little else changed.
+GRAPH_WITH_DISGENET = json.dumps(
+    {
+        "nodes": [
+            {"id": "ENSG00000141510", "type": "gene", "sources": ["open-targets"]},
+            {"id": "ENSG00000012048", "type": "gene", "sources": ["open-targets"]},
+        ],
+        "edges": [
+            {
+                "source": "ENSG00000141510",
+                "target": "ENSG00000012048",
+                "type": "interacts_with",
+                "sources": ["open-targets", "disgenet"],
+            }
+        ],
+    }
+).encode()
+
+
+def ask_for_a_graph(locator: str, **declared: object) -> KnowledgeGraph:
+    """Resolve a query as a knowledge graph."""
+    held = lg.query(
+        locator,
+        kind=KnowledgeGraph,
+        organism="Homo sapiens",
+        **declared,  # type: ignore[arg-type]
+    )
+    assert isinstance(held, KnowledgeGraph)
+    return held
+
+
+def test_a_recorded_graph_replays_with_the_server_down(
+    server: Server, tmp_path: Path
+) -> None:
+    """M15 closes the gap M10b left named.
+
+    `response.py` canonicalises a JSON body — keys sorted at every depth, the
+    server's own fields dropped from the top level — and until there was a
+    kind that reads JSON, that branch was exercised by unit tests and never
+    end to end. A `KnowledgeGraph` is that kind, so this is the first test in
+    which a JSON body goes through the recorder, into the store, and out
+    again through a loader that parses it as what it claims to be.
+    """
+    server.serve("/graph", GRAPH)
+    url = server.url("/graph")
+
+    @lg.step
+    def prune(kg: lg.KnowledgeGraph) -> lg.KnowledgeGraph:
+        """Drop the edges below a score, which this test does not care about."""
+        return lg.sh("cp {kg} {out}")
+
+    store = tmp_path / "store"
+    first = lg.Pipeline(prune(ask_for_a_graph(url))).run(cache=store)
+    [output] = first.outputs("prune")
+    produced = Path(output).read_bytes()
+
+    # The source goes away entirely. Anything that still works worked out of
+    # the record.
+    server.stop()
+
+    second = lg.Pipeline(prune(ask_for_a_graph(url))).run(cache=store)
+    [again] = second.outputs("prune")
+
+    assert Path(again).read_bytes() == produced
+    assert again == output
+
+
+def test_a_queried_graphs_sources_are_read_out_of_the_answer(
+    server: Server,
+) -> None:
+    # The dimension comes off the body the service returned, so a graph
+    # fetched from a service carries the same axis a graph on disk does --
+    # and the loader is the same loader, which is what stops the two
+    # disagreeing.
+    server.serve("/graph", GRAPH)
+
+    held = ask_for_a_graph(server.url("/graph"))
+
+    found = held.dimension("source_set")
+    assert found is not None
+    assert found.value == "open-targets"
+
+
+def test_a_graph_that_gained_a_source_upstream_is_a_different_answer(
+    server: Server, tmp_path: Path
+) -> None:
+    # `--refresh` finds the drift, and the drift is the source composition
+    # rather than anything about the biology. A pipeline that re-asked on
+    # every run would have taken the new graph for the old one.
+    server.serve("/graph", GRAPH)
+    url = server.url("/graph")
+    lg.remotes.configure(cache=tmp_path / "store")
+
+    first = ask_for_a_graph(url)
+    assert first.origin is not None
+
+    server.serve("/graph", GRAPH_WITH_DISGENET)
+    lg.remotes.configure(mode="refresh")
+    refreshed = ask_for_a_graph(url)
+    assert refreshed.origin is not None
+
+    assert refreshed.origin.digest != first.origin.digest
+    found = refreshed.dimension("source_set")
+    assert found is not None
+    assert found.value == "open-targets and disgenet"
+
+
+def test_a_servers_signature_does_not_make_a_graph_a_new_graph(
+    server: Server, tmp_path: Path
+) -> None:
+    # The JSON branch's whole point, reached end to end for the first time:
+    # the same graph served a minute later, with a different `generatedAt`,
+    # is the same graph. Without the drop every run would see drift and
+    # everything below the query would rerun.
+    served = json.loads(GRAPH)
+    server.serve("/graph", json.dumps(served).encode())
+    url = server.url("/graph")
+    lg.remotes.configure(cache=tmp_path / "store")
+
+    first = ask_for_a_graph(url)
+    assert first.origin is not None
+
+    served["generatedAt"] = "2026-10-27T11:52:40Z"
+    server.serve("/graph", json.dumps(served).encode())
+    lg.remotes.configure(mode="refresh")
+    again = ask_for_a_graph(url)
+    assert again.origin is not None
+
+    assert again.origin.digest == first.origin.digest
+    # And the engine says which field it dropped, in case it was data.
+    assert any("generatedAt" in note for note in again.notes), again.notes
