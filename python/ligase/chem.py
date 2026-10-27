@@ -184,8 +184,7 @@ def standardize_ranking(molecules: MoleculeRanking, *, to: str) -> MoleculeRanki
     )
 
 
-@step(tool="ligase", conversion="standardize")
-def _standardize(molecules: MoleculeSet, *, to: str, rdkit_version: str) -> MoleculeSet:
+def _set_body(molecules: MoleculeSet, *, to: str, rdkit_version: str) -> MoleculeSet:
     """Standardise a set, with the toolkit version in the cache key."""
 
     def produce(out: Path) -> list[Noticed]:
@@ -194,8 +193,7 @@ def _standardize(molecules: MoleculeSet, *, to: str, rdkit_version: str) -> Mole
     return write(produce)
 
 
-@step(tool="ligase", conversion="standardize")
-def _standardize_ranking(
+def _ranking_body(
     molecules: MoleculeRanking, *, to: str, rdkit_version: str
 ) -> MoleculeRanking:
     """Standardise a ranking, with the toolkit version in the cache key."""
@@ -204,6 +202,19 @@ def _standardize_ranking(
         return _run(molecules.file, out, to)
 
     return write(produce)
+
+
+# A step's name is what provenance, the run report, the methods paragraph and
+# every error message call it -- and a user wrote `lg.chem.standardize`, not
+# the private function that carries the toolkit version into the cache key.
+# `@lg.step` takes the name off the function it decorates, so the name is set
+# here rather than leaving `_set_body` to surface in a methods section
+# somebody is going to publish.
+_set_body.__name__ = "standardize"
+_ranking_body.__name__ = "standardize_ranking"
+
+_standardize = step(tool="ligase", conversion="standardize")(_set_body)
+_standardize_ranking = step(tool="ligase", conversion="standardize")(_ranking_body)
 
 
 def _run(source: str, out: Path, to: str) -> list[Noticed]:

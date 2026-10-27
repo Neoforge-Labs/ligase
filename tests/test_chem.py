@@ -259,3 +259,87 @@ def test_a_ranking_is_standardised_in_its_own_order(table: Path) -> None:
 def test_the_two_steps_are_typed_as_the_kinds_they_produce() -> None:
     assert lg.chem.standardize.__annotations__["return"] == "MoleculeSet"
     assert lg.chem.standardize_ranking.__annotations__["return"] == "MoleculeRanking"
+
+
+def test_a_standardised_set_declares_the_state_it_arrived_in(table: Path) -> None:
+    # What makes this a conversion rather than a step that happens to write
+    # molecules: the output's own representation is the state asked for, so
+    # everything downstream is checked against a true statement.
+    clean = lg.chem.standardize(
+        lg.molecule_set(written(table, VENDOR)),
+        to="inchikey; salt-stripped, charge-neutralised",
+    )
+    lg.Pipeline(clean).check()
+
+    dataset = lg.handle(clean).dataset
+    assert dataset is not None
+    read = dataset.dimension("representation")
+    assert read is not None
+    assert read.value == "InChIKey, salt-stripped and charge-neutralised"
+    # Named for the function the user called, not for the private one that
+    # carries the toolkit version into the cache key. This is what a methods
+    # paragraph prints.
+    assert read.source == "from step `standardize`"
+
+
+def test_a_conversion_carries_every_other_axis(table: Path) -> None:
+    clean = lg.chem.standardize(
+        lg.molecule_set(
+            written(table, VENDOR),
+            organism="Homo sapiens",
+            subject="EGFR",
+            release="ChEMBL 34",
+        ),
+        to="inchikey; salt-stripped",
+    )
+    lg.Pipeline(clean).check()
+
+    dataset = lg.handle(clean).dataset
+    assert dataset is not None
+    for axis, expected in [
+        ("organism", "Homo sapiens"),
+        ("subject", "EGFR"),
+        ("release", "ChEMBL 34"),
+    ]:
+        found = dataset.dimension(axis)
+        assert found is not None, axis
+        assert found.value == expected, axis
+
+
+def test_an_upgrade_of_the_toolkit_moves_the_step_key(table: Path) -> None:
+    # D42's version clause, for a dependency with no executable to probe.
+    # The version is read before the step is built and passed as one of its
+    # parameters, so it is in the key; read inside the body it would not be,
+    # and the step would serve a cached answer across an upgrade that could
+    # have changed every key it computed -- which is exactly what happened
+    # to `bwa`, whose usage banner was identical for every release ever
+    # shipped.
+    #
+    # Asserted by pretending to upgrade: the same input and the same target
+    # under two versions must not share a key. The private step is called
+    # directly, because the public one reads the real version and there is
+    # only one of those installed.
+    library = lg.molecule_set(written(table, FLAT))
+    cache = table / "cache"
+    keys = {
+        version: lg.Pipeline(
+            lg.chem._standardize(
+                library, to="inchikey; salt-stripped", rdkit_version=version
+            )
+        )
+        .run(cache=cache)
+        .steps[-1]
+        .key
+        for version in ("2024.03.1", "2026.09.1")
+    }
+    assert len(set(keys.values())) == 2, keys
+
+    # And the version this interpreter actually has is what the public step
+    # passes, so the key moves on a real upgrade rather than a pretend one.
+    assert lg.chem.toolkit_version() == rdkit.__version__
+    assert "rdkit_version" in {
+        parameter.name
+        for parameter in lg.handle(
+            lg.chem.standardize(library, to="inchikey; salt-stripped")
+        ).step.parameters
+    }

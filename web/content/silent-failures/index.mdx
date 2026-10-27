@@ -39,6 +39,11 @@ worth building a type system to prevent. One of them —
     Two gene lists named in different identifier spaces. The join succeeds and
     the intersection is empty, which reads as a biological result.
   </Hazard>
+  <Hazard href="/silent-failures/mixed-standardisation/" symptom="My compound overlap is almost empty" left="…SA-M" right="…SA-N">
+    Two compound sets standardised differently. The same substance has a
+    different InChIKey in each, the overlap is small rather than zero, and no
+    glance at two columns of keys can tell them apart.
+  </Hazard>
   <Hazard href="/silent-failures/mixed-sources/" symptom="My target ranking changed and I cannot find the analysis change" left="3 sources" right="4 sources">
     Two knowledge graphs assembled from different evidence sources. Every
     score is computed correctly, and the ranking moved because the graph was

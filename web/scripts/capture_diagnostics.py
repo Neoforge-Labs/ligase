@@ -385,6 +385,58 @@ SCENARIOS: tuple[Scenario, ...] = (
         },
     ),
     Scenario(
+        key="molecularStandardisation",
+        step="overlap",
+        expect="DimensionError",
+        description=(
+            "A library standardised and a hit list as the vendor shipped it: "
+            "the same two substances, and an overlap of nothing."
+        ),
+        build=lambda lg: {
+            "library": lg.molecule_set(
+                fixture("molecules_library.tsv"), organism="Homo sapiens"
+            ),
+            "hits": lg.molecule_set(
+                fixture("molecules_hits_salts.tsv"), organism="Homo sapiens"
+            ),
+        },
+    ),
+    Scenario(
+        key="molecularTautomers",
+        step="overlap",
+        expect="DimensionError",
+        description=(
+            "Two libraries standardised to different states: the error names "
+            "the operations one of them also applied."
+        ),
+        build=lambda lg: {
+            "library": lg.molecule_set(
+                fixture("molecules_library.tsv"), organism="Homo sapiens"
+            ),
+            "normalised": lg.molecule_set(
+                fixture("molecules_tautomer_normalised.tsv"),
+                organism="Homo sapiens",
+            ),
+        },
+    ),
+    Scenario(
+        key="molecularUndeclared",
+        step="overlap",
+        expect="UndeclaredDimensionError",
+        description=(
+            "Two tables of InChIKeys, neither of which says what standardised "
+            "them: demanded of, rather than agreeing by silence."
+        ),
+        build=lambda lg: {
+            "library": lg.molecule_set(
+                fixture("molecules_no_representation.tsv"), organism="Homo sapiens"
+            ),
+            "hits": lg.molecule_set(
+                fixture("molecules_no_representation.tsv"), organism="Homo sapiens"
+            ),
+        },
+    ),
+    Scenario(
         key="graphNamespace",
         step="score",
         expect="DimensionError",

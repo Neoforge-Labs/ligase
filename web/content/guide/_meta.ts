@@ -25,6 +25,11 @@ import type { MetaRecord } from 'nextra'
  * them: a graph names entities the way a list does, and the refusal that is
  * new to it is the one about how the graph was assembled.
  *
+ * Compound sets come after knowledge graphs, last of the pages about a kind
+ * that holds no sequence, because the page assumes what the other two teach:
+ * that a dimension can be about what a name means, and that the engine
+ * refuses rather than repairs.
+ *
  * The two remote pages come after them and in that order, because a pinned
  * remote is the simpler promise and a recorded query is explained by
  * contrast with it. Pointing a lab at a bucket follows both, because what a
@@ -43,6 +48,7 @@ const meta: MetaRecord = {
   'mapping-identifiers': 'Crossing identifier spaces',
   'ranked-lists': 'Comparing ranked lists',
   'knowledge-graphs': 'Comparing knowledge graphs',
+  molecules: 'Comparing compound sets',
   remotes: 'Fetching your inputs',
   'recorded-queries': 'Recording a live query',
   'remote-store': 'Pointing a lab at a bucket',
