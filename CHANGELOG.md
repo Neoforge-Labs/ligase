@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The README explains the project rather than announcing it.** It had a
+  paragraph of premise, a status line and an install command, and not one
+  line of example — a reader could not see what a pipeline looks like, what
+  a diagnostic says, or why any of it is worth their afternoon. It now opens
+  on the failure mode (a plausible number, not a crash), shows three real
+  diagnostics and a real `ligase inspect` run, gives a pipeline whose
+  signatures type-check against the shipped package, and explains the
+  mechanism — inferred dimensions, graph before compute, content-addressed
+  keys, declared randomness, pinned remotes, provenance as a product.
+
+  Every block of output in it is byte-verbatim from the captures the
+  documentation site generates on each build, and the example parses under
+  `ruff` and `mypy` against the installed package, because a README is where
+  a stale example costs the most. Links are absolute throughout: this file
+  is also the PyPI long description and the `ligase` crate's README, where
+  relative links resolve nowhere.
 
 ## [0.2.0] - 2026-10-27
 
