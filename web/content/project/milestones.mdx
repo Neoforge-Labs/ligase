@@ -1428,6 +1428,10 @@ first clause applied rather than argued around. `representation` records the
 operations and not which toolkit applied them, because the measurement
 compared RDKit against itself across time and not against another toolkit,
 and recording the toolkit would claim more than the evidence supports. And
-RDKit is not yet in the curated citation table: that row belongs in
-`prov/cite.rs`, which M16 was editing in parallel, so it is a follow-up rather
-than a file two milestones wrote to at once.
+RDKit is not credited in a methods section, which is a shortfall rather than
+a choice: a project-shipped step's citation resolves from its `tool=`, and
+`tool=` means a program the engine runs to ask its version. A library cannot
+be one, which is why the version travels as a parameter instead. Adding a row
+to the citation table would not help, because nothing would look it up —
+closing it means letting a tool be a library, which is a change to D42's
+machinery.

@@ -276,11 +276,23 @@ axis: a false agreement is unrecoverable, and a loud refusal is not.
   time, not RDKit against OpenEye. Recording the toolkit would be a wider
   claim than the evidence supports, and measuring it is the next experiment
   rather than a line in this milestone.
-- **RDKit is not in the citation table.** A step the project ships should
-  resolve its tool to a curated reference (D24, D42), and `prov/cite.rs` is
-  where that row belongs. M17 was built alongside M16, which owns that file,
-  so the row was left for a follow-up rather than written into a file two
-  milestones were editing at once.
+- **RDKit cannot be cited, and the reason is an engine gap worth naming.**
+  A step the project ships resolves its tool to a curated reference rather
+  than declaring one (D24, D42), and that resolution is keyed on the tool a
+  step declares with `tool=`. But `tool=` also means *a program the engine
+  runs to ask its version*: `VersionProbe` executes it with arguments and
+  reads a line of its output. RDKit is a library with no executable, so it
+  cannot be a `tool=` — which is why this step declares `tool="ligase"` and
+  carries the toolkit version as a parameter instead.
+
+  The version therefore reaches the cache key, which is the half that
+  matters for correctness, and the citation does not, which is the half that
+  matters for a reference list. Adding a row to `prov/cite.rs` would not fix
+  it: nothing would look the row up. Closing it means letting a tool be a
+  library — a probe that imports rather than execs, and a citation key that
+  does not assume a program — and that is a change to D42's machinery rather
+  than a line in this milestone. Until then RDKit is a dependency a methods
+  section does not credit, which is a real shortfall and is recorded as one.
 - **The whole table is read into memory** by the canonical form, as a gene
   list's is and for the same reason. A library larger than memory is not
   readable today and nothing pretends otherwise.

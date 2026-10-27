@@ -104,6 +104,15 @@ def toolkit_version() -> str:
 
     Raises:
         StepDefinitionError: If RDKit is not installed, naming the extra.
+
+    Note:
+        The version is a step **parameter** rather than a `tool=`, and that
+        is a limit rather than a preference. `tool=` means a program the
+        engine runs to ask its version, and it is also what a citation
+        resolves from. A library is neither, so RDKit's version reaches the
+        cache key -- the half that matters for correctness -- and RDKit is
+        not credited in a methods section, which is the half that matters
+        for a reference list. See the architecture page.
     """
     try:
         import rdkit
