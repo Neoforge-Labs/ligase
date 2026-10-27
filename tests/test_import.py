@@ -49,3 +49,25 @@ def test_core_version_comes_from_rust() -> None:
     import ligase
 
     assert ligase._core.version() == ligase.__version__
+
+
+def test_the_changelog_has_a_dated_section_for_this_version() -> None:
+    """A bump with no changelog section behind it ships a silent release.
+
+    v0.2.0 was tagged on a tree that still called itself 0.1.0, with every
+    entry still under `[Unreleased]`. Had the wheels built, they would have
+    been 0.1.0 wheels, PyPI would have skipped them as files it already had,
+    and the run would have gone green having published nothing. The two
+    halves of a release -- the number and what is written under it -- move
+    together or not at all.
+    """
+    version = workspace_version()
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    dated = re.compile(
+        rf"^## \[{re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}$", re.MULTILINE
+    )
+
+    assert dated.search(changelog), (
+        f"CHANGELOG.md has no dated `## [{version}]` section. Move the"
+        " `[Unreleased]` entries into one before releasing."
+    )

@@ -23,7 +23,7 @@ every Python from 3.11 upwards. The matrix is five builds, not twenty:
 
 | Platform | Target |
 |---|---|
-| Linux | `x86_64`, `aarch64` (manylinux) |
+| Linux | `x86_64` (manylinux2014, glibc 2.17), `aarch64` (manylinux_2_28, glibc 2.28) |
 | macOS | `aarch64`, `x86_64` |
 | Windows | `x64` |
 
@@ -32,6 +32,32 @@ A wheel that still needs a compiler would defeat the point, so the
 `cargo` removed from `PATH` and fails if `import ligase` or `ligase --help`
 does not work. It fails loudly if `cargo` is still reachable, because then the
 test would prove nothing.
+
+### Why the two Linux wheels have different floors
+
+`manylinux: auto` means manylinux2014, which is CentOS 7 and glibc 2.17. That
+reach is worth keeping on x86_64, because a good deal of this audience is
+given an elderly cluster login node and no say in it.
+
+aarch64 cannot have it. The `auto` cross toolchain is **GCC 4.8.5**, which
+defines `__aarch64__` and not `__ARM_ARCH`, and that pair is exactly what
+`ring`'s `asm_base.h` refuses:
+
+```text
+include/ring-core/asm_base.h:73:2: error: #error "ARM assembler must define __ARM_ARCH"
+```
+
+`__ARM_ARCH` is an ACLE macro that GCC gained for aarch64 after 4.8; the
+`manylinux_2_28` image's GCC 7.5.0 defines it as `8`, in both the C and the
+`assembler-with-cpp` paths. So that one wheel is built in the newer image and
+needs glibc 2.28 — no distro older than that ran aarch64 in anger, so the
+reach being given up is theoretical.
+
+This is worth knowing because of how it failed. `ring` is not a direct
+dependency: it arrived in v0.2 underneath `ureq`'s rustls, which is why the
+same workflow built v0.1.0's aarch64 wheel without complaint. And
+`verify-wheel`, `pypi` and `crate` all `needs:` the wheels, so one broken
+target took the entire release with it.
 
 ## One-time setup
 
@@ -88,6 +114,34 @@ workflow's rehearsal step still checks the crate packages correctly.
 
 A manual run with **`publish`** does the same thing without a tag, for the
 case where a tag already exists.
+
+## What the workflow checks before it publishes
+
+Both registries are quiet about a version they already hold: PyPI's
+`skip-existing` passes over a file it has, and the crate job asks the index
+first so a re-run or a retag skips cleanly rather than failing on
+`already exists`. That is what makes a re-run safe. It is also what makes a
+release carrying the *wrong version number* look like a success — v0.2.0 was
+first tagged on a tree that still called itself `0.1.0`, with the changelog
+unrolled, and every step downstream would have skipped its work and reported
+nothing wrong.
+
+So a `version` job runs before either publisher, and refuses two things:
+
+- a tag whose name disagrees with `[workspace.package].version`. `v0.3.0` on
+  a tree that says `0.2.0` would release something nobody named.
+- a version with no dated `## [X.Y.Z] - YYYY-MM-DD` section in
+  `CHANGELOG.md` — step 2 above, left undone.
+
+`pypi` and `crate` both `needs:` it, so neither can run without it. The second
+check is also a test, in `tests/test_import.py`, so a bump whose changelog did
+not move fails `pytest` before it ever reaches CI.
+
+<Note kind="note">
+Neither check can tell you the version is the *right* one. They only refuse a
+release whose three statements of it — the tag, the manifest and the changelog
+— disagree.
+</Note>
 
 ## What cannot be undone
 

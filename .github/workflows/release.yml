@@ -23,6 +23,44 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # A tag is a claim about the version, and nothing checked it: v0.2.0 was
+  # tagged on a tree that still called itself 0.1.0. Everything downstream is
+  # built to be re-runnable, which is the same thing as being quiet -- PyPI
+  # skips a file it already has, the crates.io probe skips a version the index
+  # already lists -- so that release would have gone green having published
+  # nothing at all.
+  version:
+    name: the tag and the changelog agree with the version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: the version is what this release says it is
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name=="ligase") | .version')"
+          echo "the workspace says $version"
+
+          # On a tag push the tag is the release's name, so it has to be the
+          # version; otherwise the artefacts are named after something else.
+          if [ "${GITHUB_REF_TYPE:-}" = tag ]; then
+            tagged="${GITHUB_REF_NAME#v}"
+            if [ "$tagged" != "$version" ]; then
+              echo "::error::tag ${GITHUB_REF_NAME} names ${tagged}, but the workspace version is ${version}. Bump the version, or move the tag."
+              exit 1
+            fi
+            echo "tag ${GITHUB_REF_NAME} agrees"
+          fi
+
+          # And the number must have something written under it. A dated
+          # section means the `[Unreleased]` entries were moved; an unrolled
+          # changelog means they were not.
+          if ! grep -qE "^## \[${version}\] - [0-9]{4}-[0-9]{2}-[0-9]{2}\$" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no dated section for ${version}. Move the [Unreleased] entries into one."
+            exit 1
+          fi
+          echo "CHANGELOG.md has a dated section for ${version}"
+
   wheels:
     name: wheel ${{ matrix.target }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -32,8 +70,22 @@ jobs:
         include:
           # abi3-py311 means one wheel per platform rather than one per Python
           # version, so this matrix is five builds instead of twenty.
+          #
+          # x86_64 stays on `auto`, which is manylinux2014 and glibc 2.17, so
+          # the wheel still installs on the elderly cluster login nodes a lot
+          # of this audience is given.
           - { os: ubuntu-24.04,  target: x86_64,  manylinux: auto }
-          - { os: ubuntu-24.04,  target: aarch64, manylinux: auto }
+          # aarch64 cannot: `auto` is CentOS 7's cross toolchain, GCC 4.8.5,
+          # which defines `__aarch64__` and not `__ARM_ARCH`, and that exact
+          # pair is what `ring`'s `asm_base.h` raises
+          # `#error "ARM assembler must define __ARM_ARCH"` on. It took the
+          # whole of v0.2.0's release down with it, because `verify-wheel`,
+          # PyPI and crates.io all `needs:` the wheels. `ring` arrived in v0.2
+          # behind `ureq`'s rustls, which is why the same workflow released
+          # v0.1.0. The 2_28 image's GCC 7.5.0 defines `__ARM_ARCH 8`, at the
+          # cost of a glibc 2.28 floor on this wheel alone -- no older distro
+          # ran aarch64 in anger.
+          - { os: ubuntu-24.04,  target: aarch64, manylinux: "2_28" }
           - { os: macos-latest,  target: aarch64, manylinux: "off" }
           - { os: macos-latest,  target: x86_64,  manylinux: "off" }
           - { os: windows-latest, target: x64,    manylinux: "off" }
@@ -103,7 +155,7 @@ jobs:
 
   pypi:
     name: ${{ github.event.inputs.mode == 'testpypi' && 'TestPyPI' || 'PyPI' }}
-    needs: [wheels, sdist, verify-wheel]
+    needs: [version, wheels, sdist, verify-wheel]
     if: github.event_name == 'push' || github.event.inputs.mode != 'dry-run'
     runs-on: ubuntu-24.04
     environment: ${{ github.event.inputs.mode == 'testpypi' && 'testpypi' || 'pypi' }}
@@ -127,7 +179,7 @@ jobs:
 
   crate:
     name: crates.io
-    needs: [wheels, sdist, verify-wheel]
+    needs: [version, wheels, sdist, verify-wheel]
     runs-on: ubuntu-24.04
     # Declared unconditionally: an empty environment name is not valid, and
     # naming it always means required reviewers can gate an irreversible
