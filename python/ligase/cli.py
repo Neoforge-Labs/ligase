@@ -55,6 +55,7 @@ from . import (
     entity_set,
     intervals,
     knowledge_graph,
+    molecule_set,
     reads,
     reference,
     remotes,
@@ -79,6 +80,7 @@ DEFAULT_PIPELINE = "pipeline.py"
 FOUND_ERRORS = 1
 COULD_NOT_CHECK = 2
 
+
 #: Which loader `inspect` reads which extension with.
 #:
 #: Private to the command, and deliberately neither in the engine nor in the
@@ -86,6 +88,32 @@ COULD_NOT_CHECK = 2
 #: rather than about biology, and a pipeline answers it by naming the loader
 #: it wants. `inspect` is the one surface with nobody to ask.
 #:
+def _tabular(path: str) -> Dataset:
+    """Read a `.tsv` as whichever tabular kind its header says it is.
+
+    Two kinds share the suffix, and a suffix cannot tell them apart -- so
+    the header does. A table with an `inchikey` column is a molecule set,
+    which is as strong a marker as a VCF's `##fileformat` and is not a
+    guess: nothing but a table of molecules carries that column.
+
+    A **ranking** is never inferred, from either kind. There is nothing in a
+    file to say whether its row order is its answer, which was already true
+    of `RankedList` before this kind existed. `inspect` therefore reports
+    the unranked reading, and a pipeline says which it means by annotating a
+    step.
+    """
+    with open(path, encoding="utf-8", errors="replace") as table:
+        for line in table:
+            if line.startswith("#"):
+                continue
+            columns = [name.strip() for name in line.rstrip("\r\n").split("\t")]
+            return molecule_set(path) if "inchikey" in columns else entity_set(path)
+    # No header at all. Handed to the gene-list loader so that the error a
+    # user sees is a loader's account of the file rather than this
+    # function's guess about which loader to blame.
+    return entity_set(path)
+
+
 #: A compression suffix is stripped before the lookup, because every loader
 #: opens a gzipped file.
 LOADERS: Mapping[str, Callable[[str], Dataset]] = MappingProxyType(
@@ -102,7 +130,7 @@ LOADERS: Mapping[str, Callable[[str], Dataset]] = MappingProxyType(
         ".gff": intervals,
         ".gff3": intervals,
         ".gtf": intervals,
-        ".tsv": entity_set,
+        ".tsv": _tabular,
         ".json": knowledge_graph,
     }
 )

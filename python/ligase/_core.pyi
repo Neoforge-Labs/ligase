@@ -71,6 +71,7 @@ def resolve_remote(
     namespace: str | None = None,
     subject: str | None = None,
     source_set: list[str] | None = None,
+    representation: str | None = None,
 ) -> Dataset: ...
 def resolve_query(
     locator: str,
@@ -86,6 +87,7 @@ def resolve_query(
     namespace: str | None = None,
     subject: str | None = None,
     source_set: list[str] | None = None,
+    representation: str | None = None,
 ) -> Dataset: ...
 def seed_records(bundle: str, cache: str | None = None) -> int: ...
 def load_entity_set(
@@ -111,6 +113,21 @@ def load_knowledge_graph(
     subject: str | None = None,
     release: str | None = None,
     source_set: Sequence[str] | None = None,
+) -> Dataset: ...
+def parse_representation(spelled: str) -> str: ...
+def load_molecule_set(
+    path: str,
+    organism: str | Sequence[str] | None = None,
+    representation: str | None = None,
+    subject: str | None = None,
+    release: str | None = None,
+) -> Dataset: ...
+def load_molecule_ranking(
+    path: str,
+    organism: str | Sequence[str] | None = None,
+    representation: str | None = None,
+    subject: str | None = None,
+    release: str | None = None,
 ) -> Dataset: ...
 def load_alignment(
     path: str,

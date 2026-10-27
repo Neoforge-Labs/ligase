@@ -56,6 +56,29 @@ dev = [
 # wheel -- was rejected: `object_store`'s AWS stack needs cmake at build
 # time, and the default install must not (D6, D11).
 remote-store = []
+# The chemistry kinds (D49). Unlike `remote-store` above, this extra is not
+# empty, and the difference is the point: RDKit is a Python package, so an
+# extra can reach it.
+#
+# The engine core knows no chemistry. It compares `representation` values
+# and refuses to connect two molecule sets that disagree, which needs no
+# toolkit -- so loading a molecule table, checking it and hashing it all
+# work on a default install. What needs RDKit is *producing* a set whose
+# standardisation is known, which is `lg.chem.standardize` and nothing else.
+# `ligase.chem` imports RDKit inside the function that uses it, so
+# `import ligase` on a genomics install imports no chemistry, and
+# `tests/test_default_install.py` is what notices the day that stops being
+# true.
+#
+# The floor is measured rather than guessed. InChIKeys were identical
+# across 2022.09.5, 2023.09.6, 2024.09.6, 2025.09.6, 2026.03.6 and
+# 2026.09.1 for thirty molecules in six standardisation states, so any of
+# those would do on the chemistry. 2024.3 is the floor because it is the
+# first series with NumPy 2 wheels: the two series below it need
+# `numpy<2` pinned, and an extra has no way to say so.
+chem = [
+  "rdkit>=2024.3.1",
+]
 docs = [
   # marimo authors and runs the example notebooks. Their pages are generated
   # from real runs rather than embedded as browser-executed islands, because
@@ -107,6 +130,12 @@ convention = "google"
 # B018 is marimo's cell-output idiom: a cell's trailing bare expression
 # is what the cell displays, which ruff reads as a useless expression.
 "examples/notebooks/*" = ["ANN", "B018", "D103"]
+# RDKit ships no type information, so a molecule object has no type to
+# name. `Any` is the honest annotation for one -- the alternative is a
+# hand-written protocol that would claim to know an API nobody published --
+# and these are the only two files in the project that hold one.
+"python/ligase/chem.py" = ["ANN401"]
+"scripts/measure_inchikey_stability.py" = ["ANN401"]
 # The docs site's generators introspect the package at runtime: they are
 # handed the `ligase` module object, arbitrary exported objects and whatever
 # a notebook cell returned. `Any` is the honest annotation for all three --

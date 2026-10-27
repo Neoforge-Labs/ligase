@@ -1264,6 +1264,20 @@ fn load_molecule_ranking(
     .map_err(to_py)
 }
 
+/// Read a representation, and give back the one spelling for it.
+///
+/// Exported so that `ligase.chem` has the *same* validator the loaders and
+/// the conversion registry use, rather than a second reading of the same
+/// string in Python. It also canonicalises: the operations come back
+/// deduplicated and in one order, so the line a standardiser writes is the
+/// line its own loader reads back to the same value.
+#[pyfunction]
+fn parse_representation(spelled: &str) -> PyResult<String> {
+    Representation::parse(spelled)
+        .map(|representation| representation.spell())
+        .map_err(PyValueError::new_err)
+}
+
 /// A declared representation, checked before anything is loaded.
 ///
 /// Parsed here rather than only in the loader so that a spelling the engine
@@ -1972,6 +1986,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_entity_set, m)?)?;
     m.add_function(wrap_pyfunction!(load_ranked_list, m)?)?;
     m.add_function(wrap_pyfunction!(load_knowledge_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_representation, m)?)?;
     m.add_function(wrap_pyfunction!(load_molecule_set, m)?)?;
     m.add_function(wrap_pyfunction!(load_molecule_ranking, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_axis, m)?)?;
