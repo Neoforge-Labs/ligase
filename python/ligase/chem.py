@@ -243,10 +243,6 @@ def _run(source: str, out: Path, to: str) -> list[Noticed]:
 
     # RDKit writes parse failures to its own global logger. They are this
     # function's business to report as notes, not its business to print.
-    #
-    # RDKit's type information is partial, so a handful of calls into it are
-    # untyped as far as mypy is concerned. They are ignored by code, one line
-    # at a time, rather than by relaxing strictness for the module.
     RDLogger.DisableLog("rdApp.*")  # type: ignore[attr-defined]
 
     wanted = _target(to)

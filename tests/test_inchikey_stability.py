@@ -33,7 +33,6 @@ pytest.importorskip(
 from rdkit import Chem, RDLogger
 from rdkit.Chem.MolStandardize import rdMolStandardize
 
-# RDKit's type information is partial; see `ligase.chem`.
 RDLogger.DisableLog("rdApp.*")  # type: ignore[attr-defined]
 
 
