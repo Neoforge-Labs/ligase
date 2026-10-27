@@ -215,6 +215,20 @@ pub enum Note {
         /// How many, named or not.
         count: u32,
     },
+    /// Two or more structures standardised to one InChIKey.
+    ///
+    /// Not an error, and the rows are **not** dropped. A molecule set's
+    /// rows are a set, so a table naming one substance twice is not the
+    /// kind it claims to be — but which of the two rows an analysis meant
+    /// is a question only its author can answer, and D38's argument against
+    /// coercing identifiers applies unchanged: dropping one would make the
+    /// output quietly smaller, and choosing one would be a guess about
+    /// whose attributes to carry. So both rows are kept and the collision
+    /// is named.
+    MoleculeNotUnique {
+        /// The key two or more structures arrived at.
+        inchikey: String,
+    },
     /// `stereo-discarded` was declared and no molecule lost any.
     ///
     /// The *safe* half of an asymmetric check, which is why it is a note and
@@ -348,6 +362,7 @@ impl Note {
             Self::IdentifiersDidNotCross { .. } => "identifiers-did-not-cross",
             Self::MoleculeDidNotStandardise { .. } => "molecule-did-not-standardise",
             Self::MoleculesDidNotStandardise { .. } => "molecules-did-not-standardise",
+            Self::MoleculeNotUnique { .. } => "molecule-not-unique",
             Self::StereoNotDiscarded => "stereo-not-discarded",
             Self::RanksRenumbered { .. } => "ranks-renumbered",
         }
@@ -401,6 +416,7 @@ impl Note {
             Self::IdentifiersDidNotCross { count } => format!("count={count}"),
             Self::MoleculeDidNotStandardise { molecule } => molecule.clone(),
             Self::MoleculesDidNotStandardise { count } => format!("count={count}"),
+            Self::MoleculeNotUnique { inchikey } => inchikey.clone(),
             Self::StereoNotDiscarded => String::new(),
             Self::RanksRenumbered { first } => format!("first={first}"),
         }
@@ -463,6 +479,9 @@ impl Note {
             }),
             "molecules-did-not-standardise" => Some(Self::MoleculesDidNotStandardise {
                 count: counted(value, "count")?,
+            }),
+            "molecule-not-unique" => Some(Self::MoleculeNotUnique {
+                inchikey: value.to_owned(),
             }),
             "stereo-not-discarded" => Some(Self::StereoNotDiscarded),
             "identifiers-did-not-cross" => Some(Self::IdentifiersDidNotCross {
@@ -574,6 +593,10 @@ impl Note {
             Self::MoleculesDidNotStandardise { .. } => {
                 "Compare this against the size of your input before reading the result: a \
                  large share usually means the structure column is not what it looks like."
+            }
+            Self::MoleculeNotUnique { .. } => {
+                "Decide which row this analysis is about and drop the others from the input, \
+                 or read the table as a ranking, whose rows are not a set."
             }
             Self::StereoNotDiscarded => {
                 "Drop `stereo-discarded` from the state you asked for, so this set still \
@@ -688,6 +711,14 @@ impl Note {
                  is a computation that can fail, not a rename, so a count that is a large \
                  share of the input usually means the structures are not what the column \
                  header says."
+            }
+            Self::MoleculeNotUnique { .. } => {
+                "A molecule set's rows are a set, so a table naming one substance twice is not \
+                 the kind it claims to be: anything counting its compounds double-counts, and \
+                 a join on the key matches both rows. Standardising is what brought them \
+                 together -- a salt and its parent are two structures and one substance -- so \
+                 this is the standardiser telling you what it merged rather than a fault in \
+                 the input."
             }
             Self::StereoNotDiscarded => {
                 "The state this set declares is stricter than what was done to it, so it will \
@@ -811,6 +842,11 @@ impl fmt::Display for Note {
                 f,
                 "{count} molecules could not be standardised, so the output is {count} \
                  molecules smaller than the input"
+            ),
+            Self::MoleculeNotUnique { inchikey } => write!(
+                f,
+                "two or more structures standardise to `{inchikey}`, so this table names one \
+                 substance more than once"
             ),
             Self::StereoNotDiscarded => f.write_str(
                 "`stereo-discarded` was declared, and no molecule in this set lost any \
@@ -1035,6 +1071,9 @@ mod tests {
                 molecule: "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]".to_owned(),
             },
             Note::MoleculesDidNotStandardise { count: 118 },
+            Note::MoleculeNotUnique {
+                inchikey: "BSYNRYMUTXBXSQ-UHFFFAOYSA-N".to_owned(),
+            },
             Note::StereoNotDiscarded,
             Note::RanksRenumbered { first: 4 },
         ]

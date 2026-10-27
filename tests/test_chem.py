@@ -343,3 +343,43 @@ def test_an_upgrade_of_the_toolkit_moves_the_step_key(table: Path) -> None:
             lg.chem.standardize(library, to="inchikey; salt-stripped")
         ).step.parameters
     }
+
+
+def test_a_salt_and_its_parent_become_one_substance_and_are_named(
+    table: Path,
+) -> None:
+    # Standardising is what brings two rows together, so this is the
+    # standardiser reporting what it merged rather than a fault in the
+    # input. Both rows are kept: dropping one would make the output quietly
+    # smaller, and choosing one would be a guess about whose data to carry
+    # -- which is D38's argument against coercing identifiers, unchanged.
+    #
+    # A molecule set's rows are a set, so a table naming one substance
+    # twice is not the kind it claims to be. Nothing else would have said
+    # so: both rows are well formed and the key is correct for each.
+    both = "\n".join(
+        [
+            "smiles\tname\tlot",
+            "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]\taspirin sodium\tL1",
+            "CC(=O)Oc1ccccc1C(=O)O\taspirin\tL2",
+            "",
+        ]
+    )
+    report = run(table, both, to="inchikey; salt-stripped, charge-neutralised")
+
+    notes = [note for step in report.steps for note in step.notes]
+    assert any(
+        "two or more structures standardise to `BSYNRYMUTXBXSQ-UHFFFAOYSA-N`" in note
+        for note in notes
+    ), notes
+
+    rows = [row for row in lines(report)[2:] if row]
+    assert len(rows) == 2, "both rows are kept"
+    assert {row.split("\t")[-1] for row in rows} == {"L1", "L2"}
+
+
+def test_a_table_whose_molecules_are_distinct_says_nothing(table: Path) -> None:
+    # The note must not fire on an ordinary library, or it would be noise
+    # on every run and read as noise.
+    report = run(table, FLAT, to="inchikey; salt-stripped, charge-neutralised")
+    assert [note for step in report.steps for note in step.notes] == []

@@ -234,16 +234,23 @@ def _run(source: str, out: Path, to: str) -> list[Noticed]:
 
     # RDKit writes parse failures to its own global logger. They are this
     # function's business to report as notes, not its business to print.
-    # RDKit's type information is partial, so a handful of calls into it
-    # are untyped as far as mypy is concerned. Ignored by code, one line at
-    # a time, rather than relaxing strictness for the module: everything
-    # else in this file is checked as the rest of the package is.
+    #
+    # RDKit's type information is partial, so a handful of calls into it are
+    # untyped as far as mypy is concerned. They are ignored by code, one line
+    # at a time, rather than by relaxing strictness for the module.
     RDLogger.DisableLog("rdApp.*")  # type: ignore[attr-defined]
 
     wanted = _target(to)
     comments, header, rows = _read(source)
     at = header.index("smiles")
 
+    # Applied in this order whatever order `to` listed them in, because the
+    # order is chemistry rather than presentation: salts come off first, then
+    # charges, then a tautomer is chosen. It is the order the measurement in
+    # `scripts/measure_inchikey_stability.py` used, so the keys this writes
+    # are the keys that were measured. The representation line lists a *set*,
+    # which is why its order can differ from this one without meaning
+    # anything.
     operations = [
         operation
         for name, operation in (
@@ -259,9 +266,17 @@ def _run(source: str, out: Path, to: str) -> list[Noticed]:
 
     written: list[list[str]] = []
     failed: list[str] = []
+    seen: set[str] = set()
+    collided: set[str] = set()
     lost_stereo = 0
     for row in rows:
-        structure = row[at]
+        # A row the header cannot account for is refused by the loader, so a
+        # file a user named cannot get here -- but an intermediate written by
+        # another step is not re-loaded before this runs. An empty structure
+        # is a structure nothing can parse, which is reported as a failure
+        # below; an IndexError would be a traceback about somebody else's
+        # file.
+        structure = row[at] if at < len(row) else ""
         molecule = Chem.MolFromSmiles(structure)
         if molecule is not None:
             molecule = rdMolStandardize.Cleanup(molecule)
@@ -285,6 +300,9 @@ def _run(source: str, out: Path, to: str) -> list[Noticed]:
         fields = list(row) if "inchikey" in header else ["", *row]
         fields[key_at] = key
         written.append(fields)
+        if key in seen:
+            collided.add(key)
+        seen.add(key)
 
     _check_stereo(lost_stereo, wanted, len(written))
     _write(out, to, comments, out_header, written)
@@ -295,6 +313,15 @@ def _run(source: str, out: Path, to: str) -> list[Noticed]:
     ]
     if failed:
         noticed.append(("molecules-did-not-standardise", f"count={len(failed)}"))
+    # Standardising is what brings two rows together -- a salt and its
+    # parent are two structures and one substance -- so both rows are kept
+    # and the collision is named. Dropping one would make the output quietly
+    # smaller and choosing one would be a guess about whose attributes to
+    # carry, which is D38's argument against coercing identifiers applied
+    # unchanged.
+    noticed += [
+        ("molecule-not-unique", key) for key in sorted(collided)[:NAMED_AT_MOST]
+    ]
     if "stereo-discarded" in wanted and lost_stereo == 0:
         noticed.append(("stereo-not-discarded", ""))
     return noticed

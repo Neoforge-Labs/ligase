@@ -212,3 +212,26 @@ output being smaller than the input is a recorded fact rather than a
 discrepancy somebody notices six months later. The notes travel into the run
 report, provenance, a reproducibility bundle and the methods paragraph, the
 way every note in this engine does.
+
+## And molecules that become each other
+
+Standardising a table that holds both a salt and its parent brings the two
+rows together: one substance, two rows, one key.
+
+```
+two or more structures standardise to `BSYNRYMUTXBXSQ-UHFFFAOYSA-N`, so this
+table names one substance more than once
+```
+
+**Both rows are kept.** Dropping one would make the output quietly smaller,
+and choosing one would be a guess about whose activity data to carry — which
+is the argument against coercing identifiers, applied unchanged. So the
+collision is named and the decision is left with you: drop the row your
+analysis is not about, or read the table as a ranking, whose rows are not a
+set.
+
+It is worth knowing *why* this one matters. A molecule set's rows are a set,
+so a table naming one substance twice is not the kind it claims to be:
+anything counting its compounds double-counts, and a join on the key matches
+both rows. Nothing else would have told you — both rows are well formed, and
+the key is correct for each of them.
