@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-10-27
+
 ### Added
 
 - **`ligase.steps` — four steps with an entrance exam, and the reference demo
@@ -1197,6 +1201,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   path. Reachable before the shared store by two fan-out nodes recording
   the same paginated response.
 
+- **The aarch64 Linux wheel builds again, in a newer container.** v0.2.0's
+  first tag died on `ring`:
+  `#error "ARM assembler must define __ARM_ARCH"`. The cross toolchain behind
+  `manylinux: auto` is CentOS 7's **GCC 4.8.5**, which defines `__aarch64__`
+  and not `__ARM_ARCH` — and that pair is precisely the condition `ring`'s
+  `asm_base.h` refuses. The `manylinux_2_28` image's GCC 7.5.0 defines
+  `__ARM_ARCH 8`, in both the C and the `assembler-with-cpp` paths, so the
+  aarch64 wheel is built there and carries a glibc 2.28 floor. x86_64 keeps
+  manylinux2014 and glibc 2.17, which is the floor that matters for the
+  cluster login nodes a lot of this audience is handed; no distro older than
+  2.28 ran aarch64 in anger.
+
+  Two things made it expensive out of proportion to the cause. `ring` is not
+  a direct dependency — it arrived in v0.2 underneath `ureq`'s rustls, which
+  is why the same workflow built v0.1.0's aarch64 wheel without complaint.
+  And `verify-wheel`, PyPI and crates.io all `needs:` the wheels, so one
+  broken target skipped every remaining job and the release published
+  nothing.
+
+- **A release can no longer publish nothing and call it success.** That same
+  tag was pushed on a tree still calling itself `0.1.0`, with every entry in
+  this file still under `[Unreleased]`, and nothing checked either one. Each
+  publishing step is built to be re-runnable, which is the same thing as
+  being quiet — PyPI skips a file it already has, the crates.io probe skips a
+  version the index already lists — so with the wheel fixed, that release
+  would have gone green having uploaded nothing at all.
+
+  A `version` job now refuses a tag that disagrees with
+  `[workspace.package]`, and refuses a version with no dated section in this
+  file; `tests/test_import.py` asserts the second without CI's help. It is
+  [D42](https://ligase.neoforgelabs.tech/project/decisions/) one layer out: a
+  declaration nothing can check is a comment, and that includes the version
+  number.
+
 ## [0.1.0] - 2026-10-20
 
 ### Added
@@ -1754,5 +1792,6 @@ functionality yet; the engine's only behaviour is reporting its own version.
   whole rather than to the end of their first block.
 - `tempfile` as a dev-dependency, for writing BAM fixtures during tests.
 
-[Unreleased]: https://github.com/Neoforge-Labs/ligase/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Neoforge-Labs/ligase/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Neoforge-Labs/ligase/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Neoforge-Labs/ligase/releases/tag/v0.1.0
