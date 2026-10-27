@@ -1155,6 +1155,137 @@ how the two axes came to share a rule nobody had chosen for both. The default
 is gone, and `tests/dimension_values.rs` now names the axis whose rule each
 test is about.
 
+## M16 — Claim binding
+A `Claim`: a number or a phrase a paper states, declared on the pipeline and
+bound by the engine to the step key and output hash that produced it, with
+unbacked claims reported the way uncited tools are. §5.6 of the v0.2 spec in
+three sentences; the design that turns it into something checkable is half
+the milestone. D45.
+
+**Done when:** a claim naming a step the pipeline runs is bound, carrying
+that step's key, the output's canonical hash and the date and platform its
+record was written on; a claim naming a step nothing produces is unbacked,
+naming the steps it does produce; a claim whose step is a methods **gap** is
+unbacked rather than bound; a claim naming a sample the step did not run on,
+a parameter it does not take or a tool it did not run is unbacked, each with
+its own reason naming what there was; a claim restating a parameter value or
+a tool version the run disagrees with is **contradicted**, stating both
+numbers; a claim bound to a step **served from the cache** is bound to the
+computation that produced it and the date that computation happened; a claim
+**never enters a step key**, so adding, editing or removing one reruns
+nothing; an unbacked or contradicted claim raises `ligase methods`' exit code
+and a bound one does not; a claim's declaration is refused **where it is
+written** if it names both a parameter and a tool, gives a value with neither
+or names either with no value; a pipeline that declares **no claims**
+produces byte-identical `methods` text and summary; claims travel in the
+bundle as `claims.tsv`.
+
+**Done.** Every clause, each pinned by a named test. See
+[a number in a paper](/concepts/claims/),
+[binding a number you published](/guide/claims/),
+[the internals](/project/architecture/provenance/#claims) and
+[the number in my paper is not the number my pipeline
+produces](/silent-failures/stale-numbers/).
+
+**The scope rule, and why D35 is the wrong test to apply.** D35 asks a *kind*
+to bring a dimension whose mismatch is a documented silent failure. Claim
+binding is not a kind and brings no dimension — and neither does `ligase
+audit`, the bundle, early cutoff or the citation table, so applying D35's
+letter to a feature would condemn four things the project is built on. It
+was held to the reasoning behind D35 instead: the engine already makes one
+promise three times — D24 names an uncited tool, D26 names a field that
+cannot be dropped, a `Gap` names a step nothing is known about — and that
+promise is that the record names what it cannot account for. The number in
+the paper was the one thing it could not account for and never mentioned.
+This milestone is the fourth instance of an existing promise rather than a
+new capability, which is why it added no store, no dimension and no
+dependency. That argument is on the architecture page rather than left for a
+reviewer to reconstruct.
+
+**Where the spec was reshaped, and said so.** §5.6 says claim binding
+"extends `Methods` and `MethodsGap`". The first it does. The second it does
+not, and the literal reading was available and cheaper: a `MethodsGap` is
+`(step, scopes, nodes)`, and a claim has no `nodes` — it is one sentence, not
+a count of graph nodes — one `scope` rather than a list, and five
+distinguishable reasons where a step's gap has one. Pushing a claim through
+that shape would have meant a `nodes` column always equal to 1 and meaning
+nothing, and a reason with nowhere to live: a record whose columns are not
+true, which is the one thing a provenance store may not be. So what extends
+is the gap-*reporting* `MethodsGap` stands for, in a type honest about what a
+claim is, and every existing use of `MethodsGap` is untouched.
+
+**The question §5.6 left open, which is the heart of D45.** "The step and run
+that produced it" has to be settled when the cache can satisfy a step from an
+earlier run. A claim binds to the **computation** — the key is already the
+identity of one — so a cached step backs its claim completely and the date
+reported is when that computation happened, not when this run fetched it.
+Binding only what the current run recomputed would have made `ligase run
+--force` the only honest way to write up a paper. The second half needs no
+balancing: a claim in a cache key would mean editing a sentence in a
+manuscript reruns the aligner, so a claim is in no key and can never fail
+`check()`.
+
+**One existing meaning changed, and it is the right change.**
+`Methods.accounted_for` was `not self.gaps` and is now `not self.gaps and not
+self.unbacked`. A property with that name returning `True` for a write-up
+that states a number the analysis does not support would be making the
+engine's own promise falsely. It was raised as a public-API change before it
+was made, as was the whole surface, because `CLAUDE.md` asks.
+
+**What the work turned up that nothing asked for.** Two things, both found by
+a test rather than by design.
+
+`python3 --version` prints `Python 3.15.0` — a name that is **not** the name
+the tool was invoked under. The first `version_states` stripped only the
+tool's own name, as `describe_tool` does, and so called a correct claim
+contradicted. It now tries the whole first line and each way of trimming a
+leading name off it, including everything before the first digit; that
+generosity is safe only because of the rule that does the work, which is that
+a prefix must end at a component boundary, so `2.4` still refuses to claim
+`2.41`. The same rule leaves a digitless version line whole, which is why a
+claim against `bwa`'s `[main] unrecognized command '--version'` banner — the
+string D42 found the engine recording as a version — is wrong rather than
+accidentally right.
+
+And a step with a single node has **no scope at all**, because
+`Graph::scopes` gives one only where something tells siblings apart (D15). A
+claim naming a sample of such a step is therefore told that there is nothing
+there to name and advised to drop the sample, rather than being handed an
+empty list of samples it might have meant.
+
+**`Methods::produced`, which the design did not start with.** A `Group` is a
+set of nodes run the same way and keeps one representative `Record`,
+discarding the other nodes' keys. A claim binds to a computation, so those
+keys are exactly what it needs — and `produced` is not a duplicate of
+`groups` but the thing grouping was throwing away. An unscoped claim over a
+four-sample step has four bound rows, where binding it to the group's
+representative key would have named one sample's computation and implied it
+covered four.
+
+**A seventh generator, and the flake it shipped with.**
+`web/scripts/capture_claims.py` runs a real one-step pipeline three times and
+captures what `ligase methods` printed **and what it exited with**. An
+unbacked claim failing and a bound one not is the whole of what makes a claim
+enforceable in CI, so the docs build fails if either stops being true.
+
+It first wrote one `pipeline.py` three times in a shared directory, and CI
+caught it on the first run of the PR. Two of the three differ by a single
+character — `min_freq=0.01` against `min_freq=0.05` — so the file is the same
+*size*, and CPython validates a cached `.pyc` against the source's size and
+its mtime **in whole seconds**. Write both inside one second and the second
+run executes the first one's bytecode, which is exactly what the build
+reported: a capture of the contradicted write-up that was really the bound
+one, down to the step key.
+
+It passed locally every time because this machine's shell exports
+`PYTHONDONTWRITEBYTECODE=1`, so no `.pyc` was ever written here. That is the
+transferable part: a generator that rewrites a Python file in place is
+reproducible only by accident, and the first guess at the cause — made and
+checked before it was acted on — was wrong for that reason. Each capture now
+gets a directory of its own, which is the shape `capture_stochastic.py`
+already had, and each capture asserts the *number* it is about rather than
+only the sentence around it.
+
 ## M17 — The chemistry extra
 Two kinds — `MoleculeSet` and `MoleculeRanking` — and the axis that admits
 them: `representation`, which says what a name in a molecule table **is** and

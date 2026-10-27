@@ -8,6 +8,7 @@ const meta: MetaRecord = {
   'wrong-reference-build': 'My variant positions are wrong',
   'coordinate-systems': 'My intervals are off by one',
   'shuffled-samples': 'My sample labels look swapped',
+  'stale-numbers': 'My paper and my pipeline disagree',
   'mixed-identifiers': 'My gene-set overlap is empty',
   'mixed-standardisation': 'My compound overlap is almost empty',
   'mixed-sources': 'My target ranking changed on its own',

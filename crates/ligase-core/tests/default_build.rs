@@ -126,10 +126,8 @@ fn a_default_build_does_the_whole_of_the_chemistry_checking() {
         name: name.to_owned(),
         dataset,
     };
-    let errors = ligase::check::check_step(
-        "overlap",
-        &[bind("library", library), bind("hits", hits)],
-    );
+    let errors =
+        ligase::check::check_step("overlap", &[bind("library", library), bind("hits", hits)]);
     assert!(
         errors
             .iter()

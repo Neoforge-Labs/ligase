@@ -45,6 +45,7 @@
 
 pub mod bundle;
 pub mod cite;
+mod claim;
 mod methods;
 mod shared;
 
@@ -57,7 +58,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub use cite::Citation;
-pub use methods::{Gap, Group, Methods, Noticed, methods};
+pub use claim::{Bound, Claim, ClaimCheck, ClaimVerdict, Restated, Unbacked, version_states};
+pub use methods::{Gap, Group, Methods, Noticed, Produced, methods};
 
 use crate::canon::Note;
 use crate::dim::ReferenceId;

@@ -1,0 +1,237 @@
+---
+title: "Binding a number you published"
+description: "Declare the numbers your paper states, and let ligase methods tell you which of them the pipeline still stands behind."
+---
+
+import { claims } from '../../lib/claims.generated'
+
+# Binding a number you published
+
+Your manuscript states numbers. Your pipeline produces them. Nothing has
+ever connected the two, so when the pipeline moves the manuscript does not
+follow. This page is how you connect them, and how CI catches it when they
+part company.
+
+## Declare the claim beside the pipeline
+
+A claim goes on the `Pipeline`, next to the outputs it is about:
+
+```python
+import ligase as lg
+from ligase.types import Alignment, Reference
+
+hxb2 = lg.reference("refs/HXB2.fasta", organism="HIV-1", build="HXB2")
+
+
+@lg.step
+def call(ref: Reference, min_freq: float = 0.01) -> Alignment:
+    """Call variants above a minimum allele frequency."""
+    return lg.sh("cat {ref} > {out} && echo {min_freq} > /dev/null")
+
+
+pipe = lg.Pipeline(
+    call(hxb2, min_freq=0.01),
+    claims=[
+        lg.Claim(
+            "variants were called above 1% allele frequency",
+            step="call",
+            parameter="min_freq",
+            value=0.01,
+        ),
+    ],
+)
+```
+
+On the pipeline rather than passed to `methods()`, for one practical reason:
+`ligase methods` loads your pipeline file and finds the `Pipeline` objects in
+it, so a claim declared here needs no new flag, no claims file and no second
+format to keep in step.
+
+Run it:
+
+```bash
+ligase methods
+```
+
+<RunReport>{claims.bound}</RunReport>
+
+The claim is **bound**: `call` is a step this pipeline produces, `min_freq`
+is a parameter it takes, and the run held it at `0.01`. The key is the
+computation, and it is the thing a reviewer looks up.
+
+## Then the threshold moves
+
+Six months later the threshold is 5%. Nothing fails — the pipeline is
+correct, the output is correct, and the sentence in the paper is now wrong:
+
+```python
+pipe = lg.Pipeline(
+    call(hxb2, min_freq=0.05),
+    claims=[
+        lg.Claim(
+            "variants were called above 1% allele frequency",
+            step="call",
+            parameter="min_freq",
+            value=0.01,
+        ),
+    ],
+)
+```
+
+<RunReport>{claims.contradicted}</RunReport>
+
+Both numbers are stated, and `ligase methods` exits non-zero.
+
+<Note kind="tip">
+This is the whole reason to declare a claim. Run `ligase methods` in CI and a
+manuscript cannot quietly drift from the analysis behind it: the build that
+changed the threshold is the build that tells you the paper needs editing.
+</Note>
+
+## Three shapes of claim
+
+**A number you can restate.** A threshold, a window, a cutoff — anything that
+is a parameter of a step. The engine compares it:
+
+```python
+lg.Claim(
+    "variants were called above 1% allele frequency",
+    step="call",
+    parameter="min_freq",
+    value=0.01,
+)
+```
+
+**A tool version.** The sentence in every methods section that goes stale
+when a cluster is upgraded:
+
+```python
+lg.Claim(
+    "reads were aligned with minimap2 2.31",
+    step="align",
+    tool="minimap2",
+    value="2.31",
+)
+```
+
+The comparison is textual and allows a build suffix, so `2.31` matches the
+`2.31-r1287` that `minimap2 --version` prints — but `2.4` does **not** match
+`2.41`, because a prefix has to end at a component boundary. A version that
+is nearly right is reported as wrong.
+
+**A number the engine cannot read.** A count of mutations, a median coverage,
+a figure from a plot. There is no parameter to compare, so give the step
+alone:
+
+```python
+lg.Claim("three resistance mutations were found in SRR8525904",
+         step="resistance", scope="SRR8525904")
+```
+
+This is still a real binding: the claim carries that sample's key, output
+hash and date, so a reviewer with your bundle can find the computation and
+rerun it. What it is not is a verification of the number three — the engine
+does not open your report and count. Nothing on this page pretends it does.
+
+## Naming one sample
+
+`scope=` says which sample a claim is about:
+
+```python
+lg.Claim("SRR8525904 carried M184V", step="resistance", scope="SRR8525904")
+```
+
+Without it the claim is about the step across **every** sample it ran on,
+which is right for *"resistance was interpreted for every sample"* and wrong
+for a count from one of them. There is no inference either way — `scope` is
+how you say which you mean.
+
+## When a claim has nothing behind it
+
+The analysis was rewritten and the sentence stayed:
+
+<RunReport>{claims.unbacked}</RunReport>
+
+The complaint names what the pipeline *does* produce, so a renamed step is a
+one-line fix. Five things can put a claim here, and each says which:
+
+| What is wrong | What the write-up says |
+|---|---|
+| No step of that name | *nothing in this pipeline produces `X`. It produces …* |
+| The step is a [gap](/guide/provenance/) | *`X` is in the cache from a run that recorded no provenance* |
+| No such sample | *`X` ran on no sample called `Y`. It ran on …* |
+| No such parameter | *`X` takes no parameter `Y`. It takes …* |
+| No such tool | *`X` ran no tool called `Y`. It ran …* |
+
+## Reading the claims from a script
+
+```python
+methods = pipe.methods()
+
+for check in methods.claims:
+    print(check.verdict, check.claim.text)
+    for bound in check.bound:
+        print("   ", bound.key, bound.recorded_at)
+
+if not methods.accounted_for:
+    for check in methods.unbacked:
+        print(check.reason)
+```
+
+`accounted_for` covers claims as well as gaps: a write-up that states a
+number the analysis does not support has a hole in it, whatever else is
+complete. `check.reason` is the sentence `ligase methods` prints, so a script
+and the command line say the same thing.
+
+## Editing a claim reruns nothing
+
+A claim is read when the pipeline is written up and at no other time. It is
+in no cache key:
+
+```bash
+ligase methods          # the write-up, and every step from cache
+```
+
+Edit the sentence, add a claim, remove one — the steps are still cached,
+because nothing about the computation changed
+([D45](/project/decisions/#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it)).
+For the same reason a claim can never make `check()` fail: a pipeline whose
+write-up names a renamed step is not a pipeline that must refuse to run.
+
+## Claims in the bundle
+
+`--bundle` writes them as `claims.tsv`, one row per computation, with the
+whole key rather than the sixteen characters a sentence prints:
+
+```bash
+ligase methods --bundle paper/bundle
+```
+
+```console
+$ cat paper/bundle/claims.tsv
+claim	verdict	step	scope	key	canonical
+variants were called above 1% allele frequency	bound	call		206c6ae6…	a41f…
+```
+
+An unbacked claim is in that table too, with an empty key, rather than left
+out of it — which is the same promise the methods paragraph makes about a
+step it cannot account for.
+
+## What this does not do
+
+- It does not read a number out of an output file. See the three shapes
+  above.
+- It does not know your *sentence* has gone stale. It knows the value you
+  restated has, which is why `parameter=` and `tool=` are worth giving
+  whenever there is one to give.
+- It does not add a verdict to `ligase methods --verify`. A claim names a
+  key, and whether that key's result still reproduces on another machine is
+  what `results.tsv`'s verdict already says.
+
+## See also
+
+- [A number in a paper](/concepts/claims/) — why this exists.
+- [The number in my paper is not the number my pipeline
+  produces](/silent-failures/stale-numbers/) — the failure, by symptom.
+- [Writing up a pipeline](/guide/provenance/) — the methods paragraph a
+  claim is printed beside.

@@ -17,6 +17,11 @@ import type { MetaRecord } from 'nextra'
  * `@lg.step` should find out that the four commonest steps are already
  * written before being shown how to write one.
  *
+ * Binding a number sits immediately after writing a pipeline up, because it
+ * is the next thing you do with a write-up and the page is read with a
+ * manuscript open: the claims are printed in the same report the previous
+ * page explains.
+ *
  * Ranked lists sit after crossing identifier spaces because the page assumes
  * it: a ranking is a gene list that remembers its order, and the two
  * refusals it meets are the ones that page introduces.
@@ -45,6 +50,7 @@ const meta: MetaRecord = {
   'declaring-dimensions': 'Declaring dimensions',
   'running-a-pipeline': 'Running a pipeline',
   provenance: 'Writing up a pipeline',
+  claims: 'Binding a number you published',
   'mapping-identifiers': 'Crossing identifier spaces',
   'ranked-lists': 'Comparing ranked lists',
   'knowledge-graphs': 'Comparing knowledge graphs',

@@ -38,7 +38,10 @@ from .errors import (
 )
 from .graph import Pipeline, Report, Step, StepOutput, handle, step
 from .provenance import (
+    BoundTo,
     Bundle,
+    Claim,
+    ClaimCheck,
     InputCheck,
     Methods,
     MethodsGap,
@@ -78,8 +81,11 @@ DatasetT = TypeVar("DatasetT", bound=Dataset)
 __all__ = [
     "Alignment",
     "AuditReport",
+    "BoundTo",
     "Bundle",
     "CheckError",
+    "Claim",
+    "ClaimCheck",
     "Contig",
     "ContigNamingError",
     "ContigOrderError",

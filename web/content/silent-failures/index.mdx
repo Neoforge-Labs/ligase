@@ -35,6 +35,11 @@ worth building a type system to prevent. One of them —
     Two files with the same cohort in a different column order. Every genotype
     is attributed to the wrong person.
   </Hazard>
+  <Hazard href="/silent-failures/stale-numbers/" symptom="My paper and my pipeline disagree" left="1%" right="5%">
+    A threshold moved and the sentence reporting it did not. The pipeline is
+    correct, the output is correct, and a number in the manuscript is now
+    wrong with nothing anywhere connecting the two.
+  </Hazard>
   <Hazard href="/silent-failures/mixed-identifiers/" symptom="My gene-set overlap is empty" left="TP53" right="ENSG00000141510">
     Two gene lists named in different identifier spaces. The join succeeds and
     the intersection is empty, which reads as a biological result.

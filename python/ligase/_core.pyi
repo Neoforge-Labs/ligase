@@ -273,15 +273,29 @@ MethodsGroup = tuple[
 # A step nothing is known about: step, what tells its nodes apart, how many.
 MethodsGap = tuple[str, list[str], int]
 
+# One claim as the engine takes it: the sentence, the step, the sample, the
+# parameter it restates, the tool it restates, the value it gives either. At
+# most one of the two names is set.
+Claim = tuple[str, str, str | None, str | None, str | None, str | None]
+
+# One computation a claim rests on: the sample, the key, the output's
+# canonical hash, when that computation happened and where.
+BoundTo = tuple[str | None, str, str, int, str]
+
+# One claim checked: the claim, the verdict, the sentence the write-up
+# prints, the value recorded where it disagrees, the computations it rests on.
+ClaimCheck = tuple[Claim, str, str | None, str | None, list[BoundTo]]
+
 # A methods section: the ways steps were run, the gaps, the references, the
-# reference list, the tools with nothing to cite, the engine, the platform,
-# the summary, the text.
+# reference list, the tools with nothing to cite, the claims, the engine,
+# the platform, the summary, the text.
 MethodsReport = tuple[
     list[MethodsGroup],
     list[MethodsGap],
     list[Reference],
     list[str],
     list[str],
+    list[ClaimCheck],
     str,
     str,
     str,
@@ -364,9 +378,9 @@ class Graph:
         cache_dir: str,
         callbacks: list[Callback],
         # Where to write a bundle, a bundle to check against, files to
-        # carry into the bundle as they are, and whether the bundle leaves
-        # the object bodies out.
-        write_up: tuple[str | None, str | None, list[str], bool],
+        # carry into the bundle as they are, whether the bundle leaves the
+        # object bodies out, and the claims to bind against the write-up.
+        write_up: tuple[str | None, str | None, list[str], bool, list[Claim]],
         jobs: int | None = None,
     ) -> tuple[MethodsReport, Bundle | None, Verification | None]: ...
     def __len__(self) -> int: ...

@@ -535,6 +535,51 @@ pub fn write(into: &Path, request: &Request<'_>) -> Result<Summary, BundleError>
     }
     put(into, "references.tsv", &references.finish())?;
 
+    // ---- the paper's own claims, and what each rests on (D45)
+    //
+    // Here for the reason this module's own title gives: a bundle states a
+    // claim and can be checked (D25). The bundle's standing claim is about
+    // reproducibility; a `Claim` is the paper's, and a bundle that carried
+    // every tool version and no record of which sentences rested on them
+    // would be missing the half a reviewer reads.
+    //
+    // One row per computation, with the *whole* key rather than the sixteen
+    // characters a sentence prints, because this is the table a reviewer
+    // looks a key up in. Written only where there are claims: an empty
+    // table is a promise nobody made, and `verify` reads tables by
+    // position, so a file that appeared for every bundle would be one more
+    // thing a later version has to keep meaning the same.
+    if !request.methods.claims.is_empty() {
+        let mut claims = Table::new(&["claim", "verdict", "step", "scope", "key", "canonical"]);
+        for check in &request.methods.claims {
+            match check.bound.as_slice() {
+                // An unbacked claim is in the table rather than left out of
+                // it, which is the whole of what D24 asks of a gap.
+                [] => claims.row(&[
+                    &check.claim.text,
+                    check.verdict.name(),
+                    &check.claim.step,
+                    check.claim.scope.as_deref().unwrap_or(""),
+                    "",
+                    "",
+                ]),
+                bound => {
+                    for row in bound {
+                        claims.row(&[
+                            &check.claim.text,
+                            check.verdict.name(),
+                            &check.claim.step,
+                            row.scope.as_deref().unwrap_or(""),
+                            &row.key.to_hex(),
+                            &row.canonical.to_hex(),
+                        ]);
+                    }
+                }
+            }
+        }
+        put(into, "claims.tsv", &claims.finish())?;
+    }
+
     // ---- what was fetched, and from where
     //
     // The locators and their digests, not the bytes. That is the whole

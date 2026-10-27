@@ -162,25 +162,70 @@ type PyMethodsGroup = (
 /// many of them.
 type PyMethodsGap = (String, Vec<String>, usize);
 
+/// One claim as Python gives it: the sentence, the step, the sample, and the
+/// value it restates — a parameter name, a tool name, and the value, of which
+/// at most one of the two names is set.
+///
+/// Flat here and a sum type in the core, deliberately. A user writes
+/// `parameter=` or `tool=` beside `value=`, which is the readable surface;
+/// the core cannot hold both at once, and `Claim.__post_init__` is where an
+/// incoherent pair is refused.
+type PyClaim = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// One computation a claim rests on: the sample, the key, the output's
+/// canonical hash, when that computation happened and where.
+type PyBoundTo = (Option<String>, String, String, i64, String);
+
+/// One claim checked: the claim as declared, the verdict, the sentence the
+/// write-up prints for it, the value it states and the value recorded where
+/// those differ, and the computations it rests on.
+type PyClaimCheck = (
+    PyClaim,
+    String,
+    Option<String>,
+    Option<String>,
+    Vec<PyBoundTo>,
+);
+
 /// A methods section as Python sees it: the ways steps were run, the gaps,
 /// the references, the reference list, the tools with nothing to cite, the
-/// engine, the platform, the summary line and the whole thing as text.
+/// claims, the engine, the platform, the summary line and the whole thing as
+/// text.
 type PyMethods = (
     Vec<PyMethodsGroup>,
     Vec<PyMethodsGap>,
     Vec<PyReference>,
     Vec<String>,
     Vec<String>,
+    Vec<PyClaimCheck>,
     String,
     String,
     String,
     String,
 );
 
-/// What to do besides describing the run, as Python gives it: a directory
-/// to write a bundle into, a bundle to check against, and files to carry
-/// into the bundle as they are.
-type PyWriteUp = (Option<PathBuf>, Option<PathBuf>, Vec<PathBuf>, bool);
+/// How to write the run up, as Python gives it: a directory to write a
+/// bundle into, a bundle to check against, files to carry into the bundle as
+/// they are, whether the bundle is thin, and the claims to bind.
+///
+/// The claims ride here rather than as an argument of their own because they
+/// change only the write-up — not the run, not a key, not a record — and
+/// because every one of these is read at the same moment, after the run and
+/// before the bundle.
+type PyWriteUp = (
+    Option<PathBuf>,
+    Option<PathBuf>,
+    Vec<PathBuf>,
+    bool,
+    Vec<PyClaim>,
+);
 
 /// A bundle that was written: where it is, what is in it, how many steps it
 /// accounts for, how many it could not.
@@ -1661,7 +1706,7 @@ impl PyGraph {
         write_up: PyWriteUp,
         jobs: Option<usize>,
     ) -> PyResult<(PyMethods, Option<PyBundle>, Option<PyVerification>)> {
-        let (bundle, verify, include, thin) = &write_up;
+        let (bundle, verify, include, thin, claims) = &write_up;
         let roots = nodes(&roots);
         let tasks = recipes(tasks)?;
 
@@ -1701,8 +1746,10 @@ impl PyGraph {
             )));
         }
 
-        let methods = prov::methods(&self.inner, &roots, &tasks, &report, &prov)
+        let mut methods = prov::methods(&self.inner, &roots, &tasks, &report, &prov)
             .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        // Before the bundle is written, so the paper's claims travel in it.
+        methods.bind(&declared(claims)?);
 
         let written = match &bundle {
             None => None,
@@ -1799,6 +1846,7 @@ impl PyGraph {
                 methods.references().iter().map(reference).collect(),
                 cited,
                 uncited,
+                methods.claims.iter().map(claim_check).collect(),
                 methods.engine.clone(),
                 methods.platform.clone(),
                 methods.summary(),
@@ -1855,6 +1903,90 @@ fn reference(pinned: &prov::ReferenceRecord) -> PyReference {
         pinned.length,
         pinned.checksum.clone(),
         pinned.fingerprint.clone(),
+    )
+}
+
+/// The claims as the core wants them.
+///
+/// The flattening Python does is undone here: `parameter=` and `tool=` arrive
+/// as two optional names and become one [`prov::Restated`], which is a type
+/// that cannot hold both. A pair that named both would already have been
+/// refused by `Claim.__post_init__`, so reaching this with both set means the
+/// surface let something through — and that is an error rather than a guess
+/// about which the user meant.
+fn declared(claims: &[PyClaim]) -> PyResult<Vec<prov::Claim>> {
+    claims
+        .iter()
+        .cloned()
+        .map(|(text, step, scope, parameter, tool, value)| {
+            let restates = match (parameter, tool, value) {
+                (None, None, None) => None,
+                (Some(name), None, Some(value)) => Some(prov::Restated::Parameter { name, value }),
+                (None, Some(name), Some(version)) => Some(prov::Restated::Tool { name, version }),
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "the claim {text:?} restates a value the engine cannot \
+                         read: name exactly one of `parameter=` and `tool=`, \
+                         and give `value=` beside it"
+                    )));
+                }
+            };
+            Ok(prov::Claim {
+                text,
+                step,
+                scope,
+                restates,
+            })
+        })
+        .collect()
+}
+
+/// One checked claim, as Python sees it.
+///
+/// Named for the type rather than the verb, because `checked` is what the
+/// verification half of `methods` already calls its own result.
+fn claim_check(check: &prov::ClaimCheck) -> PyClaimCheck {
+    let (parameter, tool, value) = match &check.claim.restates {
+        None => (None, None, None),
+        Some(prov::Restated::Parameter { name, value }) => {
+            (Some(name.clone()), None, Some(value.clone()))
+        }
+        Some(prov::Restated::Tool { name, version }) => {
+            (None, Some(name.clone()), Some(version.clone()))
+        }
+    };
+    let recorded = match &check.verdict {
+        prov::ClaimVerdict::Contradicted { recorded, .. } => Some(recorded.clone()),
+        _ => None,
+    };
+
+    (
+        (
+            check.claim.text.clone(),
+            check.claim.step.clone(),
+            check.claim.scope.clone(),
+            parameter,
+            tool,
+            value,
+        ),
+        check.verdict.name().to_owned(),
+        // The sentence the write-up prints, so a script reporting one claim
+        // says what `ligase methods` says about it.
+        Some(check.sentence()),
+        recorded,
+        check
+            .bound
+            .iter()
+            .map(|bound| {
+                (
+                    bound.scope.clone(),
+                    bound.key.to_hex(),
+                    bound.canonical.to_hex(),
+                    bound.recorded_at,
+                    bound.platform.clone(),
+                )
+            })
+            .collect(),
     )
 }
 

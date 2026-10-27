@@ -953,6 +953,15 @@ def _methods(
         # pipeline cannot be accounted for.
         found += len(methods.gaps)
 
+        # So is a number the analysis does not support, and more so. An
+        # uncited tool is not a finding — it is a stated absence you cite by
+        # hand — but an unbacked claim is a sentence in a paper the pipeline
+        # does not stand behind, and a contradicted one is a sentence the
+        # pipeline positively disagrees with. CI is the only place a
+        # drifting manuscript is actually caught, so this is what makes a
+        # claim enforceable there.
+        found += len(methods.unbacked)
+
     return FOUND_ERRORS if found else 0
 
 

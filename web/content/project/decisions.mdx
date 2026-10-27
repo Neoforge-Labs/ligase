@@ -1999,6 +1999,106 @@ That is named on
 implied away, and a reader for one of those formats is a parser that can be
 written when a pipeline needs it.
 
+## D45 — A claim binds to the computation, not to the run that fetched it
+
+A claim is a number a paper states, declared beside the pipeline that
+produced it, and the engine binds it to the **step key** and the canonical
+hash of the output — never to the occasion the write-up happened on.
+
+A key is already the identity of a computation: the same code, the same
+parameters, the same input contents, the same tool versions. That is the
+property [D22](#d22--a-tools-signature-is-not-part-of-its-result) spent a
+milestone restoring to provenance, and it is why `prov::methods` reads rather
+than recomputes. So a step served from the cache backs its claim completely,
+and what the binding adds is *when that computation happened*: the record's
+own date and platform, which may be months before the run that wrote the
+paper up. A bound claim therefore names a computation and the day it
+happened, not "this run did it".
+
+The alternative is worth stating because it looks more rigorous and is not.
+Binding only what the current run recomputed would make `ligase run --force`
+the only honest way to write up a paper. A content-addressed cache exists so
+that a result need not be recomputed to be trusted, and a claim mechanism
+that did not believe the cache would be arguing with the engine it lives in.
+
+### A claim is in no cache key
+
+The second half, and it needs no balancing. A claim in a key would mean that
+editing a sentence in a manuscript reruns the aligner. Nothing about the
+computation changed, so nothing downstream may move — and a mechanism whose
+cost was a re-alignment per draft would not be kept current, which is the
+worst available outcome for a feature whose entire job is to be current.
+
+The same reasoning is why a claim can never fail `check()`. `check()` is
+about dimensions, before any compute; a claim is a statement about a paper. A
+pipeline whose write-up names a renamed step is not a pipeline that must
+refuse to run. It is reported where it is read, and the enforcement is the
+exit code.
+
+### What is checked, and what is taken on trust
+
+M13's finding, recorded with the step library: **a declaration nothing can
+check is a comment.** A `Claims` section that reprinted the user's own
+sentences under a heading would be worse than no section at all, because it
+would make an unchecked paragraph look checked — the exact failure
+[D24](#d24--a-citation-is-curated-or-declared-never-guessed) refuses in the
+reference list.
+
+So every part of a claim except its text is checked: the step is one the
+write-up accounts for, the sample is one that step ran on, the parameter or
+tool it restates is one the record holds, and the value agrees. Five checks,
+and a claim that fails one is **named** rather than printed.
+
+The text is taken on trust and cannot be otherwise, which is why the sentence
+and the value are two fields. A paper writes **1%**; the pipeline holds
+**0.01**. Comparing the sentence against the parameter would be a guess about
+arithmetic in English, wrong in both directions — and the direction that
+matters is the one where it calls a wrong paper right.
+
+### Three verdicts, and why contradicted is not a kind of unbacked
+
+`bound`, `unbacked`, `contradicted`. The third is its own verdict because it
+is the stronger statement: the claim *is* bound, to a computation that
+disagrees with the paper. Both numbers are stated and the write-up does not
+say which is wrong, because it cannot know whether the manuscript or the
+pipeline is the thing that should move.
+
+An unbacked or contradicted claim raises `ligase methods`' exit code, where
+an uncited tool does not. That asymmetry is deliberate: an uncited tool is a
+stated absence with nothing wrong behind it, and an unbacked claim is a
+number in a paper the analysis does not support. CI is the only place a
+drifting manuscript is actually caught.
+
+### The engine does not read your number out of your file
+
+It does not open a VCF and count its rows to check a reported total. It could
+do that for the formats it knows and would have to skip the rest, which is
+the lenient-canonicalisation failure in another costume: some numbers
+verified and the others silently waved through, with nothing on the page
+saying which was which.
+
+A claim with a value is **compared**. A claim without one is **bound** — to a
+key, a hash and a date, so a reviewer holding the bundle can find the
+computation and rerun it. Neither is a verification of arithmetic, and the
+documentation says so rather than letting a reader assume the stronger thing.
+
+### The scope rule does not apply here, and that is the reckoning
+
+[D35](#d35--a-kind-must-bring-a-dimension-that-catches-a-documented-silent-failure)
+asks a **kind** to bring a dimension. Claim binding is not a kind and brings
+none, and stretching D35's letter to cover it would be a category error that
+happens to be convenient — by that test `ligase audit`, the bundle, early
+cutoff and the citation table all fail too.
+
+What it was held to instead is the reasoning behind D35: does it catch a
+documented silent failure that passes unremarked today, and is the engine
+already holding what it needs to catch it? It is. D24 names an uncited tool,
+D26 names a field that cannot be dropped, and a methods `Gap` names a step
+nothing is known about — three instances of one promise, that the record
+names what it cannot account for. A number in a paper was the one thing the
+record could not account for and never mentioned. This is the fourth
+instance of an existing promise rather than a new capability, which is why it
+cost no store, no dimension and no dependency.
 ## D47 — A molecule's identity is its standardisation, not its structure
 
 An InChIKey is a hash of a molecular structure. Standardisation changes the
@@ -2137,7 +2237,20 @@ unrecoverable, and a loud refusal is not.
 As a declared namespace is ([D38](#d38--identifier-namespaces-never-coerce)),
 and for a sharper reason: the engine has no chemistry
 ([D49](#d49--the-engine-knows-no-chemistry)), so it could not check the claim
-if it wanted to. The step that does the standardising checks its own work,
+if it wanted to.
+
+That sits beside M13's finding, which
+[D45](#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it)
+states as a rule: **a declaration nothing can check is a comment.** It is not
+a contradiction, and the difference is worth being precise about. A claim's
+text is the *whole* of a claim, so a `Claims` section that only reprinted it
+would be a comment dressed as a check. A representation is one of two
+statements about a molecule table, and the other one — what the standardiser
+actually did — *is* checked, by the step that did it. Nor is the declaration
+the normal case: the normal case is a line the standardiser wrote, read off
+the file, which is D44's habit on a second axis. A declaration is the fallback
+for a table somebody else prepared, and it is better than the alternative,
+which is an axis unusable for exactly the in-house sets that most need it. The step that does the standardising checks its own work,
 which is the half that can be checked; nothing checks a user's claim about a
 table somebody else prepared. That limit is named on
 [the architecture page](/project/architecture/molecules/) rather than
@@ -2156,6 +2269,15 @@ the dimensions an `EntitySet` carries, and
 So either M12 was outside the rule, or the rule has a second limb nobody
 wrote down. It has one, and this is where it is written down, because
 `MoleculeRanking` is the second kind to need it.
+
+This is the second reading of D35's limits to be recorded, and the two are
+about different things.
+[D45](#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it)
+observes that D35 asks a **kind** to bring a dimension, so it does not apply
+to a feature that is not a kind — by its letter `ligase audit`, the bundle
+and the citation table would all fail. This decision is about the kinds the
+rule *does* govern, where the letter was too narrow for one the project had
+already shipped.
 
 **A kind also earns its place if it brings a canonical form whose absence
 makes the cache serve a wrong answer.**
