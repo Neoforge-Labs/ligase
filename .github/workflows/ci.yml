@@ -95,20 +95,22 @@ jobs:
         # Run here too: with RDKit installed, mypy sees its sources and
         # checks the calls into it, which the matrix job cannot.
         run: mypy
-      - name: pytest (chemistry)
+      - name: pytest (the chemistry tests must run, not skip)
+        # The `store` job's step of the same name states that intent; this
+        # one can also check it, and does. The difference is not a reproach
+        # to that job: `test_store_cli.py` skips legitimately when no bucket
+        # is configured, so a guard there would fail an honest run. Nothing
+        # here skips once RDKit is installed, so a skip means the install
+        # did not take -- and a silent skip would look exactly like a pass,
+        # which would put us back to the standardiser being tested on one
+        # machine in the world.
         run: |
           pytest -q \
             tests/test_chem.py \
             tests/test_inchikey_stability.py \
             tests/test_molecules.py \
-            tests/test_default_install.py
-      - name: nothing skipped for want of the toolkit
-        # The job's whole purpose. A silent skip here would put us back to
-        # the standardiser being untested, and look like a pass.
-        run: |
-          pytest -q tests/test_chem.py tests/test_inchikey_stability.py \
-            | tee /tmp/chem.txt
-          if grep -qE '[0-9]+ skipped' /tmp/chem.txt; then
+            tests/test_default_install.py | tee chem.txt
+          if grep -qE '[0-9]+ skipped' chem.txt; then
             echo "::error::a chemistry test skipped in the job that installs RDKit"
             exit 1
           fi
