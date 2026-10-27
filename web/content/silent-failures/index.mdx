@@ -1,6 +1,6 @@
 ---
 title: "What goes wrong silently"
-description: "The failure modes Ligase exists to catch: wrong reference build, contig naming, coordinate conventions, sample order, mixed identifier spaces, mixed organisms, coordinate frame, and contig order. Each with the error the engine actually produces."
+description: "The failure modes Ligase exists to catch: wrong reference build, contig naming, coordinate conventions, sample order, mixed identifier spaces, mixed evidence sources, mixed organisms, coordinate frame, and contig order. Each with the error the engine actually produces."
 ---
 
 # What goes wrong silently
@@ -38,6 +38,11 @@ worth building a type system to prevent. One of them —
   <Hazard href="/silent-failures/mixed-identifiers/" symptom="My gene-set overlap is empty" left="TP53" right="ENSG00000141510">
     Two gene lists named in different identifier spaces. The join succeeds and
     the intersection is empty, which reads as a biological result.
+  </Hazard>
+  <Hazard href="/silent-failures/mixed-sources/" symptom="My target ranking changed and I cannot find the analysis change" left="3 sources" right="4 sources">
+    Two knowledge graphs assembled from different evidence sources. Every
+    score is computed correctly, and the ranking moved because the graph was
+    rebuilt rather than because the biology did.
   </Hazard>
   <Hazard href="/silent-failures/mixed-organism/" symptom="My pathogen results include host reads" left="HIV-1" right="HIV-1 + human">
     A host–pathogen sample declared as only its pathogen. The declarations agree,

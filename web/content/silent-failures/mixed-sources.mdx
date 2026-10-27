@@ -1,0 +1,155 @@
+---
+title: "My target ranking changed and I cannot find the analysis change"
+description: "Two knowledge graphs assembled from different evidence sources. Both are well formed, every score is computed correctly, and the numbers moved because one of them folded in a source the other did not — which reads as a methodological result."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# My target ranking changed and I cannot find the analysis change
+
+<Lede>
+You rerun last quarter's target prioritisation and the top twenty is not the
+top twenty. Nothing in your code changed, the algorithm is the same algorithm,
+and the scores are all computed correctly. So you go looking for the parameter
+you nudged — and there is none, because what changed is that the graph you
+ran it on was rebuilt, and the rebuild folded in one more evidence source.
+</Lede>
+
+## What actually happened
+
+A knowledge graph is not measured. It is **assembled**: somebody took Open
+Targets, a literature-mined association set, a pathway database and an
+in-house curation file, and merged them into nodes and edges. What the graph
+holds is a function of that list.
+
+Add one source and edges appear. Edges appearing is not a cosmetic change: a
+gene that had three neighbours now has five, so every quantity computed from
+the neighbourhood moves. Degree moves. Any propagation or diffusion over the
+graph moves, and moves further than the new edges, because a score that
+spreads along edges spreads along the new ones too. A rank is a comparison
+between scores, so a rank that did not move numerically still moves
+positionally when the gene below it did.
+
+Drop a source and the same thing happens in reverse, with a worse reading
+attached: an association that is absent from the graph looks like an
+association the evidence does not support.
+
+## Why nothing in the file says so
+
+Look at a node. It has an id, a type, perhaps some attributes. Look at an
+edge: a source, a target, a type, maybe a score. Each of those is a fact
+about one piece of the graph. Which sources went into the **graph** is a fact
+about the whole of it, and there is nowhere in a node or an edge for it to
+live.
+
+Graphs that carry per-edge provenance are better off — the edge says it came
+from DisGeNET — and still do not answer the question, because the list of
+sources that contributed is the union over every edge, and nothing computes
+that union and writes it down where a comparison would see it. Two graphs
+sitting next to each other on disk disclose their difference only to someone
+who reads all of both.
+
+## Why the answer is plausible rather than absurd
+
+Because it is arithmetically correct. The scores are right for the graph they
+were computed on. The ranking is the right ranking of those scores. Every
+intermediate value would survive any audit you could run on the computation,
+because the computation is not where the problem is.
+
+And the magnitude is in the plausible range. A new source does not usually
+rewrite a ranking; it moves things by a few places and swaps two or three
+entries near the cut. That is precisely the size of effect people attribute to
+a methodological choice, a parameter, a different random seed, or a genuine
+improvement — which is why the usual response to it is to write it up.
+
+## Where it bites hardest
+
+**A benchmark.** You evaluate a method against a graph built in March and a
+colleague evaluates theirs against one built in September. The two numbers are
+compared in a table as though they measured two methods. They measured two
+graphs.
+
+**A comparison across diseases.** Two graphs assembled with different source
+coverage, because the curation effort differed by therapeutic area, are
+compared for which disease has the better-connected target landscape. The
+answer is about the curators.
+
+**A reproduction.** Someone reruns your pipeline a year later, against today's
+assembly, and gets a different answer. Nothing is wrong with either run, and
+there is no artefact left over to tell them that.
+
+## What Ligase says
+
+The sources a graph was assembled from are a dimension — `source_set` — and
+the loader reads it off the graph's own nodes and edges rather than asking
+you for it. Two graphs that disagree on it do not join:
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.graphSources}</Diagnostic>
+
+Three things are worth noticing.
+
+Neither side was declared. Both say `from the sources named on its nodes and
+edges`, naming the file: the engine read the per-edge provenance and took the
+union, so you can open the file it names and check.
+
+Both source sets are printed in full, and then the member that makes them
+differ is named on its own line: `theirs also lists disgenet.` For two graphs
+with a dozen sources each, that line is the only part worth reading.
+
+And the closing question is the one a user can act on — *was a source added or
+removed upstream?* — rather than a restatement that the two sets differ. It
+points at the rebuild, which is where the change was.
+
+## How it is caught
+
+Load each graph. Nothing is declared about the sources, because the graphs
+say:
+
+```python
+import ligase as lg
+
+march = lg.knowledge_graph("graphs/2026-03.json", organism="Homo sapiens")
+september = lg.knowledge_graph("graphs/2026-09.json", organism="Homo sapiens")
+
+# Nothing has run. This read both files' nodes and edges.
+lg.check_step("compare", {"ours": march, "theirs": september})
+```
+
+That refuses with the message above. There is no flag that makes it pass,
+because the two graphs really are different graphs, and the fix is yours to
+choose: reassemble both from the same source list, or stop comparing them and
+say in the write-up that they are not comparable.
+
+What the engine will do is carry the dimension forward. A step over a graph
+inherits its `source_set`, so a ranking computed from the September graph
+carries September's sources, and anything that tries to score it against
+March's is refused the same way — three steps later, on a file that no longer
+mentions a source anywhere.
+
+<Note kind="caution" title="A source is compared exactly, case included">
+`s3://evidence/A.json` and `s3://evidence/a.json` are **two** sources, and two
+graphs naming one each do not join. That is deliberate: an object key and a
+URL path are case-sensitive by specification, and folding the case would
+quietly merge two different objects into one — turning two graphs that differ
+into two that agree, which is the failure this page is about.
+
+The cost is that `GSE12345` and `gse12345` are also two sources, where a
+person would read them as one study. That costs you one consistent spelling.
+The other way round costs a dropped member and no message, which is worse. An
+`organism` does fold case, because `HIV-1` and `hiv-1` are one organism by
+convention — see
+[D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning).
+</Note>
+
+<Note kind="note" title="A graph that names no sources is not a graph with none">
+If neither the graph nor any of its nodes and edges names a source, the
+dimension is **unknown**, with a reason — not an empty set. Two graphs that
+each named none would otherwise agree on the axis, which is exactly the
+silence the dimension exists to break. Declare `source_set=[...]` on a graph
+you assembled by hand.
+</Note>
+
+For what else a graph carries, see
+[knowledge graphs](/concepts/knowledge-graphs/) and
+[building a graph into a pipeline](/guide/knowledge-graphs/); for how the axis
+sits alongside the others, [the dimension catalogue](/reference/dimensions/).

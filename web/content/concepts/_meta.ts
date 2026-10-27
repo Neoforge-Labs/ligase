@@ -8,6 +8,10 @@ import type { MetaRecord } from 'nextra'
  * the same one a third time -- what, exactly, can be promised -- and the
  * page leans on the audit vocabulary that semantic hashing introduces.
  *
+ * Assembled data follows identifier spaces, because a graph names entities
+ * too and the page leans on that: what is new about it is the other axis,
+ * the one that follows from a graph being assembled rather than measured.
+ *
  * Sharing a cache comes last of the four, because it is the same
  * content-addressing idea turned outwards: the page assumes you know what a
  * cache hit is and what a recorded body is for.
@@ -20,6 +24,7 @@ const meta: MetaRecord = {
   'semantic-hashing': 'What a file means',
   provenance: 'How was this produced?',
   identifiers: 'Identifier spaces',
+  'knowledge-graphs': 'Assembled data',
   remotes: 'Where the data came from',
   'record-and-replay': 'Recording a live answer',
   'stochastic-steps': 'Steps that draw on randomness',

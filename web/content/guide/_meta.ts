@@ -21,6 +21,10 @@ import type { MetaRecord } from 'nextra'
  * it: a ranking is a gene list that remembers its order, and the two
  * refusals it meets are the ones that page introduces.
  *
+ * Knowledge graphs come after ranked lists, because the page assumes both of
+ * them: a graph names entities the way a list does, and the refusal that is
+ * new to it is the one about how the graph was assembled.
+ *
  * The two remote pages come after them and in that order, because a pinned
  * remote is the simpler promise and a recorded query is explained by
  * contrast with it. Pointing a lab at a bucket follows both, because what a
@@ -38,6 +42,7 @@ const meta: MetaRecord = {
   provenance: 'Writing up a pipeline',
   'mapping-identifiers': 'Crossing identifier spaces',
   'ranked-lists': 'Comparing ranked lists',
+  'knowledge-graphs': 'Comparing knowledge graphs',
   remotes: 'Fetching your inputs',
   'recorded-queries': 'Recording a live query',
   'remote-store': 'Pointing a lab at a bucket',

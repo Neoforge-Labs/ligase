@@ -1,0 +1,246 @@
+---
+title: "Comparing knowledge graphs"
+description: "Load a knowledge graph of typed nodes and edges, see which evidence sources the engine read off it, and watch two assemblies that disagree refuse to join before anything runs."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# Comparing knowledge graphs
+
+<Lede>
+You have two assemblies of a disease graph — last quarter's and this one — and
+a ranking computed from each. This is how you load them, how Ligase works out
+which evidence sources went into each, and how it stops you comparing the two
+as though the difference between them were biology.
+</Lede>
+
+## Load a graph
+
+A knowledge graph is a `KnowledgeGraph`: one JSON object with a `nodes` array
+and an `edges` array.
+
+```python
+import ligase as lg
+
+graph = lg.knowledge_graph("graphs/2026-09.json", organism="Homo sapiens")
+```
+
+The file behind it:
+
+```json
+{
+  "nodes": [
+    {
+      "id": "ENSG00000141510",
+      "type": "gene",
+      "ids": ["HGNC:11998", "P04637"],
+      "sources": ["open-targets"]
+    },
+    { "id": "EFO_0000305", "type": "disease", "sources": ["open-targets"] }
+  ],
+  "edges": [
+    {
+      "source": "ENSG00000141510",
+      "target": "EFO_0000305",
+      "type": "associated_with",
+      "sources": ["open-targets", "disgenet"],
+      "score": 0.82
+    }
+  ]
+}
+```
+
+A node needs a string `id` — that is what an edge points at. An edge needs a
+string `source`, `target` and `type`. Beyond that:
+
+- **`sources`**, on a node, on an edge, or at the top level, is the per-edge
+  provenance the `source_set` dimension is read from.
+- **`ids`**, on a node, is the entity's other names.
+- **Everything else** on either is carried without being read. A `score`, a
+  `pmid`, a confidence band, your own annotations: what a graph says about its
+  own nodes is your business, exactly as a gene list's attribute columns are.
+
+A file that is not this shape does not load. A node with no `id` cannot be an
+edge endpoint, so a file holding one is not the thing it claims to be, and the
+loader says so rather than reading what it can.
+
+## What the engine read off it
+
+```python
+>>> graph.dimension("source_set").value
+'open-targets and disgenet'
+>>> graph.dimension("source_set").source
+'from the sources named on its nodes and edges: graphs/2026-09.json'
+```
+
+That is the union of every `sources` list in the file, and it is the dimension
+this kind exists for. Nothing in a node or an edge can state it — it is a fact
+about the whole graph — and nothing else would have computed it.
+
+The identifier space comes off the node ids where they all agree:
+
+```python
+>>> graph.dimension("identifier_namespace").value
+'Ensembl gene'
+```
+
+A graph of genes *and* diseases will not agree, because an EFO term is no
+Ensembl gene. That is ordinary for a graph rather than a fault, so the
+dimension stays unknown with a reason that says so, and you declare it if a
+downstream step needs it.
+
+Everything else a graph carries, you declare:
+
+```python
+graph = lg.knowledge_graph(
+    "graphs/2026-09.json",
+    organism=["Homo sapiens", "Mus musculus"],
+    subject="breast carcinoma",
+    release="Open Targets 24.09",
+)
+```
+
+`organism` takes a list because this is the kind where several organisms is
+the normal case: a disease graph joining human genes to evidence from model
+organisms is about both, and a graph declared as only the one the analysis is
+about is a declaration that is true of the analysis and false of the data.
+
+<Note kind="tip" title="Try it on a graph you already have">
+`ligase inspect graphs/2026-09.json` reads the file and prints every
+dimension it worked out, where each came from, and why the rest are unknown.
+No pipeline, no decorator, no commitment — see
+[inspecting files you have](/guide/inspecting-files/).
+</Note>
+
+## The three refusals
+
+### Different evidence sources
+
+This is the one the kind exists for. Two graphs holding the same nodes and the
+same edges, one of which also folded in DisGeNET:
+
+```python
+march = lg.knowledge_graph("graphs/2026-03.json", organism="Homo sapiens")
+september = lg.knowledge_graph("graphs/2026-09.json", organism="Homo sapiens")
+
+lg.check_step("compare", {"ours": march, "theirs": september})
+```
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.graphSources}</Diagnostic>
+
+Both sets are printed in full, then the member that makes them differ is named
+on a line of its own. For two graphs with a dozen sources each, that line is
+the only part worth reading.
+
+There is no flag that makes this pass, because the two graphs really are
+different graphs. Reassemble both from one source list, or stop comparing
+them — and say in the write-up that they are not comparable, which is the
+honest version of what you would otherwise have published.
+
+### Sources that differ only in case
+
+```python
+ours = lg.knowledge_graph("graphs/upper.json")
+theirs = lg.knowledge_graph("graphs/lower.json")
+
+lg.check_step("compare", {"ours": ours, "theirs": theirs})
+```
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.graphCaseSensitiveSources}</Diagnostic>
+
+`s3://evidence/A.json` and `s3://evidence/a.json` are two objects by
+specification, so they are two sources, and each side holds one the other
+lacks. An `organism` would have folded them — `HIV-1` and `hiv-1` are one
+organism by convention — and a source does not. The reasoning is
+[D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning):
+folding case can drop a member silently, and not folding it can only produce a
+refusal you can read.
+
+### A graph scored against a list in another space
+
+Scoring a graph's neighbourhood against a curated gene list is the commonest
+reason to join those two kinds at all, so the namespace is demanded of the
+pair:
+
+```python
+truth = lg.entity_set("truth/known_drivers.tsv", organism="Homo sapiens")
+
+lg.check_step("score", {"kg": graph, "truth": truth})
+```
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.graphNamespace}</Diagnostic>
+
+The way across is a `map_identifiers` step on the **list**, which declares the
+space it crossed to and names every identifier that did not cross — see
+[crossing identifier spaces](/guide/mapping-identifiers/). There is no
+conversion for a graph: a graph's identifiers are node ids *and* edge
+endpoints, and rewriting one without the other would produce a graph whose
+edges point at nothing.
+
+## In a pipeline
+
+A graph is an input like any other, and a step over one inherits every axis it
+claims:
+
+```python
+@lg.step(tool="python3")
+def prune(kg: lg.KnowledgeGraph, floor: float = 0.5) -> lg.KnowledgeGraph:
+    """Drop the edges scoring below the floor."""
+    return lg.sh("python3 scripts/prune.py --floor {floor} {kg} > {out}")
+
+
+pruned = prune(graph, floor=0.7)
+lg.Pipeline(pruned).check()
+```
+
+`pruned` carries September's `source_set`, so three steps later — on a file
+that no longer mentions a source anywhere — anything that tries to score it
+against March's assembly is refused the same way. That is what the dimension
+buys you over reading the two files by eye once.
+
+<Note kind="caution" title="A graph with no sources named is not a graph with none">
+If neither the graph nor any of its nodes and edges names a source, the
+dimension is **unknown**, with a reason — not an empty set. Two graphs that
+each named none would otherwise *agree* on it, which is exactly the silence
+the dimension exists to break. Declare it on a graph you assembled yourself:
+
+```python
+graph = lg.knowledge_graph(
+    "graphs/mine.json",
+    organism="Homo sapiens",
+    source_set=["open-targets", "in-house curation 2026-09"],
+)
+```
+
+A declaration wins over what the file says, which is what you want where the
+graph's own names are a mirror, a shard or a pipeline stage rather than the
+source a reader would recognise.
+</Note>
+
+## Fetching a graph instead
+
+A graph is often the answer to a live query rather than a file on disk. Both
+halves of [where the data came from](/concepts/remotes/) take it:
+
+```python
+graph = lg.query(
+    "https://api.platform.opentargets.org/api/v4/graphql?query=...",
+    kind=lg.KnowledgeGraph,
+    organism="Homo sapiens",
+    release="Open Targets 24.09",
+)
+```
+
+The answer is canonicalised — keys sorted at every depth, the service's own
+`generatedAt` and `requestId` dropped from the top level — and the body goes
+into the content-addressed store, so the next run replays it with no network
+at all. The sources come off the answer the service gave, exactly as they come
+off a file. See [recording a live query](/guide/recorded-queries/).
+
+## Next
+
+[Assembled data](/concepts/knowledge-graphs/) is why the sources are a
+dimension at all. [My target ranking changed and I cannot find the analysis
+change](/silent-failures/mixed-sources/) is the failure written up in full,
+and [the dimension catalogue](/reference/dimensions/) is where the axis sits
+among the others.

@@ -351,6 +351,57 @@ SCENARIOS: tuple[Scenario, ...] = (
         },
     ),
     Scenario(
+        key="graphSources",
+        step="compare",
+        expect="DimensionError",
+        description=(
+            "Two graphs holding the same nodes and edges, one of which also "
+            "folded in DisGeNET: the refusal `source_set` exists for."
+        ),
+        build=lambda lg: {
+            "ours": lg.knowledge_graph(
+                fixture("graph_targets.json"), organism="Homo sapiens"
+            ),
+            "theirs": lg.knowledge_graph(
+                fixture("graph_targets_disgenet.json"), organism="Homo sapiens"
+            ),
+        },
+    ),
+    Scenario(
+        key="graphCaseSensitiveSources",
+        step="compare",
+        expect="DimensionError",
+        description=(
+            "Two graphs whose sources differ only in case: two objects by "
+            "specification, so two source sets (D36)."
+        ),
+        build=lambda lg: {
+            "ours": lg.knowledge_graph(
+                fixture("graph_source_upper.json"), organism="Homo sapiens"
+            ),
+            "theirs": lg.knowledge_graph(
+                fixture("graph_source_lower.json"), organism="Homo sapiens"
+            ),
+        },
+    ),
+    Scenario(
+        key="graphNamespace",
+        step="score",
+        expect="DimensionError",
+        description=(
+            "A graph of Ensembl gene ids scored against a curated list of "
+            "HGNC symbols: the mixed pair, demanded of."
+        ),
+        build=lambda lg: {
+            "kg": lg.knowledge_graph(
+                fixture("graph_targets.json"), organism="Homo sapiens"
+            ),
+            "truth": lg.entity_set(
+                fixture("entities_hgnc.tsv"), organism="Homo sapiens"
+            ),
+        },
+    ),
+    Scenario(
         key="rankedRelease",
         step="score",
         expect="DimensionError",

@@ -9,6 +9,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A `KnowledgeGraph` kind, and the one dimension that follows from being
+  assembled.** Every other kind in Ligase is *measured*: a FASTQ is what a
+  sequencer wrote, a BAM is what an aligner made of it. A knowledge graph is
+  whatever somebody decided to merge, and what it holds is a function of that
+  list — fold in one more evidence source and edges appear, neighbourhoods
+  widen, and every score that propagates along edges moves further than the
+  new edges go.
+
+  Nothing in the file says which sources went in. A node says where *it* came
+  from; the list that decides the graph is the union over all of them, and
+  nothing computes it. So two assemblies diff and score against each other
+  without complaint, and the difference reads as biology:
+
+  ```
+  DimensionError in step `compare`:
+    ours.source_set = open-targets (from the sources named on its nodes and edges: graphs/2026-03.json)
+    theirs.source_set = open-targets and disgenet (from the sources named on its nodes and edges: graphs/2026-09.json)
+    theirs also lists disgenet.
+    These must match. Was a source added or removed upstream?
+  ```
+
+  `source_set` is read **off the graph**, from the `sources` named on its
+  nodes, its edges and its top level, and a graph naming none leaves the axis
+  unknown rather than known and empty — two graphs that each named nothing
+  would otherwise agree on the one axis the kind exists for. That is
+  [D44](https://ligase.neoforgelabs.tech/project/decisions/).
+
+  The kind is admitted on that axis and on nothing else. There is no standard
+  knowledge-graph file format, so Ligase defines the node/edge JSON it reads —
+  and defining a shape is exactly what the scope rule (D35) says does not earn
+  a kind its place. **Take `source_set` away and this kind should not exist.**
+
+- **`source_set` has its own equality, which three milestones deferred.** The
+  shared set type folded members differing only in ASCII case, which is right
+  for Latin binomials and wrong for object keys. `s3://evidence/A.json` and
+  `s3://evidence/a.json` are two objects by specification, and folding them
+  would have dropped one without a word — turning two graphs that differ into
+  two that agree. D36 reserved the right to split the type for whichever
+  milestone first applied the axis; M8, M10 and M12 each declined it.
+
+  The set type is now generic over how two members are compared, so the
+  algebra is written once and each rule once: `Organism` folds ASCII case,
+  `SourceSet` does not. The two axes are two *types*, so an arm of
+  `check::compare` that read `organism` where it meant `source_set` no longer
+  compiles — which is stronger than the test M7's standing requirement asks
+  for. `GSE12345` and `gse12345` are therefore two sources, and that costs one
+  consistent spelling.
+
+- **A JSON body now goes through a recorded query end to end.** `response.rs`
+  canonicalises a JSON answer — keys sorted at every depth, the service's own
+  `generatedAt` and `requestId` dropped from the top level — and with no kind
+  reading JSON, that branch was exercised by unit tests and never through a
+  pipeline. A graph is that kind: a pipeline over a recorded graph replays with
+  the server **down** to an identical result, a source folded in upstream is
+  found by `--refresh` as drift, and the same graph served a minute later with
+  a new `generatedAt` is still the same graph.
+
 - **`ligase.steps` — four steps with an entrance exam, and the reference demo
   rewritten on them.** `examples/hiv-resistance/pipeline.py` no longer
   contains a single shell command of its own. Alignment and variant calling

@@ -59,25 +59,41 @@ and makes the error site trivial.
 `"no @RG lines with an SM tag in the header"` tells them what to look at,
 where `None` tells them nothing.
 
-## Four axes, two value types
+## Five axes, two value types, three rules
 
-Four of the eleven dimensions — `organism`, `release`, `subject` and
-`source_set` — hold names a user chose rather than a parsed structure, and
-only two comparison rules sit between them, so `dim/names.rs` defines two
-types and four aliases:
+Five of the eleven dimensions — `organism`, `source_set`, `release`, `subject`
+and `identifier_namespace` — hold names a user chose rather than a parsed
+structure. Three comparison rules sit between them, and `dim/names.rs`
+expresses that as two types, one of them generic over its rule:
 
 ```rust
-pub struct NameSet { members: Vec<String> }  // Organism, SourceSet
-pub struct Label(String);                    // Release, Subject
+pub trait Matching { fn same(left: &str, right: &str) -> bool; /* ... */ }
+
+pub struct NameSet<M: Matching> { members: Vec<String>, how: PhantomData<M> }
+pub struct Label(String);
+
+pub type Organism = NameSet<FoldsAsciiCase>;
+pub type SourceSet = NameSet<Exactly>;
+// Label: Release, Subject, IdentifierNamespace
 ```
 
-`NameSet` compares as a set: the same members in any order, each trimmed and
-compared without regard to case. `Label` compares exactly, forgiving
-surrounding space and nothing else — `hgnc 2026-09` and `HGNC 2026-09` may
-well be different releases, and a label is a name somebody chose rather than
-free text to be matched loosely.
+`NameSet` compares as a set: the same members in any order, each trimmed, and
+order treated as noise. What "the same member" means is `M`'s business —
+`Organism` folds ASCII case, because Latin binomials are a closed conventional
+vocabulary in which `HIV-1` and `hiv-1` are one organism; `SourceSet` does
+not, because an object key and a URL path are case-sensitive by specification
+and `s3://bucket/A.vcf` is not `s3://bucket/a.vcf`. `Label` compares exactly,
+forgiving surrounding space and nothing else — `hgnc 2026-09` and
+`HGNC 2026-09` may well be different releases, and a label is a name somebody
+chose rather than free text to be matched loosely.
 
-The alternative was four types, each re-deriving the same equality.
+`M` has no default. A bare `NameSet` would be whichever rule the default
+happened to be, which is how the two set axes came to share a rule nobody had
+chosen for both — see
+[knowledge graphs](/project/architecture/knowledge-graphs/) for the split and
+the two shapes it was chosen over.
+
+The alternative was a type per axis, each re-deriving the same equality.
 [D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)
 forbids *one dimension* carrying *two* comparison rules, which is how a
 pipeline ends up passing `check()` under one rule and failing under the other;

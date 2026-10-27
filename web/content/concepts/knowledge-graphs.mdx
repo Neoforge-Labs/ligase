@@ -1,0 +1,152 @@
+---
+title: "Assembled data"
+description: "Why the sources a knowledge graph was assembled from are a dimension, why the engine reads them off the graph rather than asking, and why a source is compared case-sensitively when an organism is not."
+---
+
+# Assembled data
+
+<Lede>
+Every other kind in Ligase is **measured**: a FASTQ is what a sequencer wrote,
+a BAM is what an aligner made of it. A knowledge graph is **assembled** — it
+is whatever somebody decided to merge — and that one difference is why it is
+a kind rather than a parser.
+</Lede>
+
+## The question a graph cannot answer about itself
+
+Here is a node, and here is an edge:
+
+```json
+{ "id": "ENSG00000141510", "type": "gene", "sources": ["open-targets"] }
+```
+
+```json
+{
+  "source": "ENSG00000141510",
+  "target": "EFO_0000305",
+  "type": "associated_with",
+  "sources": ["open-targets", "disgenet"],
+  "score": 0.82
+}
+```
+
+Each says where it came from. Neither says, and neither can say, **which
+sources went into the graph** — because that is the union over every node and
+edge, and nothing in the file computes it.
+
+That matters because the union is what decides what the graph holds. Fold in
+one more source and edges appear; a gene that had three neighbours has five;
+degree moves, and anything that propagates along edges moves further than the
+new edges go. Two graphs assembled from different source lists are two
+different graphs, and they look identical from the outside.
+
+So Ligase records the union as a dimension, `source_set`, and refuses to
+connect two graphs that disagree on it. The failure that buys you is written
+up as
+[my target ranking changed and I cannot find the analysis change](/silent-failures/mixed-sources/).
+
+## Why that earns the kind its place
+
+Ligase's [scope rule](/project/decisions/#d35--a-kind-must-bring-a-dimension-that-catches-a-documented-silent-failure)
+is deliberately hard to satisfy: a kind is admitted only if it brings a
+dimension whose mismatch is a silent failure in real work. A kind that is a
+file format with a schema is a parser, and Ligase does not need more parsers.
+
+A knowledge graph brings `source_set`, which no other kind in Ligase has
+anything to say about — because no other kind is assembled from anything. A
+gene list is one file. A BAM is a measurement. The axis sat in the catalogue
+unapplied through four milestones, waiting for the kind that had a use for it.
+
+It is worth being plain about what does *not* earn the place. There is no
+standard knowledge-graph file format, so Ligase defines the node/edge JSON it
+reads — and defining a shape is exactly what the scope rule says is not
+enough. Take `source_set` away and this kind should not exist.
+
+## The sources are read, not asked for
+
+A gene list cannot tell you which identifier space it is in, so Ligase guesses
+from the identifiers where they agree and asks otherwise. A graph **can** tell
+you which sources built it: the information is on the edges. Asking for it
+would be the engine demanding something it is holding.
+
+So the loader takes the union of every `sources` list on a node, on an edge,
+and at the top level, and that is the dimension — recorded as inferred, naming
+the file, so you can check it. A declaration still wins where you make one,
+because a graph's own names are sometimes a mirror, a shard or an internal
+pipeline stage rather than the source a reader would recognise. That is
+[D44](/project/decisions/#d44--a-graphs-sources-are-read-from-its-edges-not-declared).
+
+**A graph that names no sources leaves the axis unknown**, with a reason —
+never an empty set. Two graphs that each recorded none would otherwise *agree*
+on it, and an agreement by silence is the thing this engine exists to refuse.
+It is the same rule that makes `organism=[]` a gap rather than a declaration.
+
+## A source is compared exactly; an organism is not
+
+Both `organism` and `source_set` are sets, compared by set equality, with
+order treated as noise and a missing member treated as the whole point. They
+part company on one question: when are two members the same member?
+
+| | `organism` | `source_set` |
+|---|---|---|
+| `HIV-1` against `hiv-1` | one organism | — |
+| `s3://bucket/A.json` against `s3://bucket/a.json` | — | two sources |
+| Why | Latin binomials are a closed conventional vocabulary; the two spellings mean one thing by convention | an object key and a URL path are case-sensitive by specification; the two spellings are two objects |
+
+The asymmetry is not arbitrary, and it is not symmetrical in its costs
+either. Folding case *drops* a member, which turns two sets that differ into
+two that agree — a false agreement, with no message. Not folding it can only
+*add* a member, which turns agreement into a refusal: loud, legible, and
+fixed by writing one spelling consistently. Ligase has taken that trade twice
+before, in refusing to equate `human` with `Homo sapiens` and in refusing an
+alias table for identifiers.
+
+`GSE12345` and `gse12345` are therefore two sources, where a person would
+read one study. That is the price, and it is a consistent spelling.
+
+## What else a graph carries
+
+Four more axes, none of them new:
+
+- **`organism`**, as a set. This is the kind where a set is the normal case
+  rather than the host–pathogen exception: a disease graph joining human genes
+  to evidence from model organisms is about several organisms, and saying so
+  is the point of [D37](/project/decisions/#d37--organism-is-set-valued).
+- **`identifier_namespace`**, read off the node ids where they all match one
+  known pattern. A graph of genes *and* diseases will not — an EFO term is no
+  Ensembl gene — which is ordinary for a graph rather than a fault, and leaves
+  the dimension unknown rather than guessed.
+- **`subject`**: what the graph is a graph of, when that is one named thing.
+- **`release`**: which release the sources were drawn from. Open Targets 24.06
+  against 24.09 is the hg19-against-hg38 failure in another costume, which is
+  why `release` is an axis of its own and compared by equality.
+
+What a graph has none of is contigs, a coordinate system, read pairing,
+quality scores and samples. Those are not gaps to fill in; a graph has no
+such properties to have.
+
+## What the canonical form keeps
+
+Nodes and edges are **sets**: the order they came off whatever assembled them
+is not a fact about the biology, so two graphs holding the same nodes and
+edges in different orders have the same
+[semantic hash](/concepts/semantic-hashing/). So do the `ids` and `sources`
+lists inside a node or an edge.
+
+What is *not* discarded is which sources those are. A source folded in
+upstream is a different graph, and a cache that served the old answer for it
+would be serving the wrong one — which is the same reason the axis exists at
+all.
+
+The keys a serving system writes about itself — `generatedAt`, `requestId`,
+`took` — are dropped from the top level, so the same graph fetched twice a
+minute apart is one graph. They are dropped at the top level **only**: inside
+a record, a `timestamp` is what the record says. Each drop is
+[noticed](/concepts/notes/), in case the key was your data after all.
+
+## Next
+
+[Building a graph into a pipeline](/guide/knowledge-graphs/) is the worked
+example, with the file shape and the two refusals. The internals are in
+[knowledge graphs](/project/architecture/knowledge-graphs/), including the
+three things this milestone does not do.

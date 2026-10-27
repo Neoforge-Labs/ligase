@@ -1002,3 +1002,155 @@ succeeded — reachable before this milestone by two fan-out nodes recording
 the same paginated response. And provenance did not travel with a shared
 cache entry, so the feature's headline scenario produced runs that
 completed perfectly and could not be written up; D43 has it.
+
+## The v0.3 roadmap
+
+v0.2 is shipped. v0.3 is `KnowledgeGraph`, then claim binding, then the
+chemistry extra, then cluster execution on the shared store, with the NeoRx
+seven-disease experiment ported across as validation. One milestone per
+session, as before.
+
+## M15 — Knowledge graphs
+A `KnowledgeGraph` kind: typed nodes and edges with per-edge provenance, read
+from JSON, carrying `organism` (set), `identifier_namespace`, `source_set`,
+`subject` and `release`. The first kind in Ligase that is *assembled* rather
+than measured, and so the first with anything to say about which sources
+contributed. D44.
+
+**Done when:** the kind exists with its loader, canonical form, dimensions and
+Python surface; two graphs whose sources disagree refuse to join, naming the
+source one side lists and the other lacks, pinned in Rust and in Python;
+`source_set` has its own value type and compares **exactly**, so
+`s3://evidence/A.json` and `s3://evidence/a.json` are two sources while
+`Organism` still folds `HIV-1` and `hiv-1` into one; every axis the kind
+claims has its `check::compare` and `graph::propagate` arm pinned by a named
+test; a graph's sources are read off its own edges, and a graph naming none
+leaves the axis unknown with a reason rather than known and empty; reordering
+a graph's nodes or edges does not change its canonical hash while adding a
+source to one edge does; a `RecordedQuery` declared `KnowledgeGraph` runs
+against a mock server and replays with that server **down** to an identical
+result, closing the JSON gap
+[remote inputs](/project/architecture/remotes/) names.
+
+**Standing requirement, from M7.** The first kind to claim a dimension axis
+must pin that axis's arm in `check.rs::compare` and in `graph.rs::propagate`
+with a test. Until a kind applies an axis, `check_step` never reaches its
+arms, so no test can catch one written against the wrong field, and the
+compiler cannot either: `Organism` and `SourceSet` are one type, and so are
+`Release` and `Subject`. This milestone gives `source_set` its first kind —
+the axis M8, M10 and M12 each declined and recorded as travelling here — so
+the requirement falls on it, and D36's reserved right to split the set type
+has to be carried out before the axis is applied.
+
+**Done.** Every clause, each pinned by a named test. See
+[assembled data](/concepts/knowledge-graphs/),
+[comparing knowledge graphs](/guide/knowledge-graphs/),
+[the internals](/project/architecture/knowledge-graphs/) and
+[my target ranking changed and I cannot find the analysis change](/silent-failures/mixed-sources/).
+
+**D35 first, because that is the question to ask of a new kind.** The kind
+brings `source_set`, which no other kind in Ligase applies, because no other
+kind is assembled from anything: a gene list is one file and a BAM is a
+measurement. A graph's content is a function of which evidence sources were
+folded into it, no node or edge records that list, and two graphs differing
+only in it diff and score against each other in silence — which reads as
+biology. What does **not** earn the kind its place is the file shape: there is
+no standard knowledge-graph format, so this milestone defines the node/edge
+JSON Ligase reads, and defining a shape is exactly what D35 says is
+insufficient. That is said out loud on the architecture page rather than left
+for a reviewer to notice. Take `source_set` away and the kind should not
+exist.
+
+Two graphs assembled from different sources refuse to join in
+`knowledge_graph.rs::two_graphs_assembled_from_different_sources_refuse_to_join`
+and in
+`tests/test_knowledge_graphs.py::test_two_graphs_assembled_from_different_sources_refuse_to_join`.
+Three `capture_diagnostics.py` scenarios publish the messages from real runs,
+so the pages cannot drift from the engine.
+
+**The `source_set` type split, which three milestones deferred.** D36 reserved
+the right; M10a settled the rule — a source must **not** fold ASCII case,
+because folding can only *drop* a member and produce a false agreement while
+not folding can only *add* one and produce a refusal a user can read; M8, M10
+and M12 each declined the axis and recorded that the obligation travelled on.
+It lands here as `NameSet<M>`, generic over how two members are compared, so
+the set algebra is written once and each rule once. `Organism` is
+`NameSet<FoldsAsciiCase>` and `SourceSet` is `NameSet<Exactly>`.
+
+Two shapes were considered and rejected, both on the project's own earlier
+reasoning. A second struct would have implemented the algebra twice, which
+D36's argument for sharing the type calls "a rule that will eventually be
+implemented differently". A `fold_case: bool` field would have put two
+meanings behind one call chosen by an argument a caller can get wrong
+silently — the shape `Digest::record` and `ordered_record` were deliberately
+split to avoid — and would have let one dimension carry two rules at runtime,
+which D36 forbids outright.
+
+**What the split turned out to be worth, beyond tidiness.** M7's standing
+requirement exists because the two axes were one *type*, so a `compare` arm
+written against the wrong field compiled. They are no longer one type, so that
+particular mistake is now a build failure rather than something a test has to
+catch. `Release` and `Subject` are still one type, so the requirement still
+stands for those — and the two tests are there anyway,
+`each_axis_a_knowledge_graph_claims_compares_its_own_field` and
+`a_step_over_a_knowledge_graph_carries_every_axis_it_claims`, because the
+requirement asks for them and because `propagate`'s arms name their fields by
+hand whatever the types are.
+
+**The sources are read, not asked for, and that is D44.** They are on the
+edges. Asking for them would be the engine demanding something it is holding,
+and a declaration it could have checked and did not is a declaration that
+drifts from the data. So the loader takes the union of every `sources` list on
+a node, an edge and the top level, records it as *inferred* and names the file.
+A declaration still wins, because a graph's own names are sometimes a mirror
+or a shard rather than the source a reader would recognise. An empty reading
+is a **gap**: two graphs that each named none would otherwise agree on the one
+axis the kind exists for.
+
+**The JSON gap is closed rather than named again.**
+`architecture/remotes.mdx` recorded that no kind in v0.2 read JSON, so
+`response.rs`'s JSON branch — keys sorted at every depth, the server's own
+fields dropped from the top level — was exercised by unit tests and never
+through a pipeline. This kind reads JSON, so deferring would have been
+deferring for no reason. Four tests in `tests/test_queries.py` take a graph
+through the recorder, into the store and back out through the loader, and the
+one that matters most is
+`test_a_servers_signature_does_not_make_a_graph_a_new_graph`: the same graph
+served a minute later with a different `generatedAt` is the same graph, and
+without the drop every run would see drift and everything below the query
+would rerun.
+
+**Three clauses the spec did not ask for, each pinned.** The namespace is
+demanded of every *mixed* pair — graph against gene list, graph against
+ranking, in either order — rather than left to a catch-all, which is M12's
+lesson applied before it could become the same bug a second time; scoring a
+graph's neighbourhood against a curated list is the commonest reason to join
+those kinds at all. The canonical form's deduplication inside a node is exact,
+matching `SourceSet`, because a hash that folded `A.json` into `a.json` would
+make two graphs the checker refuses to join agree on their content — the two
+halves of the engine contradicting each other. And each node and edge record
+leads with a discriminator, since both go into one sorted list and a node and
+an edge whose parts lined up would otherwise be one record.
+
+**Four assertions changed, and they are the milestone arriving.**
+`source_set_still_has_no_kind` had held since M8, asserting the axis applied
+to nothing; `a_ranked_list_claims_no_source_set` carried the same loop. Both
+were correct until this milestone and are now wrong by design, so the loop
+moved to `knowledge_graph.rs::source_set_is_the_axis_this_kind_was_admitted_for`
+and each kind's own test keeps only its own claim. The two
+`only_a_named_list_has_…` tests became
+`only_a_kind_that_names_entities_has_…`, and
+`release_applies_to_a_reference_and_to_either_named_list` became
+`…_and_to_the_kinds_that_name_entities`. Renaming them rather than widening
+them quietly is the point: a test whose name no longer describes what it
+asserts is a test nobody reads.
+
+**What the work turned up that nothing asked for.** A default type parameter
+looked like free compatibility — `NameSet<FoldsAsciiCase>` as the default
+meant every existing mention of `NameSet` kept compiling — and it was the
+wrong call. `NameSet::of([...])` cannot infer `M` from its arguments, so the
+existing value tests failed to compile anyway; and worse, a bare `NameSet`
+would have meant whichever rule the default happened to be, which is precisely
+how the two axes came to share a rule nobody had chosen for both. The default
+is gone, and `tests/dimension_values.rs` now names the axis whose rule each
+test is about.

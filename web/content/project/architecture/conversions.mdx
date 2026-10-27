@@ -240,15 +240,30 @@ keeping the error messages honest, rather than the other way round.
 
 ## What this does not touch
 
-`source_set` is still claimed by no kind. An `EntitySet` carries `organism`,
-`identifier_namespace`, `subject` and `release` and nothing else, so the
-question [D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)
+`source_set` was claimed by no kind when this was built. An `EntitySet`
+carries `organism`, `identifier_namespace`, `subject` and `release` and
+nothing else, so the question
+[D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)
 reserved — whether the shared `NameSet` type's ASCII-case deduplication is
-right for what `source_set` will hold — is untouched here. It has since been
-answered: [M10](/project/milestones/#m10--remotes-and-replay) settled that
-`source_set` must **not** fold ASCII case, and
-[M12](/project/milestones/#m12--ranked-lists) declined the axis, so no kind
-in v0.2 applies it and the type split travels to `KnowledgeGraph` in v0.3.
+right for what `source_set` would hold — was untouched here.
+[M10](/project/milestones/#m10--remotes-and-replay) settled that it must
+**not** fold ASCII case and
+[M12](/project/milestones/#m12--ranked-lists) declined the axis, so the type
+split travelled to [M15](/project/milestones/#m15--knowledge-graphs), where a
+`KnowledgeGraph` applies it and `NameSet` became generic over its comparison
+rule.
+
+**No conversion crosses a graph, and that is deliberate.**
+`map_identifiers` renames a column. A graph's identifiers are node ids *and*
+edge endpoints, and a conversion that rewrote one and not the other would
+produce a graph whose edges point at nothing. `propagate` guards a
+conversion's axis override on `converts(output)`, so the guard holds today —
+and would become a hiding place the moment somebody registered the existing
+conversion for the kind, in exactly the way M12 found for a `RankedList`. A
+conversion of a graph has to rewrite endpoints and merge the nodes that
+collide, and merging nodes is a decision about biology rather than a rename,
+so it is a different feature. The way across is a `map_identifiers` step on
+the *list* being joined to the graph.
 
 What was discharged is the other half of that obligation. Until a kind
 applied an axis, `check_step` never reached its comparison arm and
