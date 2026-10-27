@@ -12,6 +12,7 @@ mod fasta;
 mod graph;
 mod intervals;
 mod knowledge_graph;
+mod molecule_table;
 mod named_list;
 mod ranked_list;
 mod reads;
@@ -33,11 +34,13 @@ pub use entity_set::entity_set;
 pub use fasta::reference;
 pub use intervals::{IntervalFormat, intervals};
 pub use knowledge_graph::knowledge_graph;
+pub use molecule_table::{molecule_ranking, molecule_set};
 pub use ranked_list::ranked_list;
 pub use reads::{reads, samples};
 pub use variants::variants;
 
 pub(crate) use graph::GraphReader;
+pub(crate) use molecule_table::{REPRESENTATION_LINE, spelled_on_a_line};
 pub(crate) use table::{Row, Table};
 
 /// Dimensions the user states, for the ones a file cannot record.
@@ -100,6 +103,17 @@ pub struct Declared {
     /// usually an object key or a URL and both are case-sensitive by
     /// specification (D36).
     pub source_set: Option<Vec<String>>,
+    /// How a molecule table's names were arrived at, e.g.
+    /// `inchikey; salt-stripped, charge-neutralised`.
+    ///
+    /// Read by the two loaders of molecule tables. Left unset, the loader
+    /// reads the table's own representation line; a blank, or a spelling
+    /// the engine cannot read, declares nothing and is treated as not
+    /// declared. It is deliberately not checked against the molecules,
+    /// because the engine has no chemistry to check it with (D49) -- which
+    /// is D38's position on a declared namespace, arrived at by a shorter
+    /// road.
+    pub representation: Option<String>,
 }
 
 /// The organism dimension a loader reports from what the user declared.

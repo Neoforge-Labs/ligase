@@ -742,6 +742,11 @@ fn propagate(spec: &StepSpec, inputs: &[&Dataset]) -> Dataset {
                 &d.identifier_namespace
             });
     }
+    if output.applies(Dimension::Representation) {
+        dimensions.representation = inherit(step, Dimension::Representation, inputs, |d| {
+            &d.representation
+        });
+    }
 
     // A conversion crosses one axis. Everything above has just inherited
     // the input's dimensions, this overwrites the single axis the step

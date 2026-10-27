@@ -372,6 +372,7 @@ pub const fn required_pair(left: DataKind, right: DataKind) -> &'static [Dimensi
     const SAMPLES: &[Dimension] = &[Dimension::SampleSet];
     const SAMPLES_AND_PAIRING: &[Dimension] = &[Dimension::SampleSet, Dimension::Pairing];
     const IDENTIFIERS: &[Dimension] = &[Dimension::IdentifierNamespace];
+    const REPRESENTATION: &[Dimension] = &[Dimension::Representation];
     const NONE: &[Dimension] = &[];
 
     match (left, right) {
@@ -405,6 +406,27 @@ pub const fn required_pair(left: DataKind, right: DataKind) -> &'static [Dimensi
         // which is demanded nowhere, so there is nothing to insist on.
         (K::EntitySet | K::RankedList | K::KnowledgeGraph, _)
         | (_, K::EntitySet | K::RankedList | K::KnowledgeGraph) => NONE,
+
+        // Two molecule tables must each say how they were standardised,
+        // whether ranked or not, and in either combination. It is a demand
+        // a user can always meet -- declare it, or standardise and let the
+        // step write the line -- and unknown on both sides is the false
+        // agreement the axis exists to break: two sets that say nothing
+        // would overlap in whatever their two toolchains happened to agree
+        // on, which for twelve of thirty ordinary drugs is nothing.
+        //
+        // All four combinations are written out rather than left to the
+        // catch-all below. That is M12's lesson -- the mixed pair was once
+        // left to a catch-all that silently demanded nothing of the
+        // commonest join there is -- and scoring a ranking against a
+        // library is exactly that join for these kinds.
+        (K::MoleculeSet | K::MoleculeRanking, K::MoleculeSet | K::MoleculeRanking) => {
+            REPRESENTATION
+        }
+        // A molecule table and anything else share only organism. A gene
+        // list is not a compound library and the join is a category error,
+        // but it is not this function's business to say so.
+        (K::MoleculeSet | K::MoleculeRanking, _) | (_, K::MoleculeSet | K::MoleculeRanking) => NONE,
 
         // Reads carry no reference yet -- introducing one is what `align`
         // does -- so a reference tells us nothing about them.
@@ -461,6 +483,7 @@ fn compare(
         Dimension::IdentifierNamespace => {
             a.identifier_namespace.value() == b.identifier_namespace.value()
         }
+        Dimension::Representation => a.representation.value() == b.representation.value(),
         Dimension::Reference => unreachable(),
     };
     if same {
@@ -492,6 +515,29 @@ fn compare(
         Dimension::Organism => set_difference(left, a.organism.value(), right, b.organism.value()),
         Dimension::SourceSet => {
             set_difference(left, a.source_set.value(), right, b.source_set.value())
+        }
+        // The same service for the one axis whose value is not a name set.
+        // Its operations are a closed enum rather than names, so it cannot
+        // share `set_difference`'s signature -- but the sentence a user
+        // reads is built from the same `english_list`, so a representation
+        // and an organism can never be punctuated differently.
+        Dimension::Representation => {
+            let (Some(x), Some(y)) = (a.representation.value(), b.representation.value()) else {
+                return None;
+            };
+            let clauses: Vec<String> = [
+                (left, x.operations_beyond(y)),
+                (right, y.operations_beyond(x)),
+            ]
+            .into_iter()
+            .filter(|(_, extra)| !extra.is_empty())
+            .map(|(binding, extra)| format!("{} also lists {}", binding.name, english_list(&extra)))
+            .collect();
+            // Two states can differ in their *identity* alone -- InChIKey
+            // against SMILES -- and then no operation is extra on either
+            // side. The two value lines still say so in full, and a clause
+            // naming no operation would be worse than none.
+            (!clauses.is_empty()).then(|| format!("{}.", clauses.join(", and ")))
         }
         _ => None,
     };

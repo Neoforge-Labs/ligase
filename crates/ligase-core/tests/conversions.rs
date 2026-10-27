@@ -132,10 +132,12 @@ fn the_registry_names_the_only_way_across_each_axis_it_covers() {
 
 #[test]
 fn the_registry_is_the_shape_liftover_and_rename_contigs_will_use() {
-    // v0.2 ships one conversion. These two are the next entries and must
-    // need no change to the registry beyond a row: an axis, the kinds it
-    // converts, and a target read from the same parameter.
-    assert_eq!(Conversion::ALL.len(), 1);
+    // v0.2 shipped one conversion and v0.3 added `standardize`, which is
+    // the first evidence that the claim holds: it needed a row and nothing
+    // else, even though its body is Python rather than Rust. These two are
+    // the next entries and must need no more than that either -- an axis,
+    // the kinds it converts, and a target read from the same parameter.
+    assert_eq!(Conversion::ALL.len(), 2);
     assert_eq!(Conversion::TARGET, "to");
     assert_eq!(Conversion::across(Dimension::Reference), None);
     assert_eq!(Conversion::across(Dimension::ContigNaming), None);

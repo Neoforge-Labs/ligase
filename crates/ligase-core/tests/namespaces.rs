@@ -19,6 +19,12 @@ fn the_axis_is_appended_so_earlier_reports_keep_their_order() {
             "subject",
             "source_set",
             "identifier_namespace",
+            // M17's, appended for the same reason this one was: `ALL` is
+            // the order `check_step` walks, so it is the order a user's
+            // multi-error report comes out in, and slotting an axis in
+            // beside the ones it resembles would reorder every report that
+            // already exists.
+            "representation",
         ]
     );
 }
