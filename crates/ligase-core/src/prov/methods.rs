@@ -812,6 +812,19 @@ fn restating(record: &Record, scope: Option<&str>, seed: Option<&str>) -> Vec<St
         .collect()
 }
 
+impl ClaimCheck {
+    /// What the write-up says about this claim, unwrapped.
+    ///
+    /// Implemented here rather than beside the type because the wording is
+    /// the write-up's: it shares `counted`, `join_names` and `describe_tool`
+    /// with every other sentence in the report, and a second place that
+    /// phrased a verdict would be a second place to phrase it differently.
+    #[must_use]
+    pub fn sentence(&self) -> String {
+        claim_sentence(self)
+    }
+}
+
 /// What a write-up says about one claim.
 ///
 /// The claim's own sentence first and in quotes, because that is what a

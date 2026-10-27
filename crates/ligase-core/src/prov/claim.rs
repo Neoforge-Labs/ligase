@@ -449,27 +449,56 @@ fn scopes_of(methods: &Methods, step: &str) -> Vec<String> {
 
 /// Whether a version a paper states is the version a tool printed.
 ///
-/// Textual, and never numeric. Two things make equality the wrong test and
-/// both are in the citation table's own tools: `samtools --version` prints
-/// `samtools 1.24`, so the tool's name has to come off first, and
-/// `minimap2 --version` prints `2.31-r1287`, so a paper that says `2.31` is
-/// right and an equality test would call it wrong.
+/// Textual, and never numeric. Equality is the wrong test three times over,
+/// and each case is a tool this project actually runs:
 ///
-/// A prefix must end at a component boundary. Without that rule `2.4` would
-/// claim `2.41`, which is a wrong version reported as a correct one — the
-/// one outcome this whole mechanism exists to prevent.
+/// - `samtools --version` prints `samtools 1.24`, so a tool's own name has
+///   to come off.
+/// - `python3 --version` prints `Python 3.15.0` — a name that is *not* the
+///   name it was invoked under — so anything before the first digit has to
+///   come off too.
+/// - `minimap2 --version` prints `2.31-r1287`, so a paper that says `2.31`
+///   is right and equality would call it wrong.
+///
+/// So the stated version is tried against the whole first line and against
+/// each way of trimming a leading name off it, and one match is enough.
+/// Generosity here cannot produce a false agreement, because of the rule
+/// that does the work: **a prefix must end at a component boundary.** Without
+/// it `2.4` would claim `2.41`, which is a wrong version reported as a
+/// correct one — the one outcome this whole mechanism exists to prevent.
+///
+/// A version line with no digit in it is left whole. `bwa` prints
+/// `[main] unrecognized command '--version'`, which D42 found the engine
+/// recording as a version; a claim against that is wrong rather than
+/// accidentally right.
 #[must_use]
 pub fn version_states(tool: &str, recorded: &str, stated: &str) -> bool {
     let first = recorded.lines().next().unwrap_or(recorded).trim();
-    let held = match first
-        .get(..tool.len())
-        .is_some_and(|head| head.eq_ignore_ascii_case(tool))
-    {
-        true => first[tool.len()..].trim_start(),
-        false => first,
-    };
     let stated = stated.trim();
+    if stated.is_empty() {
+        return false;
+    }
 
+    let mut candidates = vec![first];
+    // The tool's own name, where it printed it.
+    if let Some(head) = first.get(..tool.len())
+        && head.eq_ignore_ascii_case(tool)
+    {
+        candidates.push(first[tool.len()..].trim_start());
+    }
+    // Or some other name. Everything before the *first* digit, so what is
+    // dropped can hold no digit by construction.
+    if let Some(at) = first.find(|character: char| character.is_ascii_digit())
+        && at > 0
+    {
+        candidates.push(first[at..].trim_start());
+    }
+
+    candidates.iter().any(|held| states(held, stated))
+}
+
+/// Whether one version string states another, allowing a build suffix.
+fn states(held: &str, stated: &str) -> bool {
     if held == stated {
         return true;
     }
@@ -487,6 +516,32 @@ mod tests {
         assert!(version_states("samtools", "samtools 1.24", "1.24"));
         assert!(version_states("SAMTOOLS", "samtools 1.24", "1.24"));
         assert!(version_states("minimap2", "2.31-r1287", "2.31"));
+    }
+
+    #[test]
+    fn a_version_is_matched_past_a_name_that_is_not_the_tools() {
+        // `python3 --version` prints `Python`, not `python3`, and this is
+        // what a real run of the test suite met.
+        assert!(version_states("python3", "Python 3.15.0", "3.15"));
+        assert!(version_states("python3", "Python 3.15.0", "3.15.0"));
+        assert!(!version_states("python3", "Python 3.15.0", "2.7"));
+        assert!(
+            !version_states("python3", "Python 3.15.0", "3.1"),
+            "3.1 must not claim 3.15"
+        );
+    }
+
+    #[test]
+    fn a_whole_version_line_states_itself() {
+        // A paper may well quote the line as printed.
+        assert!(version_states("samtools", "samtools 1.24", "samtools 1.24"));
+        assert!(!version_states("samtools", "samtools 1.24", "samtools 1.2"));
+    }
+
+    #[test]
+    fn a_version_stated_as_nothing_states_nothing() {
+        assert!(!version_states("samtools", "samtools 1.24", ""));
+        assert!(!version_states("samtools", "samtools 1.24", "   "));
     }
 
     #[test]
