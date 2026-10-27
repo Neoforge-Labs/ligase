@@ -4,7 +4,7 @@
   "private": true,
   "description": "The Ligase documentation site.",
   "scripts": {
-    "generate": "python3 scripts/generate_api.py && python3 scripts/generate_cli.py && python3 scripts/capture_diagnostics.py && python3 scripts/capture_quickstart.py && python3 scripts/capture_ranked.py && python3 scripts/capture_stochastic.py && python3 scripts/render_notebooks.py",
+    "generate": "python3 scripts/generate_api.py && python3 scripts/generate_cli.py && python3 scripts/capture_diagnostics.py && python3 scripts/capture_quickstart.py && python3 scripts/capture_ranked.py && python3 scripts/capture_stochastic.py && python3 scripts/capture_claims.py && python3 scripts/render_notebooks.py",
     "dev": "npm run generate && next dev",
     "build": "npm run generate && next build && pagefind --site out --output-subdir _pagefind && node scripts/write-redirects.mjs && node scripts/generate-llms.mjs",
     "links": "node scripts/check-links.mjs",

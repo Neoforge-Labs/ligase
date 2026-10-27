@@ -42,3 +42,4 @@ dist/
 /web/lib/quickstart.generated.ts
 /web/lib/ranked.generated.ts
 /web/lib/stochastic.generated.ts
+/web/lib/claims.generated.ts
