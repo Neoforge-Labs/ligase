@@ -1262,9 +1262,26 @@ four-sample step has four bound rows, where binding it to the group's
 representative key would have named one sample's computation and implied it
 covered four.
 
-**A seventh generator.** `web/scripts/capture_claims.py` runs a real
-one-step pipeline three times in a temp directory with one claim rewritten
-each time, and captures what `ligase methods` printed **and what it exited
-with**. An unbacked claim failing and a bound one not is the whole of what
-makes a claim enforceable in CI, so the docs build fails if either stops
-being true.
+**A seventh generator, and the flake it shipped with.**
+`web/scripts/capture_claims.py` runs a real one-step pipeline three times and
+captures what `ligase methods` printed **and what it exited with**. An
+unbacked claim failing and a bound one not is the whole of what makes a claim
+enforceable in CI, so the docs build fails if either stops being true.
+
+It first wrote one `pipeline.py` three times in a shared directory, and CI
+caught it on the first run of the PR. Two of the three differ by a single
+character — `min_freq=0.01` against `min_freq=0.05` — so the file is the same
+*size*, and CPython validates a cached `.pyc` against the source's size and
+its mtime **in whole seconds**. Write both inside one second and the second
+run executes the first one's bytecode, which is exactly what the build
+reported: a capture of the contradicted write-up that was really the bound
+one, down to the step key.
+
+It passed locally every time because this machine's shell exports
+`PYTHONDONTWRITEBYTECODE=1`, so no `.pyc` was ever written here. That is the
+transferable part: a generator that rewrites a Python file in place is
+reproducible only by accident, and the first guess at the cause — made and
+checked before it was acted on — was wrong for that reason. Each capture now
+gets a directory of its own, which is the shape `capture_stochastic.py`
+already had, and each capture asserts the *number* it is about rather than
+only the sentence around it.

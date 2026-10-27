@@ -14,8 +14,8 @@ must contain *and* the exit code the CLI must return, so if an unbacked claim
 ever stops failing — which is the whole of what makes a claim enforceable in
 CI — the docs build fails rather than shipping a page that promises it.
 
-Nothing here touches the repository: it all happens in a temp directory that
-is thrown away.
+Nothing here touches the repository: each capture happens in a temp directory
+of its own, and all of them are thrown away.
 """
 
 from __future__ import annotations
@@ -86,11 +86,15 @@ def run_cli(*argv: str) -> tuple[str, int]:
     return printed.getvalue().rstrip("\n"), code
 
 
-def expect(key: str, text: str, code: int, contains: str, wanted: int) -> str:
+def expect(
+    key: str, text: str, code: int, contains: tuple[str, ...], wanted: int
+) -> str:
     """Fail the build when a write-up no longer says what the page says."""
-    if contains not in text:
+    for wanted_text in contains:
+        if wanted_text in text:
+            continue
         raise SystemExit(
-            f"{key}: expected the write-up to contain {contains!r}, got:\n\n"
+            f"{key}: expected the write-up to contain {wanted_text!r}, got:\n\n"
             f"{text}\n\n"
             f"A claim-binding page claims this. Either the engine changed or "
             f"the page is now wrong; both need a human."
@@ -120,33 +124,45 @@ def main() -> int:
 
     here = Path.cwd()
     captured: dict[str, str] = {}
-    with tempfile.TemporaryDirectory(prefix="ligase-claims-") as tmp:
-        project = Path(tmp)
-        (project / "refs").mkdir()
-        (project / "refs/HXB2.fasta").write_text(REFERENCE)
 
-        os.chdir(project)
-        try:
-            # Each capture rewrites the one claim and writes the pipeline up
-            # again. The step itself never changes, so the second and third
-            # runs are served from the cache -- which is the point: a claim
-            # is in no key, so editing a manuscript reruns nothing.
-            for key, claim, threshold, contains, code in (
-                # The paper says 1% and the pipeline ran at 1%.
-                ("bound", THRESHOLD, "0.01", "rests on `call`", 0),
-                # Six months later the threshold moved to 5% and the
-                # sentence did not. Nothing failed; nobody noticed.
-                ("contradicted", THRESHOLD, "0.05", "One of the two is wrong", 1),
-                # And a number from a step the analysis no longer has.
-                ("unbacked", UNBACKED, "0.01", "has nothing behind it", 1),
-            ):
-                (project / "pipeline.py").write_text(
-                    PIPELINE.format(claim=claim, min_freq=threshold)
-                )
+    # One temp directory per capture, rather than one pipeline file rewritten
+    # three times in a shared one. Two of these differ by a single character
+    # -- `min_freq=0.01` against `min_freq=0.05` -- so the file is the same
+    # size, and CPython validates a cached `.pyc` on the source's mtime in
+    # whole seconds plus its size. Write both inside one second on a fast
+    # filesystem and the second run executes the first one's bytecode, which
+    # is what CI caught: a capture of the contradicted write-up that was
+    # really the bound one. A fresh directory has its own `__pycache__` and
+    # its own cache, so each capture is an independent project.
+    for key, claim, threshold, contains, code in (
+        # The paper says 1% and the pipeline ran at 1%.
+        ("bound", THRESHOLD, "0.01", ("rests on `call`", "min_freq = 0.01"), 0),
+        # Six months later the threshold moved to 5% and the sentence did
+        # not. Nothing failed; nobody noticed.
+        (
+            "contradicted",
+            THRESHOLD,
+            "0.05",
+            ("One of the two is wrong", "ran with min_freq = 0.05"),
+            1,
+        ),
+        # And a number from a step the analysis no longer has.
+        ("unbacked", UNBACKED, "0.01", ("has nothing behind it",), 1),
+    ):
+        with tempfile.TemporaryDirectory(prefix=f"ligase-claims-{key}-") as tmp:
+            project = Path(tmp)
+            (project / "refs").mkdir()
+            (project / "refs/HXB2.fasta").write_text(REFERENCE)
+            (project / "pipeline.py").write_text(
+                PIPELINE.format(claim=claim, min_freq=threshold)
+            )
+
+            os.chdir(project)
+            try:
                 text, exited = run_cli("methods")
-                captured[key] = expect(key, text, exited, contains, code)
-        finally:
-            os.chdir(here)
+            finally:
+                os.chdir(here)
+            captured[key] = expect(key, text, exited, contains, code)
 
     described = {
         "bound": (
