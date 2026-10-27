@@ -1,0 +1,5 @@
+{
+  "nodes": [{ "id": "ENSG00000141510", "type": "gene" }],
+  "edges": [],
+  "sources": ["s3://evidence/a.json"]
+}

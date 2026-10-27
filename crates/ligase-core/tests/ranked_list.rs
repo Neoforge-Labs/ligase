@@ -274,15 +274,15 @@ fn a_ranked_list_and_a_gene_list_apply_exactly_the_same_dimensions() {
 
 #[test]
 fn a_ranked_list_claims_no_source_set() {
-    // D36 reserves the right to split the shared set type before any kind
-    // applies `source_set`, because it folds members differing only in
-    // ASCII case -- right for accessions, wrong for object keys. Spec §4.2
-    // gives a ranked list four dimensions and that is not among them, so
-    // this milestone leaves the question open and the type untouched.
+    // M12 declined the axis and left D36's dedup question open, since spec
+    // §4.2 gives a ranked list four dimensions and that is not among them.
+    // M15 answered the question on the kind that needed it: a
+    // `KnowledgeGraph` applies the axis and `SourceSet` now compares
+    // exactly. A ranking still claims none -- it is one file, not an
+    // assembly -- which is why this assertion is unchanged while the loop
+    // that once accompanied it has moved to
+    // `knowledge_graph.rs::source_set_is_the_axis_this_kind_was_admitted_for`.
     assert!(!DataKind::RankedList.applies(Dimension::SourceSet));
-    for kind in DataKind::ALL {
-        assert!(!kind.applies(Dimension::SourceSet), "{kind:?}");
-    }
 }
 
 #[test]
@@ -416,8 +416,13 @@ fn two_silent_named_lists_are_refused_rather_than_agreeing() {
 
 #[test]
 fn a_ranked_list_demands_nothing_of_a_sequence_kind() {
+    // A knowledge graph is not a sequence kind either: it names entities,
+    // so the namespace is demanded between the two of them.
     for kind in DataKind::ALL {
-        if !matches!(kind, DataKind::RankedList | DataKind::EntitySet) {
+        if !matches!(
+            kind,
+            DataKind::RankedList | DataKind::EntitySet | DataKind::KnowledgeGraph
+        ) {
             assert!(
                 check::required_pair(DataKind::RankedList, kind).is_empty(),
                 "{kind:?}"
@@ -434,8 +439,9 @@ fn a_ranked_list_demands_nothing_of_a_sequence_kind() {
 
 #[test]
 fn each_axis_a_ranked_list_claims_compares_its_own_field() {
-    // M7's standing requirement. `Release` and `Subject` are one type, and
-    // so are `Organism` and `SourceSet`, so an arm in `compare` written
+    // M7's standing requirement. `Release` and `Subject` are one type (and
+    // `Organism` and `SourceSet` were, until M15 split them), so an arm in
+    // `compare` written
     // against the wrong field compiles and only a test over a kind that
     // *applies* the axis can reach it. M8 pinned these arms for a gene
     // list; this pins that a ranked list reaches the same ones.

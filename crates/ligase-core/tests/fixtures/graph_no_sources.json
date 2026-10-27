@@ -1,0 +1,13 @@
+{
+  "nodes": [
+    { "id": "ENSG00000141510", "type": "gene" },
+    { "id": "ENSG00000012048", "type": "gene" }
+  ],
+  "edges": [
+    {
+      "source": "ENSG00000141510",
+      "target": "ENSG00000012048",
+      "type": "interacts_with"
+    }
+  ]
+}

@@ -688,6 +688,7 @@ fn suffix_for(kind: DataKind) -> String {
         DataKind::Intervals => ".bed".to_owned(),
         DataKind::Alignment => ".sam".to_owned(),
         DataKind::Reads => ".fastq".to_owned(),
+        DataKind::KnowledgeGraph => ".json".to_owned(),
         DataKind::ResistanceReport => String::new(),
     }
 }

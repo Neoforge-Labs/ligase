@@ -77,6 +77,7 @@ mod alignment;
 mod entity_set;
 mod fasta;
 mod intervals;
+mod knowledge_graph;
 mod ranked_list;
 mod reads;
 mod report;
@@ -201,6 +202,7 @@ fn canonicalise(kind: DataKind, path: &Path, digest: &mut Digest) -> Result<(), 
         DataKind::ResistanceReport => report::canonicalise(path, digest),
         DataKind::EntitySet => entity_set::canonicalise(path, digest),
         DataKind::RankedList => ranked_list::canonicalise(path, digest),
+        DataKind::KnowledgeGraph => knowledge_graph::canonicalise(path, digest),
     }
 }
 
@@ -236,6 +238,11 @@ pub const fn describe(kind: DataKind) -> Option<&'static str> {
         DataKind::RankedList => {
             "the header row kept, the rows below it compared in order, because the order is \
              the ranking"
+        }
+        DataKind::KnowledgeGraph => {
+            "nodes sorted by id and edges by source, target and type, with each node's and \
+             edge's own id and source lists sorted inside it; the keys a server writes about \
+             itself dropped from the top level"
         }
     })
 }

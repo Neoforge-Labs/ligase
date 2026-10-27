@@ -27,7 +27,7 @@ use std::error::Error;
 use std::fmt;
 
 use crate::dim::{
-    ContigNaming, Dimension, Dimensions, NameSet, ReferenceId, Relation, Verdict, english_list,
+    ContigNaming, Dimension, Matching, NameSet, ReferenceId, Relation, Verdict, english_list,
     relate,
 };
 use crate::types::{DataKind, Dataset};
@@ -390,10 +390,21 @@ pub const fn required_pair(left: DataKind, right: DataKind) -> &'static [Dimensi
         // below, because scoring a ranking against a curated truth set is
         // the commonest reason to join these two kinds at all, and the
         // catch-all would have quietly demanded nothing of it.
-        (K::EntitySet | K::RankedList, K::EntitySet | K::RankedList) => IDENTIFIERS,
-        // A named list and a sequence file share only organism, which is
-        // demanded nowhere, so there is nothing to insist on.
-        (K::EntitySet | K::RankedList, _) | (_, K::EntitySet | K::RankedList) => NONE,
+        //
+        // A knowledge graph is here beside them because it names entities
+        // too, and because M12 learned this the hard way: the mixed pair
+        // was left to a catch-all that silently demanded nothing of the
+        // commonest join there is. Scoring a graph's neighbourhood against
+        // a curated gene list is exactly that join for this kind, so every
+        // combination is written out.
+        (
+            K::EntitySet | K::RankedList | K::KnowledgeGraph,
+            K::EntitySet | K::RankedList | K::KnowledgeGraph,
+        ) => IDENTIFIERS,
+        // A named list or a graph and a sequence file share only organism,
+        // which is demanded nowhere, so there is nothing to insist on.
+        (K::EntitySet | K::RankedList | K::KnowledgeGraph, _)
+        | (_, K::EntitySet | K::RankedList | K::KnowledgeGraph) => NONE,
 
         // Reads carry no reference yet -- introducing one is what `align`
         // does -- so a reference tells us nothing about them.
@@ -473,25 +484,14 @@ fn compare(
                 .then(|| "The same samples appear in both, in a different order.".to_owned())
         }
         // The lines above already state both sets in full; what they cannot
-        // do is point at the member that makes the sets differ. One arm
-        // serves both dimensions because the comparison rule is the same.
-        Dimension::Organism | Dimension::SourceSet => {
-            let (Some(x), Some(y)) = (name_set(a, dimension), name_set(b, dimension)) else {
-                return None;
-            };
-            let clauses: Vec<String> = [(left, x.difference(y)), (right, y.difference(x))]
-                .into_iter()
-                .filter(|(_, extra)| !extra.is_empty())
-                .map(|(binding, extra)| {
-                    format!("{} also lists {}", binding.name, english_list(&extra))
-                })
-                .collect();
-            // Two sets that compared unequal always differ somewhere, so an
-            // empty list is not reachable. If it ever happened, the error
-            // still stands on its two value lines; leaving the detail off is
-            // more honest than inventing a clause, and a panic would turn a
-            // reported disagreement into a crash.
-            (!clauses.is_empty()).then(|| format!("{}.", clauses.join(", and ")))
+        // do is point at the member that makes the sets differ. Two arms
+        // rather than one, because the two axes are now two types: an
+        // organism folds ASCII case and a source does not (D36). The
+        // sentence they produce is still written once, in
+        // [`set_difference`], which is the part a user reads.
+        Dimension::Organism => set_difference(left, a.organism.value(), right, b.organism.value()),
+        Dimension::SourceSet => {
+            set_difference(left, a.source_set.value(), right, b.source_set.value())
         }
         _ => None,
     };
@@ -511,29 +511,36 @@ fn compare(
     })
 }
 
-/// The [`NameSet`] a dimension holds, for the dimensions that hold one.
+/// What one set lists and the other lacks, as the sentence a user reads.
 ///
-/// A lookup that can say "none" rather than a catch-all arm: a dimension
-/// added to the set-difference detail but not here yields no detail, which
-/// is a missing sentence, instead of quietly reading another dimension's
-/// value, which would be a wrong one.
-fn name_set(dimensions: &Dimensions, dimension: Dimension) -> Option<&NameSet> {
-    match dimension {
-        Dimension::Organism => dimensions.organism.value(),
-        Dimension::SourceSet => dimensions.source_set.value(),
-        Dimension::Reference
-        | Dimension::ContigNaming
-        | Dimension::Coordinates
-        | Dimension::SampleSet
-        | Dimension::Pairing
-        | Dimension::QualityEncoding
-        | Dimension::Release
-        | Dimension::Subject
-        // A namespace is a `Label`, not a `NameSet`: there is no set
-        // difference to point at, and the two value lines say everything
-        // there is to say about one label against another.
-        | Dimension::IdentifierNamespace => None,
-    }
+/// Generic over [`Matching`] so that the two set-valued axes share this
+/// wording exactly: a set and the difference between two sets can never be
+/// punctuated differently, whichever axis they are on. Each caller reads its
+/// own field, which is what the split bought — before it, `organism` and
+/// `source_set` were one type and an arm reading the wrong field compiled.
+fn set_difference<M: Matching>(
+    left: &Binding,
+    mine: Option<&NameSet<M>>,
+    right: &Binding,
+    theirs: Option<&NameSet<M>>,
+) -> Option<String> {
+    let (Some(mine), Some(theirs)) = (mine, theirs) else {
+        return None;
+    };
+    let clauses: Vec<String> = [
+        (left, mine.difference(theirs)),
+        (right, theirs.difference(mine)),
+    ]
+    .into_iter()
+    .filter(|(_, extra)| !extra.is_empty())
+    .map(|(binding, extra)| format!("{} also lists {}", binding.name, english_list(&extra)))
+    .collect();
+    // Two sets that compared unequal always differ somewhere, so an empty
+    // list is not reachable. If it ever happened, the error still stands on
+    // its two value lines; leaving the detail off is more honest than
+    // inventing a clause, and a panic would turn a reported disagreement
+    // into a crash.
+    (!clauses.is_empty()).then(|| format!("{}.", clauses.join(", and ")))
 }
 
 fn compare_reference(step: &str, left: &Binding, right: &Binding) -> Option<CheckError> {
