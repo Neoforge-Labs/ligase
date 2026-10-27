@@ -20,11 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   keys, declared randomness, pinned remotes, provenance as a product.
 
   Every block of output in it is byte-verbatim from the captures the
-  documentation site generates on each build, and the example parses under
-  `ruff` and `mypy` against the installed package, because a README is where
-  a stale example costs the most. Links are absolute throughout: this file
-  is also the PyPI long description and the `ligase` crate's README, where
-  relative links resolve nowhere.
+  documentation site generates on each build, and the example type-checks
+  under `mypy` against the installed package, because a README is where a
+  stale example costs the most. Worth knowing for the next one:
+  `ruff format --check .` formats Python **inside Markdown**, so a code
+  block in this repository is formatted code and not prose that resembles
+  it — the gate catches a README example the same way it catches a module.
+
+  Links are absolute throughout: this file is also the PyPI long
+  description and the `ligase` crate's README, where relative links resolve
+  nowhere.
 
 ## [0.2.0] - 2026-10-27
 

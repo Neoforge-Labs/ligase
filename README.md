@@ -133,17 +133,28 @@ dimensions apply to it, and what comes out:
 import ligase as lg
 from ligase.steps import bcftools, minimap2
 
+HXB2 = "1f460b25ab23b95345d579c234c43ca6d0abf7c1adf6aeffb43b974b2b1941ad"
+SRR8525904 = "a7800f3dace6464faa08c34ce765f0398ab883c76c5475102318dae6c3d21923"
+
 
 @lg.step(tool="hivdb")
-def resistance(v: lg.Variants, ref: lg.Reference, aln: lg.Alignment) -> lg.ResistanceReport:
+def resistance(
+    v: lg.Variants, ref: lg.Reference, aln: lg.Alignment
+) -> lg.ResistanceReport:
     """Interpret the calls as drug resistance."""
     return lg.hivdb.interpret(v, ref, coverage=aln)
 
 
-hxb2 = lg.remote("ncbi:K03455.1", kind=lg.Reference, organism="HIV-1", build="HXB2",
-                 digest="1f460b25ab23b95345d579c234c43ca6d0abf7c1adf6aeffb43b974b2b1941ad")
-reads = lg.remote("sra:SRR8525904", kind=lg.Reads, organism="HIV-1", samples=["SRR8525904"],
-                  digest="a7800f3dace6464faa08c34ce765f0398ab883c76c5475102318dae6c3d21923")
+hxb2 = lg.remote(
+    "ncbi:K03455.1", kind=lg.Reference, digest=HXB2, organism="HIV-1", build="HXB2"
+)
+reads = lg.remote(
+    "sra:SRR8525904",
+    kind=lg.Reads,
+    digest=SRR8525904,
+    organism="HIV-1",
+    samples=["SRR8525904"],
+)
 
 aligned = minimap2.align(reads, hxb2, sample_id="SRR8525904")
 called = bcftools.mpileup_call(aligned, hxb2, min_freq=0.01)
