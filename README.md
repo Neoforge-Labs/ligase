@@ -269,7 +269,7 @@ pip install -e ".[dev]"
 
 ## Status
 
-**v0.2.0**, and pre-alpha: the API will change, and the project has no
+**v0.3.0**, and pre-alpha: the API will change, and the project has no
 outside users yet.
 
 v0.1 built the foundations — the type system, the graph, the
@@ -284,8 +284,11 @@ behind it so a second machine can finish a pipeline from cache.
 
 [The milestones](https://ligase.neoforgelabs.tech/project/milestones/) record
 what each one had to prove, including the clauses that were met differently
-and why. v0.3 is a knowledge-graph kind, claim binding, and cluster execution
-on the shared store.
+and why. v0.3 adds claim binding, so a number in a manuscript is checked
+against the computation behind it; a chemistry extra, with two molecule kinds
+and the standardisation that makes them comparable; and cluster execution, so
+several machines run one pipeline between them through the shared store, with
+no scheduler and no job submission.
 
 ## Intended use
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] - 2026-10-28
+
 ### Added
 
 - **Claim binding: a number in a paper, bound to the computation behind it.**
@@ -286,28 +290,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `platforms`, and are lists.** A run on one machine is the one-entry case
   rather than a different shape. `RunReport` gains `worker` and
   `divergences`, and `Pipeline.run` gains `worker=` and `lease=`.
-
-- **The README explains the project rather than announcing it.** It had a
-  paragraph of premise, a status line and an install command, and not one
-  line of example — a reader could not see what a pipeline looks like, what
-  a diagnostic says, or why any of it is worth their afternoon. It now opens
-  on the failure mode (a plausible number, not a crash), shows three real
-  diagnostics and a real `ligase inspect` run, gives a pipeline whose
-  signatures type-check against the shipped package, and explains the
-  mechanism — inferred dimensions, graph before compute, content-addressed
-  keys, declared randomness, pinned remotes, provenance as a product.
-
-  Every block of output in it is byte-verbatim from the captures the
-  documentation site generates on each build, and the example type-checks
-  under `mypy` against the installed package, because a README is where a
-  stale example costs the most. Worth knowing for the next one:
-  `ruff format --check .` formats Python **inside Markdown**, so a code
-  block in this repository is formatted code and not prose that resembles
-  it — the gate catches a README example the same way it catches a module.
-
-  Links are absolute throughout: this file is also the PyPI long
-  description and the `ligase` crate's README, where relative links resolve
-  nowhere.
 
 ## [0.2.0] - 2026-10-27
 
@@ -2149,6 +2131,7 @@ functionality yet; the engine's only behaviour is reporting its own version.
   whole rather than to the end of their first block.
 - `tempfile` as a dev-dependency, for writing BAM fixtures during tests.
 
-[Unreleased]: https://github.com/Neoforge-Labs/ligase/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Neoforge-Labs/ligase/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Neoforge-Labs/ligase/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Neoforge-Labs/ligase/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Neoforge-Labs/ligase/releases/tag/v0.1.0
