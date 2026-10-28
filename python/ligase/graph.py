@@ -20,6 +20,8 @@ the same mistake for code that is not type-checked.
 from __future__ import annotations
 
 import inspect
+import os
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,8 +36,9 @@ from typing import (
     overload,
 )
 
-from . import _core
+from . import _core, config
 from .audit import AuditReport, StepAudit
+from .config import STORE_VARIABLE
 from .errors import CheckError, StepDefinitionError, build
 from .provenance import (
     Bundle,
@@ -48,7 +51,7 @@ from .provenance import (
     Verification,
 )
 from .recipes import Noticed, Shell, Written
-from .run import RunError, RunReport, StepFailure, StepRun
+from .run import Divergence, RunError, RunReport, StepFailure, StepRun
 from .types import KINDS, Dataset
 
 if TYPE_CHECKING:
@@ -337,6 +340,38 @@ class Report:
     text: str
 
 
+def _worker_name(worker: str | bool) -> str | None:
+    """What to call this worker, or `None` for an ordinary run.
+
+    `True` means "be a worker and choose a name for me". The name is made
+    here rather than in the engine, even though the engine can make one,
+    because a worker's cache directory is named after it: a name invented
+    behind the binding would leave this side with no directory to point at.
+
+    A string is the name, and the engine reduces it to characters a path
+    and a single field can both carry — but a path separator is worth
+    refusing rather than quietly turning into a dash, because
+    `--worker=a/b` is far more likely to be a mistake than a wish.
+    """
+    if worker is False:
+        return None
+    if worker is True:
+        # Enough to tell two workers on one machine apart, and honest about
+        # saying nothing else. A name worth reading is one the user gave.
+        return f"w{os.getpid():x}-{time.time_ns() % 0x10000:04x}"
+    name = worker.strip()
+    if not name:
+        raise ValueError(
+            "a worker's name cannot be blank; pass worker=True to be given one"
+        )
+    if "/" in name or "\\" in name:
+        raise ValueError(
+            f"`{name}` cannot be a worker's name: it holds a path separator, "
+            "and a worker is named in its own cache directory"
+        )
+    return name
+
+
 class Pipeline:
     """A graph of steps, built from its outputs and checked before it runs.
 
@@ -453,6 +488,8 @@ class Pipeline:
         jobs: int | None = None,
         force: bool = False,
         cache: str | Path | None = None,
+        worker: str | bool = False,
+        lease: int | None = None,
     ) -> RunReport:
         """Check the pipeline, then compute whatever is not already known.
 
@@ -472,7 +509,23 @@ class Pipeline:
                 cache cannot see: a file rewritten in place, keeping its
                 length and its timestamp.
             cache: Where to keep the cache. Defaults to `.ligase` under the
-                working directory.
+                working directory. A worker defaults to its own directory
+                beneath that one, because two workers must not share an
+                index.
+            worker: Make this run one worker among several, dividing the
+                pipeline with the others through the shared store. `True`
+                for a name chosen for you, or a string to choose one —
+                `worker=os.environ["SLURM_ARRAY_TASK_ID"]` is the usual
+                thing. Needs a store every worker can see.
+
+                This is not an alternative to `jobs`: `jobs` is how many
+                steps this machine runs at once, and `worker` is how many
+                machines there are.
+            lease: How many seconds a worker may hold a step before another
+                worker may compute it too. Defaults to an hour. Set it
+                above your longest step: too short duplicates work, too
+                long leaves others waiting after a crash, and neither is a
+                wrong answer.
 
         Returns:
             What every step did, and where its output is.
@@ -482,18 +535,41 @@ class Pipeline:
             RunError: If any step failed. Everything that did succeed is on
                 the error's `report`, which for a cohort is usually most of
                 it.
+            ValueError: If `worker` is set and no shared store is
+                configured. Workers divide work by claiming it in a store
+                they can all see, so one without a store has nobody to
+                divide it with and would quietly compute the whole
+                pipeline on its own.
         """
         self.check()
         tasks, callbacks = self._plan()
-        directory = Path(cache) if cache is not None else Path.cwd() / CACHE_DIR
 
-        finished, failed, summary, text, counted = self._graph.run(
+        name = _worker_name(worker)
+        directory = Path(cache) if cache is not None else Path.cwd() / CACHE_DIR
+        if name is not None:
+            if config.store() is None:
+                raise ValueError(
+                    "a worker needs a store every worker can see. Set "
+                    f"{STORE_VARIABLE}, or `[store] url` in ligase.toml, to "
+                    "a bucket or a directory on a shared filesystem — "
+                    "without one this worker would compute the whole "
+                    "pipeline by itself and call it a cluster."
+                )
+            # Its own, unless the caller insisted. Two workers sharing a
+            # `cache.sqlite` over a network filesystem is the failure D43
+            # names, and an array job defaulting to one $HOME walks into it.
+            if cache is None:
+                directory = directory / "workers" / name
+
+        finished, failed, summary, text, counted, diverged = self._graph.run(
             self._roots,
             tasks,
             str(directory),
             callbacks,
             jobs,
             force,
+            name,
+            lease,
         )
 
         steps = []
@@ -530,6 +606,17 @@ class Pipeline:
 
         hashed, prefiltered, canonicalised = counted
         report = RunReport(
+            worker=name,
+            divergences=[
+                Divergence(
+                    step=step,
+                    sample=self._sample(node),
+                    ours=ours,
+                    theirs=theirs,
+                    node=node,
+                )
+                for node, step, ours, theirs in diverged
+            ],
             steps=steps,
             failures=[
                 StepFailure(
@@ -722,8 +809,8 @@ class Pipeline:
             references,
             citations,
             uncited,
-            engine,
-            platform,
+            engines,
+            platforms,
             summary,
             text,
         ) = described
@@ -777,8 +864,8 @@ class Pipeline:
             ],
             citations=list(citations),
             uncited=list(uncited),
-            engine=engine,
-            platform=platform,
+            engines=list(engines),
+            platforms=list(platforms),
             summary=summary,
             text=text,
             bundle=_bundle(written),

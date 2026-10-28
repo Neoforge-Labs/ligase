@@ -261,8 +261,12 @@ class Methods:
         citations: The reference list, as a methods section prints it.
         uncited: Tools with nothing to cite — named rather than omitted, so
             a short reference list cannot pass for a complete one.
-        engine: The version of Ligase that produced the results.
-        platform: The platform they were produced on.
+        engines: Every version of Ligase that produced any of the results.
+            One entry for a run on one machine; more for a distributed run
+            where a worker was on an older wheel.
+        platforms: Every platform any of the results were produced on. One
+            entry for a run on one machine; more for a mixed cluster, or an
+            ARM workstation beside x86 nodes.
         summary: One line — `12 steps, all accounted for.`
         text: The paragraph and the reference list, as the command line
             prints them.
@@ -275,8 +279,8 @@ class Methods:
     references: list[PinnedReference] = field(default_factory=list)
     citations: list[str] = field(default_factory=list)
     uncited: list[str] = field(default_factory=list)
-    engine: str = ""
-    platform: str = ""
+    engines: list[str] = field(default_factory=list)
+    platforms: list[str] = field(default_factory=list)
     summary: str = ""
     text: str = ""
     bundle: Bundle | None = None

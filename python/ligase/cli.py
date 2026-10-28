@@ -208,6 +208,35 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="DIR",
         help=f"where to keep the cache (default: ./{CACHE_DIR})",
     )
+    # `--worker` with no value is "be a worker, name me yourself", and
+    # `--worker=node03` chooses the name. `nargs="?"` is what gives both
+    # from one flag, and the const is what tells them apart downstream.
+    run.add_argument(
+        "--worker",
+        nargs="?",
+        const=True,
+        default=False,
+        metavar="NAME",
+        help=(
+            "be one worker among several, dividing this pipeline with the "
+            "others through the shared store; NAME is what to call this "
+            "one (default: a name chosen for you). Needs a store every "
+            "worker can see. This is not an alternative to --jobs: --jobs "
+            "is how many steps this machine runs at once, and --worker is "
+            "how many machines there are"
+        ),
+    )
+    run.add_argument(
+        "--lease",
+        type=int,
+        metavar="SECONDS",
+        help=(
+            "how long a worker may hold a step before another worker may "
+            "compute it too (default: 3600). Set it above your longest "
+            "step: too short duplicates work, too long leaves other "
+            "workers waiting after a crash, and neither is a wrong answer"
+        ),
+    )
     # Mutually exclusive, so `--replay --refresh` is an error rather than a
     # precedence puzzle: one says never ask the source and the other says
     # always ask it, and a run that did both would be reporting a result
@@ -474,7 +503,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _inspect(arguments.files)
     if arguments.command == "run":
         return _run(
-            arguments.pipeline, arguments.jobs, arguments.force, arguments.cache
+            arguments.pipeline,
+            arguments.jobs,
+            arguments.force,
+            arguments.cache,
+            arguments.worker,
+            arguments.lease,
         )
     if arguments.command == "methods":
         if arguments.thin and arguments.bundle is None:
@@ -787,7 +821,14 @@ def _check(path: Path) -> int:
     return FOUND_ERRORS if found else 0
 
 
-def _run(path: Path, jobs: int | None, force: bool, cache: Path | None) -> int:
+def _run(
+    path: Path,
+    jobs: int | None,
+    force: bool,
+    cache: Path | None,
+    worker: str | bool = False,
+    lease: int | None = None,
+) -> int:
     pipelines = _pipelines(path)
     if isinstance(pipelines, int):
         return pipelines
@@ -798,7 +839,13 @@ def _run(path: Path, jobs: int | None, force: bool, cache: Path | None) -> int:
         print(f"running {steps} {_plural(steps, 'step')} in {path}")
         print()
         try:
-            report = pipeline.run(jobs=jobs, force=force, cache=cache)
+            report = pipeline.run(
+                jobs=jobs, force=force, cache=cache, worker=worker, lease=lease
+            )
+        except ValueError as error:
+            # A worker with no shared store, or a name that cannot be one.
+            # Not a traceback: the user has a flag to fix.
+            return _cannot(str(error))
         except CheckError as error:
             # A pipeline that does not type-check has not run, and the check
             # report is what the user needs, not a traceback.
