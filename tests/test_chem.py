@@ -306,80 +306,43 @@ def test_a_conversion_carries_every_other_axis(table: Path) -> None:
         assert found.value == expected, axis
 
 
-def test_an_upgrade_of_the_toolkit_moves_the_step_key(table: Path) -> None:
-    # D42's version clause, for a dependency with no executable to probe.
-    # The version is read before the step is built and passed as one of its
-    # parameters, so it is in the key; read inside the body it would not be,
-    # and the step would serve a cached answer across an upgrade that could
-    # have changed every key it computed -- which is exactly what happened
-    # to `bwa`, whose usage banner was identical for every release ever
-    # shipped.
-    #
-    # Asserted by pretending to upgrade: the same input and the same target
-    # under two versions must not share a key. The private step is called
-    # directly, because the public one reads the real version and there is
-    # only one of those installed.
-    library = lg.molecule_set(written(table, FLAT))
-    cache = table / "cache"
-    keys = {
-        version: lg.Pipeline(
-            lg.chem._standardize(
-                library, to="inchikey; salt-stripped", rdkit_version=version
-            )
-        )
-        .run(cache=cache)
-        .steps[-1]
-        .key
-        for version in ("2024.03.1", "2026.09.1")
-    }
-    assert len(set(keys.values())) == 2, keys
-
-    # And the version this interpreter actually has is what the public step
-    # passes, so the key moves on a real upgrade rather than a pretend one.
-    assert lg.chem.toolkit_version() == rdkit.__version__
-    assert "rdkit_version" in {
-        parameter.name
-        for parameter in lg.handle(
-            lg.chem.standardize(library, to="inchikey; salt-stripped")
-        ).step.parameters
-    }
-
-
-def test_a_salt_and_its_parent_become_one_substance_and_are_named(
-    table: Path,
-) -> None:
-    # Standardising is what brings two rows together, so this is the
-    # standardiser reporting what it merged rather than a fault in the
-    # input. Both rows are kept: dropping one would make the output quietly
-    # smaller, and choosing one would be a guess about whose data to carry
-    # -- which is D38's argument against coercing identifiers, unchanged.
-    #
-    # A molecule set's rows are a set, so a table naming one substance
-    # twice is not the kind it claims to be. Nothing else would have said
-    # so: both rows are well formed and the key is correct for each.
-    both = "\n".join(
-        [
-            "smiles\tname\tlot",
-            "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]\taspirin sodium\tL1",
-            "CC(=O)Oc1ccccc1C(=O)O\taspirin\tL2",
-            "",
-        ]
+def test_the_toolkit_is_a_tool_the_engine_names_and_credits(table: Path) -> None:
+    # D46. The step declares `tool="rdkit"` like any other tool, so the
+    # version joins the cache key by the ordinary mechanism and the
+    # citation resolves from the engine's curated table -- where before,
+    # `tool=` meant a program the engine execs, so a library could be
+    # neither.
+    report = run(table, FLAT, to="inchikey; salt-stripped")
+    assert report.steps[-1].step == "standardize", (
+        "a step is named for what the user called, not for the private "
+        "function that registers the version"
     )
-    report = run(table, both, to="inchikey; salt-stripped, charge-neutralised")
 
-    notes = [note for step in report.steps for note in step.notes]
-    assert any(
-        "two or more structures standardise to `BSYNRYMUTXBXSQ-UHFFFAOYSA-N`" in note
-        for note in notes
-    ), notes
+    methods = lg.Pipeline(
+        lg.chem.standardize(
+            lg.molecule_set(written(table, FLAT)), to="inchikey; salt-stripped"
+        )
+    ).methods(cache=table / "cache")
 
-    rows = [row for row in lines(report)[2:] if row]
-    assert len(rows) == 2, "both rows are kept"
-    assert {row.split("\t")[-1] for row in rows} == {"L1", "L2"}
+    assert ("rdkit", f"rdkit {rdkit.__version__}") in methods.tools
+    assert any("RDKit" in citation for citation in methods.citations), methods.citations
+    assert methods.uncited == [], "a credited tool is not also an uncited one"
+    assert f"rdkit {rdkit.__version__}" in methods.text
 
 
-def test_a_table_whose_molecules_are_distinct_says_nothing(table: Path) -> None:
-    # The note must not fire on an ordinary library, or it would be noise
-    # on every run and read as noise.
-    report = run(table, FLAT, to="inchikey; salt-stripped, charge-neutralised")
-    assert [note for step in report.steps for note in step.notes] == []
+def test_the_version_the_engine_records_is_this_interpreters(table: Path) -> None:
+    # The engine cannot read it: a library lives in this interpreter rather
+    # than on PATH. So `toolkit_version` registers it, and the engine asks
+    # for it by the tool's name like any other.
+    assert lg.chem.toolkit_version() == rdkit.__version__
+    assert lg._core.tool_version("rdkit") == f"rdkit {rdkit.__version__}"
+
+
+def test_registering_a_different_version_is_refused() -> None:
+    # The version is in every key beneath the step, so two answers in one
+    # process would mean two keys for one computation. Reading
+    # `rdkit.__version__` twice cannot disagree, so this cannot happen by
+    # accident -- which is why it is refused rather than resolved.
+    lg._core.register_library_version("rdkit", rdkit.__version__)
+    with pytest.raises(ValueError, match="two answers in one process"):
+        lg._core.register_library_version("rdkit", "0.0.0-not-really")

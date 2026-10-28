@@ -67,11 +67,11 @@
 //! [`crate::audit`], which borrows this module's [`produce`] rather than
 //! repeating it.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use rayon::Scope;
@@ -383,6 +383,71 @@ impl Host for NoCallbacks {
 /// the exceptions visible, and keeps them to one place.
 const BUILT_IN: &[&str] = &["hivdb", "ligase"];
 
+/// The tools that are **libraries**: software with no program to run, whose
+/// version only the host knows.
+///
+/// A third kind, after a program the engine execs and a built-in the engine
+/// carries. `tool=` has always meant two things at once — the name a
+/// citation resolves from (`prov::cite`), and something to run and ask — and
+/// those coincide only for a program. [`BUILT_IN`] is the case where the
+/// engine itself is the authority. This is the case where neither is: RDKit
+/// is software that produced a result and a reviewer will want it cited, and
+/// there is nothing on `PATH` to interrogate.
+///
+/// The authority is the interpreter that will do the work, which is the
+/// *exact* copy of the library the step will call. That is a better answer
+/// than execing something of the same name would be, not a worse one — and
+/// it is why the version is supplied rather than probed
+/// ([`register_library_version`]).
+///
+/// Named here rather than inferred, for [`BUILT_IN`]'s reason: a tool that
+/// is not run must say so where a reader can see the list.
+pub(crate) const LIBRARY: &[&str] = &["rdkit"];
+
+/// The library versions the host has supplied, by tool.
+///
+/// Written once per library per process, before any key is computed, by
+/// whatever imported the library. Read when a key is built.
+static LIBRARY_VERSIONS: RwLock<BTreeMap<String, String>> = RwLock::new(BTreeMap::new());
+
+/// Tell the engine what version of a library this host holds.
+///
+/// Called by the layer that imported it — `ligase.chem` for RDKit — at the
+/// moment a step declaring that library is built, which is before any cache
+/// key is computed. The engine cannot read it for itself: the library lives
+/// in the interpreter, not on `PATH`.
+///
+/// # Errors
+///
+/// If this library has already been registered with a *different* version.
+/// The version is in cache keys, so two answers inside one process would
+/// mean two keys for one computation; reading a library's own version twice
+/// cannot disagree, so a conflict is a bug worth refusing rather than
+/// resolving. Registering the same answer again is not a conflict.
+pub fn register_library_version(tool: &str, version: &str) -> Result<(), String> {
+    let mut known = LIBRARY_VERSIONS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match known.get(tool) {
+        Some(already) if already != version => Err(format!(
+            "`{tool}` was already registered as `{already}` and is now              `{version}`. A library's version is in every cache key beneath              it, so two answers in one process would mean two keys for one              computation"
+        )),
+        _ => {
+            known.insert(tool.to_owned(), version.to_owned());
+            Ok(())
+        }
+    }
+}
+
+/// What the host said this library's version is, if anything.
+fn library_version(tool: &str) -> Option<String> {
+    LIBRARY_VERSIONS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(tool)
+        .map(|version| format!("{tool} {version}"))
+}
+
 /// How to ask one tool what version it is.
 ///
 /// Almost every bioinformatics tool answers `--version` on stdout and exits
@@ -467,6 +532,24 @@ pub fn tool_version(tool: &str) -> Result<String, String> {
         !BUILT_IN.contains(&tool),
         "a built-in tool with no version of its own"
     );
+
+    // A library is never run, even where a program of the same name exists
+    // on this machine: what the step will call is the library, so a program
+    // that happens to share its name would be a version of the wrong thing.
+    if LIBRARY.contains(&tool) || library_version(tool).is_some() {
+        return library_version(tool).ok_or_else(|| {
+            format!(
+                "`{tool}` is a library rather than a program, so there is \
+                 nothing to run and ask. Its version comes from whatever \
+                 imported it, and nothing has: for RDKit that means \
+                 `pip install 'ligase-bio[chem]'` and using \
+                 `lg.chem.standardize`, which registers it. Recording a \
+                 library with no version would be the same text for every \
+                 release of it, and upgrading it would not move a single \
+                 cache key"
+            )
+        });
+    }
 
     let probe = probe_for(tool);
     let output = Command::new(tool)

@@ -1309,6 +1309,17 @@ fn load_molecule_ranking(
     .map_err(to_py)
 }
 
+/// Tell the engine what version of a library this interpreter holds.
+///
+/// The engine cannot read it: a library lives in the interpreter rather than
+/// on `PATH`, so there is nothing for it to run and ask (D46). Called by
+/// `ligase.chem` when a step declaring RDKit is built, which is before any
+/// cache key is computed.
+#[pyfunction]
+fn register_library_version(tool: &str, version: &str) -> PyResult<()> {
+    ligase::exec::register_library_version(tool, version).map_err(PyValueError::new_err)
+}
+
 /// Read a representation, and give back the one spelling for it.
 ///
 /// Exported so that `ligase.chem` has the *same* validator the loaders and
@@ -2118,6 +2129,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_entity_set, m)?)?;
     m.add_function(wrap_pyfunction!(load_ranked_list, m)?)?;
     m.add_function(wrap_pyfunction!(load_knowledge_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(register_library_version, m)?)?;
     m.add_function(wrap_pyfunction!(parse_representation, m)?)?;
     m.add_function(wrap_pyfunction!(load_molecule_set, m)?)?;
     m.add_function(wrap_pyfunction!(load_molecule_ranking, m)?)?;
