@@ -170,13 +170,50 @@ mod enabled {
             }
         }
 
+        /// Hold these bytes, without overwriting what is there.
+        ///
+        /// `PutMode::Create` rather than the default overwrite, because
+        /// D43 says objects are written once and never overwritten and
+        /// this is what makes that true of a bucket rather than merely
+        /// intended. `AlreadyExists` is therefore success: an object
+        /// already held is kept, exactly as [`super::fs::FsStore`] keeps
+        /// it.
+        ///
+        /// It matters for one object class in particular. An object's name
+        /// is the hash of its contents, so overwriting one is invisible —
+        /// the loser's bytes are the winner's bytes. A **published row**'s
+        /// name is the hash of the question it answers
+        /// ([`super::published`]), so two writers can legitimately hold
+        /// different bytes, and "whoever wrote last wins" means two
+        /// workers both read their own lease back and both believe they
+        /// hold it. The same bug the filesystem tier had, which
+        /// `FsStore::install` closes with `hard_link`.
+        ///
+        /// Not every S3-compatible server implements the conditional write
+        /// this needs, so a store that refuses the mode falls back to an
+        /// ordinary put. The lease then has a race again, which costs
+        /// duplicated work and not a wrong answer (D50) — and that is why
+        /// a lease is specified as advisory rather than as a lock.
         fn put(&self, key: &ObjectKey, bytes: &[u8]) -> Result<(), StoreError> {
+            use object_store::{Error as ObjectError, PutMode};
+
             let path = self.path_of(key);
             let payload = object_store::PutPayload::from(bytes.to_vec());
-            self.runtime
-                .block_on(self.store.put(&path, payload))
-                .map(|_| ())
-                .map_err(|error| self.io(key, &error))
+            let created = self.runtime.block_on(self.store.put_opts(
+                &path,
+                payload.clone(),
+                PutMode::Create.into(),
+            ));
+
+            match created {
+                Ok(_) | Err(ObjectError::AlreadyExists { .. }) => Ok(()),
+                Err(ObjectError::NotSupported { .. } | ObjectError::Precondition { .. }) => self
+                    .runtime
+                    .block_on(self.store.put(&path, payload))
+                    .map(|_| ())
+                    .map_err(|error| self.io(key, &error)),
+                Err(error) => Err(self.io(key, &error)),
+            }
         }
 
         fn put_from_path(&self, key: &ObjectKey, from: &Path) -> Result<(), StoreError> {

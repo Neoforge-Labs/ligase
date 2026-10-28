@@ -541,9 +541,10 @@ class Pipeline:
                 divide it with and would quietly compute the whole
                 pipeline on its own.
         """
-        self.check()
-        tasks, callbacks = self._plan()
-
+        # Before the check and before the bodies are asked for their
+        # recipes: this is about how the run was invoked rather than about
+        # the pipeline, so there is no reason to execute any of the user's
+        # code to find out that the command line is wrong.
         name = _worker_name(worker)
         directory = Path(cache) if cache is not None else Path.cwd() / CACHE_DIR
         if name is not None:
@@ -560,6 +561,9 @@ class Pipeline:
             # names, and an array job defaulting to one $HOME walks into it.
             if cache is None:
                 directory = directory / "workers" / name
+
+        self.check()
+        tasks, callbacks = self._plan()
 
         finished, failed, summary, text, counted, diverged = self._graph.run(
             self._roots,
