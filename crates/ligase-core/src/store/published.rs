@@ -55,7 +55,14 @@ const DOMAIN: &str = "ligase.published-row";
 /// as a cache entry from another key format is: it describes something
 /// that was put together differently, and the cost of ignoring it is one
 /// recomputation.
-const ROW_VERSION: u32 = 1;
+///
+/// Version 2 (M18) adds the output's canonical hash to a `steps` row, so
+/// that a worker whose publish was dropped can tell at no cost whether the
+/// machine that got there first *means* the same thing it does (D52).
+///
+/// This number is in [`key_of`]'s hash, and that is not decoration — see
+/// the note there. It was not, until the first bump needed it.
+const ROW_VERSION: u32 = 2;
 
 /// Step entries: which key produced which output.
 pub const STEPS: &str = "steps";
@@ -69,10 +76,32 @@ pub const REMOTES: &str = "remotes";
 /// answers, because the question is all a cold machine has. The `.row`
 /// suffix keeps the two classes apart in any listing, and the domain
 /// string keeps a row from ever colliding with an object.
+///
+/// # Why [`ROW_VERSION`] is in here
+///
+/// Because objects are **write-once**, and a format version that is not in
+/// the name of the thing it versions can only be discovered by the reader
+/// — which in a write-once store is already too late.
+///
+/// Until M18 this hashed the domain, the table and the key alone, so every
+/// format competed for one address. A bucket holding a version 1 row would
+/// have refused every version 2 row written to that key: the `put` is
+/// dropped because something is already there, the read finds a version
+/// this build will not parse, [`fetch`] answers `None`, and that step key
+/// becomes **permanently unpublishable** by anyone, for as long as the
+/// bucket exists. Not one recomputation — all of them, for ever.
+///
+/// The bug was latent in M14 rather than introduced here: it is
+/// unreachable until the first format bump, and M18 is the first format
+/// bump. With the version in the address each format addresses its own
+/// rows, old rows are never read instead of being read wrongly, and the
+/// next bump costs one recomputation as the doc comment above promises.
 #[must_use]
 pub fn key_of(table: &str, key: &str) -> ObjectKey {
     let mut hasher = blake3::Hasher::new();
     hasher.update(DOMAIN.as_bytes());
+    hasher.update(&[0]);
+    hasher.update(&ROW_VERSION.to_le_bytes());
     hasher.update(&[0]);
     hasher.update(table.as_bytes());
     hasher.update(&[0]);
@@ -83,16 +112,43 @@ pub fn key_of(table: &str, key: &str) -> ObjectKey {
     )
 }
 
-/// Publish a row, so a machine with an empty index can learn it.
+/// What the store holds for a row once it has been published.
+///
+/// Write-once means a `put` cannot say whether it wrote: an object already
+/// held is kept, and the call succeeds either way. So publishing reads
+/// back, and this is what it found.
+///
+/// The distinction exists for M18. A step key fixes its ingredients, so two
+/// machines publishing one key have done the same work — but not
+/// necessarily to the same bytes, and in the cases D52 names not even to
+/// the same *meaning*. Which of those it is has to be decided by somebody,
+/// and the store is the right somebody: it is the only layer that knows
+/// what is actually there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Publication {
+    /// The store holds exactly what was published — because this call
+    /// wrote it, or because a row identical to it was already there.
+    /// Identical bytes are not somebody disagreeing.
+    Ours,
+    /// A different row was already there, and it is the one in force.
+    /// Its fields, which are the store's answer and therefore the
+    /// authoritative one.
+    Theirs(Vec<String>),
+}
+
+/// Write a row, so a machine with an empty index can learn it.
 ///
 /// Write-once like every other object: a row already published is left
 /// alone. That is right rather than merely convenient — a step key fixes
 /// its ingredients, so two rows under one key would have to agree.
 ///
+/// Says nothing about what was already there. Use [`publish`] where that
+/// matters, and note what it says about *which* store to ask.
+///
 /// # Errors
 ///
 /// If the row cannot be written.
-pub fn publish(
+pub fn put(
     store: &dyn BlobStore,
     table: &str,
     key: &str,
@@ -108,6 +164,45 @@ pub fn publish(
     }
     body.push('\n');
     store.put(&key_of(table, key), body.as_bytes())
+}
+
+/// Write a row and say what the store holds for it afterwards.
+///
+/// # Ask the right store
+///
+/// The read-back is only worth anything against the store **every machine
+/// sees** ([`super::TieredStore::shared`]). Asked of a tiered store, it
+/// reads this machine's own local tier, finds this machine's own row, and
+/// answers [`Publication::Ours`] every time — which is how M18's first
+/// implementation managed to be blind to every divergence while looking
+/// correct.
+///
+/// # Errors
+///
+/// If the row cannot be written, or cannot be read back.
+pub fn publish(
+    store: &dyn BlobStore,
+    table: &str,
+    key: &str,
+    fields: &[String],
+) -> Result<Publication, StoreError> {
+    put(store, table, key, fields)?;
+
+    // Read back rather than trusting the write. `put` cannot say whether it
+    // wrote — write-once means an object already there is kept and the call
+    // succeeds either way — and every store this runs against is
+    // read-after-write consistent for a new object: S3 since 2020, GCS,
+    // Azure, and a filesystem trivially. That is what makes this a check
+    // the store can honour, unlike the compare-and-swap it would want.
+    match fetch(store, table, key)? {
+        Some(found) if found == fields => Ok(Publication::Ours),
+        Some(found) => Ok(Publication::Theirs(found)),
+        // Nothing there, having just written it. A row this build cannot
+        // read occupies the address -- which, with the version in the
+        // address, can only be someone else's doing. Treat it as theirs
+        // and unreadable: recomputing is the documented cost.
+        None => Ok(Publication::Theirs(Vec::new())),
+    }
 }
 
 /// Read a row back, refusing one that answers a different question.

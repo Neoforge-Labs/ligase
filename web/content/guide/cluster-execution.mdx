@@ -1,0 +1,194 @@
+---
+title: "Running on a cluster"
+description: "Start N workers, point them all at one store, and they divide the pipeline between them. The Slurm array recipe, what to set --lease to, and the three mistakes worth knowing about."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# Running on a cluster
+
+You have a cohort that takes a night on one machine and twenty nodes
+sitting there. This page is how to use them.
+
+What it takes: a store every machine can reach, and one flag.
+
+## The whole thing
+
+```bash
+export LIGASE_STORE=s3://our-lab-cache
+ligase run --worker=node03
+```
+
+Run that on as many machines as you like. Each one builds the pipeline,
+claims whatever nobody else has claimed, takes the rest from the store,
+and exits when the graph is done. Nothing coordinates them and nothing has
+to — [why that works](/concepts/cluster-execution) is the argument; this
+page assumes it.
+
+A store on a shared filesystem works just as well as a bucket, and needs
+no special build:
+
+```bash
+export LIGASE_STORE=file:///scratch/shared/ligase-store
+```
+
+<Note kind="tip">
+  A `file://` store is the right answer at most HPC sites: you already have
+  Lustre or GPFS, and it needs no `remote-store` build and no credentials.
+  Use a bucket when the machines do not share a filesystem.
+</Note>
+
+## On Slurm
+
+One array task per worker, named after the task:
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=ligase
+#SBATCH --array=1-20
+#SBATCH --cpus-per-task=8
+#SBATCH --time=08:00:00
+
+export LIGASE_STORE=file:///scratch/shared/ligase-store
+
+ligase run --worker="$SLURM_ARRAY_TASK_ID" --jobs 8 --lease 7200
+```
+
+Three things in that line are worth saying out loud.
+
+**`--worker="$SLURM_ARRAY_TASK_ID"`** gives each task its own name. The
+name goes in the run report and in the lease, so when something is slow
+you can tell which task is holding it. A bare `--worker` works and picks a
+name for you; a name you chose is worth more.
+
+**`--jobs 8`** matches `--cpus-per-task`. `--jobs` is how many steps *this
+task* runs at once and `--worker` is how many tasks there are, so twenty
+workers with eight jobs is a hundred and sixty steps in flight. They are
+not alternatives.
+
+**`--lease 7200`** is the next section.
+
+## Setting `--lease`
+
+A worker claims each step for `--lease` seconds. Default 3600.
+
+**Set it above your longest step.** That is the whole rule. Both ways of
+getting it wrong are costs rather than wrong answers, which is why there
+is one knob and not a tuning guide:
+
+| | What happens | What it costs |
+|---|---|---|
+| Too short | another worker takes a step whose holder is still working | that step is computed twice |
+| Too long | a worker dies and its steps sit claimed until the deadline | idle workers, up to the lease |
+
+So if your alignment step takes six hours, `--lease 28800` and a crash
+costs you up to eight hours of idling; `--lease 3600` and every alignment
+gets computed by two machines. Neither produces a wrong result. Pick the
+one whose cost you mind less.
+
+<Note kind="note">
+  A worker whose step **fails** gives the key back immediately rather than
+  holding it to the deadline, so a step that failed because one node's
+  scratch disk was full is retried elsewhere at once. The lease deadline
+  only governs workers that vanish without saying anything.
+</Note>
+
+## Then collect it
+
+A worker reports what *it* did. For the whole graph, and for the write-up,
+run an ordinary `ligase run` afterwards — on your laptop, from the login
+node, wherever:
+
+```bash
+ligase run
+ligase methods --bundle ./bundle
+```
+
+It computes nothing. Every step is in the store, so every step is a cache
+hit, and the provenance record for each one comes along with it. That is
+what makes the methods paragraph and the reproducibility bundle whole even
+though this machine did none of the work.
+
+```
+12 steps: 12 from cache.
+```
+
+<Note kind="tip">
+  This is also how to check a distributed run finished. A worker that
+  exited cleanly tells you its own steps went well; the collector is what
+  tells you the graph is complete.
+</Note>
+
+## The three mistakes
+
+### Forgetting the store
+
+```bash
+ligase run --worker=node03
+```
+
+<Diagnostic note="refused before anything runs">{diagnostics.workerWithNoStore}</Diagnostic>
+
+Workers divide work by claiming it somewhere they can all see. Without a
+store there is nowhere, so this is refused rather than run — a worker on
+its own would compute the whole pipeline and look like a success.
+
+### Sharing a cache directory
+
+Each worker keeps its own index, and `--worker` picks its own directory
+under the cache for exactly that reason:
+
+```
+.ligase/
+└── workers/
+    ├── 1/
+    ├── 2/
+    └── 3/
+```
+
+You get this without asking. It matters because the index is SQLite, and
+twenty array tasks all defaulting to one `$HOME/.ligase/cache.sqlite` over
+NFS is a documented way to corrupt a database. If you pass `--cache`
+explicitly, give each worker a different one; a second worker in one
+directory is refused and told who has it.
+
+<Note kind="caution">
+  A worker that is killed outright leaves its lock file behind, and the
+  next worker in that directory is refused and told to delete it. Only
+  reachable if you set `--cache` by hand — the default directory is
+  per-worker and never contended.
+</Note>
+
+### Using workers for one machine
+
+```bash
+# No. Eight processes paying store round-trips to divide work a mutex
+# would divide for free.
+for i in $(seq 8); do ligase run --worker="$i" & done
+
+# Yes.
+ligase run --jobs 8
+```
+
+## What you will see
+
+A worker's report says who it was and what the other workers did for it:
+
+```
+ran       `align`   4m12s
+ran       `call`      31s
+
+worker    node03: 2 ran here, 3 from the store, 1 waited for other workers
+
+6 steps: 2 ran, 4 from cache.
+```
+
+`waited for other workers` is a step this worker had nothing else to do
+than wait for. `from the store` is one that was already done when it got
+there. Both are cache hits; the difference is whether this worker sat
+still for it.
+
+If a step comes back `diverged`, two workers computed it to different
+results — read
+[the one case the argument does not cover](/concepts/cluster-execution#the-one-case-the-argument-does-not-cover),
+then `ligase audit` that step.

@@ -66,8 +66,11 @@ def test_a_methods_section_describes_every_step(tmp_path: Path) -> None:
     assert methods.steps[0].command == "cat {ref} > {out}"
     assert methods.accounted_for
     assert methods.gaps == []
-    assert methods.engine == lg.version()
-    assert methods.platform
+    # Lists since M18: a distributed run can have spanned several of each,
+    # and a run on one machine is the one-entry case rather than a
+    # different shape.
+    assert methods.engines == [lg.version()]
+    assert methods.platforms
     assert "copy" in methods.text
 
 

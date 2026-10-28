@@ -24,7 +24,11 @@ import type { MetaRecord } from 'nextra'
  *
  * Sharing a cache comes last of the four, because it is the same
  * content-addressing idea turned outwards: the page assumes you know what a
- * cache hit is and what a recorded body is for.
+ * cache hit is and what a recorded body is for. Running on more than one
+ * machine follows it immediately, because it is that page's premise carried
+ * one step further -- a shared cache is what lets two machines share work --
+ * and because its argument is built out of semantic hashing, which by then
+ * the reader has met.
  */
 const meta: MetaRecord = {
   'types-and-dimensions': 'Types and dimensions',
@@ -41,6 +45,7 @@ const meta: MetaRecord = {
   'record-and-replay': 'Recording a live answer',
   'stochastic-steps': 'Steps that draw on randomness',
   'remote-store': 'Sharing a cache',
+  'cluster-execution': 'Running on more than one machine',
   notes: 'What a result rests on',
   'resistance-interpretation': 'Resistance interpretation',
 }

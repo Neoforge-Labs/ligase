@@ -205,6 +205,34 @@ impl TieredStore {
         self.remote.is_some()
     }
 
+    /// The tier every machine sees, for the one thing that must not be
+    /// cached.
+    ///
+    /// Everything else in this module is built on the opposite premise: a
+    /// local copy of an object is as good as the remote's, because an
+    /// object's name fixes its contents, so reading locally is right and
+    /// cheap. A **lease** is the exception, and it is worth being explicit
+    /// about why, because the first implementation of M18 got it wrong and
+    /// the tests caught it.
+    ///
+    /// A lease row says "worker W is computing key K". That is not a fact
+    /// about K, which is what content addressing makes cacheable — it is a
+    /// fact about *the other machines*, and it changes without anything
+    /// here being told. Written through the tiering, each worker's claim
+    /// landed in its own local tier and every read was served from it, so
+    /// every worker saw only its own claims, found every key free, and
+    /// computed the whole graph. The feature was silently absent, and the
+    /// run was still *correct* — which is D52 being true and is exactly
+    /// why this needed a test rather than a reading.
+    ///
+    /// `None` when no remote is configured. A worker with nothing shared
+    /// has nothing to divide and no one to divide it with; the surfaces
+    /// refuse that configuration before a run starts (D51).
+    #[must_use]
+    pub fn shared(&self) -> Option<&(dyn BlobStore + Send + Sync)> {
+        self.remote.as_deref()
+    }
+
     /// Where an object sits in the local tier, whether or not it is there.
     #[must_use]
     pub fn path_of(&self, key: &ObjectKey) -> PathBuf {

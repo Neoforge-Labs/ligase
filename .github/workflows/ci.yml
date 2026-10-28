@@ -330,6 +330,32 @@ jobs:
       - name: pytest (the store tests must run, not skip)
         run: pytest -q tests/test_store_cli.py tests/test_queries.py tests/test_methods.py
 
+      # `tests/test_cluster.py` sets its own `file://` store per test, so it
+      # passes in the ordinary job too. It is here as well because this is
+      # the job with a bucket: a worker run whose store is S3 exercises the
+      # lease over HTTP rather than over a rename, which is the only place
+      # that difference shows up from Python.
+      #
+      # Its own step, and guarded, on the `chem` job's precedent rather than
+      # the step above's. Nothing in this file skips -- it configures its own
+      # store per test and has no `skipif` at all -- so a skip here means the
+      # install did not take, and a silent skip looks exactly like a pass.
+      # Which is the failure this milestone is most exposed to: a lease that
+      # divides no work still produces a correct run, so a cluster test that
+      # quietly did not run would look green for the same reason a cluster
+      # with a broken lease does.
+      #
+      # The step above is deliberately left unguarded: `test_store_cli.py`
+      # skips honestly when no bucket is configured, so the same check there
+      # would fail an honest run.
+      - name: pytest (the cluster tests must run, not skip)
+        run: |
+          pytest -q tests/test_cluster.py | tee cluster.txt
+          if grep -qE '[0-9]+ skipped' cluster.txt; then
+            echo "::error::a cluster test skipped in the job that has a bucket"
+            exit 1
+          fi
+
   # There is no `docs` job here. The site is built, link-checked and deployed
   # by `web.yml`, on the same triggers, by a job that installs what its
   # generators need. A copy here was a second, under-provisioned build of the

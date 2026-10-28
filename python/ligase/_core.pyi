@@ -229,6 +229,10 @@ RunResult = tuple[int, str, str, str, str, str, str, int, list[str]]
 # One failed step: node, step, message.
 RunFailure = tuple[int, str, str]
 
+# One step two workers computed to different answers: node, step, what this
+# worker's output means, what the output in the store means.
+Divergence = tuple[int, str, str, str]
+
 # One audited step: node, step, scope, verdict, the two output hashes, the
 # two canonical hashes, the two durations in milliseconds, and the seed
 # parameter with the value it was held at.
@@ -288,8 +292,11 @@ BoundTo = tuple[str | None, str, str, int, str]
 ClaimCheck = tuple[Claim, str, str | None, str | None, list[BoundTo]]
 
 # A methods section: the ways steps were run, the gaps, the references, the
-# reference list, the tools with nothing to cite, the claims, the engine,
-# the platform, the summary, the text.
+# reference list, the tools with nothing to cite, the claims, every engine
+# version, every platform, the summary, the text.
+#
+# The engines and the platforms are lists because a distributed run can
+# have spanned several of each.
 MethodsReport = tuple[
     list[MethodsGroup],
     list[MethodsGap],
@@ -297,8 +304,8 @@ MethodsReport = tuple[
     list[str],
     list[str],
     list[ClaimCheck],
-    str,
-    str,
+    list[str],
+    list[str],
     str,
     str,
 ]
@@ -357,7 +364,16 @@ class Graph:
         callbacks: list[Callback],
         jobs: int | None = None,
         force: bool = False,
-    ) -> tuple[list[RunResult], list[RunFailure], str, str, tuple[int, int, int]]: ...
+        worker: str | None = None,
+        lease: int | None = None,
+    ) -> tuple[
+        list[RunResult],
+        list[RunFailure],
+        str,
+        str,
+        tuple[int, int, int],
+        list[Divergence],
+    ]: ...
     # Every audited step, every failure, the overall verdict, the summary,
     # and the report as text.
     def audit(

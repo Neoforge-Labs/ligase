@@ -91,16 +91,60 @@ impl FsStore {
 
     /// Move a staged file to its place, read-only, leaving an object already
     /// there alone.
+    /// Move a staged file in, if and only if nothing is there already.
+    ///
+    /// # Why this is a hard link and not a rename
+    ///
+    /// `rename` *replaces*, so "check, then rename" is two steps with a
+    /// window between them: two writers both find the slot empty and the
+    /// second one's rename overwrites the first's object. M14 made the
+    /// staged *names* unique, which stopped the writers tripping over each
+    /// other; it did not make the install atomic, and nothing noticed
+    /// because for an object the race is invisible — the name is the hash
+    /// of the contents, so the loser's bytes and the winner's bytes are
+    /// the same bytes.
+    ///
+    /// M18 is where it stops being invisible. A **published row**'s name is
+    /// the hash of the *question* it answers, not of its contents
+    /// ([`super::published`]), so two writers of one row key can legitimately
+    /// hold different bytes — two workers each claiming a lease is exactly
+    /// that — and "whoever wrote last wins" means both of them read their
+    /// own claim back and both believe they hold it. Measured, not
+    /// reasoned about: two workers divided four steps into six executions
+    /// instead of four.
+    ///
+    /// `hard_link` fails with `AlreadyExists` instead of replacing, and
+    /// does it in one syscall, so the winner is decided by the filesystem
+    /// rather than by a gap in this function.
     fn install(&self, staged: &Path, key: &ObjectKey) -> Result<(), StoreError> {
         let path = self.path_of(key);
-        if path.is_file() {
-            return remove(staged);
-        }
         if let Some(parent) = path.parent() {
             create_dir(parent)?;
         }
-        move_file(staged, &path)?;
-        make_read_only(&path)
+
+        match fs::hard_link(staged, &path) {
+            Ok(()) => {
+                remove(staged)?;
+                make_read_only(&path)
+            }
+            // Somebody else got there first. Their object stands: write-once
+            // means the first writer's bytes are the object's bytes.
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => remove(staged),
+            // A filesystem with no hard links, which is rarer than it used
+            // to be but not gone -- some FUSE mounts, and SMB without
+            // POSIX extensions. Fall back to the non-atomic install rather
+            // than refusing to store anything: a store that works and can
+            // lose a lease race is worth more than one that cannot hold an
+            // object at all, and D52 is what makes the loss a cost rather
+            // than an error.
+            Err(_) => {
+                if path.is_file() {
+                    return remove(staged);
+                }
+                move_file(staged, &path)?;
+                make_read_only(&path)
+            }
+        }
     }
 }
 

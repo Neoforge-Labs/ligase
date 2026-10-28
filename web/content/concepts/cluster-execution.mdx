@@ -1,0 +1,150 @@
+---
+title: "Running on more than one machine"
+description: "Several machines run one pipeline between them with no coordinator, no scheduler integration and no lock — because a step key is a content hash, so two workers that compute the same step compute the same answer. What that argument buys, and the one case it does not cover."
+---
+
+# Running on more than one machine
+
+A cohort of four hundred samples through five steps is two thousand jobs.
+One machine runs them one `--jobs` at a time; a cluster runs them at the
+width of the cluster. Every workflow tool can do this, and all of them do
+it the same way: a coordinator holds the list of work and hands it out.
+
+Ligase does not have a coordinator, and that is the whole of this page.
+
+```bash
+# on each machine, or as a Slurm array
+export LIGASE_STORE=s3://our-lab-cache
+ligase run --worker=node03
+```
+
+Start as many of those as you like, wherever you like. They divide the
+pipeline between them, they need nothing to talk to but the store, and
+when they are done any ordinary `ligase run` will report the whole graph
+and write it up.
+
+## Why no coordinator is needed
+
+A step's cache key is a hash of everything that could change its result:
+the function's source, its parameters, the *canonical* hashes of its
+inputs, and the versions of the tools it calls
+([caching](/concepts/caching)). Nothing in it says which machine is asking.
+
+So if two workers compute the same key, they did not merely do similar
+work — **they did the same work**. They agreed on the code, the
+parameters, the inputs and the tools. There is no sense in which their
+answers could be different answers to different questions.
+
+That is why there is no lock. A lock would stop two workers *computing*
+the same step; it is not what makes the result right. The result is right
+because the key says what the work was.
+
+<Note kind="note">
+  Which means the mechanism that divides the work is allowed to be
+  imperfect. If it fails, two machines compute one step and one of them
+  wasted an hour of CPU — not a wrong answer. That is a very different
+  thing to be woken up about.
+</Note>
+
+## What the workers actually do
+
+Each worker builds the whole graph, as every run does. Then, for each step
+it could start:
+
+1. **Is the answer in the store?** Take it. (This is an ordinary cache hit;
+   it is what [sharing a cache](/concepts/remote-store) already gave you.)
+2. **Has another worker claimed it?** Leave it alone and go do something
+   else, coming back later.
+3. **Otherwise** claim it, compute it, and publish the answer.
+
+A claim is called a **lease**, and it is advisory. It says "I am working on
+this, until roughly now plus an hour". Workers honour it because
+duplicating work is wasteful, not because anything would go wrong if they
+did not.
+
+### A worker that dies needs no rescue
+
+Nothing watches the workers. Nothing has to.
+
+A dead worker's leases run out, and a worker that has nothing else to do
+takes the step and computes it. There is no heartbeat to miss, no fencing
+token, no coordinator to notice, and no recovery mode to enter — because
+taking a step somebody else may still be working on is *safe*, so the
+decision about when to take it is allowed to be a guess.
+
+This is the practical payoff of the argument above, and it is the part
+that matters at three in the morning. The thing that can break is the
+thing whose breakage costs CPU.
+
+### And a half-finished run just carries on
+
+Every answer that landed is in the store, under a name derived from the
+work rather than from the run. So there is no such thing as resuming:
+starting again *is* resuming. Whatever finished is a cache hit, and
+whatever did not is computed.
+
+## The one case the argument does not cover
+
+Two workers almost never produce the same **bytes**. `minimap2` writes its
+own command line into the `@PG` header, tools stamp timestamps, and record
+order moves with thread count. None of that matters, because nothing
+downstream is keyed on bytes — a step's inputs enter its key as *canonical*
+hashes, the hash of what a file means
+([what a file means](/concepts/semantic-hashing)).
+
+So the argument needs one thing: that two workers computing one key agree
+about what their outputs *mean*. Two things break that.
+
+- **A step whose canonical form does not fix its result.** Canonicalisation
+  strips what is known to be incidental; where a tool varies in a way it
+  does not strip, two runs of one key differ.
+- **A stochastic step that is stochastic in more than its seed.** A seed is
+  a hashed parameter, so two workers with one key have one seed
+  ([steps that draw on randomness](/concepts/stochastic-steps)). But
+  IQ-TREE, RAxML and BEAST are reproducible given a seed *and a thread
+  count*, and two cluster nodes with different core counts are the normal
+  case rather than the exception. Same key, same seed, different tree.
+
+When that happens, Ligase says so:
+
+<RunReport>{`diverged  \`tree\` was computed by another worker to a different result
+          this run made  7f2c1a...
+          the store holds 04e0f8...`}</RunReport>
+
+It is not a failure — the step ran and produced something. The store's
+answer is the one in force on **every** machine, so nothing below the step
+disagrees between workers and the run is internally consistent. But the
+step does not give one answer from one set of inputs, and that is worth
+knowing: `ligase audit` is what tells you which of the two reasons it is
+([checking that a step repeats](/guide/semantic-hashing)).
+
+<Note kind="caution">
+  Ligase deliberately does **not** pin such a step to a single worker.
+  That would make your result depend on how many workers happened to be
+  running, and would hide a real property of the pipeline instead of
+  reporting it.
+</Note>
+
+## What this is not
+
+**It is not a scheduler.** Ligase submits no jobs and knows nothing about
+Slurm, SGE or Kubernetes. Your site's Slurm has its own partitions,
+accounts, time limits and module system, and a tool that tried to drive it
+would be wrong at most sites and endlessly configurable at the rest. You
+already know how to start twenty of something; what you did not have was
+twenty processes that can divide one pipeline without a coordinator.
+
+**It is not an alternative to `--jobs`.** `--jobs` is how many steps *this
+machine* runs at once, and `--worker` is how many machines there are. They
+compose: twenty workers with eight jobs each. Running eight workers on one
+machine is paying store round-trips for a problem a mutex solves for free —
+use `--jobs 8`.
+
+**It is not a reason to share a cache directory.** Each worker keeps its own
+index, because the index is SQLite and SQLite over a network filesystem is
+a documented way to lose a database. `--worker` therefore picks its own
+directory by default, and refuses to share one.
+
+The [guide](/guide/cluster-execution) has the Slurm recipe and what to set
+`--lease` to. [How it works inside](/project/architecture/cluster) has the
+lease protocol and the two bugs writing it uncovered.

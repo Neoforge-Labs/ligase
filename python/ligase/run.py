@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-__all__ = ["RunError", "RunReport", "StepFailure", "StepRun"]
+__all__ = ["Divergence", "RunError", "RunReport", "StepFailure", "StepRun"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +94,46 @@ class StepFailure:
 
 
 @dataclass(frozen=True, slots=True)
+class Divergence:
+    """One step another worker computed to a different answer.
+
+    Two workers that agree on a step key agreed on the code, the
+    parameters, the inputs' contents and the tool versions, so they are
+    doing the same work and a race between them is harmless — they almost
+    always disagree about the output's *bytes*, because a tool writes its
+    own command line or a timestamp into what it produces, and nothing
+    downstream is keyed on bytes.
+
+    This is the case where they disagree about what the output **means**,
+    which nothing downstream can absorb. Either the kind's canonical form
+    does not fix its result, or the step's tool is stochastic in something
+    other than its seed — a thread count, most often, which two cluster
+    nodes do not share.
+
+    It is not a failure: the step ran and produced something. The store's
+    answer is the one in force on every machine, so nothing below the step
+    disagrees between workers. But the step does not produce one answer
+    from one set of inputs, and `pipe.audit()` is how to find out which of
+    the two reasons it is.
+
+    Attributes:
+        step: The step's name.
+        sample: The sample it was for, or `None` for a step spanning more
+            than one.
+        ours: What this worker's output means, as hex.
+        theirs: What the output already in the store means, as hex — the
+            one in force.
+        node: Which node of the graph it was.
+    """
+
+    step: str
+    sample: str | None
+    ours: str
+    theirs: str
+    node: int
+
+
+@dataclass(frozen=True, slots=True)
 class RunReport:
     """Everything a run did.
 
@@ -111,6 +151,10 @@ class RunReport:
         canonicalised: Files that had to be parsed to find out what they
             mean. Like `hashed`, this is zero on a run that found everything
             it needed already known.
+        worker: What this worker called itself, or `None` for an ordinary
+            run.
+        divergences: Steps another worker computed to a different answer.
+            Empty for almost every run, and for every run on one machine.
     """
 
     steps: list[StepRun] = field(default_factory=list)
@@ -120,6 +164,8 @@ class RunReport:
     hashed: int = 0
     prefiltered: int = 0
     canonicalised: int = 0
+    worker: str | None = None
+    divergences: list[Divergence] = field(default_factory=list)
 
     @property
     def ran(self) -> list[StepRun]:

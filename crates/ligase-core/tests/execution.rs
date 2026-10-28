@@ -960,6 +960,7 @@ fn work_queued_from_inside_a_step_is_taken_while_another_step_waits() {
     let options = Options {
         jobs: 2,
         force: false,
+        ..Options::default()
     };
     let report = bench.run_with(&[second], &options, &Nesting);
 
@@ -981,6 +982,7 @@ fn work_queued_from_inside_a_step_is_taken_while_its_twin_waits() {
     let options = Options {
         jobs: 2,
         force: false,
+        ..Options::default()
     };
     let report = bench.run_with(&[left, right], &options, &Nesting);
 
@@ -1030,6 +1032,7 @@ fn every_step_of_a_wide_graph_is_run_by_a_single_worker() {
     let options = Options {
         jobs: 1,
         force: false,
+        ..Options::default()
     };
     let report = bench.run_with(&[joined], &options, &Refusing);
 

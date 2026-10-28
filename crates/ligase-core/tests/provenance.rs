@@ -1229,3 +1229,63 @@ fn a_seed_is_named_even_where_it_reads_like_the_sample() {
     );
     assert!(flowed(&text).contains("seeded with seed = 42"), "{text}");
 }
+
+// ------------------------------- M18: a run that spanned two machines --
+
+#[test]
+fn the_paragraph_names_every_platform_a_run_used() {
+    // Before M18 every record in a run carried the same platform, because
+    // one machine ran everything, and `methods` took it from the first
+    // group. A distributed run is the first time they differ -- a mixed
+    // cluster, or an ARM workstation beside x86 nodes -- and naming one
+    // platform for a run that spanned two is a quiet half-truth in the one
+    // place this project cannot afford one.
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let align = bench.step_with("align", "cat {in} > {out}", &[("in", input)], &[], &[]);
+    let call = bench.step_with("call", "cat {in} > {out}", &[("in", align)], &[], &[]);
+
+    let report = bench.run(&[call]);
+    assert!(report.failures.is_empty(), "{report:?}");
+
+    // Rewrite one step's record as though another machine had computed it,
+    // which on a shared store is what `prov.adopt` brings back.
+    let key = report.result(align).unwrap().key;
+    let mut elsewhere = bench.prov.lookup(key).unwrap().unwrap();
+    elsewhere.platform = "linux-aarch64".to_owned();
+    bench.prov.record(&elsewhere).unwrap();
+
+    let methods = methods_of(&bench, &[call], &report);
+    let text = methods.text();
+
+    assert!(
+        text.contains("linux-aarch64"),
+        "the platform the other machine used is missing:\n{text}"
+    );
+    assert!(
+        text.contains(&ligase::prov::platform()),
+        "this machine's own platform is missing:\n{text}"
+    );
+}
+
+#[test]
+fn the_paragraph_names_every_engine_version_a_run_used() {
+    // The same argument for the engine: a worker on an older wheel is a
+    // different engine, and a methods section that names one of two is
+    // making a claim nobody checked.
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let align = bench.step_with("align", "cat {in} > {out}", &[("in", input)], &[], &[]);
+    let call = bench.step_with("call", "cat {in} > {out}", &[("in", align)], &[], &[]);
+
+    let report = bench.run(&[call]);
+    let key = report.result(align).unwrap().key;
+    let mut elsewhere = bench.prov.lookup(key).unwrap().unwrap();
+    elsewhere.engine = "0.1.99".to_owned();
+    bench.prov.record(&elsewhere).unwrap();
+
+    let text = methods_of(&bench, &[call], &report).text();
+
+    assert!(text.contains("0.1.99"), "{text}");
+    assert!(text.contains(ligase::version()), "{text}");
+}

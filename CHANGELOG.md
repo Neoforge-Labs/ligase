@@ -142,6 +142,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   better evidence than another Rust-bodied row that `liftover` and
   `rename_contigs` will be rows rather than redesigns.
 
+- **Cluster execution: several machines run one pipeline between them, with
+  no coordinator.** `ligase run --worker=node03` on as many machines as you
+  like, all pointed at one `LIGASE_STORE`. They divide the pipeline, they
+  talk to nothing but the store, and an ordinary `ligase run` afterwards
+  reports the whole graph and writes it up. Ligase submits no jobs and knows
+  nothing about Slurm: the `sbatch --array` recipe is in the guide, because
+  a group with a cluster already knows how to start twenty of something and
+  what it lacked was twenty processes that could divide one pipeline without
+  a coordinator.
+
+  The claim worth stating is that **correctness needs no lock**. Two workers
+  that compute the same step key agreed on the code, the parameters, the
+  inputs' canonical hashes and the tool versions, so a race between them
+  wastes CPU and cannot produce a wrong answer. What carries the argument is
+  canonicalisation: two workers almost never write the same bytes — a tool
+  stamps its own command line into its output — and nothing downstream is
+  keyed on bytes. The property added in M4 to make early cutoff earnable is
+  the property that makes lock-free distribution safe.
+
+  So the lease that divides the work is **advisory**, and expiry does not
+  have to be right: a worker that dies holding leases needs no heartbeat, no
+  fencing and no coordinator to notice it, because its deadline passes and
+  somebody else computes the step. Both ways of mis-setting `--lease` are
+  costs rather than wrong answers. Resumability falls out for nothing.
+
+  Where the argument does not reach is said out loud and reported rather
+  than hidden: a kind whose canonical form does not fix its result, and a
+  seeded stochastic step whose tool is stochastic in its thread count as
+  well — two cluster nodes with different core counts being the normal case.
+  The run report names the step and both canonical hashes, the store's
+  answer is the one in force everywhere so nothing below the step disagrees,
+  and `ligase audit` is what says which of the two reasons it is.
+
+  A worker takes its own cache directory by default, because the index is
+  SQLite and twenty array tasks defaulting to one `$HOME/.ligase` over NFS
+  is a documented way to lose a database. A worker with no shared store is
+  refused outright: it would compute the whole pipeline alone and look like
+  a success. No new dependency and no cargo feature — a `file://` store on a
+  shared filesystem runs a cluster in a default build, which is the right
+  answer at most HPC sites.
+
+### Fixed
+
+- **A published row of one format could make a step key unpublishable for
+  ever.** `published::key_of` hashed the domain, the table and the key, and
+  not the row format's version — so every format competed for one object
+  address, and objects are write-once. A bucket holding a version 1 row
+  would have refused every version 2 row written to that key for as long as
+  the bucket existed: the write is dropped, the read finds a version the
+  build will not parse, and that step key can never be published by anyone
+  again. Not the single recomputation a format bump is supposed to cost, but
+  all of them. Latent since the store tier shipped and unreachable until the
+  first bump; the version is in the address now, so each format addresses
+  its own rows and the next bump costs what it promises.
+
+- **Two concurrent writers of one published row could both believe they had
+  written it.** `FsStore::install` checked for the file and then renamed,
+  which is two steps with a window, so the second writer's rename replaced
+  the first's object. For an ordinary object that is invisible — a name is
+  the hash of its contents, so the loser's bytes are the winner's bytes —
+  and for a row, whose name is the hash of the *question* it answers, it is
+  not. It now installs with `hard_link`, which fails rather than replaces
+  and does it in one syscall. The object-store backend had the same hole
+  from the other direction and now writes with `PutMode::Create`, which is
+  what makes "objects are written once and never overwritten" true of a
+  bucket rather than merely intended.
+
+- **A methods paragraph named one platform for a run that spanned several.**
+  Every provenance record has always carried the engine version and the
+  platform it was produced on, and the paragraph took the first one it found
+  — correct for as long as one machine ran everything. A mixed cluster, an
+  ARM workstation beside x86 nodes, or one worker on an older wheel made it
+  a half-truth in a methods section. It names every distinct one now, and
+  the reproducibility bundle gives each its own row.
+
 ### Changed
 
 - **`Methods.accounted_for` covers claims as well as gaps.** It was
@@ -184,6 +259,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   absence makes the cache serve a wrong answer, which is D41's argument
   relocated from the data to the engine. It is deliberately narrow, and D48
   says what it does not admit.
+
+- **The README explains the project rather than announcing it.** It had a
+  paragraph of premise, a status line and an install command, and not one
+  line of example — a reader could not see what a pipeline looks like, what
+  a diagnostic says, or why any of it is worth their afternoon. It now opens
+  on the failure mode (a plausible number, not a crash), shows three real
+  diagnostics and a real `ligase inspect` run, gives a pipeline whose
+  signatures type-check against the shipped package, and explains the
+  mechanism — inferred dimensions, graph before compute, content-addressed
+  keys, declared randomness, pinned remotes, provenance as a product.
+
+  Every block of output in it is byte-verbatim from the captures the
+  documentation site generates on each build, and the example type-checks
+  under `mypy` against the installed package, because a README is where a
+  stale example costs the most. Worth knowing for the next one:
+  `ruff format --check .` formats Python **inside Markdown**, so a code
+  block in this repository is formatted code and not prose that resembles
+  it — the gate catches a README example the same way it catches a module.
+
+  Links are absolute throughout: this file is also the PyPI long
+  description and the `ligase` crate's README, where relative links resolve
+  nowhere.
+
+- **`Methods.engine` and `Methods.platform` are now `engines` and
+  `platforms`, and are lists.** A run on one machine is the one-entry case
+  rather than a different shape. `RunReport` gains `worker` and
+  `divergences`, and `Pipeline.run` gains `worker=` and `lease=`.
 
 - **The README explains the project rather than announcing it.** It had a
   paragraph of premise, a status line and an install command, and not one

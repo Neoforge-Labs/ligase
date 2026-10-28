@@ -680,8 +680,15 @@ pub fn write(into: &Path, request: &Request<'_>) -> Result<Summary, BundleError>
 
     // ---- what it was run with
     let mut environment = Table::new(&["name", "value"]);
-    environment.row(&["ligase", &request.methods.engine]);
-    environment.row(&["platform", &request.methods.platform]);
+    // A row each rather than one joined row: this is a table, and a run
+    // that spanned two platforms has two facts to state, not one sentence
+    // about both (D55).
+    for engine in &request.methods.engines {
+        environment.row(&["ligase", engine]);
+    }
+    for platform in &request.methods.platforms {
+        environment.row(&["platform", platform]);
+    }
     for (tool, version) in request.methods.tools() {
         environment.row(&[&tool, &version]);
     }
@@ -1103,7 +1110,8 @@ fn readme(methods: &Methods, thin: bool) -> String {
     out.push_str("## What produced it\n\n");
     out.push_str(&format!(
         "Ligase {} on {}.\n",
-        methods.engine, methods.platform
+        methods.engines.join(", "),
+        methods.platforms.join(", ")
     ));
     out
 }

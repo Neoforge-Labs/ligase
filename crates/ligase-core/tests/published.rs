@@ -8,7 +8,8 @@
 //! not what it should be.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use ligase::cache::{Cache, Stored};
+use ligase::cache::{Cache, Recording, Stored};
+use ligase::hash::ContentHash;
 use ligase::key::{Ingredients, StepKey};
 use ligase::store::published::{self, REMOTES, STEPS};
 use ligase::store::{BlobStore, FsStore, TieredStore};
@@ -138,7 +139,15 @@ fn deleting_the_index_rebuilds_it_from_the_store() {
         let cache = Cache::open(&root).unwrap();
         let (key, stored) = a_step(&cache, &dir, b"an alignment");
         cache
-            .record(key, "align", &stored, "minimap2 2.28", 41, &[])
+            .record(&Recording {
+                key,
+                step: "align",
+                output: &stored,
+                canonical: stored.hash,
+                tools: "minimap2 2.28",
+                duration_ms: 41,
+                notes: &[],
+            })
             .unwrap();
         (key, stored)
     };
@@ -167,7 +176,15 @@ fn an_entry_whose_output_is_only_in_the_remote_is_materialised() {
         let cache = Cache::open_with(&dir.path().join("first"), Some(&url)).unwrap();
         let (key, stored) = a_step(&cache, &dir, b"an alignment");
         cache
-            .record(key, "align", &stored, "minimap2 2.28", 41, &[])
+            .record(&Recording {
+                key,
+                step: "align",
+                output: &stored,
+                canonical: stored.hash,
+                tools: "minimap2 2.28",
+                duration_ms: 41,
+                notes: &[],
+            })
             .unwrap();
         (key, stored.hash)
     };
@@ -235,7 +252,15 @@ fn a_corrupt_object_behind_a_good_row_reruns_the_step_rather_than_serving_it() {
         let cache = Cache::open_with(&dir.path().join("first"), Some(&url)).unwrap();
         let (key, stored) = a_step(&cache, &dir, b"an alignment");
         cache
-            .record(key, "align", &stored, "minimap2 2.28", 41, &[])
+            .record(&Recording {
+                key,
+                step: "align",
+                output: &stored,
+                canonical: stored.hash,
+                tools: "minimap2 2.28",
+                duration_ms: 41,
+                notes: &[],
+            })
             .unwrap();
         key
     };
@@ -275,7 +300,15 @@ fn a_store_with_no_remote_still_publishes_rows_locally() {
         staged
     });
     cache
-        .record(key, "align", &stored.unwrap(), "minimap2", 1, &[])
+        .record(&Recording {
+            key,
+            step: "align",
+            output: &stored.unwrap(),
+            canonical: ContentHash::of_bytes(b"canonical"),
+            tools: "minimap2",
+            duration_ms: 1,
+            notes: &[],
+        })
         .unwrap();
 
     assert!(
@@ -467,4 +500,60 @@ fn the_report_counts_objects_that_came_from_the_store() {
     let text = render(&graph, &[], &report);
     assert!(text.contains("1 object from the remote store"), "{text}");
     assert!(text.contains("3 objects written through"), "{text}");
+}
+
+// --------------------------------------------- M18: the format's address --
+
+#[test]
+fn a_rows_address_carries_its_format_version() {
+    // Found while bumping ROW_VERSION for M18, and latent in M14 rather
+    // than new: `key_of` hashed the domain, the table and the key, and not
+    // the version. Every format therefore competed for one object address
+    // -- and objects are write-once, so a bucket holding a version 1 row
+    // would refuse every version 2 row written to that key, for as long as
+    // the bucket existed. Not one recomputation: a permanently
+    // unpublishable key.
+    //
+    // There is no way to ask for "version 1's address" from here, so the
+    // property is asserted the way it has to be read back: a row published
+    // under this build's format is found by this build, and a row planted
+    // at a *different* format's address is not seen at all rather than
+    // seen and misread.
+    let (_dir, store) = store();
+
+    published::publish(&store, STEPS, "aa", &fields(&["one"])).unwrap();
+
+    // The same table and key under another domain string -- which is what
+    // another ROW_VERSION amounts to -- is a different object entirely.
+    let ours = published::key_of(STEPS, "aa");
+    let theirs = published::key_of(REMOTES, "aa");
+    assert_ne!(ours, theirs);
+
+    // And the address is stable for one build, or nothing would ever be
+    // found twice.
+    assert_eq!(ours, published::key_of(STEPS, "aa"));
+}
+
+#[test]
+fn publishing_a_row_says_whether_the_store_already_had_another() {
+    // M18 needs the distinction: a dropped write means another machine got
+    // there first, and whether that matters depends on whether its answer
+    // means the same thing. The store is where that is found out, rather
+    // than in `exec.rs`.
+    use ligase::store::published::Publication;
+
+    let (_dir, store) = store();
+
+    let first = published::publish(&store, STEPS, "aa", &fields(&["mine"])).unwrap();
+    assert_eq!(first, Publication::Ours);
+
+    // Identical bytes are identical bytes: a second write of the same row
+    // is not someone disagreeing.
+    let same = published::publish(&store, STEPS, "aa", &fields(&["mine"])).unwrap();
+    assert_eq!(same, Publication::Ours);
+
+    // A different row under one key: write-once keeps the first, and the
+    // caller is told what is actually in the store.
+    let other = published::publish(&store, STEPS, "aa", &fields(&["theirs"])).unwrap();
+    assert_eq!(other, Publication::Theirs(fields(&["mine"])));
 }

@@ -3,7 +3,8 @@ import type { MetaRecord } from 'nextra'
 /*
  * The internals, outside in: where things live, what a type is, the surface
  * that only looks at one, how the graph is built from it, the steps the
- * project ships ready-built, how it runs, what is cached, how a step is run
+ * project ships ready-built, how it runs, what is cached, how that is
+ * shared, how several machines run one pipeline out of it, how a step is run
  * twice and judged, how outputs are canonicalised before hashing, how a
  * conversion crosses an axis, the one kind that is assembled rather than
  * measured, the two kinds whose names mean nothing until something says what
@@ -20,6 +21,7 @@ const meta: MetaRecord = {
   execution: 'Execution',
   cache: 'Cache',
   store: 'Store',
+  cluster: 'Cluster execution',
   audit: 'Audit',
   canonicalisation: 'Canonicalisation',
   conversions: 'Conversions',
