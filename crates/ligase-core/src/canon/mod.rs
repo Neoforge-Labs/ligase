@@ -78,6 +78,8 @@ mod entity_set;
 mod fasta;
 mod intervals;
 mod knowledge_graph;
+mod molecule_ranking;
+mod molecule_set;
 mod ranked_list;
 mod reads;
 mod report;
@@ -203,6 +205,8 @@ fn canonicalise(kind: DataKind, path: &Path, digest: &mut Digest) -> Result<(), 
         DataKind::EntitySet => entity_set::canonicalise(path, digest),
         DataKind::RankedList => ranked_list::canonicalise(path, digest),
         DataKind::KnowledgeGraph => knowledge_graph::canonicalise(path, digest),
+        DataKind::MoleculeSet => molecule_set::canonicalise(path, digest),
+        DataKind::MoleculeRanking => molecule_ranking::canonicalise(path, digest),
     }
 }
 
@@ -243,6 +247,14 @@ pub const fn describe(kind: DataKind) -> Option<&'static str> {
             "nodes sorted by id and edges by source, target and type, with each node's and \
              edge's own id and source lists sorted inside it; the keys a server writes about \
              itself dropped from the top level"
+        }
+        DataKind::MoleculeSet => {
+            "the representation line and the header kept, the rows below them compared as a \
+             set, so their order says nothing"
+        }
+        DataKind::MoleculeRanking => {
+            "the representation line and the header kept, the rows below them compared in \
+             order, because the order is the ranking"
         }
     })
 }

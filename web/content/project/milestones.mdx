@@ -1285,3 +1285,153 @@ checked before it was acted on — was wrong for that reason. Each capture now
 gets a directory of its own, which is the shape `capture_stochastic.py`
 already had, and each capture asserts the *number* it is about rather than
 only the sentence around it.
+
+## M17 — The chemistry extra
+Two kinds — `MoleculeSet` and `MoleculeRanking` — and the axis that admits
+them: `representation`, which says what a name in a molecule table **is** and
+what was done to the structures before it was computed. RDKit arrives as an
+optional Python extra, `pip install 'ligase-bio[chem]'`, so the genomics
+install acquires nothing. D47–D50.
+
+**Done when:** both kinds exist with their loader, canonical forms,
+dimensions and Python surface; two sets standardised differently refuse to
+join, naming the operations one side also applied, pinned in Rust and in
+Python; `representation` is demanded between any two of the molecule kinds in
+all four combinations, and two sets that each say nothing are refused rather
+than agreeing by silence; the axis's `check::compare` and `graph::propagate`
+arms are each pinned by a named test; a representation is read off the line
+the standardiser wrote, and a table of InChIKeys with no such line leaves the
+axis unknown with a reason rather than assuming `as given`; reordering a
+set's rows leaves its hash unchanged while reordering a ranking's changes it,
+asserted as the contrast over the same two files; changing only the
+representation line changes the content hash with the key column
+byte-identical; the measurement §4.4 asked for is in the repository and
+reproducible; `standardize` crosses the axis as a registered conversion whose
+failures are named and counted, with stereo discarded but not declared an
+error and declared but not discarded a note; and the default install is
+**proved** unburdened rather than claimed to be.
+
+**Standing requirement, from M7.** `representation` is a new axis, so the
+first kind to claim it pins that axis's arm in `check.rs::compare` and in
+`graph.rs::propagate` with a test. The compiler catches less than it looks
+here: `Representation` is a type of its own, so an arm reading another axis's
+field does not build, but `propagate`'s arms name their fields by hand
+whatever the types are.
+
+**Done.** Every clause, each pinned by a named test. See
+[what a molecule's name means](/concepts/molecules/),
+[comparing compound sets](/guide/molecules/),
+[the internals](/project/architecture/molecules/) and
+[my compound overlap is almost empty](/silent-failures/mixed-standardisation/).
+
+**The measurement came first, and it decided the design.** §4.4 asked for
+InChIKey stability to be measured before committing to it as a canonical
+form, so it was measured before any engine code was written: six RDKit
+releases spanning four years, thirty input structures, six standardisation
+states each, 1,080 keys. **Zero disagreements between versions**, tautomer
+normalisation included, so the key is a sound thing to compare by.
+
+In the same span RDKit's canonical SMILES for cisplatin changed, while its
+InChIKey did not move at all:
+
+```text
+2022.09.5-2024.09.6  Cl[Pt]Cl.N.N
+2025.09.6-2026.09.1  N.N.[Cl][Pt][Cl]
+```
+
+That is §4.4's "InChIKeys, not SMILES strings" measured rather than assumed —
+a canonical form over SMILES would have moved the content hash of every file
+holding that compound on an upgrade that changed no chemistry — and it is why
+the identity is part of the axis's value rather than an implementation
+detail.
+
+What moves the key is the standardisation: **twelve of the thirty**, within
+one version, all of them ordinary drugs. Aspirin has three keys, two of which
+differ in the final character. The dimension is therefore demonstrated rather
+than argued for, which is the strongest position a D35 argument has been in.
+
+**§4.4 was wrong about stereochemistry, and that is the finding.** It
+describes the state as keeping stereo. RDKit's tautomer canonicaliser
+discards it at an sp3 centre inside a tautomeric system, and a carboxylic
+acid's alpha-carbon is inside one, so ibuprofen's two enantiomers both arrive
+as `HEFNNWSXXWATRW-UHFFFAOYSA-N` — one active compound and one inactive one,
+indistinguishable. So the axis records what was *done* rather than what was
+asked, the standardiser checks its own work, and the check is asymmetric on
+M10a's own reasoning: stereo lost and not declared is an error, declared and
+not lost is a note. D47.
+
+**D35 as written did not admit the second kind, and that is now written
+down.** `MoleculeRanking` brings no axis `MoleculeSet` does not bring. Nor,
+examined the same way, did `RankedList` bring one `EntitySet` lacked — so
+either M12 shipped a kind outside the rule, or the rule has a second limb
+nobody had written. It has one, and D48 is it: a kind also earns its place by
+bringing a canonical form whose absence makes the cache serve a wrong answer,
+which is D41's argument exactly, relocated from the data to the engine. The
+limb is deliberately narrow, and D48 says what it does not admit.
+
+The kind is also **renamed**. §4.4 called it `BindingScores`, and the same
+file shape holds QSAR-predicted activities, predicted solubilities and
+synthetic-accessibility scores, none of which is a binding score.
+
+**The engine acquired no chemistry at all, and that is proved.** D49: the core
+compares representations and refuses joins, which is string work; RDKit is
+needed only to *produce* a standardised set, and lives in one Python module
+that imports it inside the one function that uses it. So `cargo tree` is
+unchanged, `default_build.rs` gained a test that a featureless build does the
+whole of the checking, and a subprocess asserts that `import ligase` imports
+no RDKit — which is what notices the day somebody moves the import to the top
+of the module. The docs site builds with no toolkit either.
+
+Unlike `remote-store`, this extra is **not** empty: RDKit is a Python package,
+so an extra can reach it. The floor, `rdkit>=2024.3.1`, is the first series
+with NumPy 2 wheels rather than a guess; the measurement covers two series
+below it.
+
+**Standardisation is the conversion registry's second entry, and the first
+with a Python body.** D50. Nothing in the registry had to change for that,
+which is better evidence than another Rust-bodied row would have been that
+`liftover` and `rename_contigs` will be rows rather than redesigns. Its
+version capture could not be a `tool=`, because RDKit is a library with no
+executable to probe, so the version is read before the step is built and
+passed as a parameter — which puts it in the cache key, where reading it
+inside the body would not.
+
+**Three assertions were renamed rather than widened quietly.** A molecule
+table names entities and claims no `identifier_namespace`, because
+`representation.identity` already says which space it is in, so
+`only_a_kind_that_names_entities_has_an_identifier_namespace` had stopped
+being true and is now `no_kind_that_holds_sequence_has_…`. The subject matrix
+became `only_a_kind_that_is_about_something_named_has_a_subject`, since a
+compound set is about a target as squarely as a gene list is about a disease.
+And `the_three_axes_are_appended_…` had said "three" since M8.
+
+**What the work turned up that nothing asked for.** Three bugs, each found by
+a test rather than by its author. A line's own newline was yielding a blank
+line that the standardiser's header loop read as a header of one empty
+column, so a table with a comment above its header failed to parse. The
+stereo count double-counted the molecules it was reporting on. And the
+canonical form accepted **any** one-column text file as a molecule table — a
+JSON document included, since every line of one is a row of a single field —
+because it was modelled on `canon::entity_set`, which deliberately does not
+check which column holds its identifiers. Here the identity column's name is
+fixed by the kind, so it can be checked and therefore must be: without it a
+file hashes as the canonical form of something it is not, which is the
+opposite of the conservative direction `canon::hash` takes everywhere else.
+
+**What was declined, with reasons.** `source_set` is not claimed, though a
+library merged from three vendors is genuinely assembled and the axis exists:
+nothing here can *read* it, because which vendor a compound came from is a
+column rather than a fact about the set, and an axis the loader cannot fill is
+the unexercised value type M7's standing requirement exists to prevent. No
+chemistry file format is read — no SDF, no MOL, no `.smi` — which is D35's
+first clause applied rather than argued around. `representation` records the
+operations and not which toolkit applied them, because the measurement
+compared RDKit against itself across time and not against another toolkit,
+and recording the toolkit would claim more than the evidence supports. And
+RDKit is not credited in a methods section, which is a shortfall rather than
+a choice: a project-shipped step's citation resolves from its `tool=`, and
+`tool=` means a program the engine runs to ask its version. A library cannot
+be one, which is why the version travels as a parameter instead. Adding a row
+to the citation table would not help, because nothing would look it up —
+closing it means letting a tool be a library, which is a change to D42's
+machinery.

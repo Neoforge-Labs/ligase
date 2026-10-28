@@ -1,0 +1,298 @@
+---
+title: "Molecules"
+description: "How the representation axis is read, compared and hashed; the InChIKey measurement the design rests on; why the chemistry toolkit is optional and how that is proved rather than claimed."
+---
+
+# Molecules
+
+Two kinds — `MoleculeSet` and `MoleculeRanking` — and one axis,
+`representation`, which is what admits them. The kinds, their loader, their
+canonical forms and the checking are all in `crates/ligase-core`, with **no
+chemistry dependency of any sort**. RDKit lives in one Python module.
+
+## The measurement, first
+
+§4.4 of the v0.2 design asked for InChIKey stability to be measured before
+committing to it as a canonical form. It was measured before any engine code
+was written.
+
+**Method.** Six RDKit releases spanning four years — 2022.09.5, 2023.09.6,
+2024.09.6, 2025.09.6, 2026.03.6, 2026.09.1 — each in its own throwaway Python
+3.11 environment. Thirty input SMILES: marketed drugs, four salt forms, three
+tautomer pairs, a zwitterion, a charged/neutral pair, a pentavalent-nitro
+spelling, a metal complex, and both ibuprofen enantiomers. Six standardisation
+states each: raw, `Cleanup` only, salt-stripped, tautomer-normalised,
+charge-neutralised, and all three together. **1,080 keys.**
+
+The probe is `scripts/measure_inchikey_stability.py`, with the cross-version
+runner in its own docstring.
+
+### InChIKey survived
+
+**Zero disagreements in 1,080 cells.** Every (state, molecule) pair produced
+the same key on all six releases, tautomer normalisation included — which was
+the state most likely to drift. InChIKey is a sound thing to compare by, and
+the design rests on that rather than on assuming it.
+
+### Canonical SMILES did not
+
+In the same span, RDKit's canonical SMILES for cisplatin changed:
+
+```text
+                     canonical SMILES      InChIKey
+2022.09.5-2024.09.6  Cl[Pt]Cl.N.N          LXZZYRPGZAFOLE-UHFFFAOYSA-L
+2025.09.6-2026.09.1  N.N.[Cl][Pt][Cl]      LXZZYRPGZAFOLE-UHFFFAOYSA-L
+```
+
+One compound in thirty, and it is the whole argument for §4.4's "InChIKeys,
+not SMILES strings". A canonical form over SMILES would have changed the
+content hash of every file holding that compound on an upgrade that changed
+no chemistry, and rerun everything below it. The key did not move.
+
+This is why `representation` records the **identity** as part of its value: a
+set named by structure strings has an identity its own toolkit can change
+under it, and must not compare equal to one named by keys.
+
+### The standardisation state is what moves the key
+
+Twelve of thirty molecules, within a single RDKit version. Aspirin, arriving
+as its sodium salt, has three keys — `JZLOKWGVGHYBKD-…-M` raw,
+`BSYNRYMUTXBXSQ-…-M` salt-stripped, `BSYNRYMUTXBXSQ-…-N` salt-stripped and
+neutralised, which is the key plain aspirin gets. Warfarin's keto and enol
+forms are two keys raw and one after tautomer normalisation. Tetracycline's
+*first* block changes, so the two keys look like unrelated substances.
+
+That is the dimension, demonstrated rather than argued for. The values the
+design quotes are asserted on one interpreter by
+`tests/test_inchikey_stability.py`; if a future release changes one, that is
+where it surfaces, and it would be a finding about InChIKey rather than a bug
+in Ligase.
+
+### Where §4.4 was wrong
+
+It describes the state as "salt-stripped, tautomer-normalised,
+charge-neutralised, **stereo kept**". Stereo is not kept. RDKit's tautomer
+canonicaliser removes stereochemistry at an sp3 centre inside a tautomeric
+system, and a carboxylic acid's alpha-carbon is inside one, so ibuprofen's
+two enantiomers both arrive as `HEFNNWSXXWATRW-UHFFFAOYSA-N`.
+
+So the axis records `stereo-discarded` as an operation that *was applied*,
+observed rather than requested, and `lg.chem.standardize` checks its own work
+asymmetrically — see below.
+
+## The value type
+
+`dim/representation.rs`. An `Identity` (`InChIKey` or `Smiles`) and a closed
+set of `Standardisation` operations, held in one canonical order with repeats
+collapsed, so set equality is a slice comparison and one state renders as the
+same sentence every time. That matters because the sentence appears in three
+places that must agree: an error message, a file's own representation line,
+and a conversion's target.
+
+The operations are a **closed enum** on `CoordinateSystem`'s grounds: a value
+the engine cannot render is a value it cannot explain, so a file naming an
+operation the engine has never heard of is a format error naming the four it
+knows rather than a state carried along unread.
+
+`Representation::parse` and `Representation::spell` are the two directions of
+one spelling. A unit test round-trips every state through both, because a
+step that wrote a line its own loader read as something else would be the
+worst kind of bug this design could have.
+
+## The file shape, and what is not read
+
+A tab-separated table read by the existing `load::table` reader, optionally
+preceded by `#` lines of which one may be the representation. The identity
+column is `inchikey` where there is one and `smiles` otherwise; neither is a
+format error naming both and listing the columns the file does have.
+
+**No chemistry format is read.** No SDF, no MOL, no `.smi`, no `.cdx`. That
+is D35's first clause applied rather than argued around: chemistry *has*
+standard formats and RDKit reads them properly, so a kind admitted because
+one of them was convenient would be a parser. The axis is the grounds; the
+TSV is the cheapest envelope that can carry a key column and a representation
+line.
+
+`Table::read_after_comments` is new, and lives with the reader rather than in
+either caller, because the loader and the canonical form must agree about
+where the header starts. One of them disagreeing would hash a file the engine
+had described differently.
+
+## Where the representation comes from
+
+| Source | When |
+|---|---|
+| `Source::Declared` | the user stated it, and it parses |
+| `Source::Inferred` | read from the file's `#ligase representation:` line |
+| `Source::Inferred` | the table names its molecules by structure, so the names *are* the structures |
+| unknown, with a reason | the table names them by InChIKey and nothing said what produced them |
+
+The last row is the one with a decision in it. A table of keys with no line
+could be a ChEMBL download, which *is* standardised, or a vendor list, which
+is not. Assuming `as given` would be the engine inventing the most dangerous
+of the possible answers, and it would be a *known* value, so two such tables
+would agree. So the axis is a gap, and because `representation` is demanded
+wherever two of these kinds are joined, the table cannot quietly join
+anything until somebody says.
+
+A declared representation is **recorded, not verified**. That is D38's
+position on a declared namespace, reached by a shorter road: the engine has no
+chemistry, so it could not check the claim if it wanted to.
+
+## The canonical forms
+
+`canon/molecule_set.rs` records rows unordered; `canon/molecule_ranking.rs`
+writes them in order. They share the reader and the fields above the rows,
+and differ in one call — `record` against `ordered_record` — which is where
+D41 requires the difference to live. The ranking's module comment says why it
+does not sort, at the top where it cannot be missed, and its test asserts the
+*contrast* over the same two files rather than a bare inequality.
+
+**The representation is hashed as a field, and that is load-bearing rather
+than tidy.** A step key is hash(function code, parameters, input content
+hashes, tool versions) — dimensions are not in it. Two tables with a
+byte-identical InChIKey column and different standardisation lines mean
+different things, so without the line in the content hash the cache would
+serve one when the pipeline asked for the other. Everywhere else in `canon` a
+field is hashed because it is part of what a file says; here, leaving it out
+would be a correctness bug.
+
+Nothing is dropped. The other `#` lines are hashed too, in order: unlike a
+served JSON document, a table nobody fetched carries no serving system's
+signature, so there is no volatile set to appeal to.
+
+### One check `entity_set` deliberately does not make
+
+`canon::entity_set` does not check which column holds the identifiers,
+because it is not told — a canonical form is computed from a path and a kind,
+and the identifier column is a loader argument. Here the column's name is
+fixed by the kind, so this *can* check and therefore must: without it any
+one-column text file parses as a molecule table and hashes as the canonical
+form of something it is not. A JSON document is one such file, since every
+line is a row of one field. That was a real bug, caught by the test for it.
+
+## Why the chemistry is in Python, and how that is proved
+
+Computing an InChIKey needs RDKit. RDKit is a Python package, so an extra can
+reach it — unlike the remote store's cargo feature, which is why *that* extra
+is empty. The alternative was linking an InChI library into the core, which
+would have ended the promise `tests/default_build.rs` defends: that
+`pip install ligase-bio` needs no toolchain beyond Rust.
+
+So the division is:
+
+| | Needs RDKit? |
+|---|---|
+| loading a molecule table, reading its representation | no |
+| hashing it, early cutoff, the cache | no |
+| refusing to join two sets that disagree | no |
+| propagating the axis through a step | no |
+| *producing* a set whose standardisation is known | **yes** |
+
+A claim about what an install needs is checked against what the install does,
+not asserted in prose. Four tests:
+
+- `default_build.rs::a_default_build_does_the_whole_of_the_chemistry_checking`
+  loads two tables and asserts the refusal, in a build with no features.
+- `test_default_install.py::test_importing_ligase_imports_no_chemistry` runs a
+  subprocess and asserts `rdkit` is in no entry of `sys.modules`. That is
+  what notices the day somebody moves the import to the top of `chem.py` —
+  which is how an install story is lost: not by a decision, by a convenience.
+- `test_a_molecule_set_loads_and_checks_with_no_toolkit_at_all` does the
+  Python half of the first, from inside a process that *has* RDKit, by making
+  `import rdkit` raise.
+- `test_standardising_without_the_toolkit_names_the_extra` asserts the error
+  names `pip install 'ligase-bio[chem]'` and says what works without it. The
+  precedent is `ligase store status`, which tells a user which build they
+  have rather than leaving them to the release notes.
+
+And the docs site builds with no chemistry toolkit: the guide's examples are
+over committed fixtures and the `capture_diagnostics.py` scenarios need no
+RDKit. A site that could not build without the optional extra would have made
+it mandatory in everything but name.
+
+## Standardisation is a conversion
+
+`convert.rs` gains a second entry. `standardize` crosses `representation`,
+reads its destination from the same `to=` every conversion reads, and can
+**fail** for some inputs — which is what keeps it a conversion rather than a
+rename, in `convert`'s own words.
+
+It is the first entry whose body is **Python**, and nothing in the registry
+had to change for that: an entry is metadata about an axis, and who runs the
+crossing is the caller's business. That is the first real evidence that the
+registry takes a row rather than a redesign, which is what D5 wanted of it
+before `liftover` and `rename_contigs` arrive.
+
+Its failures follow `map_identifiers`' contract: twenty molecules named
+individually, the rest carried by a count, and nothing dropped in silence.
+
+### The version capture, which is not a `tool=`
+
+A library step declares `tool=` and the engine probes `<tool> --version`.
+RDKit has no executable to probe. So `lg.chem.standardize` reads
+`rdkit.__version__` **before** building the step and passes it as a
+parameter, which puts it in the step's cache key.
+
+Read inside the body it would not be. The step would then serve a cached
+answer across an upgrade that could have changed every key it computed, which
+is exactly the failure D42's version clause was written for — where
+`bwa --version` printed a complaint identical for every release and upgrading
+the aligner moved no key at all.
+
+### The asymmetric stereo check
+
+Stereo loss is observed, not requested, so the step compares what it did
+against what it was asked for — and the two directions are not equally
+dangerous, so they are not treated alike:
+
+- **stereo discarded, not declared** → an **error**, naming the count. Two
+  sets would otherwise agree while one of them has lost the difference
+  between an active enantiomer and an inactive one.
+- **declared, nothing discarded** → a **note**. It can only cause a refusal
+  a user fixes by declaring one thing consistently.
+
+That asymmetry is the one M10a settled for case folding, applied to a second
+axis: a false agreement is unrecoverable, and a loud refusal is not.
+
+## Gaps, named
+
+- **`source_set` is not claimed**, though a compound library merged from
+  three vendors is genuinely assembled, and the axis exists. It is declined
+  because nothing here can *read* it: which vendor a compound came from is a
+  column, an attribute, not a fact about the set. An axis the loader cannot
+  fill is the unexercised value type M7's standing requirement exists to
+  prevent. Closing it means deciding whether a per-row source column can be
+  read as a set, which is a different question from a graph's per-edge
+  provenance and is not answered here.
+- **A declared representation cannot be verified.** The engine has no
+  chemistry, so a wrong declaration on a hand-written table passes. The step
+  checks its own work; nothing checks a user's claim about a table somebody
+  else standardised.
+- **One state, one toolkit.** `representation` records the operations, not
+  which toolkit applied them. Two sets standardised to the same state by
+  RDKit and by another toolkit compare **equal**, and the measurement says
+  nothing about whether they should: it measured RDKit against itself across
+  time, not RDKit against OpenEye. Recording the toolkit would be a wider
+  claim than the evidence supports, and measuring it is the next experiment
+  rather than a line in this milestone.
+- **RDKit cannot be cited, and the reason is an engine gap worth naming.**
+  A step the project ships resolves its tool to a curated reference rather
+  than declaring one (D24, D42), and that resolution is keyed on the tool a
+  step declares with `tool=`. But `tool=` also means *a program the engine
+  runs to ask its version*: `VersionProbe` executes it with arguments and
+  reads a line of its output. RDKit is a library with no executable, so it
+  cannot be a `tool=` — which is why this step declares `tool="ligase"` and
+  carries the toolkit version as a parameter instead.
+
+  The version therefore reaches the cache key, which is the half that
+  matters for correctness, and the citation does not, which is the half that
+  matters for a reference list. Adding a row to `prov/cite.rs` would not fix
+  it: nothing would look the row up. Closing it means letting a tool be a
+  library — a probe that imports rather than execs, and a citation key that
+  does not assume a program — and that is a change to D42's machinery rather
+  than a line in this milestone. Until then RDKit is a dependency a methods
+  section does not credit, which is a real shortfall and is recorded as one.
+- **The whole table is read into memory** by the canonical form, as a gene
+  list's is and for the same reason. A library larger than memory is not
+  readable today and nothing pretends otherwise.

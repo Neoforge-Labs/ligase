@@ -20,7 +20,7 @@ from __future__ import annotations
 from glob import glob
 from typing import TYPE_CHECKING, TypeVar
 
-from . import _core, hivdb, remotes
+from . import _core, chem, hivdb, remotes
 from .audit import AuditReport, StepAudit
 from .convert import map_identifiers, map_ranked_identifiers
 from .errors import (
@@ -62,6 +62,8 @@ from .types import (
     EntitySet,
     Intervals,
     KnowledgeGraph,
+    MoleculeRanking,
+    MoleculeSet,
     RankedList,
     Reads,
     Reference,
@@ -97,6 +99,8 @@ __all__ = [
     "LoadError",
     "Methods",
     "MethodsGap",
+    "MoleculeRanking",
+    "MoleculeSet",
     "PinnedReference",
     "Pipeline",
     "RankedList",
@@ -126,6 +130,7 @@ __all__ = [
     "__version__",
     "alignment",
     "check_step",
+    "chem",
     "dimension_errors",
     "entity_set",
     "handle",
@@ -134,6 +139,8 @@ __all__ = [
     "knowledge_graph",
     "map_identifiers",
     "map_ranked_identifiers",
+    "molecule_ranking",
+    "molecule_set",
     "query",
     "ranked_list",
     "reads",
@@ -605,6 +612,123 @@ def knowledge_graph(
     )
 
 
+def molecule_set(
+    path: str,
+    *,
+    organism: str | Sequence[str] | None = None,
+    representation: str | None = None,
+    subject: str | None = None,
+    release: str | None = None,
+) -> MoleculeSet:
+    """Load a set of molecules from a tab-separated table.
+
+    The type the `representation` dimension exists for. The same substance
+    has different InChIKeys depending on what was done to it before the key
+    was computed: of thirty ordinary drugs measured across six RDKit
+    releases, twelve change key under a different standardisation state,
+    and aspirin has three. So two compound sets prepared differently
+    overlap in nothing for the substances affected while the rest still
+    match, and what comes out is a hit rate that is small, non-zero and
+    reads as poor enrichment rather than as a mismatch.
+
+    Nothing about two columns of twenty-seven-character keys says which
+    standardisation produced them. That is what makes this the one
+    dimension in Ligase no glance at the data can catch, and why the engine
+    refuses to join two sets that disagree about it.
+
+    The table needs an `inchikey` column or a `smiles` column. Every other
+    column is carried without being read, a score or an activity included.
+    A `#ligase representation:` line above the header is where the
+    dimension is read from, and `lg.chem.standardize` is what writes one.
+
+    Args:
+        path: The tab-separated table, optionally gzipped.
+        organism: The organisms the compounds were measured against. A
+            compound table does not record them.
+        representation: How this table's names were arrived at, spelled as
+            `inchikey; salt-stripped, charge-neutralised` — an identity,
+            then the standardisations applied, or `as given` for none.
+            Left out, it is read off the table's own representation line;
+            a table of InChIKeys with no such line leaves the dimension
+            **unknown**, never `as given`, because a ChEMBL download is
+            standardised and a vendor list is not, and assuming the weaker
+            state would be inventing the most dangerous of the possible
+            answers.
+        subject: What the set is of when that is one named thing: a target,
+            an assay, a therapeutic area. Compared by equality.
+        release: Which release of a compound collection this came from,
+            such as `ChEMBL 34`. Compared by equality, so 34 and 35 do not
+            match — which is the point.
+
+    Returns:
+        The loaded set.
+
+    Raises:
+        ValueError: If `organism` names none, if `subject` or `release` is
+            blank, or if `representation` is not a spelling the engine can
+            read.
+        TypeError: If `organism` is neither a string nor a sequence of
+            strings.
+        LoadError: If the file cannot be read, has no header row, has
+            neither identity column, holds a row its header cannot account
+            for, or carries a representation line naming a standardisation
+            the engine does not know.
+
+    Note:
+        A declared representation is **recorded, not verified**. The engine
+        has no chemistry — computing an InChIKey needs RDKit, which is an
+        optional extra and not a dependency of the core — so it cannot
+        check the claim. `lg.chem.standardize` checks its own work instead,
+        which is the half that can be checked.
+    """
+    return MoleculeSet(
+        _core.load_molecule_set(path, organism, representation, subject, release)
+    )
+
+
+def molecule_ranking(
+    path: str,
+    *,
+    organism: str | Sequence[str] | None = None,
+    representation: str | None = None,
+    subject: str | None = None,
+    release: str | None = None,
+) -> MoleculeRanking:
+    """Load a ranking of molecules, whose row order is the answer.
+
+    Everything `lg.molecule_set` reads, with one difference that is the
+    whole reason the type exists: the canonical form **keeps the row
+    order**. A ranking of docked compounds answers which of them to order,
+    rank is the row position, and the same ten thousand compounds in two
+    orders are two different answers. A cache that sorted them would serve
+    one for the other in silence, and for a virtual screen the order
+    decides the length of the prefix anybody actually buys.
+
+    A score column is optional and compared exactly, with no tolerance: no
+    drift has been measured for one, and a guessed tolerance would be baked
+    into every cache key below it.
+
+    Args:
+        path: The tab-separated table, optionally gzipped, in rank order.
+        organism: As `lg.molecule_set`.
+        representation: As `lg.molecule_set`.
+        subject: As `lg.molecule_set` — for a ranking this is usually the
+            target the compounds were scored against.
+        release: As `lg.molecule_set`.
+
+    Returns:
+        The loaded ranking.
+
+    Raises:
+        ValueError: As `lg.molecule_set`.
+        TypeError: As `lg.molecule_set`.
+        LoadError: As `lg.molecule_set`.
+    """
+    return MoleculeRanking(
+        _core.load_molecule_ranking(path, organism, representation, subject, release)
+    )
+
+
 def remote(
     locator: str,
     *,
@@ -618,6 +742,7 @@ def remote(
     identifier_namespace: str | None = None,
     subject: str | None = None,
     source_set: Sequence[str] | None = None,
+    representation: str | None = None,
 ) -> DatasetT:
     """Fetch a pinned remote input, and load what arrives.
 
@@ -694,6 +819,11 @@ def remote(
         subject: What the data is about, when that is one named thing.
         source_set: The sources a knowledge graph was assembled from. Left
             out, they are read off the graph's own nodes and edges.
+        representation: How a molecule table's names were arrived at,
+            spelled as `inchikey; salt-stripped, charge-neutralised`. Left
+            out, it is read off the table's own representation line -- and
+            a downloaded table of InChIKeys usually has none, so this is
+            the fetch that most often needs it.
 
     Returns:
         The loaded data, of the class `kind` named -- so the call is typed
@@ -737,6 +867,7 @@ def remote(
             identifier_namespace,
             subject,
             list(source_set) if source_set is not None else None,
+            representation,
         )
     )
 
@@ -754,6 +885,7 @@ def query(
     identifier_namespace: str | None = None,
     subject: str | None = None,
     source_set: Sequence[str] | None = None,
+    representation: str | None = None,
 ) -> DatasetT:
     """Record a live query's answer, or replay the answer already recorded.
 
@@ -827,6 +959,10 @@ def query(
         source_set: The sources a knowledge graph was assembled from. Left
             out, they are read off the graph's own nodes and edges -- which
             for a query means off the answer the service gave.
+        representation: How a molecule table's names were arrived at,
+            spelled as `inchikey; salt-stripped, charge-neutralised`. A
+            service that answers with compounds rarely says what
+            standardised them, so this is usually the only way to state it.
 
     Returns:
         The loaded data, of the class `kind` named, carrying the dimensions
@@ -868,6 +1004,7 @@ def query(
             identifier_namespace,
             subject,
             list(source_set) if source_set is not None else None,
+            representation,
         )
     )
 

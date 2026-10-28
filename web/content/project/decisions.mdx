@@ -940,8 +940,8 @@ change to the validation suite rather than to the engine.
 
 ## D35 — A kind must bring a dimension that catches a documented silent failure
 
-The engine knows eight kinds of data, and every request for a ninth arrives
-the same way: a project has files in a format Ligase does not know, and
+The engine knew eight kinds of data when this was written, and every request
+for one more arrives the same way: a project has files in a format Ligase does not know, and
 teaching it the format looks like a morning's work.
 
 A kind earns its place only if it brings a **dimension whose mismatch is a
@@ -2099,3 +2099,333 @@ names what it cannot account for. A number in a paper was the one thing the
 record could not account for and never mentioned. This is the fourth
 instance of an existing promise rather than a new capability, which is why it
 cost no store, no dimension and no dependency.
+## D47 — A molecule's identity is its standardisation, not its structure
+
+An InChIKey is a hash of a molecular structure. Standardisation changes the
+structure on purpose — that is what it is for — so it changes the key. Nothing
+about the key says which standardisation produced it.
+
+That would be a curiosity if it were rare. It is not. Measured across six
+RDKit releases spanning four years, with thirty input structures in six
+standardisation states each, **twelve of the thirty get a different InChIKey
+under a different state**. The thirty were marketed drugs, salt forms and
+tautomer pairs, not cases chosen to make a point. Aspirin, arriving as its
+sodium salt the way a supplier ships it, has three identities:
+
+| What was done to it | InChIKey |
+|---|---|
+| nothing | `JZLOKWGVGHYBKD-UHFFFAOYSA-M` |
+| salts stripped | `BSYNRYMUTXBXSQ-UHFFFAOYSA-M` |
+| salts stripped, charges neutralised | `BSYNRYMUTXBXSQ-UHFFFAOYSA-N` |
+
+The last two differ in the final character, which is the charge block, and
+the third is the key plain aspirin gets.
+
+So `representation` is a dimension: an **identity**, and the **operations**
+applied before the names were computed. Two sets whose representations
+disagree do not join.
+
+### Why this is the strongest case for a dimension the project has had
+
+[D38](#d38--identifier-namespaces-never-coerce)'s failure is visible. `TP53`
+is not `ENSG00000141510`, and anybody who looks at two columns sees it in a
+second; the dimension catches something a careful person would also have
+caught, faster and more reliably.
+
+This one is invisible. Both files are columns of twenty-seven-character
+InChIKeys, in one format, from one piece of software. There is no glance that
+distinguishes them, and no amount of care substitutes for being told. A check
+that catches only what inspection would also catch is a convenience; a check
+that catches what inspection *cannot* is why the engine exists.
+
+The overlap it produces is also the worst possible size. The unaffected
+compounds still match, so two sets that differ in standardisation overlap in
+roughly the fraction of their compounds that have no salt, no charge and no
+tautomer — tens of per cent, which is exactly the range people attribute to
+assay noise, library composition or a real finding. A zero would have been a
+gift.
+
+### The failure is documented, not conceivable
+
+D35 requires a *documented* silent failure. According to PubMed:
+
+- Fourches, Muratov & Tropsha, *Trust, but verify: on the importance of
+  chemical structure curation in cheminformatics and QSAR modeling research*,
+  J Chem Inf Model 50:1189–1204 (2010),
+  [DOI](https://doi.org/10.1021/ci100176x). Names the exact operations this
+  axis records — removal of counterions, salts and mixtures, normalisation of
+  chemotypes, **curation of tautomeric forms**, deletion of duplicates — as
+  mandatory steps, with case studies where performing them is what made the
+  modelling work.
+- Fourches, Muratov & Tropsha, *Trust, but Verify II: A Practical Guide to
+  Chemogenomics Data Curation*, J Chem Inf Model 56:1243–1252 (2016),
+  [DOI](https://doi.org/10.1021/acs.jcim.6b00129).
+- Bento *et al.*, *An open source chemical structure curation pipeline using
+  RDKit*, J Cheminform 12:51 (2020),
+  [DOI](https://doi.org/10.1186/s13321-020-00456-1). ChEMBL's own
+  standardiser, whose stated reason for existing is this failure: incoming
+  compounds are not standardised consistently, and standardisation is what
+  makes it possible to compare and integrate data on the same compound from
+  different sources.
+
+The third settles it. A database of nearly two million compounds built a
+three-stage standardiser *because* comparing compounds across sources does
+not otherwise work. That is not a conceivable mismatch; it is infrastructure
+somebody built to avoid one.
+
+### Why the identity is part of the value
+
+Because the alternative moves. In the same six releases that left every
+InChIKey untouched, RDKit's canonical SMILES for cisplatin changed:
+
+```text
+2022.09.5-2024.09.6  Cl[Pt]Cl.N.N
+2025.09.6-2026.09.1  N.N.[Cl][Pt][Cl]
+```
+
+Its InChIKey, `LXZZYRPGZAFOLE-UHFFFAOYSA-L`, did not move at all. A set named
+by structure strings therefore has an identity its own toolkit can change
+under it, and must not compare equal to one named by keys.
+
+This is also, measured, why §4.4's instruction to hash InChIKeys rather than
+SMILES was right. A canonical form over SMILES would have moved the content
+hash of every file holding that compound on an upgrade that changed no
+chemistry.
+
+### Why the operations are a closed set
+
+[`CoordinateSystem`](#d9--coordinates-are-semantics-not-encoding)'s grounds: a
+value the engine cannot render is a value it cannot explain. Four operations
+are recognised — `salt-stripped`, `tautomer-normalised`,
+`charge-neutralised`, `stereo-discarded` — and a file naming a fifth is a
+format error naming the four, rather than a state carried along unread. A
+canonicaliser or a loader that reads the parts it understands and skips the
+rest is the lenient kind `canon`'s own module comment calls dangerous.
+
+They are also phrased as what was **applied**, so an absent operation means
+it was not done. That polarity is what makes `stereo-discarded` the name
+rather than `stereo-kept`: the dangerous state is the one that lost
+something, so it is the one with a name.
+
+### Stereochemistry is observed, and the check is asymmetric
+
+§4.4 describes the standardisation state as "salt-stripped,
+tautomer-normalised, charge-neutralised, **stereo kept**". Stereo is not
+kept. RDKit's tautomer canonicaliser removes stereochemistry at an sp3 centre
+inside a tautomeric system, and a carboxylic acid's alpha-carbon is inside
+one, so ibuprofen's two enantiomers both arrive as
+`HEFNNWSXXWATRW-UHFFFAOYSA-N`. Two enantiomers are routinely one active
+compound and one inactive one.
+
+A user asking for tautomer normalisation cannot be expected to predict that.
+So the standardiser **checks its own work**, and the two directions are not
+treated alike, because they are not equally dangerous:
+
+- **stereo discarded and not declared** is an **error**, naming the count.
+  Two sets would otherwise agree while one of them has lost the difference
+  between an active enantiomer and an inactive one, which is the false
+  agreement this engine exists to refuse.
+- **declared and nothing discarded** is a **note**. It can only cause a
+  refusal a user fixes by declaring one thing consistently.
+
+That is the asymmetry [M10a](/project/milestones/#m10a--pinned-remotes-and-the-blob-tier)
+settled for case folding, applied to a second axis: a false agreement is
+unrecoverable, and a loud refusal is not.
+
+### And a declared representation is recorded, not verified
+
+As a declared namespace is ([D38](#d38--identifier-namespaces-never-coerce)),
+and for a sharper reason: the engine has no chemistry
+([D49](#d49--the-engine-knows-no-chemistry)), so it could not check the claim
+if it wanted to.
+
+That sits beside M13's finding, which
+[D45](#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it)
+states as a rule: **a declaration nothing can check is a comment.** It is not
+a contradiction, and the difference is worth being precise about. A claim's
+text is the *whole* of a claim, so a `Claims` section that only reprinted it
+would be a comment dressed as a check. A representation is one of two
+statements about a molecule table, and the other one — what the standardiser
+actually did — *is* checked, by the step that did it. Nor is the declaration
+the normal case: the normal case is a line the standardiser wrote, read off
+the file, which is D44's habit on a second axis. A declaration is the fallback
+for a table somebody else prepared, and it is better than the alternative,
+which is an axis unusable for exactly the in-house sets that most need it. The step that does the standardising checks its own work,
+which is the half that can be checked; nothing checks a user's claim about a
+table somebody else prepared. That limit is named on
+[the architecture page](/project/architecture/molecules/) rather than
+smoothed over.
+
+## D48 — A kind may also earn its place by its canonical form
+
+[D35](#d35--a-kind-must-bring-a-dimension-that-catches-a-documented-silent-failure)
+says a kind earns its place only by bringing a dimension whose mismatch is a
+documented silent failure. Written that way, the rule **does not admit
+`RankedList`**, which the project shipped in
+[M12](/project/milestones/#m12--ranked-lists): a ranked list carries exactly
+the dimensions an `EntitySet` carries, and
+[the catalogue](/reference/dimensions/) says so in as many words.
+
+So either M12 was outside the rule, or the rule has a second limb nobody
+wrote down. It has one, and this is where it is written down, because
+`MoleculeRanking` is the second kind to need it.
+
+This is the second reading of D35's limits to be recorded, and the two are
+about different things.
+[D45](#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it)
+observes that D35 asks a **kind** to bring a dimension, so it does not apply
+to a feature that is not a kind — by its letter `ligase audit`, the bundle
+and the citation table would all fail. This decision is about the kinds the
+rule *does* govern, where the letter was too narrow for one the project had
+already shipped.
+
+**A kind also earns its place if it brings a canonical form whose absence
+makes the cache serve a wrong answer.**
+
+That is not a loosening of D35. It is the same standard — a silent failure,
+plausible and attributable to anything but bookkeeping — relocated from the
+data to the engine, and [D41](#d41--in-a-ranked-list-rank-order-is-the-result)
+already states it in full for the one case that existed: a ranking whose
+canonical form sorted its rows would declare two different answers identical,
+and a cache keyed on that form would serve one when the pipeline asked for the
+other, in silence. A ranking of ten thousand docked compounds is that failure
+with more at stake than a ranking of genes, because the order decides the
+length of the prefix anybody actually buys.
+
+### What the limb does not admit
+
+It is narrower than it looks, and the narrowness is the point.
+
+A kind qualifies only where **the same bytes, read as an existing kind, would
+hash to something that means a different thing**. That is why it admits a
+ranked sibling and nothing else so far: `MoleculeRanking` over a compound
+table and `RankedList` over a gene list are each the exact inverse of an
+existing kind's canonical form over the very same file, and there is no way
+to express that as a flag without putting the difference somewhere it does not
+live.
+
+It does **not** admit a kind that merely wants a different parser, a different
+set of columns, or a tidier name. A kind whose canonical form would be some
+other kind's with extra fields hashed is that other kind, and the extra
+fields are columns. The question to ask is not "does this want its own
+canonical form?" but "would sharing one make the cache return the wrong
+answer?", and for everything the project has declined so far the answer is no.
+
+### Which is also why `BindingScores` was renamed
+
+§4.4 of the v0.2 design asked for a `BindingScores` kind. Examined axis by
+axis it brings nothing: its target is `subject`, its compounds carry
+`representation`, its collection's version is `release`, its scoring function
+and software are provenance that already enter the cache key
+([D32](#d32--a-step-says-what-its-own-work-rested-on),
+[D42](#d42--a-library-step-ships-with-its-dimensions-its-citation-and-its-canonical-form)),
+and its score column is a column compared exactly with no tolerance (D41). It
+is admitted on this limb and on nothing else.
+
+And it is named `MoleculeRanking`, because the same file shape holds docking
+scores, QSAR-predicted activities, predicted solubilities and
+synthetic-accessibility scores, and only the first is a binding score. A kind
+named for one of the things it holds is a kind whose dimension table and error
+messages describe something the user is not holding — the objection
+`load::named_list` already records against sharing wording between kinds.
+
+## D49 — The engine knows no chemistry
+
+Computing an InChIKey needs a cheminformatics toolkit. The engine does not
+have one, will not link one, and does not need one.
+
+What the engine does with chemistry is compare two `representation` values and
+refuse to connect two molecule tables that disagree. That is string work. It
+needs no structure parsing, no ring perception and no hashing of molecular
+graphs — so loading a compound table, reading its representation, hashing it,
+early cutoff, the cache and every refusal all work on an install with no
+toolkit at all.
+
+What needs RDKit is **producing** a set whose standardisation is known, and
+that is one function in one Python module.
+
+### Why not in the core
+
+The core would have to link an InChI library, which is C. D6's zero-config
+install and [D43](#d43--the-store-is-a-blob-tier-with-pluggable-backends-the-index-is-local-and-rebuildable)'s
+keep-cmake-out rule exist to keep `pip install ligase-bio` free of a
+toolchain beyond Rust, and `tests/default_build.rs` is what defends that
+claim against a convenience. A chemistry dependency in the core would end it
+for every user, genomics ones included, to serve the subset doing chemistry.
+
+### Why the extra is not empty, unlike the other one
+
+The `remote-store` extra adds no Python package, because there is none to add:
+its backend is behind a cargo feature and a Python extra cannot reach one.
+RDKit **is** a Python package, so `chem = ["rdkit>=2024.3.1"]` does the thing
+an extra is for. The two extras look alike and are not: one is a documented
+name for a build you have to make yourself, and this one installs something.
+
+The floor is measured rather than guessed. InChIKeys were identical across
+2022.09.5, 2023.09.6, 2024.09.6, 2025.09.6, 2026.03.6 and 2026.09.1, so any
+of those would serve on the chemistry; 2024.3 is the floor because it is the
+first series with NumPy 2 wheels, and the two series below it need `numpy<2`
+pinned somewhere an extra has no way to say.
+
+### And the claim is proved rather than stated
+
+A sentence in the docs would say all of the above and would not notice the day
+somebody moves `import rdkit` to the top of the module. So the division is
+asserted: a subprocess imports `ligase` and checks that no entry of
+`sys.modules` names RDKit, a default Rust build loads two compound tables and
+refuses the join between them, and the error for a missing toolkit is asserted
+to name `pip install 'ligase-bio[chem]'` and to say what works without it —
+the precedent being `ligase store status`, which tells a user which build they
+have rather than leaving them to the release notes.
+
+The docs site builds with no toolkit either. A site that could not be built
+without the optional extra would have made it mandatory in everything but
+name.
+
+## D50 — Standardisation is a conversion, so its failures are named
+
+`lg.chem.standardize` is registered in the conversion registry rather than
+being an ordinary step that happens to write molecules.
+
+It fits the shape [D38](#d38--identifier-namespaces-never-coerce) built:
+it crosses exactly one axis, it reads its destination from the same `to=`
+every conversion reads, and — the clause that matters — it is **an operation
+that can fail for some inputs**. A structure that does not parse, a mixture
+with no single parent, a molecule the standardiser rejects. `convert`'s own
+module comment draws the line: "a conversion that could not fail would be a
+rename, and a rename across a dimension is what D38 forbids."
+
+So its failures follow the contract `map_identifiers` already keeps
+([D26](#d26--a-field-that-cannot-be-dropped-is-noticed-instead)): a molecule
+that does not standardise is left out of the output and **named**, twenty
+individually with the rest carried by a count, in the run report, in
+provenance, in a bundle and in the methods paragraph. The output being smaller
+than the input is a recorded fact rather than a discrepancy somebody notices
+six months later.
+
+### What registering it proved about the registry
+
+[D5](#d5--dimensions-as-types-units-analogy) wanted the registry shaped so
+that `liftover` and `rename_contigs` would be rows rather than redesigns. This
+is the first evidence either way, and it is better evidence than another row
+of the same kind would have been: `standardize`'s body is **Python**, because
+the engine has no chemistry, where `map_identifiers`' is Rust.
+
+Nothing in the registry had to change. An entry is metadata about an axis —
+which axis, which kinds, what the user supplies — and who runs the crossing is
+the caller's business. That the registry took a Python-bodied entry without a
+change of shape is worth knowing before the next two arrive.
+
+### The version capture, which could not be a `tool=`
+
+[D42](#d42--a-library-step-ships-with-its-dimensions-its-citation-and-its-canonical-form)
+has a step declare `tool=` and the engine probe `<tool> --version`, so that an
+upgrade reruns the steps it could have changed. RDKit has no executable to
+probe: it is a library.
+
+So the version is read **before** the step is built and passed as one of its
+parameters, which puts it in the cache key. Read inside the body it would not
+be, and the step would serve a cached answer across an upgrade that could have
+changed every key it computed — which is precisely the failure D42's version
+clause was written for, where `bwa --version` printed a complaint identical for
+every release ever shipped and upgrading the aligner moved no key at all.

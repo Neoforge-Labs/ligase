@@ -1,0 +1,158 @@
+---
+title: "My compound overlap is almost empty"
+description: "Two compound sets standardised differently. Both are correct files of correct InChIKeys, and the same substance has a different key in each — so the overlap is small, non-zero, and reads as poor concordance rather than as a mismatch."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# My compound overlap is almost empty
+
+<Lede>
+You score your hit list against the vendor library it was screened from, and
+the overlap is forty compounds out of two thousand. Not zero — zero would
+have told you something. Forty. So you conclude the assay was noisy, or the
+screen enriched for something the library under-represents, and you write
+that down. What actually happened is that one of the two files had its salts
+stripped and the other did not.
+</Lede>
+
+## What actually happened
+
+An InChIKey is a hash of a molecular structure. Change the structure and the
+key changes, and "standardisation" is a set of operations that change the
+structure on purpose:
+
+- **Salt stripping** removes counterions and solvents, so aspirin sodium
+  becomes aspirin.
+- **Charge neutralisation** removes formal charges where a neutral form
+  exists, so a deprotonated carboxylate becomes a carboxylic acid.
+- **Tautomer normalisation** picks one tautomer per tautomeric form, so
+  warfarin's keto and enol forms become one compound.
+
+Every one of those is correct, standard, recommended practice. None of them
+is recorded in the file that comes out. So a column of InChIKeys is the
+answer to a question — *which substances are these, and in what state?* — of
+which the file states only the first half.
+
+## How big the difference actually is
+
+Measured, across thirty ordinary drugs: **twelve of them get a different
+InChIKey under a different standardisation state.** Forty per cent, and the
+thirty were marketed drugs, salts and tautomer pairs, not curiosities.
+
+Aspirin, arriving as its sodium salt the way a vendor ships it, has three
+keys:
+
+| What was done to it | InChIKey |
+|---|---|
+| nothing | `JZLOKWGVGHYBKD-UHFFFAOYSA-M` |
+| salts stripped | `BSYNRYMUTXBXSQ-UHFFFAOYSA-M` |
+| salts stripped, charges neutralised | `BSYNRYMUTXBXSQ-UHFFFAOYSA-N` |
+
+Read the last two again. They differ in the **final character** — the charge
+block — and the third is the key plain aspirin gets. So a library that had its
+salts stripped and a library that had its salts stripped *and* was neutralised
+do not match on aspirin, and nothing about either column of keys suggests why.
+
+Warfarin is the other shape of the same problem. Its keto and enol forms are
+two keys raw and one key after tautomer normalisation, so a normalised set and
+an unnormalised set overlap in **nothing** for warfarin.
+
+## Why the answer is plausible rather than absurd
+
+Because the unaffected compounds still match. Eighteen of those thirty are
+the same key either way, so an overlap of two libraries that differ in
+standardisation is not empty: it is roughly the fraction of compounds that
+happen to have no salt, no charge and no tautomer. That is a number in the
+tens of per cent, which is exactly the range people attribute to assay noise,
+library composition, a different cut-off, or a real biological finding.
+
+A zero would have been a gift. A plausible number gets written up.
+
+## Why no glance at the data catches it
+
+This is the part that makes it worse than [the gene-set version of the same
+failure](/silent-failures/mixed-identifiers/). Two gene lists in different
+identifier spaces *look* different: `TP53` is visibly not
+`ENSG00000141510`, and anyone eyeballing two columns sees it in a second.
+
+Two compound sets standardised differently look identical. Both are columns of
+twenty-seven-character strings in the same format, with the same shape, from
+the same software. `BSYNRYMUTXBXSQ-UHFFFAOYSA-M` and
+`BSYNRYMUTXBXSQ-UHFFFAOYSA-N` are one character apart, in the block nobody
+reads, and no amount of looking at the file will tell you which standardiser
+produced it.
+
+## Where it bites hardest
+
+**A virtual screen scored against its own library.** The hit list was
+standardised by the docking pipeline; the library was downloaded. The
+enrichment you compute is partly a measurement of your standardiser.
+
+**Merging two vendor catalogues.** The same substance arrives twice under two
+keys, so a "unique compounds" count is wrong, and anything that averages over
+compounds double-counts the ones that were duplicated.
+
+**A benchmark against a public set.** ChEMBL standardises its compounds and
+says so; a vendor file does not. Comparing your hits to ChEMBL measures the
+difference between your preparation and theirs, and comes out plausible.
+
+**Stereochemistry, which is the one with a clinical edge** and has a page of
+its own, because its symptom is the opposite of this one's: RDKit's tautomer
+canonicaliser discards stereochemistry, so two enantiomers become one key and
+an overlap comes back too **large** rather than too small. See [my inactive
+enantiomer came back as a hit](/silent-failures/discarded-stereo/).
+
+## What Ligase says instead
+
+A compound table carries a line saying what standardised it, and the engine
+reads it:
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.molecularStandardisation}</Diagnostic>
+
+Both states are printed in full, the operations that make them differ are
+named on their own line, and the closing question is the one to act on — *were
+the two sets standardised differently?* — rather than a restatement that they
+are not equal.
+
+Where the two differ by more than one operation, that line is the whole of
+what is worth reading:
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.molecularTautomers}</Diagnostic>
+
+And two tables that each say **nothing** are refused rather than allowed to
+agree by silence, because agreeing by silence is this failure in its purest
+form:
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.molecularUndeclared}</Diagnostic>
+
+## How it is caught
+
+```python
+import ligase as lg
+
+library = lg.molecule_set("vendor/catalogue.tsv")
+hits = lg.molecule_set("screen/hits.tsv")
+
+# Nothing has run. This read both files' representation lines.
+lg.check_step("overlap", {"library": library, "hits": hits})
+```
+
+The fix is yours to choose, and the engine does not choose it for you:
+standardise both to the same state, or stop comparing them and say in the
+write-up that they are not comparable. What it will not do is let the
+comparison through and let you read the result as chemistry.
+
+Where you do standardise, `lg.chem.standardize` writes the state it arrived
+in onto its own output, so the next step is checked against a true statement
+rather than a claim nobody verified. See [comparing compound
+sets](/guide/molecules/).
+
+<Note kind="caution" title="Salt stripping alone is not enough">
+`FragmentParent` leaves the deprotonated carboxylate behind, so a
+salt-stripped set still does not match a neutral one. Two files that both say
+"salts removed" can still fail to overlap if only one of them was also
+neutralised — which is the trap in the aspirin table above, and the reason
+`representation` records the operations as a **set** rather than as a single
+level of cleanliness.
+</Note>

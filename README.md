@@ -233,11 +233,13 @@ Each has a page of its own under
 by the symptom you would actually notice — "my gene-set overlap is empty" —
 with the error the engine really produces.
 
-Eight kinds carry dimensions today: `Reads`, `Reference`, `Alignment`,
-`Variants`, `Intervals`, `EntitySet`, `RankedList` and `ResistanceReport`.
-A kind earns its place only by bringing a dimension whose mismatch is a
-documented silent failure; a kind that is merely a file format with a schema
-is a parser, and Ligase is not trying to be a parser collection.
+Eleven kinds carry dimensions today: `Reads`, `Reference`, `Alignment`,
+`Variants`, `Intervals`, `EntitySet`, `RankedList`, `KnowledgeGraph`,
+`MoleculeSet`, `MoleculeRanking` and `ResistanceReport`. A kind earns its
+place only by bringing a dimension whose mismatch is a documented silent
+failure, or a canonical form whose absence would make the cache serve a wrong
+answer; a kind that is merely a file format with a schema is a parser, and
+Ligase is not trying to be a parser collection.
 
 ## Install
 

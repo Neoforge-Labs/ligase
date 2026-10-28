@@ -27,6 +27,16 @@
 //! are the next two entries, and they are the reason for two choices here
 //! that would otherwise look like over-design.
 //!
+//! `standardize` (`representation` to `representation`) is the second entry
+//! and tested both choices early. It crosses one axis, it reads its
+//! destination from the same `to=`, and it can fail for some inputs — a
+//! structure that does not parse, a mixture with no single parent — which is
+//! what keeps it a conversion rather than a rename. It is also the first
+//! whose body is **Python**, because computing an InChIKey needs RDKit and
+//! the engine core knows no chemistry (D49). Nothing here had to change for
+//! that: an entry is metadata about an axis, and who runs the crossing is
+//! the caller's business.
+//!
 //! The **axis** is a field rather than being implied by the conversion's
 //! name, because [`Graph`](crate::graph)'s propagation needs to know which
 //! one dimension of the output to overwrite and which to inherit — and
@@ -53,7 +63,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use crate::dim::{Dimension, Dimensions, IdentifierNamespace, Source};
+use crate::dim::{Dimension, Dimensions, IdentifierNamespace, Representation, Source};
 use crate::load::{self, Table};
 use crate::note::Note;
 use crate::types::DataKind;
@@ -74,20 +84,40 @@ pub struct Conversion {
 impl Conversion {
     /// Every registered conversion.
     ///
-    /// One, in v0.2. The registry is the deliverable; see the module
-    /// comment on the two entries that come next.
-    pub const ALL: [Self; 1] = [Self {
-        name: "map_identifiers",
-        axis: Dimension::IdentifierNamespace,
-        // Both kinds of named list, because a ranking crosses spaces as
-        // readily as a set does and `graph::propagate` guards the axis
-        // override on this list: a `map_identifiers` step annotated to
-        // return a ranking and missing from here would carry the *input's*
-        // namespace onto an output that has crossed. The guard is for a
-        // kind with no such axis, and a ranked list has one.
-        kinds: &[DataKind::EntitySet, DataKind::RankedList],
-        supplies: "a mapping table",
-    }];
+    /// Two: `map_identifiers` from v0.2 and `standardize` from v0.3. The
+    /// registry is the deliverable; see the module comment on the two
+    /// entries that come next.
+    pub const ALL: [Self; 2] = [
+        Self {
+            name: "map_identifiers",
+            axis: Dimension::IdentifierNamespace,
+            // Both kinds of named list, because a ranking crosses spaces as
+            // readily as a set does and `graph::propagate` guards the axis
+            // override on this list: a `map_identifiers` step annotated to
+            // return a ranking and missing from here would carry the
+            // *input's* namespace onto an output that has crossed. The
+            // guard is for a kind with no such axis, and a ranked list has
+            // one.
+            kinds: &[DataKind::EntitySet, DataKind::RankedList],
+            supplies: "a mapping table",
+        },
+        // The second edge, and the first whose body is Python rather than
+        // Rust: computing an InChIKey needs RDKit, and the engine core knows
+        // no chemistry (D49). The registry takes it without changing shape,
+        // which is worth knowing before `liftover` arrives.
+        //
+        // Both molecule kinds, because a ranking is standardised as readily
+        // as a set is and `graph::propagate` guards the axis override on
+        // this list: a `standardize` step annotated to return a ranking and
+        // missing from here would carry the *input's* representation onto an
+        // output that has crossed.
+        Self {
+            name: "standardize",
+            axis: Dimension::Representation,
+            kinds: &[DataKind::MoleculeSet, DataKind::MoleculeRanking],
+            supplies: "nothing but the state to arrive in",
+        },
+    ];
 
     /// The parameter every conversion reads its target from.
     ///
@@ -138,6 +168,9 @@ impl Conversion {
                 }
                 Ok(Target::IdentifierNamespace(namespace))
             }
+            Dimension::Representation => Representation::parse(declared)
+                .map(Target::Representation)
+                .map_err(|detail| format!("`{}`: {detail}", self.name)),
             // Unreachable while `ALL` holds one entry, and the arm that
             // `liftover` and `rename_contigs` will each replace. Stated as
             // an error rather than a panic: a registry entry whose axis has
@@ -159,6 +192,8 @@ impl Conversion {
 pub enum Target {
     /// The identifier space the output is in.
     IdentifierNamespace(IdentifierNamespace),
+    /// The standardisation state the output's names were arrived at by.
+    Representation(Representation),
 }
 
 impl Target {
@@ -167,6 +202,7 @@ impl Target {
     pub const fn axis(&self) -> Dimension {
         match self {
             Self::IdentifierNamespace(_) => Dimension::IdentifierNamespace,
+            Self::Representation(_) => Dimension::Representation,
         }
     }
 
@@ -179,6 +215,9 @@ impl Target {
         match self {
             Self::IdentifierNamespace(namespace) => {
                 dimensions.identifier_namespace = crate::dim::Dim::known(namespace.clone(), source);
+            }
+            Self::Representation(representation) => {
+                dimensions.representation = crate::dim::Dim::known(representation.clone(), source);
             }
         }
     }

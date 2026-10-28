@@ -79,6 +79,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   [binding a number you published](https://ligase.neoforgelabs.tech/guide/claims/)
   and [the internals](https://ligase.neoforgelabs.tech/project/architecture/provenance/#claims).
 
+- **`MoleculeSet` and `MoleculeRanking`, and the axis that admits them.** An
+  InChIKey is a hash of a molecular structure, and standardisation changes
+  the structure on purpose — so the same substance has several keys, and the
+  file records which one it used nowhere. Measured across six RDKit releases
+  spanning four years, **twelve of thirty ordinary drugs get a different key
+  under a different standardisation state**; aspirin, arriving as its sodium
+  salt, has three, two of which differ in the final character.
+
+  So two compound sets prepared differently overlap in nothing for the
+  substances affected while the rest still match — an overlap in the tens of
+  per cent, which is exactly the range people attribute to assay noise or a
+  real finding. And unlike every other axis, no inspection catches it: two
+  columns of twenty-seven-character InChIKeys look identical whatever
+  produced them.
+
+  `representation` records an identity (`InChIKey` or `SMILES`) and the
+  standardisations applied, as a closed set. It is read off a
+  `#ligase representation:` line the standardiser writes, declared where a
+  file has none, and **demanded** wherever two molecule tables are joined, so
+  two tables that each say nothing are refused rather than allowed to agree
+  by silence. See
+  [my compound overlap is almost empty](https://ligase.neoforgelabs.tech/silent-failures/mixed-standardisation/).
+
+- **A chemistry extra, `pip install 'ligase-bio[chem]'`.** The engine
+  acquires no chemistry at all: comparing two representations and refusing a
+  join is string work, so loading a compound table, hashing it, early cutoff
+  and every refusal work on a default install. RDKit is needed only to
+  *produce* a standardised set, and lives in one module that imports it
+  inside the one function that uses it.
+
+  That division is asserted rather than described — a subprocess checks that
+  `import ligase` imports no RDKit, a featureless Rust build does the whole
+  of the checking, and the error for a missing toolkit names the extra and
+  says what works without it. The docs site builds with no toolkit either.
+
+- **`lg.chem.standardize`, the conversion registry's second entry.** It
+  crosses `representation`, and molecules that do not standardise are named
+  and counted rather than dropped. It is also the first entry with a
+  **Python** body, and the registry needed a row and nothing else — which is
+  better evidence than another Rust-bodied row that `liftover` and
+  `rename_contigs` will be rows rather than redesigns.
+
 ### Changed
 
 - **`Methods.accounted_for` covers claims as well as gaps.** It was
@@ -89,6 +131,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   changes for a pipeline that declares no claims — including the methods
   text and summary, which are byte-identical, since a heading over an empty
   section is a promise nobody made.
+
+- **Measured: InChIKey is stable across RDKit versions, and canonical SMILES
+  is not.** 1,080 keys over six releases, zero disagreements between
+  versions. In the same span RDKit's canonical SMILES for cisplatin changed
+  while its InChIKey did not move at all:
+
+  ```text
+  2022.09.5-2024.09.6  Cl[Pt]Cl.N.N
+  2025.09.6-2026.09.1  N.N.[Cl][Pt][Cl]
+  ```
+
+  So a canonical form over SMILES would have moved the content hash of every
+  file holding that compound on an upgrade that changed no chemistry. The
+  probe is `scripts/measure_inchikey_stability.py` and the values are
+  asserted by `tests/test_inchikey_stability.py`.
+
+- **RDKit's tautomer canonicaliser discards stereochemistry**, which the
+  design brief it was built from said it did not. Ibuprofen's two
+  enantiomers both become `HEFNNWSXXWATRW-UHFFFAOYSA-N` — one active
+  compound and one inactive one, indistinguishable. So `representation`
+  records `stereo-discarded` as an operation that *was applied* rather than
+  one somebody chose, and the standardiser checks its own work
+  asymmetrically: stereo lost and not declared is an error naming the count,
+  declared and not lost is only a note.
+
+- **The scope rule's second limb is now written down.** D35 admits a kind
+  only for a dimension, which does not admit `MoleculeRanking` — nor, read
+  the same way, the `RankedList` the project shipped in M12. The limb both
+  rely on is that a kind may also earn its place by a canonical form whose
+  absence makes the cache serve a wrong answer, which is D41's argument
+  relocated from the data to the engine. It is deliberately narrow, and D48
+  says what it does not admit.
 
 - **The README explains the project rather than announcing it.** It had a
   paragraph of premise, a status line and an install command, and not one

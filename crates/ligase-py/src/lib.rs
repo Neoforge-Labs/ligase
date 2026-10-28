@@ -19,7 +19,7 @@ use ligase::audit;
 use ligase::cache::Cache;
 use ligase::check::{Binding, CheckError, check_step as core_check_step, render, summarise};
 use ligase::convert::{self, Conversion};
-use ligase::dim::{CoordinateSystem, Dimension};
+use ligase::dim::{CoordinateSystem, Dimension, Representation};
 use ligase::exec::{self, Host, Options, Recipe, Stores, Task};
 use ligase::graph::{Argument, Converted, Graph, NodeId, StepSpec};
 use ligase::hash::ContentHash;
@@ -780,7 +780,7 @@ fn declared_label(name: &str, value: Option<String>) -> PyResult<Option<String>>
 /// name rather than the value, because a bundle carries the pipeline file
 /// and a token written in the pipeline would travel in every bundle.
 #[pyfunction]
-#[pyo3(signature = (locator, kind, mode, cache=None, auth_env=None, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None, source_set=None))]
+#[pyo3(signature = (locator, kind, mode, cache=None, auth_env=None, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None, source_set=None, representation=None))]
 #[expect(
     clippy::too_many_arguments,
     reason = "every declarable dimension, plus the three a query needs; \
@@ -800,6 +800,7 @@ fn resolve_query(
     namespace: Option<String>,
     subject: Option<String>,
     source_set: Option<Vec<String>>,
+    representation: Option<String>,
 ) -> PyResult<PyDataset> {
     let parsed =
         Locator::parse(locator).map_err(|error| RemoteError::new_err(error.to_string()))?;
@@ -867,6 +868,7 @@ fn resolve_query(
         identifier_namespace: declared_label("namespace", namespace)?,
         subject: declared_label("subject", subject)?,
         source_set: sources(source_set)?,
+        representation: declared_representation(representation)?,
     };
 
     // Loaded from the store exactly as a local file is, so a recorded
@@ -882,6 +884,8 @@ fn resolve_query(
         DataKind::RankedList => load::ranked_list(primary, None, &declared),
         DataKind::Reads => load::reads(primary, None, &declared),
         DataKind::KnowledgeGraph => load::knowledge_graph(primary, &declared),
+        DataKind::MoleculeSet => load::molecule_set(primary, &declared),
+        DataKind::MoleculeRanking => load::molecule_ranking(primary, &declared),
         DataKind::ResistanceReport => {
             return Err(PyValueError::new_err(
                 "a resistance report is something Ligase produces, not \
@@ -940,7 +944,7 @@ fn kind_named(kind: &str) -> PyResult<DataKind> {
 /// here, while the pipeline is still being read, which is what makes "it
 /// fails before any step runs" true rather than merely intended.
 #[pyfunction]
-#[pyo3(signature = (locator, kind, digest=None, cache=None, offline=false, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None, source_set=None))]
+#[pyo3(signature = (locator, kind, digest=None, cache=None, offline=false, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None, source_set=None, representation=None))]
 #[expect(
     clippy::too_many_arguments,
     reason = "every declarable dimension, plus the three a remote needs; \
@@ -960,6 +964,7 @@ fn resolve_remote(
     namespace: Option<String>,
     subject: Option<String>,
     source_set: Option<Vec<String>>,
+    representation: Option<String>,
 ) -> PyResult<PyDataset> {
     let parsed =
         Locator::parse(locator).map_err(|error| RemoteError::new_err(error.to_string()))?;
@@ -1017,6 +1022,7 @@ fn resolve_remote(
         identifier_namespace: declared_label("namespace", namespace)?,
         subject: declared_label("subject", subject)?,
         source_set: sources(source_set)?,
+        representation: declared_representation(representation)?,
     };
 
     // Loaded from the store exactly as a local file is, so a remote's
@@ -1037,6 +1043,8 @@ fn resolve_remote(
         DataKind::RankedList => load::ranked_list(primary, None, &declared),
         DataKind::Reads => load::reads(primary, mates.first().map(PathBuf::as_path), &declared),
         DataKind::KnowledgeGraph => load::knowledge_graph(primary, &declared),
+        DataKind::MoleculeSet => load::molecule_set(primary, &declared),
+        DataKind::MoleculeRanking => load::molecule_ranking(primary, &declared),
         DataKind::ResistanceReport => {
             return Err(PyValueError::new_err(
                 "a resistance report is something Ligase produces, not \
@@ -1073,6 +1081,7 @@ fn load_reference(
         identifier_namespace: None,
         subject: None,
         source_set: None,
+        representation: None,
     };
     load::reference(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -1096,6 +1105,7 @@ fn load_alignment(
         identifier_namespace: None,
         subject: None,
         source_set: None,
+        representation: None,
     };
     load::alignment(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -1119,6 +1129,7 @@ fn load_variants(
         identifier_namespace: None,
         subject: None,
         source_set: None,
+        representation: None,
     };
     load::variants(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -1142,6 +1153,7 @@ fn load_reads(
         identifier_namespace: None,
         subject: None,
         source_set: None,
+        representation: None,
     };
     load::reads(&r1, r2.as_deref(), &declared)
         .map(|inner| PyDataset { inner })
@@ -1173,6 +1185,7 @@ fn load_intervals(
         identifier_namespace: None,
         subject: None,
         source_set: None,
+        representation: None,
     };
     load::intervals(&path, format, &declared)
         .map(|inner| PyDataset { inner })
@@ -1199,6 +1212,7 @@ fn load_entity_set(
         identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
         subject: declared_label("subject", subject)?,
         source_set: None,
+        representation: None,
     };
     load::entity_set(&path, id_column, &declared)
         .map(|inner| PyDataset { inner })
@@ -1225,6 +1239,7 @@ fn load_ranked_list(
         identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
         subject: declared_label("subject", subject)?,
         source_set: None,
+        representation: None,
     };
     load::ranked_list(&path, id_column, &declared)
         .map(|inner| PyDataset { inner })
@@ -1251,10 +1266,98 @@ fn load_knowledge_graph(
         identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
         subject: declared_label("subject", subject)?,
         source_set: sources(source_set)?,
+        representation: None,
     };
     load::knowledge_graph(&path, &declared)
         .map(|inner| PyDataset { inner })
         .map_err(to_py)
+}
+
+/// Load a set of molecules from a tab-separated table.
+#[pyfunction]
+#[pyo3(signature = (path, organism=None, representation=None, subject=None, release=None))]
+fn load_molecule_set(
+    path: PathBuf,
+    organism: Option<Organisms>,
+    representation: Option<String>,
+    subject: Option<String>,
+    release: Option<String>,
+) -> PyResult<PyDataset> {
+    load::molecule_set(
+        &path,
+        &molecules_declared(organism, representation, subject, release)?,
+    )
+    .map(|inner| PyDataset { inner })
+    .map_err(to_py)
+}
+
+/// Load a ranking of molecules, whose row order is the answer.
+#[pyfunction]
+#[pyo3(signature = (path, organism=None, representation=None, subject=None, release=None))]
+fn load_molecule_ranking(
+    path: PathBuf,
+    organism: Option<Organisms>,
+    representation: Option<String>,
+    subject: Option<String>,
+    release: Option<String>,
+) -> PyResult<PyDataset> {
+    load::molecule_ranking(
+        &path,
+        &molecules_declared(organism, representation, subject, release)?,
+    )
+    .map(|inner| PyDataset { inner })
+    .map_err(to_py)
+}
+
+/// Read a representation, and give back the one spelling for it.
+///
+/// Exported so that `ligase.chem` has the *same* validator the loaders and
+/// the conversion registry use, rather than a second reading of the same
+/// string in Python. It also canonicalises: the operations come back
+/// deduplicated and in one order, so the line a standardiser writes is the
+/// line its own loader reads back to the same value.
+#[pyfunction]
+fn parse_representation(spelled: &str) -> PyResult<String> {
+    Representation::parse(spelled)
+        .map(|representation| representation.spell())
+        .map_err(PyValueError::new_err)
+}
+
+/// A declared representation, checked before anything is loaded.
+///
+/// Parsed here rather than only in the loader so that a spelling the engine
+/// cannot read is a `ValueError` naming what it does know, instead of a
+/// declaration silently ignored and a dimension mysteriously unknown. The
+/// loader is deliberately lenient about the same thing, because a *file*
+/// Ligase did not write is not the user's mistake to be shouted at for; a
+/// declaration is.
+fn declared_representation(declared: Option<String>) -> PyResult<Option<String>> {
+    let declared = declared_label("representation", declared)?;
+    if let Some(spelled) = declared.as_deref() {
+        Representation::parse(spelled).map_err(PyValueError::new_err)?;
+    }
+    Ok(declared)
+}
+
+/// What a molecule loader was told, checked before it is handed over.
+fn molecules_declared(
+    organism: Option<Organisms>,
+    representation: Option<String>,
+    subject: Option<String>,
+    release: Option<String>,
+) -> PyResult<Declared> {
+    let representation = declared_representation(representation)?;
+    Ok(Declared {
+        organism: organisms(organism)?,
+        build: None,
+        frame: None,
+        samples: None,
+        release: declared_label("release", release)?,
+        identifier_namespace: None,
+        subject: declared_label("subject", subject)?,
+        source_set: None,
+        representation,
+    })
 }
 
 #[pyfunction]
@@ -1273,6 +1376,7 @@ fn load_samples(
         identifier_namespace: None,
         subject: None,
         source_set: None,
+        representation: None,
     };
     load::samples(&paths, paired, &declared)
         .map(|datasets| {
@@ -2014,6 +2118,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_entity_set, m)?)?;
     m.add_function(wrap_pyfunction!(load_ranked_list, m)?)?;
     m.add_function(wrap_pyfunction!(load_knowledge_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_representation, m)?)?;
+    m.add_function(wrap_pyfunction!(load_molecule_set, m)?)?;
+    m.add_function(wrap_pyfunction!(load_molecule_ranking, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_axis, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_target_parameter, m)?)?;
     m.add_function(wrap_pyfunction!(map_identifiers, m)?)?;

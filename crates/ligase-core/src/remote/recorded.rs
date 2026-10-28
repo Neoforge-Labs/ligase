@@ -682,7 +682,10 @@ fn path_of(cache: &Cache, record: &QueryRecord) -> Result<PathBuf, QueryError> {
 /// read.
 fn suffix_for(kind: DataKind) -> String {
     match kind {
-        DataKind::EntitySet | DataKind::RankedList => ".tsv".to_owned(),
+        DataKind::EntitySet
+        | DataKind::RankedList
+        | DataKind::MoleculeSet
+        | DataKind::MoleculeRanking => ".tsv".to_owned(),
         DataKind::Reference => ".fasta".to_owned(),
         DataKind::Variants => ".vcf".to_owned(),
         DataKind::Intervals => ".bed".to_owned(),

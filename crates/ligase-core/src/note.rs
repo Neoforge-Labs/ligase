@@ -200,6 +200,44 @@ pub enum Note {
         /// down the input the new leader came from.
         first: u32,
     },
+    /// A molecule the standardiser could not reduce to one structure.
+    MoleculeDidNotStandardise {
+        /// The molecule, exactly as the table names it.
+        molecule: String,
+    },
+    /// How many molecules did not standardise, named or not.
+    ///
+    /// The total beside the names, for `IdentifiersDidNotCross`'s reason: a
+    /// library of two hundred thousand compounds run through a standardiser
+    /// that rejects a fraction of them leaves thousands behind, and a report
+    /// that named every one and totalled none is not a report.
+    MoleculesDidNotStandardise {
+        /// How many, named or not.
+        count: u32,
+    },
+    /// Two or more structures standardised to one InChIKey.
+    ///
+    /// Not an error, and the rows are **not** dropped. A molecule set's
+    /// rows are a set, so a table naming one substance twice is not the
+    /// kind it claims to be — but which of the two rows an analysis meant
+    /// is a question only its author can answer, and D38's argument against
+    /// coercing identifiers applies unchanged: dropping one would make the
+    /// output quietly smaller, and choosing one would be a guess about
+    /// whose attributes to carry. So both rows are kept and the collision
+    /// is named.
+    MoleculeNotUnique {
+        /// The key two or more structures arrived at.
+        inchikey: String,
+    },
+    /// `stereo-discarded` was declared and no molecule lost any.
+    ///
+    /// The *safe* half of an asymmetric check, which is why it is a note and
+    /// not an error. Claiming stereo was discarded when none was can only
+    /// refuse a join a user fixes by declaring one thing consistently. The
+    /// other direction -- stereo discarded and not declared -- is an error,
+    /// because two sets would then agree while one of them has lost the
+    /// difference between an active enantiomer and an inactive one.
+    StereoNotDiscarded,
     /// A remote whose bytes the source rewrote without changing what they
     /// mean (D39).
     ///
@@ -322,6 +360,10 @@ impl Note {
             Self::IdentifierAmbiguous { .. } => "identifier-ambiguous",
             Self::IdentifierCollides { .. } => "identifier-collides",
             Self::IdentifiersDidNotCross { .. } => "identifiers-did-not-cross",
+            Self::MoleculeDidNotStandardise { .. } => "molecule-did-not-standardise",
+            Self::MoleculesDidNotStandardise { .. } => "molecules-did-not-standardise",
+            Self::MoleculeNotUnique { .. } => "molecule-not-unique",
+            Self::StereoNotDiscarded => "stereo-not-discarded",
             Self::RanksRenumbered { .. } => "ranks-renumbered",
         }
     }
@@ -372,6 +414,10 @@ impl Note {
             | Self::IdentifierAmbiguous { identifier }
             | Self::IdentifierCollides { identifier } => identifier.clone(),
             Self::IdentifiersDidNotCross { count } => format!("count={count}"),
+            Self::MoleculeDidNotStandardise { molecule } => molecule.clone(),
+            Self::MoleculesDidNotStandardise { count } => format!("count={count}"),
+            Self::MoleculeNotUnique { inchikey } => inchikey.clone(),
+            Self::StereoNotDiscarded => String::new(),
             Self::RanksRenumbered { first } => format!("first={first}"),
         }
     }
@@ -428,6 +474,16 @@ impl Note {
             "identifier-collides" => Some(Self::IdentifierCollides {
                 identifier: value.to_owned(),
             }),
+            "molecule-did-not-standardise" => Some(Self::MoleculeDidNotStandardise {
+                molecule: value.to_owned(),
+            }),
+            "molecules-did-not-standardise" => Some(Self::MoleculesDidNotStandardise {
+                count: counted(value, "count")?,
+            }),
+            "molecule-not-unique" => Some(Self::MoleculeNotUnique {
+                inchikey: value.to_owned(),
+            }),
+            "stereo-not-discarded" => Some(Self::StereoNotDiscarded),
             "identifiers-did-not-cross" => Some(Self::IdentifiersDidNotCross {
                 count: counted(value, "count")?,
             }),
@@ -529,6 +585,23 @@ impl Note {
                 "Compare this against the size of your input before reading the result: check \
                  the mapping table's release if it is more than a small fraction."
             }
+            Self::MoleculeDidNotStandardise { .. } => {
+                "Look at this structure by hand: a standardiser rejects a mixture with no \
+                 single parent, and a structure it cannot read is usually one that was never \
+                 valid."
+            }
+            Self::MoleculesDidNotStandardise { .. } => {
+                "Compare this against the size of your input before reading the result: a \
+                 large share usually means the structure column is not what it looks like."
+            }
+            Self::MoleculeNotUnique { .. } => {
+                "Decide which row this analysis is about and drop the others from the input, \
+                 or read the table as a ranking, whose rows are not a set."
+            }
+            Self::StereoNotDiscarded => {
+                "Drop `stereo-discarded` from the state you asked for, so this set still \
+                 joins others that kept their stereochemistry."
+            }
             Self::RanksRenumbered { .. } => {
                 "Take any cut-off -- a top ten, a significance line -- on the ranking before \
                  it was mapped, not after, and map the cut-off's members instead."
@@ -626,6 +699,32 @@ impl Note {
                 "The output is smaller than the input by this many entities. A conversion is a \
                  lookup, not a rename, so a count that is a large share of the input usually \
                  means the mapping table is from a different release than the list."
+            }
+            Self::MoleculeDidNotStandardise { .. } => {
+                "A molecule that does not standardise is left out of the output rather than \
+                 carried over unchanged, because carrying it would put a name in the old state \
+                 into a set that declares the new one. The output is therefore smaller than \
+                 the input, by exactly the molecules named in these notes."
+            }
+            Self::MoleculesDidNotStandardise { .. } => {
+                "The output is smaller than the input by this many molecules. Standardisation \
+                 is a computation that can fail, not a rename, so a count that is a large \
+                 share of the input usually means the structures are not what the column \
+                 header says."
+            }
+            Self::MoleculeNotUnique { .. } => {
+                "A molecule set's rows are a set, so a table naming one substance twice is not \
+                 the kind it claims to be: anything counting its compounds double-counts, and \
+                 a join on the key matches both rows. Standardising is what brought them \
+                 together -- a salt and its parent are two structures and one substance -- so \
+                 this is the standardiser telling you what it merged rather than a fault in \
+                 the input."
+            }
+            Self::StereoNotDiscarded => {
+                "The state this set declares is stricter than what was done to it, so it will \
+                 refuse to join sets that kept their stereochemistry and are otherwise \
+                 identical. That is the safe direction -- a refusal rather than a false \
+                 agreement -- which is why it is a note and not an error."
             }
             Self::RanksRenumbered { .. } => {
                 "Rank is the row position, so every row below a dropped one has moved up and \
@@ -733,6 +832,25 @@ impl fmt::Display for Note {
                 f,
                 "{count} identifiers did not cross into the target space, so the output is \
                  {count} entities smaller than the input"
+            ),
+            Self::MoleculeDidNotStandardise { molecule } => write!(
+                f,
+                "the molecule `{molecule}` could not be standardised, so it is not in the \
+                 output"
+            ),
+            Self::MoleculesDidNotStandardise { count } => write!(
+                f,
+                "{count} molecules could not be standardised, so the output is {count} \
+                 molecules smaller than the input"
+            ),
+            Self::MoleculeNotUnique { inchikey } => write!(
+                f,
+                "two or more structures standardise to `{inchikey}`, so this table names one \
+                 substance more than once"
+            ),
+            Self::StereoNotDiscarded => f.write_str(
+                "`stereo-discarded` was declared, and no molecule in this set lost any \
+                 stereochemistry",
             ),
             Self::RanksRenumbered { first } => write!(
                 f,
@@ -949,6 +1067,14 @@ mod tests {
                 identifier: "TP53P1".to_owned(),
             },
             Note::IdentifiersDidNotCross { count: 4000 },
+            Note::MoleculeDidNotStandardise {
+                molecule: "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]".to_owned(),
+            },
+            Note::MoleculesDidNotStandardise { count: 118 },
+            Note::MoleculeNotUnique {
+                inchikey: "BSYNRYMUTXBXSQ-UHFFFAOYSA-N".to_owned(),
+            },
+            Note::StereoNotDiscarded,
             Note::RanksRenumbered { first: 4 },
         ]
     }

@@ -24,7 +24,10 @@ fn bind(name: &str, dataset: Dataset) -> Binding {
 }
 
 #[test]
-fn the_three_axes_are_appended_so_earlier_reports_keep_their_order() {
+fn the_axes_added_since_are_appended_so_earlier_reports_keep_their_order() {
+    // M7 added three, M8 the fourth and M17 the fifth. The name said
+    // "three" until M17 and had been wrong since M8; a test whose name no
+    // longer describes what it asserts is a test nobody reads.
     assert_eq!(
         Dimension::ALL.map(Dimension::name),
         [
@@ -39,6 +42,7 @@ fn the_three_axes_are_appended_so_earlier_reports_keep_their_order() {
             "subject",
             "source_set",
             "identifier_namespace",
+            "representation",
         ]
     );
 }
@@ -66,6 +70,11 @@ fn release_applies_to_a_reference_and_to_the_kinds_that_name_entities() {
     // `source_set`, which it is alone in applying -- see
     // `knowledge_graph.rs::source_set_is_the_axis_this_kind_was_admitted_for`,
     // where that axis's arms are pinned.
+    //
+    // M17 added the fourth and fifth, and `ChEMBL 34` against `ChEMBL 35`
+    // is why: a compound collection is the versioned external resource
+    // D36 wrote the axis for. Their own axis is `representation`, pinned in
+    // `molecules.rs::representation_is_the_axis_these_kinds_were_admitted_for`.
     for kind in DataKind::ALL {
         assert_eq!(
             kind.applies(Dimension::Release),
@@ -75,6 +84,8 @@ fn release_applies_to_a_reference_and_to_the_kinds_that_name_entities() {
                     | DataKind::EntitySet
                     | DataKind::RankedList
                     | DataKind::KnowledgeGraph
+                    | DataKind::MoleculeSet
+                    | DataKind::MoleculeRanking
             ),
             "{kind:?}"
         );
@@ -82,7 +93,11 @@ fn release_applies_to_a_reference_and_to_the_kinds_that_name_entities() {
             kind.applies(Dimension::Subject),
             matches!(
                 kind,
-                DataKind::EntitySet | DataKind::RankedList | DataKind::KnowledgeGraph
+                DataKind::EntitySet
+                    | DataKind::RankedList
+                    | DataKind::KnowledgeGraph
+                    | DataKind::MoleculeSet
+                    | DataKind::MoleculeRanking
             ),
             "{kind:?}"
         );

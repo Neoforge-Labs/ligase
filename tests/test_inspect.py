@@ -240,3 +240,57 @@ def test_nothing_runs_and_no_cache_appears(
     # `inspect` reads headers. It has no graph to build and nothing to key,
     # so it must not leave a cache behind in the directory it was run from.
     assert list(tmp_path.iterdir()) == []
+
+
+def test_a_tsv_is_read_as_a_molecule_table_when_its_header_says_so(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Two kinds share the `.tsv` suffix, and a suffix cannot tell them
+    # apart, so the header does: a table with an `inchikey` column is a
+    # molecule set. That is as strong a marker as a VCF's `##fileformat`
+    # and not a guess -- nothing but a table of molecules carries it.
+    code = main(["inspect", fixture("molecules_library.tsv")])
+    assert code == 0
+
+    said = capsys.readouterr().out
+    assert "MoleculeSet" in said
+    assert "InChIKey, salt-stripped and charge-neutralised" in said
+    # And it is not read as a gene list, which would have inferred a
+    # namespace off the keys and described the file as something it is not.
+    # The namespace is reported as a category error rather than as a gap,
+    # which is the distinction this surface exists to draw.
+    assert "EntitySet" not in said
+    assert "identifier_namespace do not apply to a MoleculeSet" in said
+
+
+def test_a_tsv_with_no_inchikey_column_is_still_a_gene_list(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The other half of the same dispatch, asserted so that adding the
+    # molecule reading cannot have quietly taken the gene lists with it.
+    code = main(["inspect", fixture("entities_hgnc.tsv")])
+    assert code == 0
+
+    said = capsys.readouterr().out
+    assert "EntitySet" in said
+    assert "HGNC symbol" in said
+
+
+def test_two_compound_tables_standardised_differently_are_refused(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The ten-second trial on the failure this milestone exists for: two
+    # files off a shared drive, no pipeline, and a non-zero exit so the
+    # answer survives a shell pipeline.
+    code = main(
+        [
+            "inspect",
+            fixture("molecules_library.tsv"),
+            fixture("molecules_hits_salts.tsv"),
+        ]
+    )
+    assert code == 1
+
+    said = capsys.readouterr().out
+    assert "representation" in said
+    assert "Were the two sets standardised differently?" in said

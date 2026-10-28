@@ -47,11 +47,30 @@ pub enum DataKind {
     /// [`load::knowledge_graph`](crate::load::knowledge_graph) for the
     /// failure in full.
     KnowledgeGraph,
+    /// A set of molecules, named in one standardisation state (TSV).
+    ///
+    /// The kind `representation` admits. The same substance has different
+    /// InChIKeys depending on what was done to it before the key was
+    /// computed -- twelve of thirty ordinary drugs, measured -- and two
+    /// columns of keys look identical whatever produced them. See
+    /// [`Dimension::Representation`] and
+    /// [`load::molecule_set`](crate::load::molecule_set).
+    MoleculeSet,
+    /// The same, ranked: the row order is the result (TSV).
+    ///
+    /// Separate from [`Self::MoleculeSet`] for the reason
+    /// [`Self::RankedList`] is separate from [`Self::EntitySet`], and
+    /// admitted on the same grounds: it brings no axis its unranked sibling
+    /// does not bring, but a canonical form that sorted a ranking would
+    /// declare two different answers identical and the cache would serve
+    /// one for the other (D41, D48). For ten thousand docked compounds the
+    /// order decides the length of the prefix anybody orders.
+    MoleculeRanking,
 }
 
 impl DataKind {
     /// Every kind, so the Python layer can enumerate them.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
         Self::Reads,
         Self::Reference,
         Self::Alignment,
@@ -61,6 +80,8 @@ impl DataKind {
         Self::EntitySet,
         Self::RankedList,
         Self::KnowledgeGraph,
+        Self::MoleculeSet,
+        Self::MoleculeRanking,
     ];
 
     /// The name used in messages and in the Python API.
@@ -76,6 +97,8 @@ impl DataKind {
             Self::EntitySet => "EntitySet",
             Self::RankedList => "RankedList",
             Self::KnowledgeGraph => "KnowledgeGraph",
+            Self::MoleculeSet => "MoleculeSet",
+            Self::MoleculeRanking => "MoleculeRanking",
         }
     }
 
@@ -184,6 +207,40 @@ impl DataKind {
                 | Dimension::SourceSet,
             ) => true,
             (Self::KnowledgeGraph, _) => false,
+
+            // The molecule kinds, and the one axis they were admitted for.
+            // A compound table names substances, it is about something --
+            // a target, an assay, a therapeutic area -- and whatever named
+            // its compounds had a release, so it answers those three as the
+            // named lists do. What it brings is the fourth: what a name in
+            // it *is*, and what standardisation produced it.
+            //
+            // `identifier_namespace` is deliberately absent even though an
+            // InChIKey is an identifier space, because
+            // `representation.identity` already says which space this file
+            // is in. Two axes carrying one fact is D36's objection in
+            // mirror image, and it would make `required_pair` demand two
+            // things where one will do.
+            //
+            // `source_set` is absent too, and that one is a judgement
+            // rather than a category error: a library merged from three
+            // vendors *is* assembled. It is declined because nothing here
+            // can read it -- which vendor a compound came from is a column,
+            // an attribute, not a fact about the set -- and an axis the
+            // loader cannot fill is the unexercised value type M7's
+            // standing requirement exists to prevent.
+            //
+            // The ranking is here beside the set rather than below it for
+            // the reason the ranked list is beside the gene list: the two
+            // answer this question identically and differ only in their
+            // canonical form (D41). Were one given an axis the other
+            // lacked, the difference would have spread past the one place
+            // it is meant to live.
+            (
+                Self::MoleculeSet | Self::MoleculeRanking,
+                Dimension::Representation | Dimension::Subject | Dimension::Release,
+            ) => true,
+            (Self::MoleculeSet | Self::MoleculeRanking, _) => false,
         }
     }
 }

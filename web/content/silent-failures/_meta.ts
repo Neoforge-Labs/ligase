@@ -10,6 +10,8 @@ const meta: MetaRecord = {
   'shuffled-samples': 'My sample labels look swapped',
   'stale-numbers': 'My paper and my pipeline disagree',
   'mixed-identifiers': 'My gene-set overlap is empty',
+  'mixed-standardisation': 'My compound overlap is almost empty',
+  'discarded-stereo': 'My inactive enantiomer came back as a hit',
   'mixed-sources': 'My target ranking changed on its own',
   'mixed-organism': 'My pathogen results include host reads',
   'reference-frame': 'My resistance report names the wrong gene',
