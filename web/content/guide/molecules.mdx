@@ -108,6 +108,12 @@ clean = lg.chem.standardize(
 pip install 'ligase-bio[chem]'
 ```
 
+The step declares RDKit as its tool, so two things follow without your doing
+anything: the toolkit's version joins the cache key, and so an upgrade reruns
+the standardisation it could have changed; and `ligase methods` credits RDKit
+in its reference list, because a dependency an analysis rested on belongs in
+the write-up.
+
 Its output carries its own representation line, so everything downstream is
 checked against a statement the step can stand behind rather than one you
 typed. The step is a registered conversion across `representation`, which

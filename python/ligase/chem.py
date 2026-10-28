@@ -59,6 +59,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from . import _core
 from .errors import StepDefinitionError
 from .graph import step
 from .recipes import write
@@ -75,6 +76,11 @@ __all__ = ["standardize", "standardize_ranking", "toolkit_version"]
 #: The extra to install, named in every error this module raises for want of
 #: it. One spelling, in one place, so the instruction cannot drift.
 EXTRA = "pip install 'ligase-bio[chem]'"
+
+#: What the steps here declare as their tool, and the name the engine
+#: resolves RDKit's citation and its version from. A **library** rather than
+#: a program, which is the kind of tool D46 added.
+TOOL = "rdkit"
 
 #: How many molecules that did not standardise are named individually.
 #:
@@ -106,13 +112,12 @@ def toolkit_version() -> str:
         StepDefinitionError: If RDKit is not installed, naming the extra.
 
     Note:
-        The version is a step **parameter** rather than a `tool=`, and that
-        is a limit rather than a preference. `tool=` means a program the
-        engine runs to ask its version, and it is also what a citation
-        resolves from. A library is neither, so RDKit's version reaches the
-        cache key -- the half that matters for correctness -- and RDKit is
-        not credited in a methods section, which is the half that matters
-        for a reference list. See the architecture page.
+        It also **registers** the version with the engine, which is what
+        lets the steps here declare `tool="rdkit"` like any other tool
+        (D46). The engine cannot read it for itself: a library lives in
+        this interpreter rather than on `PATH`, so there is nothing to run
+        and ask. Registering it here means it is known before any cache key
+        is computed, because this is called while a step is being built.
     """
     try:
         import rdkit
@@ -123,7 +128,9 @@ def toolkit_version() -> str:
             "them, comparing their representations, refusing to join two that "
             "disagree -- needs no chemistry and works on a default install."
         ) from missing
-    return str(rdkit.__version__)
+    version = str(rdkit.__version__)
+    _core.register_library_version(TOOL, version)
+    return version
 
 
 def standardize(molecules: MoleculeSet, *, to: str) -> MoleculeSet:
@@ -167,7 +174,8 @@ def standardize(molecules: MoleculeSet, *, to: str) -> MoleculeSet:
         dropped in silence, so the output being smaller than the input is a
         recorded fact (D26).
     """
-    return _standardize(molecules, to=_checked(to), rdkit_version=toolkit_version())
+    toolkit_version()
+    return _standardize(molecules, to=_checked(to))
 
 
 def standardize_ranking(molecules: MoleculeRanking, *, to: str) -> MoleculeRanking:
@@ -188,24 +196,12 @@ def standardize_ranking(molecules: MoleculeRanking, *, to: str) -> MoleculeRanki
     Raises:
         StepDefinitionError: As `standardize`.
     """
-    return _standardize_ranking(
-        molecules, to=_checked(to), rdkit_version=toolkit_version()
-    )
+    toolkit_version()
+    return _standardize_ranking(molecules, to=_checked(to))
 
 
-def _set_body(molecules: MoleculeSet, *, to: str, rdkit_version: str) -> MoleculeSet:
-    """Standardise a set, with the toolkit version in the cache key."""
-
-    def produce(out: Path) -> list[Noticed]:
-        return _run(molecules.file, out, to)
-
-    return write(produce)
-
-
-def _ranking_body(
-    molecules: MoleculeRanking, *, to: str, rdkit_version: str
-) -> MoleculeRanking:
-    """Standardise a ranking, with the toolkit version in the cache key."""
+def _set_body(molecules: MoleculeSet, *, to: str) -> MoleculeSet:
+    """Standardise a set of molecules into their InChIKeys."""
 
     def produce(out: Path) -> list[Noticed]:
         return _run(molecules.file, out, to)
@@ -213,17 +209,29 @@ def _ranking_body(
     return write(produce)
 
 
-# A step's name is what provenance, the run report, the methods paragraph and
-# every error message call it -- and a user wrote `lg.chem.standardize`, not
-# the private function that carries the toolkit version into the cache key.
-# `@lg.step` takes the name off the function it decorates, so the name is set
-# here rather than leaving `_set_body` to surface in a methods section
-# somebody is going to publish.
+def _ranking_body(molecules: MoleculeRanking, *, to: str) -> MoleculeRanking:
+    """Standardise a ranking of molecules, keeping its order."""
+
+    def produce(out: Path) -> list[Noticed]:
+        return _run(molecules.file, out, to)
+
+    return write(produce)
+
+
+# A graph is built from decorated functions *without executing them*, so
+# nothing inside a step body runs early enough to register RDKit's version
+# before a cache key is computed. Hence a wrapper above each step: it
+# registers, then builds the step.
+#
+# The step takes its name from the function it decorates, and a step's name
+# is what provenance, the run report and the methods paragraph call it. So
+# the name is set here rather than leaving `_set_body` to surface in a
+# methods section somebody is going to publish.
 _set_body.__name__ = "standardize"
 _ranking_body.__name__ = "standardize_ranking"
 
-_standardize = step(tool="ligase", conversion="standardize")(_set_body)
-_standardize_ranking = step(tool="ligase", conversion="standardize")(_ranking_body)
+_standardize = step(tool=TOOL, conversion="standardize")(_set_body)
+_standardize_ranking = step(tool=TOOL, conversion="standardize")(_ranking_body)
 
 
 def _run(source: str, out: Path, to: str) -> list[Noticed]:
@@ -345,8 +353,6 @@ def _checked(to: str) -> str:
     back is canonical, so the line the step writes is the line its own loader
     reads back to the same value.
     """
-    from . import _core
-
     identity = to.partition(";")[0].strip().lower()
     if identity != "inchikey":
         raise StepDefinitionError(

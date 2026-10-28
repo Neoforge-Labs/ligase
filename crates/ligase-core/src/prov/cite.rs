@@ -93,6 +93,24 @@ pub const KNOWN: &[Citation] = &[
     // this table, and substituting the paper for a different algorithm to
     // make the entry look tidier would be the kind of plausible wrongness
     // D24 exists to refuse.
+    // The second entry whose software is not a program, after `hivdb`, and
+    // the reason `exec`'s tool taxonomy grew a third kind (D46). RDKit asks
+    // to be cited as its website rather than as a paper -- there is no
+    // RDKit paper -- so that is what is given. A journal reference
+    // substituted to make the row look like its neighbours would be the
+    // plausible wrongness D24 refuses.
+    //
+    // The DOI is Zenodo's concept DOI, which resolves to the archive of
+    // every release rather than to one of them. The release actually used
+    // is in the methods paragraph beside this reference, from the version
+    // the host registered, so the pair says which software and which
+    // version without this row having to move every quarter.
+    Citation {
+        tool: "rdkit",
+        text: "Landrum G et al. RDKit: Open-source cheminformatics. \
+               https://www.rdkit.org",
+        doi: "10.5281/zenodo.591637",
+    },
     Citation {
         tool: "bwa",
         text: "Li H (2013) Aligning sequence reads, clone sequences and assembly \
@@ -141,6 +159,32 @@ mod tests {
             citation.text
         );
         assert!(citation.render().contains("doi:10.48550/arXiv.1303.3997"));
+    }
+
+    #[test]
+    fn a_library_is_cited_for_the_software_it_is_rather_than_a_paper() {
+        // The second non-program in the table, after `hivdb`. There is no
+        // RDKit paper, so what it asks to be cited as is what is given --
+        // substituting a journal reference to make the row look like its
+        // neighbours would be the plausible wrongness D24 refuses.
+        let citation = of("rdkit").expect("rdkit is in the table");
+        assert!(citation.text.contains("rdkit.org"), "{}", citation.text);
+        assert!(citation.render().contains("doi:10.5281/zenodo.591637"));
+    }
+
+    #[test]
+    fn every_library_the_engine_knows_can_be_credited() {
+        // The invariant worth having, and the whole reason D46 exists: a
+        // library is admitted as a `tool=` so that a reviewer gets the
+        // reference. One in the taxonomy and not in this table would be
+        // software a methods section used and did not name, which is the
+        // asymmetry D24 refuses.
+        for tool in crate::exec::LIBRARY {
+            assert!(
+                of(tool).is_some(),
+                "`{tool}` is a library tool with no reference to give"
+            );
+        }
     }
 
     #[test]

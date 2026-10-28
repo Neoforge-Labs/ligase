@@ -114,6 +114,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   of the checking, and the error for a missing toolkit names the extra and
   says what works without it. The docs site builds with no toolkit either.
 
+- **A tool may be a library (D46).** `tool=` meant two things that coincide
+  only for a program: the name a citation resolves from, and something the
+  engine *execs* to ask its version. So a library could not be a tool at
+  all — RDKit is software an analysis rested on and a reviewer wants cited,
+  with nothing on `PATH` to interrogate.
+
+  There is now a third kind of tool, after a program the engine runs and a
+  built-in it carries: a library, whose version the host supplies because
+  the library lives in the interpreter rather than on `PATH`. The part of
+  D42 that was load-bearing is untouched — a library nothing registered is
+  an **error** naming it and what to install, never an empty version, since
+  a non-answer is the same text for every release and would move no cache
+  key.
+
+  `lg.chem.standardize` therefore declares `tool="rdkit"` like any other
+  step declares its tool, the version joins the cache key by the ordinary
+  mechanism rather than as a hand-passed parameter, and `ligase methods`
+  credits RDKit. The engine refuses to *run* a library even where a program
+  shares its name: what the step calls is the library, so a program of that
+  name would be a version of the wrong thing.
+
 - **`lg.chem.standardize`, the conversion registry's second entry.** It
   crosses `representation`, and molecules that do not standardise are named
   and counted rather than dropped. It is also the first entry with a
