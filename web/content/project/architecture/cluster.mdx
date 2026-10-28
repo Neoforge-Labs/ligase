@@ -1,0 +1,347 @@
+---
+title: "Cluster execution"
+description: "The lease protocol, the outer loop the scheduler grew and why it does not spend D27, and the three bugs that writing the tests found — two of them latent in M14 and invisible until a row's name stopped being the hash of its contents."
+---
+
+# Cluster execution
+
+`crates/ligase-core/src/store/lease.rs`, `crates/ligase-core/src/worker.rs`
+and the outer loop in `crates/ligase-core/src/exec.rs`. The user-facing
+account is [running on more than one machine](/concepts/cluster-execution);
+this is how it works and what it cost.
+
+| File | What it is |
+|---|---|
+| `store/lease.rs` | the advisory lease: probe, acquire, relinquish |
+| `worker.rs` | `Worker` (who this is) and `Lock` (its cache directory) |
+| `exec.rs` | the outer loop, `Attempt::Deferred`, and divergence |
+
+## What was chosen, and what was not
+
+**Not a scheduler client.** A site's Slurm is its own — partitions,
+accounts, QoS, time limits, a module system — so a submitter is either
+wrong at most sites or endlessly configurable at all of them, and Ligase
+would own job lifecycle, which is where workflow tools accumulate their
+weight. It also mistakes the gap: a group with a cluster knows how to
+start twenty of something. What they lack is twenty processes that can
+divide one pipeline without a coordinator.
+
+**Not a local worker pool.** That is M3, and has been since M3.
+
+**A coordinator-free worker any launcher can start N of.** `--worker`
+changes what a run *claims*; everything else about it is an ordinary run.
+
+## Correctness needs no lock
+
+Four facts, none of them added by this milestone:
+
+1. A step key is a hash of the code, the parameters, the inputs' canonical
+   hashes and the tool versions (`key.rs`). Nothing in it is about where
+   the cache lives.
+2. An object's name is the hash of its bytes, and the store is write-once.
+3. A published row is write-once too.
+4. A downstream key is built on the **canonical** hash of its inputs, not
+   on their bytes (`INPUT_POLICY = "canonical"`, D4).
+
+Two workers that compute one key therefore did the same work, and whoever
+publishes first has published an answer the other would have agreed with.
+Rows are write-once, so the second publish is dropped; the loser adopts
+the row that won. No step needs mutual exclusion.
+
+**(4) is what carries it.** Two workers almost never produce the same
+bytes — `@PG` holds the command line, which holds the staging path, which
+is named after the step's own key. The property M4 introduced to make
+early cutoff earnable is the property that makes lock-free distribution
+safe, and that is not a coincidence so much as the same observation used
+twice: the thing a step produces is what its output *means*.
+
+So the lease is an efficiency device, and the engine is correct with it
+mis-tuned, racing or absent. That is the property worth having on a
+machine nobody is watching: the thing that can break is the thing whose
+breakage costs CPU.
+
+### Where it breaks, and what happens there
+
+The argument needs `canonical(theirs) == canonical(ours)`. A kind whose
+canonical form does not fix its result breaks it, and so does a seeded
+stochastic step whose tool is stochastic in its thread count as well —
+two cluster nodes with different core counts being the normal case.
+
+A `steps` row therefore carries the output's canonical hash, so the worker
+whose publish was dropped learns for free, with no extra read, whether the
+row it lost to means what it computed. Equal is the ordinary byte
+divergence and says nothing; unequal goes on the run report.
+
+**On the report, and not as a `Note`.** This was the first shape tried and
+it is wrong. A `Note` is recorded with the cache entry and read back on
+every later hit, because a note is a fact about the output — a gene barely
+read stays barely read. A divergence is a fact about *this run on this
+worker*: somebody else got there first and disagreed. Persisting it would
+attach it to a key for good and report it to everyone who ever hit that
+key. So it goes where `RunReport::refused` goes, for that field's reason:
+it is the one event a user has to *read* rather than count.
+
+The divergence names the two canonical hashes and the step, and **not**
+the worker that published first. The lease row holds a name, but by the
+time a divergence is seen that lease may have been relinquished or
+superseded, so the name there is not reliably the publisher's.
+
+**Pinning such a step to one worker was considered and rejected.** It
+sounds safer and is worse: the answer would depend on how many workers
+happened to be running, and a real property of the pipeline would be
+hidden rather than reported. `audit.rs` is the tool for that question.
+
+## The lease
+
+Rows at `published::key_of(LEASES, "<step key>/<generation>")`, holding
+the worker's name, its instance token, when it started and its deadline.
+
+**Advisory, and said so in those words.** The store affords write-once
+blobs, no listing and no compare-and-swap. A lock built on that fails
+silently under exactly the conditions it exists for.
+
+**Generations, because a row cannot be deleted or rewritten.** One row per
+key would be a lease takeable once in the lifetime of the store. A
+counter gives three operations on one mechanism:
+
+| | How |
+|---|---|
+| take a free key | publish at the next generation |
+| give it back | publish at the next generation with a deadline already past |
+| extend it | publish at the next generation with a deadline further out |
+
+A release being just a lease nobody holds is what lets a failed step hand
+its key back without a second object class. Extension is **not built** —
+v0.3 has one `--lease` — and the format carries it, so adding it is not a
+format change.
+
+`probe` reads generations upward until it misses; the highest occupied one
+is the state of the key. A row this build cannot parse still *occupies* its
+generation, so probing keeps going past it: stopping would read a newer
+format as an empty key and let every worker claim it at once. Exhausting
+`MAX_GENERATIONS` (16) leaves the key free to everyone, which degrades to
+the lock-free correctness above rather than to a stall.
+
+**`acquire` publishes and then believes the store rather than the write.**
+Two workers that both probed and both saw nothing both get there;
+write-once means one row wins, and the read-back is what tells the loser
+it lost. Every store this runs against is read-after-write consistent for
+a new object — S3 since 2020, GCS, Azure, a filesystem trivially — which
+is what makes this a check the store can honour, unlike the
+compare-and-swap it would otherwise want. The **instance** token is
+compared rather than the name, so two processes a user has confusingly
+given one name cannot both believe they hold a key.
+
+An unreadable lease row is treated as **free**, not held. Waiting looks
+like the careful answer and is the wrong one: there is no deadline to
+read, so a worker that waited would have nothing to wait for and would
+never stop.
+
+### Expiry does not have to be right
+
+Which is the whole reason a lost worker needs no recovery protocol, no
+heartbeat and no fencing. Its deadline passes, an idle worker takes the
+step, and the run finishes. Both ways of mis-setting `--lease` are costs:
+too short duplicates work, too long idles after a crash.
+
+A worker always prefers unclaimed ready work, so "steal only when idle" is
+a consequence of the ready queue rather than a policy anybody implemented.
+There is no `--steal-after`.
+
+## The outer loop, and why D27 is intact
+
+`exec.rs`'s invariant was that *the run is over when the scope is empty*,
+which held because every node that reaches the ready queue is put there by
+a step that is still running. A remote lease breaks it: the scope can
+empty with work outstanding on a machine this process cannot talk to.
+
+So `run` loops around the scope, re-arming the deferred nodes after a
+wait that backs off from one second to thirty.
+
+**The wait is between scopes, with the pool drained and not one rayon
+worker in flight.** D27's rule is that a worker must never block on
+something that needs the pool to make progress; nothing here is on the
+pool at all. `Attempt::Deferred` hands its worker straight back, which is
+the same shape as `Attempt::Parked` and for the same reason.
+
+The two kinds of waiting stay separate, and the distinction is the design
+in one line:
+
+| | What it is | Why |
+|---|---|---|
+| `running` / `parked` | a **lock**, in-process | a process *can* hold one correctly, so it should |
+| a lease | **advisory**, cross-process | the store cannot offer one, so nothing may depend on it |
+
+The backoff is internal rather than a flag: each re-arm costs one store
+read per deferred node, so a worker idling on a wide cohort would
+otherwise become a load generator. One knob is enough for a user to get
+wrong.
+
+## A worker's identity and its cache directory
+
+**The name is supplied, not discovered.** There is no standard-library
+hostname call, and taking one would have cost a dependency for a string
+the user is better placed to choose: `--worker=$SLURM_ARRAY_TASK_ID` says
+something a hostname does not. An unnamed worker gets a short token from
+the clock, the pid and a counter — enough to tell two apart and honest
+about saying nothing else. The name is reduced to characters a path and a
+TSV field can both carry; the CLI refuses a path separator outright,
+because a worker is named in its own directory and `--worker=a/b` is far
+more likely to be a mistake than a wish.
+
+**The directory is per-worker by default.** `<cache>/workers/<name>`. The
+index is SQLite and SQLite over NFS is the failure D43 names, and a Slurm
+array defaulting to one `$HOME/.ligase` walks into it without having
+chosen to — so the right thing is the default rather than merely the
+documented thing. An explicit `--cache` is honoured, with a lock file
+(`worker.lock`, `O_EXCL`, removed on drop) refusing a second worker and
+naming the holder.
+
+A stale lock after a crash blocks that directory and the error says to
+delete it. A real wart, accepted because the alternatives are a dependency
+on `flock` — unreliable on exactly the network filesystems being guarded —
+or a liveness probe that is not portable, and because a stale lock costs a
+deletion rather than a wrong answer.
+
+**A worker with no shared store is refused** at the Python surface, before
+anything runs. It has nobody to divide work with, and would compute the
+whole pipeline alone and look like a success.
+
+## Where the index lives: D43 checked, not assumed
+
+D43 fixes the index as local and rebuildable. Per-worker is the obvious
+reading, and it was checked against the two things that could have argued
+otherwise.
+
+**A second machine completing from cache** was already demonstrated by
+`tests/s3.rs::a_second_machine_takes_the_work_from_the_bucket`. A cold
+index is not a cold cache: `Cache::lookup` falls through to
+`published_entry` and learns the row back. That is M14's whole point, and
+it is what makes a per-worker index sufficient rather than merely allowed.
+
+**The `FsStore::put` race** M14 found and fixed is what makes the
+`file://` deployment — a shared Lustre or GPFS store, which is most of HPC
+— safe for N processes rather than two threads. This milestone inherits a
+fixed race and extends the test from threads to processes.
+
+## Provenance: the mechanism was there, the milestone proves it
+
+`exec.rs` publishes a record beside every output it computes and adopts one
+for any hit this machine never computed (D43, after M14 found that runs
+completed perfectly and could not be written up). It follows that **any run
+that sees the graph to completion holds a complete provenance database** —
+what it computed it recorded, what it did not it adopted.
+
+So the collector is not a new mechanism. It is that one, used deliberately:
+N workers compute, one ordinary `ligase run` reports the whole graph and
+writes it up. A worker that is superseded adopts the winner's record too,
+rather than writing one about bytes that are no longer in force.
+
+### And one honesty bug distribution exposed
+
+`prov::methods` took the engine version and the platform from
+`groups.first()` and rendered *"Analyses were run with Ligase X on Y."*
+Every record has always carried its own; before this milestone they were
+all equal because one machine ran everything. A mixed cluster, an ARM
+workstation beside x86 nodes, or one worker on an older wheel is the first
+time they are not — and the paragraph then named one platform for a run
+that spanned several, in a methods section, which is the one place in this
+project where a quiet half-truth costs the most. `Methods` now carries
+every distinct engine and platform, and the sentence names them all.
+
+## Three bugs found by writing the tests
+
+All three were found by tests failing, not by reading the code, and two of
+them were latent in M14.
+
+**`published::key_of` did not hash `ROW_VERSION`.** Every format competed
+for one object address, and objects are write-once — so a bucket holding a
+version 1 row would have refused every version 2 row written to that key,
+for as long as the bucket existed. The `put` is dropped, the read finds a
+version this build will not parse, `fetch` answers `None`, and that step
+key is **permanently unpublishable** by anyone. Not one recomputation but
+all of them, for ever. Unreachable until the first format bump, and M18 is
+the first format bump. The version is in the address now.
+
+**`FsStore::install` checked for the file and then renamed**, which is two
+steps with a window: two writers both find the slot empty and the second
+overwrites the first. For an *object* that is invisible, because the name
+is the hash of the contents and the loser's bytes are the winner's bytes.
+For a **row** it is not — a row's name is the hash of the question it
+answers, so two writers can legitimately hold different bytes, and
+"whoever wrote last wins" means two workers both read their own lease back
+and both believe they hold it. Measured: two workers divided four steps
+into six executions. `hard_link` decides the winner in one syscall; a
+filesystem without hard links falls back to the old install, where the
+lease has a race that costs duplicated work.
+
+The remote backend had the same hole from the other direction —
+`object_store::put` overwrites — so it now uses `PutMode::Create` and
+treats `AlreadyExists` as success, which is what makes D43's "written once
+and never overwritten" true of a bucket rather than merely intended. A
+server that refuses the conditional write falls back to an ordinary put.
+
+**A lease was being written to and read from the local tier.** The third
+bug, and the one worth the most. Everything else in `store/` is built on
+the premise that a local copy of an object is as good as the remote's,
+because an object's name fixes its contents. A lease is the exception: it
+is not a fact about a key, it is a fact about *the other machines*, and it
+changes without anything local being told. Written through the tiering,
+each worker's claim landed in its own local tier and every read was served
+from it — so every worker saw only its own claims, found every key free,
+and computed the whole graph.
+
+The feature was silently absent and the runs were still **correct**, which
+is D50 being true and is exactly why this needed a test rather than a
+reading. `TieredStore::shared()` exists for it, and the `steps` row's
+read-back goes the same way for the same reason: asked of the tiered store
+it reads this machine's own row and answers "mine" every time, which is how
+the first implementation managed to be blind to every divergence while
+looking right.
+
+## Testing
+
+`tests/cluster.rs` runs two workers over a `file://` store in every build.
+That is not a stand-in for a bucket but the shared-filesystem deployment in
+its own right. It covers the lease unit by unit, the division, waiting,
+stealing a dead worker's lease, relinquishing on failure, resumability,
+both divergence cases and the cache-directory rule.
+
+`tests/s3.rs` runs the division and the lease against a real S3 server in
+CI's `store` job, where every claim is an HTTP request rather than a
+rename.
+
+`tests/test_cluster.py` runs **real separate processes** — `ligase run
+--worker` under `subprocess` — because that is the one thing threads in one
+process cannot show. The whole claim is that the workers need no
+coordinator, and a test sharing a process would be quietly sharing a mutex,
+a rayon pool and a page cache, which is three things a cluster does not
+have.
+
+### The trap in the fixtures, which is worth knowing
+
+The first draft of `tests/cluster.rs` baked each worker's own marker path
+into the step's shell command. A step key hashes the recipe, so the two
+workers had **different step keys**, never met, and a test of what two
+workers do about one key was testing nothing — while passing most of its
+assertions. The marker's path now comes from `{out}`.
+
+That is the same hazard as a real pipeline whose command names `$TMPDIR`,
+and it is the practical reason D50 has to be argued rather than assumed:
+the failure mode of this whole milestone is a feature that is quietly
+absent and a run that is quietly correct.
+
+## What is deliberately not here
+
+- **Lease extension.** Above. A step longer than `--lease` is stolen.
+- **Job submission.** `--worker` is what any launcher starts N of; the
+  guide's `sbatch` recipe is documentation rather than code, on purpose.
+- **Cross-worker failure consensus.** A worker that failed a step reports
+  it and its dependents do not run *there*, even if another worker later
+  succeeds. The collector is the authoritative report.
+- **Collecting lease rows, or the loser's object.** One lease row per
+  claim and one unreferenced object per divergence, both small, both
+  forever. `ligase store gc` is its own milestone, and this one gives it
+  two more classes of garbage and a reason to be designed for concurrent
+  writers: a collector that cannot tell a live claim from a dead one
+  deletes the object a running worker is about to publish a row for.

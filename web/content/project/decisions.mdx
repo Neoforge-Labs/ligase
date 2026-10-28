@@ -1998,3 +1998,214 @@ That is named on
 [the architecture page](/project/architecture/knowledge-graphs/) rather than
 implied away, and a reader for one of those formats is a parser that can be
 written when a pipeline needs it.
+
+## D49 — A worker claims work through the store; Ligase submits no jobs
+
+Cluster execution is `ligase run --worker[=NAME]`. A worker builds the whole
+graph, as every run does, claims each step through the shared store, leaves
+alone whatever another worker holds, and takes the rest from the store. N of
+them, started however a group starts things — a Slurm array, a loop over
+`ssh`, a container per node — converge on one complete run and exit. Then one
+ordinary `ligase run` reports the whole graph and writes it up.
+
+**Ligase submits nothing.** Three readings of "cluster execution" were
+available and two were rejected.
+
+A **local worker pool** over the graph's independent nodes is M3, and has
+been since M3.
+
+**Submission to a scheduler** is the obvious reading and the wrong boundary.
+A site's Slurm is its own: partitions, accounts, QoS, time limits, a module
+system, a scratch convention, a container story. A submitter is therefore
+either wrong at most sites or endlessly configurable at all of them, and
+either way Ligase would own job lifecycle — submission, polling, requeue,
+cancellation, log scraping — which is the scheduler's job and is where
+workflow tools accumulate their weight.
+
+It also mistakes what a research group is missing. A group that has a cluster
+already knows how to start twenty of something. What they do not have is
+twenty processes that can divide one pipeline **without a coordinator** — and
+that is the gap content addressing closes, which no tool that moves files can
+claim.
+
+So the deployment is N workers plus one collector, and the collector is a
+command the user already knows. It serves the two things a research group
+actually has: a Slurm cluster, where the store is a bucket or a directory on
+Lustre; and a few workstations, where it is a bucket.
+
+**`--jobs` is for one machine and `--worker` is for several.** They compose
+and are not alternatives: twenty workers with eight jobs each. Running eight
+workers on one host pays store round-trips for what a mutex settles for free.
+
+## D50 — Correctness needs no lock; the canonical form is what makes it safe
+
+Two workers that compute the same step key agreed on the code, the
+parameters, the inputs' canonical hashes and the tool versions
+([the key](/project/architecture/cache/#the-key)). There is no sense in which
+they are doing different work. Objects and published rows are write-once, so
+whoever publishes first has published an answer the other would have agreed
+with, and the loser adopts it.
+
+**A lock would prevent the duplicated computation; it is not what makes the
+result right.** The result is right because the key says what the work was.
+So the lease ([D51](#d51--a-lease-is-advisory-and-expiry-does-not-have-to-be-right))
+is an efficiency device, and the engine is correct with it mis-tuned, racing
+or switched off. That is the property worth having on a machine nobody is
+watching at three in the morning: the thing that can break is the thing whose
+breakage costs CPU.
+
+### The canonical form is what carries the argument
+
+Two workers almost never produce the same **bytes**. `minimap2` writes its
+command line into `@PG`, that command line holds the output path, and the
+path is the staging file named after the step's own key — so a step's bytes
+move whenever its key does. It does not matter, because a downstream key is
+built on the hash of what an output *means*
+([D4](#d4--semantic-hashing)).
+
+The property M4 introduced to make early cutoff earnable is therefore the
+property that makes lock-free distribution safe. That is the same observation
+used twice rather than a coincidence: what a step produces is what its output
+means.
+
+### Where it breaks, and what the engine does there
+
+The argument needs the two canonical forms to agree. Two cases break it:
+
+- a kind whose canonical form does not fix its result, which is the residual
+  `ligase audit` exists to measure;
+- a **seeded** stochastic step whose tool is stochastic in more than its
+  seed. [D40](#d40--a-stochastic-step-declares-itself-or-it-is-an-error) is
+  necessary and not sufficient: IQ-TREE, RAxML and BEAST are reproducible
+  given a seed *and a thread count*, and two cluster nodes with different
+  core counts are the normal case rather than the exception.
+
+A `steps` row therefore carries the output's canonical hash, so the worker
+whose publish was dropped learns for free whether the row it lost to means
+what it computed. Unequal goes on the run report, naming the step and both
+hashes; the published answer is the one in force on every machine, so nothing
+below the step disagrees between workers.
+
+Reported on the run report and **not** as a `Note`: a note is recorded with
+the cache entry and read back on every later hit, because a note is a fact
+about the output, and a divergence is a fact about this run on this worker.
+Persisting it would attach it to a key for good.
+
+**Pinning such a step to one worker was rejected.** It sounds safer and is
+worse: the answer would depend on how many workers happened to be running,
+and a real property of the pipeline would be hidden instead of reported.
+
+### A format version belongs in the name of the thing it versions
+
+Found while bumping `ROW_VERSION` for the canonical-hash field, and latent
+since M14. `published::key_of` hashed the domain, the table and the key — and
+not the version — so every format competed for one object address. Objects
+are write-once, so a bucket holding a version 1 row would have refused every
+version 2 row at that key, for as long as the bucket existed: the `put` is
+dropped, the read finds a version the build will not parse, the fetch answers
+nothing, and that step key becomes **permanently unpublishable** by anyone.
+Not one recomputation, which is what the format's doc comment promises, but
+all of them for ever.
+
+The version is in the address now. A format version that is not in the name
+of the thing it versions can only be discovered by the reader, which in a
+write-once store is already too late.
+
+## D51 — A lease is advisory, and expiry does not have to be right
+
+Workers divide work with a **lease**: a published row saying which worker is
+computing which step key, held until a deadline.
+
+**Advisory, in those words.** The store affords write-once blobs, no listing
+and no compare-and-swap. A lock built on that fails silently under exactly
+the conditions it exists for, so nothing pretends to be one. By
+[D50](#d50--correctness-needs-no-lock-the-canonical-form-is-what-makes-it-safe)
+it does not need to be.
+
+**Which is what lets expiry be approximate, and that is the point.** A worker
+that dies holding leases needs no recovery protocol, no heartbeat to miss, no
+fencing token and no coordinator to notice: its deadline passes and an idle
+worker computes the step. Taking a step somebody may still be working on is
+*safe*, so the decision about when to take it is allowed to be a guess.
+
+Resumability falls out for nothing. Every answer that landed is in the store
+under a name derived from the work rather than from the run, so starting
+again *is* resuming.
+
+**One knob.** `--lease`, default an hour, and the rule is to set it above
+your longest step. Both ways of getting it wrong are costs rather than wrong
+answers: too short and a worker duplicates a step whose holder is still
+working; too long and a worker that vanished keeps others waiting until its
+deadline. A worker always prefers unclaimed ready work, so "steal only when
+idle" is a consequence of the ready queue rather than a policy, and there is
+no second flag for it.
+
+**Generations, because a row cannot be deleted or rewritten.** Rows live at
+`<step key>/<generation>` and the highest occupied one is the state of the
+key. Taking a free key publishes the next generation; giving it back
+publishes the next generation with a deadline already past, because a release
+is just a lease nobody holds — which is how a failed step hands its key back
+at once without a second object class. Extension would publish the next
+generation with a deadline further out; it is **not built**, and the format
+carries it, so adding it later is not a format change.
+
+**A lease is never cached locally**, and this is the one place the store's
+central premise does not hold. Everything else in `store/` rests on a local
+copy being as good as the remote's, because an object's name fixes its
+contents. A lease is not a fact about a key: it is a fact about *the other
+machines*, and it changes without anything local being told. Written through
+the tiering, each worker's claim landed in its own local tier and every read
+was served from it, so every worker saw only its own claims, found every key
+free, and computed the whole graph. The feature was silently absent and the
+runs were still correct — D50 being true — which is why this needed a test
+rather than a reading.
+
+## D52 — Two workers never share a cache directory
+
+`--worker=NAME` puts its cache in `<cache>/workers/NAME` by default.
+
+The index is SQLite, [D43](#d43--the-store-is-a-blob-tier-with-pluggable-backends-the-index-is-local-and-rebuildable)
+keeps it local, and SQLite over a network filesystem is the failure D43
+names. A Slurm array whose twenty tasks all default to one `$HOME/.ligase`
+walks into it without having chosen to — so **the right thing is the default
+rather than merely the documented thing**. An explicit `--cache` is still
+honoured, with a lock file refusing a second worker in one directory and
+naming the holder.
+
+A stale lock after a crash blocks that directory, and the error says to
+delete it. A real wart, accepted because the alternatives are a dependency on
+`flock` — unreliable on exactly the network filesystems being guarded — or a
+liveness probe that is not portable, and because a stale lock costs a
+deletion rather than a wrong answer. It is only reachable with `--cache` set
+by hand.
+
+**A worker with no shared store is refused** before anything runs. It has
+nobody to divide work with, and would compute the whole pipeline alone and
+look like a success.
+
+**And a worker's name is supplied rather than discovered.** There is no
+standard-library hostname call, and taking one would have cost a dependency
+for a string the user is better placed to choose: `--worker=$SLURM_ARRAY_TASK_ID`
+says something a hostname does not. An unnamed worker gets a short token from
+the clock, the process and a counter — enough to tell two apart, and honest
+about saying nothing else.
+
+## D53 — A methods paragraph names every platform and engine a run used
+
+`prov::methods` took the engine version and the platform from the first
+group's record and wrote *"Analyses were run with Ligase X on Y."* Every
+record has always carried its own, and before cluster execution they were all
+equal because one machine ran everything.
+
+A distributed run is the first time they are not: a mixed cluster, an ARM
+workstation beside x86 nodes, or one worker on an older wheel. The paragraph
+then named **one** platform for a run that spanned several — in a methods
+section, which is the one place in this project where a quiet half-truth
+costs the most. `Methods` carries every distinct engine and platform now, and
+the sentence names them all; the reproducibility bundle gives each one its
+own row, because `environment.tsv` is a table and a run that spanned two
+platforms has two facts to state rather than one sentence about both.
+
+This is a public API change and it is the clause this milestone would have
+been least honest to skip. A tool whose argument is reproducibility cannot be
+vague about where a result was computed.

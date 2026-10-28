@@ -1010,6 +1010,10 @@ chemistry extra, then cluster execution on the shared store, with the NeoRx
 seven-disease experiment ported across as validation. One milestone per
 session, as before.
 
+Cluster execution is the last **engine** milestone of v0.3. The NeoRx
+experiment is not in this repository and is a validation milestone of its
+own; M18's entry says what was looked for.
+
 ## M15 — Knowledge graphs
 A `KnowledgeGraph` kind: typed nodes and edges with per-edge provenance, read
 from JSON, carrying `organism` (set), `identifier_namespace`, `source_set`,
@@ -1154,3 +1158,178 @@ would have meant whichever rule the default happened to be, which is precisely
 how the two axes came to share a rule nobody had chosen for both. The default
 is gone, and `tests/dimension_values.rs` now names the axis whose rule each
 test is about.
+
+## M18 — Cluster execution on the shared store
+
+The delivery the blob tier was the precondition for. D43 ends with the
+sentence this milestone is answerable to — "workers need a shared store
+before they can share work" — and v0.2's out-of-scope list is as precise
+about what was not delivered: "Cluster execution (the shared store is its
+precondition, not its delivery)." D49, D50, D51, D52, D53.
+
+Several machines run one pipeline between them with **no coordinator, no
+scheduler integration and no lock**, because a step key is a content hash
+and the store is write-once: two workers that compute the same key compute
+the same answer. The lease that divides the work is advisory, so losing it
+costs CPU and never a result.
+
+**Done when:** `ligase run --worker[=NAME]` and `--lease` exist with help
+text, and a worker names itself in its report; two workers over one store
+complete one graph between them and the union of what they computed is the
+whole graph; neither computes a step the other computed; a worker whose only
+ready steps are leased waits and takes them from the store rather than
+duplicating them; a worker that dies holding leases cannot stall a run — an
+idle worker computes those steps once the deadline passes; a worker whose
+step fails relinquishes at once rather than holding the key to its deadline;
+a partially complete graph is resumable without recomputing what landed,
+including after N *processes* wrote one object concurrently; two workers
+computing one key to byte-different but canonically-equal outputs agree
+silently, and two computing it to canonically-**different** outputs do not —
+the loser adopts the published entry and the report names the step and both
+canonical hashes; `--worker=NAME` defaults its cache to
+`<cache>/workers/NAME` and a second worker in one explicit `--cache` is
+refused, naming the holder; a run that computed nothing can still produce a
+complete methods paragraph and bundle; a methods paragraph for a run whose
+records carry two platforms or two engine versions names both rather than the
+first; and cluster execution needs no new dependency and no cargo feature.
+
+**Done.** Every clause, each pinned by a named test, and the distributed
+claims demonstrated against a real S3 server rather than asserted.
+
+Two workers divide one graph in
+`cluster.rs::two_workers_divide_one_graph_between_them` and
+`cluster.rs::neither_worker_computes_what_the_other_computed`, and against a
+bucket in `s3.rs::two_workers_against_a_bucket_divide_one_graph`. Waiting is
+`cluster.rs::a_worker_whose_only_work_is_leased_waits_and_takes_it_from_the_store`;
+a dead worker is `cluster.rs::a_lost_worker_cannot_stall_a_run`; a failure
+giving the key back is
+`cluster.rs::a_failed_step_is_given_back_rather_than_held_to_its_deadline`,
+which measures the *wait* as well as the outcome so that a regression is a
+red test rather than a suite that never returns. Resumability is
+`cluster.rs::a_partly_complete_graph_completes_without_recomputing_what_landed`.
+The two divergence cases are
+`cluster.rs::two_workers_whose_bytes_differ_but_whose_meaning_agrees_say_nothing`
+and `cluster.rs::two_workers_whose_outputs_mean_different_things_are_reported`.
+The cache directory is
+`cluster.rs::a_second_worker_in_one_cache_directory_is_refused` and
+`cluster.rs::a_workers_cache_directory_is_its_own_by_default`. Writing up a
+run this machine did not do is
+`cluster.rs::a_run_that_computed_nothing_can_still_write_it_up`, and the
+plural methods sentence is
+`provenance.rs::the_paragraph_names_every_platform_a_run_used` and
+`…::the_paragraph_names_every_engine_version_a_run_used`. The dependency
+clause is asserted rather than claimed by
+`default_build.rs::cluster_execution_needs_no_feature_and_no_new_dependency`.
+
+`tests/test_cluster.py` runs the whole thing as **real separate processes**
+under `subprocess`, because that is the one thing threads in one process
+cannot show: the claim is that the workers need no coordinator, and a test
+sharing a process would be quietly sharing a mutex, a rayon pool and a page
+cache. One `capture_diagnostics.py` scenario publishes the refusal a worker
+with no store gets, from a real run.
+
+### What "cluster" means here, which was the first question
+
+Not a local worker pool, which is M3. Not a scheduler client: a site's Slurm
+is its own, so a submitter is either wrong at most sites or endlessly
+configurable at all of them, and Ligase would own job lifecycle. And it
+mistakes the gap — a group with a cluster knows how to start twenty of
+something, and what it lacks is twenty processes that can divide one pipeline
+without a coordinator. D49 has the argument.
+
+### Three bugs the tests found, two of them latent in M14
+
+All three were found by tests failing rather than by reading the code, and
+all three were invisible for as long as every object's name was the hash of
+its own contents.
+
+**`published::key_of` did not hash `ROW_VERSION`.** Every row format competed
+for one object address, and objects are write-once — so a bucket holding a
+version 1 row would have refused every version 2 row at that key for as long
+as the bucket existed, leaving that step key **permanently unpublishable by
+anyone**. Not the one recomputation the format's doc comment promises: all of
+them, for ever. Unreachable until the first format bump, and this is the
+first format bump.
+
+**`FsStore::install` checked for the file and then renamed**, which is two
+steps with a window. For an object the race is invisible, because the loser's
+bytes are the winner's bytes. For a published **row** it is not — a row's
+name is the hash of the question it answers, so two writers can legitimately
+hold different bytes, and "whoever wrote last wins" means two workers both
+read their own lease back and both believe they hold it. Measured: two
+workers divided four steps into six executions. `hard_link` decides it in one
+syscall; the remote backend had the same hole from the other side and now
+uses `PutMode::Create`, which is what makes D43's "written once and never
+overwritten" true of a bucket rather than merely intended.
+
+**A lease was written to and read from the local tier**, so every worker saw
+only its own claims, found every key free, and computed the whole graph. The
+feature was silently absent and the runs were still **correct** — which is
+D50 being true, and is exactly why a reading could not have caught it.
+`TieredStore::shared()` exists for it, and the `steps` row's read-back goes
+the same way: asked of the tiered store it reads this machine's own row and
+answers "mine" every time, which is how the first implementation managed to
+be blind to every divergence while looking right.
+
+### The trap in the fixtures, which is the lesson worth keeping
+
+The first draft of `tests/cluster.rs` built each worker's marker path into the
+step's shell command. A step key hashes the recipe, so the two workers had
+**different step keys**, never contended for anything, and a test of what two
+workers do about one key was testing nothing — while passing most of its
+assertions.
+
+That is the same hazard as a real pipeline whose command names `$TMPDIR`, and
+it is the practical reason D50 has to be argued rather than assumed. **The
+failure mode of this whole milestone is a feature that is quietly absent and
+a run that is quietly correct**, which is why every one of the three bugs
+above had to be found by a test and why two of them had been sitting in the
+tree since M14.
+
+### M14's unmet clause, measured again
+
+M14's first done-when clause — the full suite passing against a bucket with
+`LIGASE_STORE` set and no test changed — was not met, because a handful of
+tests assert that a *fresh cache directory* means nothing has been computed,
+and a shared store is precisely what makes that false. This milestone was
+warned it would meet more of them, and it did.
+
+Against a fresh LocalStack bucket: **728 of 736 Rust tests and 390 of 396
+Python tests** pass unchanged, against M14's 458 of 460 and 303 of 307. The
+failures grew from two and four to eight and six while the suites grew by
+276 and 89, and every one of them is the same thing: a test expecting `ran`
+and getting `cached` because another test computed the same key. M14's other
+observation held too — the failing set is **not fixed**. Measured on a bucket
+that had accumulated entries from earlier runs in the same session, the Rust
+figure was 717 of 736 and the Python failure list had thirteen names rather
+than six. Which of two colliding tests sees the hit depends on what ran
+before it, so a deselect list would not stay true for a day.
+
+CI runs what it ran before — `tests/s3.rs` and three Python files, now four
+with `tests/test_cluster.py` — and all 65 of those pass against the bucket.
+
+### Store garbage collection, deferred with reasons
+
+`ligase store gc` was deferred to v0.3 by the v0.2 spec as unsized. It does
+not belong here, for three reasons that get stronger in that order.
+Distribution is about who computes and gc is about what is kept, so they are
+orthogonal. This milestone makes gc **harder**, not easier: N workers writing
+concurrently, plus two new classes of garbage — a lease row per claim, and
+the unreferenced loser object of every byte divergence — and a collector that
+cannot tell a live claim from a dead one deletes the object a running worker
+is about to publish a row for. And it is still unsized: v0.2 wanted a
+measurement to size an LRU with, and this milestone is the first thing that
+fills a shared store at cluster rates, so sizing gc from what M18 generates
+is the right order and guessing it inside M18 is not.
+
+### The NeoRx seven-disease experiment is not here
+
+v0.3's roadmap names it as the validation case, "ported across". Nothing of it
+is in this repository. `docs/design/neorx-expansion-notes.md` is absent — the
+v0.2 spec already records that and says nothing in the milestones depends on
+it — and the only other mentions anywhere are a brand colour in the identity
+spec and an `identifier_namespace` value in a guide example.
+
+So there is nothing to port, and porting it is not an engine milestone: it
+needs the experiment's own data and code from wherever they live, and it is a
+validation milestone of its own. This entry carries no clause for it.

@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -50,8 +51,9 @@ if TYPE_CHECKING:
     # the enclosing function's locals -- so those scenarios put the real
     # classes into this module's globals as they run, and a kind named only
     # inside one of them would otherwise fail to resolve and the captured
-    # diagnostic would be about that instead of about the seed.
-    from ligase.types import RankedList, Reads
+    # diagnostic would be about that instead of about the thing the
+    # scenario is for.
+    from ligase.types import RankedList, Reads, Reference
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "crates/ligase-core/tests/fixtures"
@@ -247,6 +249,37 @@ def a_seed_without_declaring_the_step_stochastic(lg: Any) -> None:
     @lg.step(tool="seqtk", seed="seed")  # type: ignore[untyped-decorator]
     def sampled(reads: Reads, seed: int = 42) -> Reads:
         raise AssertionError("the decorator refuses this step; the body never runs")
+
+
+def a_worker_with_no_shared_store(lg: Any) -> None:
+    """Ask for a worker without giving the workers anywhere to meet.
+
+    Workers divide a pipeline by claiming steps in a store they can all
+    see. Without one there is nobody to divide it with, and the run would
+    compute the whole pipeline by itself and call itself a cluster — so it
+    is refused before anything runs.
+
+    `LIGASE_STORE` is unset for the length of this and put back, because
+    the docs build may well have been invoked with a bucket configured and
+    this scenario is about not having one.
+    """
+    globals()["Reference"] = lg.types.Reference
+
+    @lg.step(tool="awk")  # type: ignore[untyped-decorator]
+    def count(ref: Reference) -> Reference:
+        raise AssertionError("the run is refused before any body is asked")
+
+    from ligase import config
+
+    had = os.environ.pop(config.STORE_VARIABLE, None)
+    try:
+        reference = lg.reference(fixture("tiny_bare.fasta"), organism="test")
+        pipe = lg.Pipeline(count(reference))
+        with tempfile.TemporaryDirectory() as cache:
+            pipe.run(worker="node01", cache=cache)
+    finally:
+        if had is not None:
+            os.environ[config.STORE_VARIABLE] = had
 
 
 SCENARIOS: tuple[Scenario, ...] = (
@@ -492,6 +525,15 @@ SCENARIOS: tuple[Scenario, ...] = (
                 fixture("tiny_bare.fasta"), organism=["HIV-1", "Homo sapiens"]
             ),
         },
+    ),
+    Scenario(
+        key="workerWithNoStore",
+        step="count",
+        expect="ValueError",
+        description=(
+            "A worker asked for with no store for the workers to divide the work in."
+        ),
+        provoke=a_worker_with_no_shared_store,
     ),
 )
 

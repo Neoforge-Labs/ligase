@@ -30,6 +30,10 @@ import type { MetaRecord } from 'nextra'
  * contrast with it. Pointing a lab at a bucket follows both, because what a
  * thin bundle gives up is a recorded query's one guarantee.
  *
+ * Running on a cluster follows pointing a lab at a bucket, because a store
+ * every machine can see is the thing it needs before it can start: the page
+ * opens by assuming you have one.
+ *
  * Declaring a stochastic step follows checking that a step repeats, because
  * what the declaration changes is what that page's audit is allowed to say.
  */
@@ -46,6 +50,7 @@ const meta: MetaRecord = {
   remotes: 'Fetching your inputs',
   'recorded-queries': 'Recording a live query',
   'remote-store': 'Pointing a lab at a bucket',
+  'cluster-execution': 'Running on a cluster',
   'semantic-hashing': 'Checking that a step repeats',
   'stochastic-steps': 'Declaring a stochastic step',
   notes: 'Fixing a noticed line',
