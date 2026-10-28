@@ -1,7 +1,11 @@
 # M18 — Cluster execution on the shared store
 
 *Written against v0.2 at commit `0c005b0` (27 Oct 2026). The last engine
-milestone of v0.3. Read alongside `CLAUDE.md`, §5.7 and §7 of
+milestone of v0.3. Its decisions landed as **D51 to D55**: M16 and M17 were
+in flight when this was written and merged first, taking D45 and D47 to D50
+between them.*
+
+* Read alongside `CLAUDE.md`, §5.7 and §7 of
 `docs/superpowers/specs/2026-10-22-ligase-v0-2-design.md`,
 `web/content/project/architecture/store.mdx`,
 `web/content/project/architecture/execution.mdx`, D42, D43 and M14's entry in

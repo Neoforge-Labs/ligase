@@ -35,10 +35,19 @@ fn a_gene_list_carries_organism_namespace_subject_and_release() {
 }
 
 #[test]
-fn only_a_kind_that_names_entities_has_an_identifier_namespace() {
-    // Two kinds, since M12: a gene list and the ranked list that is a gene
-    // list which remembers its order. No sequence kind has a namespace,
-    // because no sequence kind names entities.
+fn no_kind_that_holds_sequence_has_an_identifier_namespace() {
+    // Three kinds, since M15: a gene list, the ranked list that is a gene
+    // list which remembers its order, and a knowledge graph. No sequence
+    // kind has a namespace, because no sequence kind names entities.
+    //
+    // This was `only_a_kind_that_names_entities_has_…` until M17, and that
+    // name stopped being true: a molecule table names entities too, and
+    // claims no namespace, because `representation.identity` already says
+    // which space its names are in and two axes carrying one fact is D36's
+    // objection in mirror image. Renaming it rather than widening the
+    // matchlist quietly is the point -- a test whose name no longer
+    // describes what it asserts is a test nobody reads. See
+    // `molecules.rs::an_identifier_namespace_is_not_a_molecule_sets_business`.
     for kind in DataKind::ALL {
         assert_eq!(
             kind.applies(Dimension::IdentifierNamespace),
@@ -52,13 +61,22 @@ fn only_a_kind_that_names_entities_has_an_identifier_namespace() {
 }
 
 #[test]
-fn only_a_kind_that_names_entities_has_a_subject() {
+fn only_a_kind_that_is_about_something_named_has_a_subject() {
+    // Five kinds since M17, and the molecule tables joined without
+    // argument: a compound set is about a target, an assay or a
+    // therapeutic area as squarely as a gene list is about a disease. The
+    // sequence kinds are not about one named thing -- a BAM is a
+    // measurement of a sample, which is `sample_set`.
     for kind in DataKind::ALL {
         assert_eq!(
             kind.applies(Dimension::Subject),
             matches!(
                 kind,
-                DataKind::EntitySet | DataKind::RankedList | DataKind::KnowledgeGraph
+                DataKind::EntitySet
+                    | DataKind::RankedList
+                    | DataKind::KnowledgeGraph
+                    | DataKind::MoleculeSet
+                    | DataKind::MoleculeRanking
             ),
             "{kind:?}"
         );

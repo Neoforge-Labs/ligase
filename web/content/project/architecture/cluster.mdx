@@ -292,7 +292,7 @@ from it — so every worker saw only its own claims, found every key free,
 and computed the whole graph.
 
 The feature was silently absent and the runs were still **correct**, which
-is D50 being true and is exactly why this needed a test rather than a
+is D52 being true and is exactly why this needed a test rather than a
 reading. `TieredStore::shared()` exists for it, and the `steps` row's
 read-back goes the same way for the same reason: asked of the tiered store
 it reads this machine's own row and answers "mine" every time, which is how
@@ -327,7 +327,7 @@ workers do about one key was testing nothing — while passing most of its
 assertions. The marker's path now comes from `{out}`.
 
 That is the same hazard as a real pipeline whose command names `$TMPDIR`,
-and it is the practical reason D50 has to be argued rather than assumed:
+and it is the practical reason D52 has to be argued rather than assumed:
 the failure mode of this whole milestone is a feature that is quietly
 absent and a run that is quietly correct.
 

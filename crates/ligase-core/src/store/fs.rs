@@ -135,7 +135,7 @@ impl FsStore {
             // POSIX extensions. Fall back to the non-atomic install rather
             // than refusing to store anything: a store that works and can
             // lose a lease race is worth more than one that cannot hold an
-            // object at all, and D50 is what makes the loss a cost rather
+            // object at all, and D52 is what makes the loss a cost rather
             // than an error.
             Err(_) => {
                 if path.is_file() {

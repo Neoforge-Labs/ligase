@@ -222,12 +222,12 @@ impl TieredStore {
     /// landed in its own local tier and every read was served from it, so
     /// every worker saw only its own claims, found every key free, and
     /// computed the whole graph. The feature was silently absent, and the
-    /// run was still *correct* — which is D50 being true and is exactly
+    /// run was still *correct* — which is D52 being true and is exactly
     /// why this needed a test rather than a reading.
     ///
     /// `None` when no remote is configured. A worker with nothing shared
     /// has nothing to divide and no one to divide it with; the surfaces
-    /// refuse that configuration before a run starts (D49).
+    /// refuse that configuration before a run starts (D51).
     #[must_use]
     pub fn shared(&self) -> Option<&(dyn BlobStore + Send + Sync)> {
         self.remote.as_deref()

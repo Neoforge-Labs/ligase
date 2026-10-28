@@ -8,9 +8,19 @@ import type { MetaRecord } from 'nextra'
  * the same one a third time -- what, exactly, can be promised -- and the
  * page leans on the audit vocabulary that semantic hashing introduces.
  *
+ * A number in a paper follows provenance directly, because it is the same
+ * promise turned around: provenance says how a result was produced, and a
+ * claim asks what is behind a number already published. The page assumes you
+ * know what a methods paragraph and a gap are.
+ *
  * Assembled data follows identifier spaces, because a graph names entities
  * too and the page leans on that: what is new about it is the other axis,
  * the one that follows from a graph being assembled rather than measured.
+ *
+ * What a molecule's name means follows assembled data, because it is the
+ * third page in a row about a kind that holds no sequence and the argument
+ * leans on the first two: it is identifier spaces' failure with the one
+ * difference that no glance at the data catches this one.
  *
  * Sharing a cache comes last of the four, because it is the same
  * content-addressing idea turned outwards: the page assumes you know what a
@@ -27,8 +37,10 @@ const meta: MetaRecord = {
   'step-library': 'What a curated step is',
   'semantic-hashing': 'What a file means',
   provenance: 'How was this produced?',
+  claims: 'A number in a paper',
   identifiers: 'Identifier spaces',
   'knowledge-graphs': 'Assembled data',
+  molecules: "What a molecule's name means",
   remotes: 'Where the data came from',
   'record-and-replay': 'Recording a live answer',
   'stochastic-steps': 'Steps that draw on randomness',

@@ -45,6 +45,7 @@
 
 pub mod bundle;
 pub mod cite;
+mod claim;
 mod methods;
 mod shared;
 
@@ -57,7 +58,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub use cite::Citation;
-pub use methods::{Gap, Group, Methods, Noticed, methods};
+pub use claim::{Bound, Claim, ClaimCheck, ClaimVerdict, Restated, Unbacked, version_states};
+pub use methods::{Gap, Group, Methods, Noticed, Produced, methods};
 
 use crate::canon::Note;
 use crate::dim::ReferenceId;
@@ -405,7 +407,7 @@ impl Prov {
             return Ok(());
         };
         // What the store already held is not interesting here, unlike for a
-        // step entry (D50): two records under one key describe the same
+        // step entry (D52): two records under one key describe the same
         // computation, because the key fixes its ingredients, and a
         // methods paragraph wants one of them rather than a reconciliation
         // of both. The first published wins and is as good as any.

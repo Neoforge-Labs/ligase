@@ -6,21 +6,22 @@ description: "Every biological type carries dimensions. Each dimension is inferr
 
 Every biological type carries dimensions. Each dimension is inferred from the file where possible; otherwise the user declares it once and it propagates.
 
-| Dimension | Meaning | FASTA | FASTQ | BAM/SAM | VCF | BED/GFF | Gene or ranked list (TSV) | Knowledge graph (JSON) |
-|---|---|---|---|---|---|---|---|---|
-| organism | the organisms the data is about, as a **set**: HIV-1, or HIV-1 and Homo sapiens together | declared | declared | from reference | from header if present | declared | declared | declared |
-| reference | build/accession, e.g. HXB2 (K03455), hg38 | sequence names + MD5 of contigs | n/a | @SQ lines (SN, LN, M5) | ##reference, ##contig | declared | n/a | n/a |
-| contig_naming | `chr1` vs `1` style | from names | n/a | @SQ SN | ##contig IDs | from records | n/a | n/a |
-| coordinates | 0-based half-open vs 1-based closed | n/a | n/a | 1-based closed (SAM *and* BAM) | 1-based closed | BED 0-based half-open, GFF 1-based closed | n/a | n/a |
-| sample_set | ordered sample IDs | n/a | from filename/declared | @RG SM | header sample columns | n/a | n/a | n/a |
-| strand/pairing | single/paired, read layout | n/a | from file pairing | flags | n/a | n/a | n/a | n/a |
-| quality_encoding | Phred+33 vs +64 | n/a | inferred from range | n/a | n/a | n/a | n/a | n/a |
-| release | which versioned external resource the data came from, e.g. `GRCh38.p14`, `Ensembl 110`, `ChEMBL 34` | declared | n/a | n/a | n/a | n/a | declared | declared |
-| subject | what the data is about when that is one named thing: a disease, a cell line, a cohort | n/a | n/a | n/a | n/a | n/a | declared | declared |
-| source_set | the sources a dataset was assembled from, as a **set**: kept in insertion order for display only, and compared as a set, so the order they were listed in is not part of the identity (unlike `sample_set`). Compared **exactly**, case included, unlike `organism` | n/a | n/a | n/a | n/a | n/a | n/a | from the sources named on its nodes and edges, or declared |
-| identifier_namespace | which identifier space the entities are named in, e.g. `HGNC symbol`, `Ensembl gene`, `Entrez gene`, `UniProt accession` | n/a | n/a | n/a | n/a | n/a | from the identifiers' own pattern, or declared | from the node ids' own pattern, or declared |
+| Dimension | Meaning | FASTA | FASTQ | BAM/SAM | VCF | BED/GFF | Gene or ranked list (TSV) | Knowledge graph (JSON) | Compound set or ranking (TSV) |
+|---|---|---|---|---|---|---|---|---|---|
+| organism | the organisms the data is about, as a **set**: HIV-1, or HIV-1 and Homo sapiens together | declared | declared | from reference | from header if present | declared | declared | declared | declared |
+| reference | build/accession, e.g. HXB2 (K03455), hg38 | sequence names + MD5 of contigs | n/a | @SQ lines (SN, LN, M5) | ##reference, ##contig | declared | n/a | n/a | n/a |
+| contig_naming | `chr1` vs `1` style | from names | n/a | @SQ SN | ##contig IDs | from records | n/a | n/a | n/a |
+| coordinates | 0-based half-open vs 1-based closed | n/a | n/a | 1-based closed (SAM *and* BAM) | 1-based closed | BED 0-based half-open, GFF 1-based closed | n/a | n/a | n/a |
+| sample_set | ordered sample IDs | n/a | from filename/declared | @RG SM | header sample columns | n/a | n/a | n/a | n/a |
+| strand/pairing | single/paired, read layout | n/a | from file pairing | flags | n/a | n/a | n/a | n/a | n/a |
+| quality_encoding | Phred+33 vs +64 | n/a | inferred from range | n/a | n/a | n/a | n/a | n/a | n/a |
+| release | which versioned external resource the data came from, e.g. `GRCh38.p14`, `Ensembl 110`, `ChEMBL 34` | declared | n/a | n/a | n/a | n/a | declared | declared | declared |
+| subject | what the data is about when that is one named thing: a disease, a cell line, a cohort | n/a | n/a | n/a | n/a | n/a | declared | declared | declared |
+| source_set | the sources a dataset was assembled from, as a **set**: kept in insertion order for display only, and compared as a set, so the order they were listed in is not part of the identity (unlike `sample_set`). Compared **exactly**, case included, unlike `organism` | n/a | n/a | n/a | n/a | n/a | n/a | from the sources named on its nodes and edges, or declared | n/a |
+| identifier_namespace | which identifier space the entities are named in, e.g. `HGNC symbol`, `Ensembl gene`, `Entrez gene`, `UniProt accession` | n/a | n/a | n/a | n/a | n/a | from the identifiers' own pattern, or declared | from the node ids' own pattern, or declared | n/a |
+| representation | what a name in a molecule table **is**, and what was done to the structures before it was computed: an identity (`InChIKey` or `SMILES`) and the standardisations applied, as a set — `salt-stripped`, `tautomer-normalised`, `charge-neutralised`, `stereo-discarded`. Compared by equality of the identity and set equality of the operations | n/a | n/a | n/a | n/a | n/a | n/a | n/a | from its own representation line, or declared |
 
-The last four arrived after the others and sit at the bottom on purpose: a report of
+The last five arrived after the others and sit at the bottom on purpose: a report of
 several disagreements is ordered by this list, so slotting a new axis in
 beside the ones it resembles would have reordered every report that already
 existed. `source_set` was applied by no kind until M15, and is now applied by
@@ -29,7 +30,7 @@ rather than measured, so it is the only one for which "which sources
 contributed" is a fact at all.
 
 A gene list is the first kind here that holds no sequence, which is why the
-last column is mostly `n/a`: a list of gene names has no coordinate system,
+last three columns are mostly `n/a`: a list of gene names has no coordinate system,
 no contigs, no read pairing and no quality scores. Those are not gaps to be
 filled in but properties the data does not have, and demanding one is the
 category error this table exists to prevent.
@@ -43,7 +44,7 @@ its result
 A dimension on one and not the other would mean that difference had spread
 past the one place it is meant to live.
 
-The last column is the one kind that is **assembled**. A knowledge graph
+The last column but one is the one kind that is **assembled**. A knowledge graph
 answers three of the named list's questions identically — it names entities,
 it is about something, and whatever named its entities had a release — and
 brings a fourth that follows from being assembled rather than measured: which
@@ -98,6 +99,29 @@ for, and the failure it catches is
   file, and two lists that each say nothing would otherwise agree by silence.
   This holds in either combination, a ranking scored against a set included,
   which is the commonest reason to join the two kinds at all.
+- A **representation** is compared by equality of its identity and set
+  equality of its operations, and the operations are a **closed** set: a file
+  naming one the engine has never heard of is refused rather than carried
+  along unread. `InChIKey` and `SMILES` never compare equal, because they are
+  not equally good identities — across six RDKit releases every InChIKey held
+  still while one canonical SMILES moved
+  ([D47](/project/decisions/#d47--a-molecules-identity-is-its-standardisation-not-its-structure)).
+- `stereo-discarded` is an operation that was **applied**, not a setting
+  somebody chose. RDKit's tautomer canonicaliser discards stereochemistry at
+  an sp3 centre inside a tautomeric system, so a tautomer-normalised set
+  cannot tell ibuprofen's two enantiomers apart. The standardiser therefore
+  checks what it did against what it was asked for, asymmetrically: stereo
+  lost and not declared is an error, declared and not lost is a note.
+- Like `identifier_namespace` and unlike `release`, `subject` and
+  `source_set`, a **representation is demanded** wherever two molecule tables
+  are joined. A user can always meet it — declare it, or standardise and let
+  the step write the line — and two tables that each say nothing would
+  otherwise overlap in whatever their two toolchains happened to agree on.
+- A molecule table claims **no** `identifier_namespace`, though an InChIKey is
+  an identifier space: `representation` already says which space the file is
+  in, and two axes carrying one fact is the mirror image of what
+  [D36](/project/decisions/#d36--release-is-its-own-dimension-reference-keeps-its-meaning)
+  forbids.
 - Unknown dimensions are allowed only if no downstream step requires them; otherwise `check()` fails with a request to declare them.
 
 ### A dataset may be about more than one organism

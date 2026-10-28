@@ -17,6 +17,11 @@ import type { MetaRecord } from 'nextra'
  * `@lg.step` should find out that the four commonest steps are already
  * written before being shown how to write one.
  *
+ * Binding a number sits immediately after writing a pipeline up, because it
+ * is the next thing you do with a write-up and the page is read with a
+ * manuscript open: the claims are printed in the same report the previous
+ * page explains.
+ *
  * Ranked lists sit after crossing identifier spaces because the page assumes
  * it: a ranking is a gene list that remembers its order, and the two
  * refusals it meets are the ones that page introduces.
@@ -24,6 +29,11 @@ import type { MetaRecord } from 'nextra'
  * Knowledge graphs come after ranked lists, because the page assumes both of
  * them: a graph names entities the way a list does, and the refusal that is
  * new to it is the one about how the graph was assembled.
+ *
+ * Compound sets come after knowledge graphs, last of the pages about a kind
+ * that holds no sequence, because the page assumes what the other two teach:
+ * that a dimension can be about what a name means, and that the engine
+ * refuses rather than repairs.
  *
  * The two remote pages come after them and in that order, because a pinned
  * remote is the simpler promise and a recorded query is explained by
@@ -44,9 +54,11 @@ const meta: MetaRecord = {
   'declaring-dimensions': 'Declaring dimensions',
   'running-a-pipeline': 'Running a pipeline',
   provenance: 'Writing up a pipeline',
+  claims: 'Binding a number you published',
   'mapping-identifiers': 'Crossing identifier spaces',
   'ranked-lists': 'Comparing ranked lists',
   'knowledge-graphs': 'Comparing knowledge graphs',
+  molecules: 'Comparing compound sets',
   remotes: 'Fetching your inputs',
   'recorded-queries': 'Recording a live query',
   'remote-store': 'Pointing a lab at a bucket',

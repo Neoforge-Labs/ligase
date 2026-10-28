@@ -9,7 +9,7 @@
 //! It does not need to be. Two workers that agree on a step key agreed on
 //! the code, the parameters, the inputs' canonical hashes and the tool
 //! versions — there is no sense in which they are doing different work — so
-//! a race between them wastes CPU and cannot produce a wrong answer (D50).
+//! a race between them wastes CPU and cannot produce a wrong answer (D52).
 //! The lease divides work. Correctness is the key's job.
 //!
 //! That is what makes the rest of this module simple. **Expiry does not
@@ -205,7 +205,7 @@ pub fn acquire(
             // Waiting looks like the careful answer and is the wrong one:
             // there is no deadline to read, so a worker that waited would
             // have nothing to wait *for* and would never stop. Computing
-            // is safe — that is the whole of D50 — so an unreadable lease
+            // is safe — that is the whole of D52 — so an unreadable lease
             // costs duplicated work, which is the one currency this
             // mechanism is allowed to spend.
             None => Ok(Claimed::Acquired { generation }),

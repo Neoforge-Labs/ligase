@@ -71,6 +71,8 @@ GROUPS: tuple[Group, ...] = (
             "entity_set",
             "ranked_list",
             "knowledge_graph",
+            "molecule_set",
+            "molecule_ranking",
             "remote",
             "query",
         ),
@@ -142,10 +144,31 @@ GROUPS: tuple[Group, ...] = (
             "EntitySet",
             "RankedList",
             "KnowledgeGraph",
+            "MoleculeSet",
+            "MoleculeRanking",
             "Contig",
             "DimensionValue",
             "StepOutput",
             "Written",
+        ),
+    ),
+    Group(
+        slug="chemistry",
+        title="Standardising molecules",
+        blurb=(
+            "The one part of Ligase that needs a chemistry toolkit, and the only "
+            "module that imports one. Install it with "
+            "`pip install 'ligase-bio[chem]'`.\n\n"
+            "Everything else about molecules -- loading a table, reading its "
+            "`representation`, hashing it, refusing to join two that disagree -- "
+            "is the engine's work and needs no toolkit "
+            "([D49](/project/decisions/)). What needs RDKit is *producing* a set "
+            "whose standardisation is known, which is this."
+        ),
+        names=(
+            "chem.standardize",
+            "chem.standardize_ranking",
+            "chem.toolkit_version",
         ),
     ),
     Group(
@@ -179,12 +202,16 @@ GROUPS: tuple[Group, ...] = (
         blurb=(
             "What a run recorded about itself: the versions every tool actually ran "
             "at, every parameter as it was hashed, and the references by accession "
-            "and checksum."
+            "and checksum \u2014 and, the other way round, what a number you "
+            "published rests on."
         ),
         names=(
             "Methods",
             "StepMethods",
             "MethodsGap",
+            "Claim",
+            "ClaimCheck",
+            "BoundTo",
             "Bundle",
             "Verification",
             "PinnedReference",
@@ -228,10 +255,10 @@ GROUPS: tuple[Group, ...] = (
     ),
 )
 
-# `hivdb` and `steps` are submodules rather than names: their own members
-# are grouped individually above, so the module objects themselves are not
-# documented as entries.
-MODULE_EXPORTS = ("hivdb", "steps")
+# `chem`, `hivdb` and `steps` are submodules rather than names: their own
+# members are grouped individually above, so the module objects themselves
+# are not documented as entries.
+MODULE_EXPORTS = ("chem", "hivdb", "steps")
 
 
 # --------------------------------------------------------------------------

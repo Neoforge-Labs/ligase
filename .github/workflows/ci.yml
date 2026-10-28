@@ -65,6 +65,56 @@ jobs:
       - name: import ligase
         run: python -c "import ligase; print(ligase.__version__)"
 
+  # The chemistry extra, which the matrix above deliberately does not
+  # install. That job mirrors a default install -- it is what proves the
+  # genomics install acquires no toolkit -- so with RDKit absent every
+  # chemistry test there skips, by design.
+  #
+  # Skipping everywhere would mean the standardiser ran on nobody's machine
+  # but the author's. So this job installs the extra and runs exactly the
+  # tests that need it: the conversion, the asymmetric stereo check, the
+  # failures it names, and the measurement the milestone's design rests on.
+  #
+  # One platform and one Python, because what is under test is the toolkit's
+  # behaviour rather than the runner's. 3.11 rather than 3.14: the extra's
+  # floor is `rdkit>=2024.3.1`, and the series that satisfy it do not all
+  # publish wheels for the newest interpreter.
+  chem:
+    name: chem (RDKit extra)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: pip install -e ".[dev,chem]"
+        run: pip install -e ".[dev,chem]"
+      - name: mypy --strict
+        # Run here too: with RDKit installed, mypy sees its sources and
+        # checks the calls into it, which the matrix job cannot.
+        run: mypy
+      - name: pytest (the chemistry tests must run, not skip)
+        # The `store` job's step of the same name states that intent; this
+        # one can also check it, and does. The difference is not a reproach
+        # to that job: `test_store_cli.py` skips legitimately when no bucket
+        # is configured, so a guard there would fail an honest run. Nothing
+        # here skips once RDKit is installed, so a skip means the install
+        # did not take -- and a silent skip would look exactly like a pass,
+        # which would put us back to the standardiser being tested on one
+        # machine in the world.
+        run: |
+          pytest -q \
+            tests/test_chem.py \
+            tests/test_inchikey_stability.py \
+            tests/test_molecules.py \
+            tests/test_default_install.py | tee chem.txt
+          if grep -qE '[0-9]+ skipped' chem.txt; then
+            echo "::error::a chemistry test skipped in the job that installs RDKit"
+            exit 1
+          fi
+
   # The HIV-1 reference demo, with the real tools over the real reads.
   #
   # CLAUDE.md makes this pipeline the project's validation spine -- "every

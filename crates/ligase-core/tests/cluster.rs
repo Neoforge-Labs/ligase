@@ -234,7 +234,7 @@ impl Host for Refusing {
 /// `{out}` is `<root>/<worker>/.ligase/tmp/<key>`, so two levels up from
 /// its directory is the worker's own root — the same template everywhere,
 /// a different file on each machine. Exactly what a real pipeline's
-/// `$TMPDIR` or `--threads` does, and the reason D50 has to be argued
+/// `$TMPDIR` or `--threads` does, and the reason D52 has to be argued
 /// rather than assumed.
 fn marker() -> &'static str {
     "echo ran >> \"$(dirname {out})/../../marker\""
@@ -552,7 +552,7 @@ fn a_lost_worker_cannot_stall_a_run() {
     //
     // Expiry does not have to be *right*, and that is the whole reason a
     // lost worker needs no recovery protocol, no fencing and no
-    // coordinator to notice it: stealing is safe by D50, so the mechanism
+    // coordinator to notice it: stealing is safe by D52, so the mechanism
     // that decides when to steal is allowed to be approximate.
     let lab = Lab::new();
     let store = lab.store();

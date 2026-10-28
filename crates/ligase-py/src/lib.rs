@@ -21,7 +21,7 @@ use ligase::audit;
 use ligase::cache::Cache;
 use ligase::check::{Binding, CheckError, check_step as core_check_step, render, summarise};
 use ligase::convert::{self, Conversion};
-use ligase::dim::{CoordinateSystem, Dimension};
+use ligase::dim::{CoordinateSystem, Dimension, Representation};
 use ligase::exec::{self, Host, Options, Recipe, Stores, Task};
 use ligase::graph::{Argument, Converted, Graph, NodeId, StepSpec};
 use ligase::hash::ContentHash;
@@ -109,7 +109,7 @@ type PyRunReport = (
     Vec<PyDivergence>,
 );
 
-/// One step two workers computed to different answers (D50): the node, the
+/// One step two workers computed to different answers (D52): the node, the
 /// step's name, what this worker's output means, and what the output
 /// already in the store means — which is the one in force.
 type PyDivergence = (usize, String, String, String);
@@ -171,29 +171,73 @@ type PyMethodsGroup = (
 /// many of them.
 type PyMethodsGap = (String, Vec<String>, usize);
 
+/// One claim as Python gives it: the sentence, the step, the sample, and the
+/// value it restates — a parameter name, a tool name, and the value, of which
+/// at most one of the two names is set.
+///
+/// Flat here and a sum type in the core, deliberately. A user writes
+/// `parameter=` or `tool=` beside `value=`, which is the readable surface;
+/// the core cannot hold both at once, and `Claim.__post_init__` is where an
+/// incoherent pair is refused.
+type PyClaim = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// One computation a claim rests on: the sample, the key, the output's
+/// canonical hash, when that computation happened and where.
+type PyBoundTo = (Option<String>, String, String, i64, String);
+
+/// One claim checked: the claim as declared, the verdict, the sentence the
+/// write-up prints for it, the value it states and the value recorded where
+/// those differ, and the computations it rests on.
+type PyClaimCheck = (
+    PyClaim,
+    String,
+    Option<String>,
+    Option<String>,
+    Vec<PyBoundTo>,
+);
+
 /// A methods section as Python sees it: the ways steps were run, the gaps,
-/// the references, the reference list, the tools with nothing to cite,
-/// every engine version, every platform, the summary line and the whole
-/// thing as text.
+/// the references, the reference list, the tools with nothing to cite, the
+/// claims, every engine version, every platform, the summary line and the
+/// whole thing as text.
 ///
 /// The engines and the platforms are lists because a distributed run can
-/// have spanned several of each (D53).
+/// have spanned several of each (D55).
 type PyMethods = (
     Vec<PyMethodsGroup>,
     Vec<PyMethodsGap>,
     Vec<PyReference>,
     Vec<String>,
     Vec<String>,
+    Vec<PyClaimCheck>,
     Vec<String>,
     Vec<String>,
     String,
     String,
 );
 
-/// What to do besides describing the run, as Python gives it: a directory
-/// to write a bundle into, a bundle to check against, and files to carry
-/// into the bundle as they are.
-type PyWriteUp = (Option<PathBuf>, Option<PathBuf>, Vec<PathBuf>, bool);
+/// How to write the run up, as Python gives it: a directory to write a
+/// bundle into, a bundle to check against, files to carry into the bundle as
+/// they are, whether the bundle is thin, and the claims to bind.
+///
+/// The claims ride here rather than as an argument of their own because they
+/// change only the write-up — not the run, not a key, not a record — and
+/// because every one of these is read at the same moment, after the run and
+/// before the bundle.
+type PyWriteUp = (
+    Option<PathBuf>,
+    Option<PathBuf>,
+    Vec<PathBuf>,
+    bool,
+    Vec<PyClaim>,
+);
 
 /// A bundle that was written: where it is, what is in it, how many steps it
 /// accounts for, how many it could not.
@@ -748,7 +792,7 @@ fn declared_label(name: &str, value: Option<String>) -> PyResult<Option<String>>
 /// name rather than the value, because a bundle carries the pipeline file
 /// and a token written in the pipeline would travel in every bundle.
 #[pyfunction]
-#[pyo3(signature = (locator, kind, mode, cache=None, auth_env=None, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None, source_set=None))]
+#[pyo3(signature = (locator, kind, mode, cache=None, auth_env=None, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None, source_set=None, representation=None))]
 #[expect(
     clippy::too_many_arguments,
     reason = "every declarable dimension, plus the three a query needs; \
@@ -768,6 +812,7 @@ fn resolve_query(
     namespace: Option<String>,
     subject: Option<String>,
     source_set: Option<Vec<String>>,
+    representation: Option<String>,
 ) -> PyResult<PyDataset> {
     let parsed =
         Locator::parse(locator).map_err(|error| RemoteError::new_err(error.to_string()))?;
@@ -835,6 +880,7 @@ fn resolve_query(
         identifier_namespace: declared_label("namespace", namespace)?,
         subject: declared_label("subject", subject)?,
         source_set: sources(source_set)?,
+        representation: declared_representation(representation)?,
     };
 
     // Loaded from the store exactly as a local file is, so a recorded
@@ -850,6 +896,8 @@ fn resolve_query(
         DataKind::RankedList => load::ranked_list(primary, None, &declared),
         DataKind::Reads => load::reads(primary, None, &declared),
         DataKind::KnowledgeGraph => load::knowledge_graph(primary, &declared),
+        DataKind::MoleculeSet => load::molecule_set(primary, &declared),
+        DataKind::MoleculeRanking => load::molecule_ranking(primary, &declared),
         DataKind::ResistanceReport => {
             return Err(PyValueError::new_err(
                 "a resistance report is something Ligase produces, not \
@@ -908,7 +956,7 @@ fn kind_named(kind: &str) -> PyResult<DataKind> {
 /// here, while the pipeline is still being read, which is what makes "it
 /// fails before any step runs" true rather than merely intended.
 #[pyfunction]
-#[pyo3(signature = (locator, kind, digest=None, cache=None, offline=false, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None, source_set=None))]
+#[pyo3(signature = (locator, kind, digest=None, cache=None, offline=false, organism=None, build=None, frame=None, release=None, samples=None, namespace=None, subject=None, source_set=None, representation=None))]
 #[expect(
     clippy::too_many_arguments,
     reason = "every declarable dimension, plus the three a remote needs; \
@@ -928,6 +976,7 @@ fn resolve_remote(
     namespace: Option<String>,
     subject: Option<String>,
     source_set: Option<Vec<String>>,
+    representation: Option<String>,
 ) -> PyResult<PyDataset> {
     let parsed =
         Locator::parse(locator).map_err(|error| RemoteError::new_err(error.to_string()))?;
@@ -985,6 +1034,7 @@ fn resolve_remote(
         identifier_namespace: declared_label("namespace", namespace)?,
         subject: declared_label("subject", subject)?,
         source_set: sources(source_set)?,
+        representation: declared_representation(representation)?,
     };
 
     // Loaded from the store exactly as a local file is, so a remote's
@@ -1005,6 +1055,8 @@ fn resolve_remote(
         DataKind::RankedList => load::ranked_list(primary, None, &declared),
         DataKind::Reads => load::reads(primary, mates.first().map(PathBuf::as_path), &declared),
         DataKind::KnowledgeGraph => load::knowledge_graph(primary, &declared),
+        DataKind::MoleculeSet => load::molecule_set(primary, &declared),
+        DataKind::MoleculeRanking => load::molecule_ranking(primary, &declared),
         DataKind::ResistanceReport => {
             return Err(PyValueError::new_err(
                 "a resistance report is something Ligase produces, not \
@@ -1041,6 +1093,7 @@ fn load_reference(
         identifier_namespace: None,
         subject: None,
         source_set: None,
+        representation: None,
     };
     load::reference(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -1064,6 +1117,7 @@ fn load_alignment(
         identifier_namespace: None,
         subject: None,
         source_set: None,
+        representation: None,
     };
     load::alignment(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -1087,6 +1141,7 @@ fn load_variants(
         identifier_namespace: None,
         subject: None,
         source_set: None,
+        representation: None,
     };
     load::variants(&path, &declared)
         .map(|inner| PyDataset { inner })
@@ -1110,6 +1165,7 @@ fn load_reads(
         identifier_namespace: None,
         subject: None,
         source_set: None,
+        representation: None,
     };
     load::reads(&r1, r2.as_deref(), &declared)
         .map(|inner| PyDataset { inner })
@@ -1141,6 +1197,7 @@ fn load_intervals(
         identifier_namespace: None,
         subject: None,
         source_set: None,
+        representation: None,
     };
     load::intervals(&path, format, &declared)
         .map(|inner| PyDataset { inner })
@@ -1167,6 +1224,7 @@ fn load_entity_set(
         identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
         subject: declared_label("subject", subject)?,
         source_set: None,
+        representation: None,
     };
     load::entity_set(&path, id_column, &declared)
         .map(|inner| PyDataset { inner })
@@ -1193,6 +1251,7 @@ fn load_ranked_list(
         identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
         subject: declared_label("subject", subject)?,
         source_set: None,
+        representation: None,
     };
     load::ranked_list(&path, id_column, &declared)
         .map(|inner| PyDataset { inner })
@@ -1219,10 +1278,98 @@ fn load_knowledge_graph(
         identifier_namespace: declared_label("identifier_namespace", identifier_namespace)?,
         subject: declared_label("subject", subject)?,
         source_set: sources(source_set)?,
+        representation: None,
     };
     load::knowledge_graph(&path, &declared)
         .map(|inner| PyDataset { inner })
         .map_err(to_py)
+}
+
+/// Load a set of molecules from a tab-separated table.
+#[pyfunction]
+#[pyo3(signature = (path, organism=None, representation=None, subject=None, release=None))]
+fn load_molecule_set(
+    path: PathBuf,
+    organism: Option<Organisms>,
+    representation: Option<String>,
+    subject: Option<String>,
+    release: Option<String>,
+) -> PyResult<PyDataset> {
+    load::molecule_set(
+        &path,
+        &molecules_declared(organism, representation, subject, release)?,
+    )
+    .map(|inner| PyDataset { inner })
+    .map_err(to_py)
+}
+
+/// Load a ranking of molecules, whose row order is the answer.
+#[pyfunction]
+#[pyo3(signature = (path, organism=None, representation=None, subject=None, release=None))]
+fn load_molecule_ranking(
+    path: PathBuf,
+    organism: Option<Organisms>,
+    representation: Option<String>,
+    subject: Option<String>,
+    release: Option<String>,
+) -> PyResult<PyDataset> {
+    load::molecule_ranking(
+        &path,
+        &molecules_declared(organism, representation, subject, release)?,
+    )
+    .map(|inner| PyDataset { inner })
+    .map_err(to_py)
+}
+
+/// Read a representation, and give back the one spelling for it.
+///
+/// Exported so that `ligase.chem` has the *same* validator the loaders and
+/// the conversion registry use, rather than a second reading of the same
+/// string in Python. It also canonicalises: the operations come back
+/// deduplicated and in one order, so the line a standardiser writes is the
+/// line its own loader reads back to the same value.
+#[pyfunction]
+fn parse_representation(spelled: &str) -> PyResult<String> {
+    Representation::parse(spelled)
+        .map(|representation| representation.spell())
+        .map_err(PyValueError::new_err)
+}
+
+/// A declared representation, checked before anything is loaded.
+///
+/// Parsed here rather than only in the loader so that a spelling the engine
+/// cannot read is a `ValueError` naming what it does know, instead of a
+/// declaration silently ignored and a dimension mysteriously unknown. The
+/// loader is deliberately lenient about the same thing, because a *file*
+/// Ligase did not write is not the user's mistake to be shouted at for; a
+/// declaration is.
+fn declared_representation(declared: Option<String>) -> PyResult<Option<String>> {
+    let declared = declared_label("representation", declared)?;
+    if let Some(spelled) = declared.as_deref() {
+        Representation::parse(spelled).map_err(PyValueError::new_err)?;
+    }
+    Ok(declared)
+}
+
+/// What a molecule loader was told, checked before it is handed over.
+fn molecules_declared(
+    organism: Option<Organisms>,
+    representation: Option<String>,
+    subject: Option<String>,
+    release: Option<String>,
+) -> PyResult<Declared> {
+    let representation = declared_representation(representation)?;
+    Ok(Declared {
+        organism: organisms(organism)?,
+        build: None,
+        frame: None,
+        samples: None,
+        release: declared_label("release", release)?,
+        identifier_namespace: None,
+        subject: declared_label("subject", subject)?,
+        source_set: None,
+        representation,
+    })
 }
 
 #[pyfunction]
@@ -1241,6 +1388,7 @@ fn load_samples(
         identifier_namespace: None,
         subject: None,
         source_set: None,
+        representation: None,
     };
     load::samples(&paths, paired, &declared)
         .map(|datasets| {
@@ -1440,7 +1588,7 @@ impl PyGraph {
             jobs: jobs.unwrap_or_else(|| Options::default().jobs),
             force,
             // A name the user gave, or one this process makes up: either
-            // way, `Some` is what makes this a worker (D49).
+            // way, `Some` is what makes this a worker (D51).
             worker: worker.map(|name| Worker::named(&name)),
             lease: lease.map_or_else(|| Options::default().lease, Duration::from_secs),
         };
@@ -1598,7 +1746,7 @@ impl PyGraph {
         write_up: PyWriteUp,
         jobs: Option<usize>,
     ) -> PyResult<(PyMethods, Option<PyBundle>, Option<PyVerification>)> {
-        let (bundle, verify, include, thin) = &write_up;
+        let (bundle, verify, include, thin, claims) = &write_up;
         let roots = nodes(&roots);
         let tasks = recipes(tasks)?;
 
@@ -1639,8 +1787,10 @@ impl PyGraph {
             )));
         }
 
-        let methods = prov::methods(&self.inner, &roots, &tasks, &report, &prov)
+        let mut methods = prov::methods(&self.inner, &roots, &tasks, &report, &prov)
             .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        // Before the bundle is written, so the paper's claims travel in it.
+        methods.bind(&declared(claims)?);
 
         let written = match &bundle {
             None => None,
@@ -1737,6 +1887,7 @@ impl PyGraph {
                 methods.references().iter().map(reference).collect(),
                 cited,
                 uncited,
+                methods.claims.iter().map(claim_check).collect(),
                 methods.engines.clone(),
                 methods.platforms.clone(),
                 methods.summary(),
@@ -1793,6 +1944,90 @@ fn reference(pinned: &prov::ReferenceRecord) -> PyReference {
         pinned.length,
         pinned.checksum.clone(),
         pinned.fingerprint.clone(),
+    )
+}
+
+/// The claims as the core wants them.
+///
+/// The flattening Python does is undone here: `parameter=` and `tool=` arrive
+/// as two optional names and become one [`prov::Restated`], which is a type
+/// that cannot hold both. A pair that named both would already have been
+/// refused by `Claim.__post_init__`, so reaching this with both set means the
+/// surface let something through — and that is an error rather than a guess
+/// about which the user meant.
+fn declared(claims: &[PyClaim]) -> PyResult<Vec<prov::Claim>> {
+    claims
+        .iter()
+        .cloned()
+        .map(|(text, step, scope, parameter, tool, value)| {
+            let restates = match (parameter, tool, value) {
+                (None, None, None) => None,
+                (Some(name), None, Some(value)) => Some(prov::Restated::Parameter { name, value }),
+                (None, Some(name), Some(version)) => Some(prov::Restated::Tool { name, version }),
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "the claim {text:?} restates a value the engine cannot \
+                         read: name exactly one of `parameter=` and `tool=`, \
+                         and give `value=` beside it"
+                    )));
+                }
+            };
+            Ok(prov::Claim {
+                text,
+                step,
+                scope,
+                restates,
+            })
+        })
+        .collect()
+}
+
+/// One checked claim, as Python sees it.
+///
+/// Named for the type rather than the verb, because `checked` is what the
+/// verification half of `methods` already calls its own result.
+fn claim_check(check: &prov::ClaimCheck) -> PyClaimCheck {
+    let (parameter, tool, value) = match &check.claim.restates {
+        None => (None, None, None),
+        Some(prov::Restated::Parameter { name, value }) => {
+            (Some(name.clone()), None, Some(value.clone()))
+        }
+        Some(prov::Restated::Tool { name, version }) => {
+            (None, Some(name.clone()), Some(version.clone()))
+        }
+    };
+    let recorded = match &check.verdict {
+        prov::ClaimVerdict::Contradicted { recorded, .. } => Some(recorded.clone()),
+        _ => None,
+    };
+
+    (
+        (
+            check.claim.text.clone(),
+            check.claim.step.clone(),
+            check.claim.scope.clone(),
+            parameter,
+            tool,
+            value,
+        ),
+        check.verdict.name().to_owned(),
+        // The sentence the write-up prints, so a script reporting one claim
+        // says what `ligase methods` says about it.
+        Some(check.sentence()),
+        recorded,
+        check
+            .bound
+            .iter()
+            .map(|bound| {
+                (
+                    bound.scope.clone(),
+                    bound.key.to_hex(),
+                    bound.canonical.to_hex(),
+                    bound.recorded_at,
+                    bound.platform.clone(),
+                )
+            })
+            .collect(),
     )
 }
 
@@ -1924,6 +2159,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_entity_set, m)?)?;
     m.add_function(wrap_pyfunction!(load_ranked_list, m)?)?;
     m.add_function(wrap_pyfunction!(load_knowledge_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_representation, m)?)?;
+    m.add_function(wrap_pyfunction!(load_molecule_set, m)?)?;
+    m.add_function(wrap_pyfunction!(load_molecule_ranking, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_axis, m)?)?;
     m.add_function(wrap_pyfunction!(conversion_target_parameter, m)?)?;
     m.add_function(wrap_pyfunction!(map_identifiers, m)?)?;

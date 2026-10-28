@@ -81,6 +81,21 @@ class Scenario:
     which `dimension_errors` cannot see: it compares inputs, and a step's
     own coordinate frame comes from its return annotation.
     """
+    contains: tuple[str, ...] = ()
+    """Substrings the captured text must hold, or the build fails.
+
+    `expect` checks the error's *class*, which catches a public API change
+    and nothing else: an engine that kept raising `DimensionError` while
+    reporting the wrong value would publish a page that reads plausibly and
+    says something false. So a scenario may also name the parts its page is
+    *about* -- the value, the member that differs, the operation one side
+    applied -- and a page cannot then drift from the engine by wording
+    alone.
+
+    Optional, and empty for the scenarios written before it existed: what a
+    given page claims is a judgement about that page, and guessing it for
+    one somebody else wrote would assert the wrong thing confidently.
+    """
     provoke: Callable[[Any], None] | None = None
     """Do something that must raise `expect`, given the `ligase` module.
 
@@ -418,6 +433,87 @@ SCENARIOS: tuple[Scenario, ...] = (
         },
     ),
     Scenario(
+        key="molecularStandardisation",
+        step="overlap",
+        expect="DimensionError",
+        description=(
+            "A library standardised and a hit list as the vendor shipped it: "
+            "the same two substances, and an overlap of nothing."
+        ),
+        contains=(
+            "InChIKey, salt-stripped and charge-neutralised",
+            "InChIKey, as given",
+            "library also lists salt-stripped and charge-neutralised",
+        ),
+        build=lambda lg: {
+            "library": lg.molecule_set(
+                fixture("molecules_library.tsv"), organism="Homo sapiens"
+            ),
+            "hits": lg.molecule_set(
+                fixture("molecules_hits_salts.tsv"), organism="Homo sapiens"
+            ),
+        },
+    ),
+    Scenario(
+        key="molecularTautomers",
+        step="overlap",
+        expect="DimensionError",
+        description=(
+            "Two libraries standardised to different states: the error names "
+            "the operations one of them also applied."
+        ),
+        contains=("normalised also lists tautomer-normalised and stereo-discarded",),
+        build=lambda lg: {
+            "library": lg.molecule_set(
+                fixture("molecules_library.tsv"), organism="Homo sapiens"
+            ),
+            "normalised": lg.molecule_set(
+                fixture("molecules_tautomer_normalised.tsv"),
+                organism="Homo sapiens",
+            ),
+        },
+    ),
+    Scenario(
+        key="molecularStereo",
+        step="score",
+        expect="DimensionError",
+        description=(
+            "Two libraries alike but for stereochemistry: the one that was "
+            "tautomer-normalised can no longer tell two enantiomers apart."
+        ),
+        contains=("hits also lists stereo-discarded",),
+        build=lambda lg: {
+            "library": lg.molecule_set(
+                fixture("molecules_library.tsv"), organism="Homo sapiens"
+            ),
+            "hits": lg.molecule_set(
+                fixture("molecules_library_stereo_lost.tsv"),
+                organism="Homo sapiens",
+            ),
+        },
+    ),
+    Scenario(
+        key="molecularUndeclared",
+        step="overlap",
+        expect="UndeclaredDimensionError",
+        description=(
+            "Two tables of InChIKeys, neither of which says what standardised "
+            "them: demanded of, rather than agreeing by silence."
+        ),
+        contains=(
+            "representation is unknown",
+            "needs representation to agree, and nothing states it",
+        ),
+        build=lambda lg: {
+            "library": lg.molecule_set(
+                fixture("molecules_no_representation.tsv"), organism="Homo sapiens"
+            ),
+            "hits": lg.molecule_set(
+                fixture("molecules_no_representation.tsv"), organism="Homo sapiens"
+            ),
+        },
+    ),
+    Scenario(
         key="graphNamespace",
         step="score",
         expect="DimensionError",
@@ -624,6 +720,16 @@ def capture(lg: Any, scenario: Scenario) -> str:
     text = str(errors[0]).rstrip("\n")
     if not text.strip():
         raise SystemExit(f"{scenario.key}: {got} stringified to nothing.")
+
+    missing = [wanted for wanted in scenario.contains if wanted not in text]
+    if missing:
+        raise SystemExit(
+            f"{scenario.key}: the engine still raises {got}, but its text no "
+            f"longer holds {', '.join(repr(m) for m in missing)}.\n"
+            f"  The page is about those, so publishing this would publish "
+            f"something that reads plausibly and says the wrong thing.\n"
+            f"  Got:\n{text}"
+        )
     return text
 
 

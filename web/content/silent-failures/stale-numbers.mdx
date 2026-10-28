@@ -1,0 +1,109 @@
+---
+title: "The number in my paper is not the number my pipeline produces"
+description: "A threshold moved, a sample was dropped, a cluster was upgraded. The pipeline is correct, the output is correct, and a sentence in the manuscript is now wrong — and nothing anywhere connects the two."
+---
+
+import { claims } from '../../lib/claims.generated'
+
+# The number in my paper is not the number my pipeline produces
+
+<Lede>
+A reviewer asks where a number came from. You go back to the pipeline, and
+the pipeline says something else. Not because anything is broken: the
+analysis ran correctly, the output is correct, and the sentence was correct
+when it was written. Somewhere between the first draft and submission the two
+stopped describing each other, and nothing in your tools was watching.
+</Lede>
+
+## What actually happened
+
+One of four things, and each is an ordinary afternoon's work:
+
+- **A threshold moved.** The draft said *above 1% allele frequency* because
+  that is what `min_freq` was in March. It is 5% now. Nothing failed; the
+  sentence simply stopped being true.
+- **A sample was dropped.** The results table says 24. One failed QC and was
+  removed from the manifest, so the pipeline runs 23 and the table does not
+  know.
+- **A tool was upgraded.** The methods section names `bwa 0.7.17`. The
+  cluster has 0.7.18 and nobody announced it.
+- **A step was renamed or removed.** The reported count came from an analysis
+  that has since been rewritten, so the number in the paper now corresponds
+  to no step at all.
+
+## Why nothing catches it
+
+Because the number and the pipeline live in different worlds, and no tool
+spans both. A workflow engine knows what ran; it has never read your
+manuscript. A reference manager knows your citations; it has never seen your
+parameters. Version control sees both files change and has no idea that one
+change invalidates a sentence in the other.
+
+Even careful provenance stops one step short. Ligase was already unusually
+good at naming what it could not vouch for — it names a tool with no citation
+rather than omitting it
+([D24](/project/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)),
+names a sample identifier that is really a file name
+([D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)),
+names a step it cannot account for. All of that runs in one direction: from a
+result back to how it was produced. The question a reader of the paper asks
+runs the other way, and there was nothing to ask it of.
+
+## Why the answer is plausible rather than absurd
+
+Because nothing is wrong except the sentence. Rerun the pipeline and it
+succeeds. Check the output and it is correct. Audit the step and it
+reproduces. Every verification you can run passes, because the computation is
+not where the problem is — and the number in the paper is in the plausible
+range, because it was produced by an earlier version of the same analysis.
+
+That is what makes this the most expensive kind of mistake in the catalogue.
+It survives peer review, because a reviewer cannot see your pipeline. It
+survives a reproducibility check, because the pipeline reproduces. It is
+found, if it is found at all, by somebody trying to build on the paper.
+
+## What Ligase does about it
+
+You tell it the number, and the step behind it:
+
+```python
+pipe = lg.Pipeline(
+    call(hxb2, min_freq=0.05),
+    claims=[
+        lg.Claim(
+            "variants were called above 1% allele frequency",
+            step="call",
+            parameter="min_freq",
+            value=0.01,
+        ),
+    ],
+)
+```
+
+<RunReport>{claims.contradicted}</RunReport>
+
+Both numbers are stated and `ligase methods` exits non-zero, so the build
+that moved the threshold is the build that tells you the manuscript needs
+editing. The write-up does not guess which of the two should change, because
+it cannot know whether the paper or the pipeline is the thing that is behind.
+
+For the renamed step, the same mechanism says the other thing:
+
+<RunReport>{claims.unbacked}</RunReport>
+
+## What it does not claim to do
+
+It does not read your number out of your output file. A claim about a count
+of mutations binds to the step key, the output hash and the date that
+computation happened — enough for a reviewer with your bundle to find the
+computation and rerun it, and not a verification of the count. Where there
+*is* a value the engine holds, a parameter or a tool version, it is compared;
+where there is not, the claim is a binding rather than a check, and
+[the guide](/guide/claims/) says which is which.
+
+## See also
+
+- [Binding a number you published](/guide/claims/) — the task.
+- [A number in a paper](/concepts/claims/) — why the engine owes this.
+- [D45](/project/decisions/#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it)
+  — what a claim binds to, and why editing a manuscript reruns nothing.

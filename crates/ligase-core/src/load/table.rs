@@ -12,7 +12,9 @@
 //! would let two files that differ in the ignored part compare equal.
 //!
 //! - **A file with no header is not a table.** There is nothing to name the
-//!   columns, so there is no identifier column to find.
+//!   columns, so there is no identifier column to find. A file of nothing
+//!   but comment lines is such a file: a representation with no table under
+//!   it is not a molecule set.
 //! - **A row the header cannot account for is an error**, not a short row
 //!   padded with blanks. A table whose rows do not fit its header is not the
 //!   table it claims to be.
@@ -81,6 +83,45 @@ impl<R: BufRead> Table<R> {
                 pending,
             }),
             None => Err("no header row".to_owned()),
+        }
+    }
+
+    /// The same, after a block of leading `#` lines, which are returned.
+    ///
+    /// A molecule table carries its representation on such a line, and both
+    /// the loader and the canonical form have to read it — so the skipping
+    /// lives here, with the reader, rather than being done twice. A reader
+    /// that disagreed with a canonical form about where the header starts
+    /// would hash a file the engine had described differently, which is the
+    /// bug this module exists as one copy to prevent.
+    ///
+    /// The comment lines come back **verbatim and in order**, because
+    /// nothing may drop them: one of them is a dimension, and the rest are
+    /// somebody's own words about their own file.
+    pub(crate) fn read_after_comments(mut reader: R) -> Result<(Self, Vec<String>), String> {
+        let mut pending = VecDeque::new();
+        let mut comments = Vec::new();
+        loop {
+            match next_line(&mut reader, &mut pending)? {
+                Some(line) if line.starts_with('#') => comments.push(line),
+                // A blank line before the header is skipped as one after it
+                // is, by `next_row`, and for the same reason.
+                Some(line) if line.is_empty() => {}
+                Some(line) => {
+                    return Ok((
+                        Self {
+                            header: line
+                                .split('\t')
+                                .map(|name| name.trim().to_owned())
+                                .collect(),
+                            reader,
+                            pending,
+                        },
+                        comments,
+                    ));
+                }
+                None => return Err("no header row".to_owned()),
+            }
         }
     }
 

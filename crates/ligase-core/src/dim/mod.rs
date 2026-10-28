@@ -2,7 +2,8 @@
 //!
 //! The catalogue is `web/content/reference/dimensions.mdx`: organism,
 //! reference, contig naming, coordinates, sample set, pairing, quality
-//! encoding, release, subject, source set and identifier namespace. Every value travels with its provenance, so an error message can
+//! encoding, release, subject, source set, identifier namespace and
+//! representation. Every value travels with its provenance, so an error message can
 //! say *where* a value came from without reconstructing it after the fact.
 //! That provenance is the part that makes the error useful: "these two
 //! references disagree" sends a user hunting, while "one came from a BAM
@@ -12,6 +13,7 @@
 mod names;
 mod namespace;
 mod reference;
+mod representation;
 
 use std::fmt;
 use std::path::PathBuf;
@@ -23,6 +25,7 @@ pub use names::{
 };
 pub use namespace::KnownNamespace;
 pub use reference::{Contig, ContigOrder, Frame, ReferenceId, Relation, Verdict, relate};
+pub use representation::{Identity, Representation, Standardisation};
 
 /// Where a dimension's value came from.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,12 +170,15 @@ pub enum Dimension {
     SourceSet,
     /// Which identifier space the entities are named in.
     IdentifierNamespace,
+    /// What a name in a molecule table is, and what standardisation
+    /// produced it.
+    Representation,
 }
 
 impl Dimension {
     /// Every dimension: the catalogue's seven in catalogue order, then the
     /// axes added since, in the order they were added.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Organism,
         Self::Reference,
         Self::ContigNaming,
@@ -184,6 +190,7 @@ impl Dimension {
         Self::Subject,
         Self::SourceSet,
         Self::IdentifierNamespace,
+        Self::Representation,
     ];
 
     /// The name used in messages and in the Python API.
@@ -201,6 +208,7 @@ impl Dimension {
             Self::Subject => "subject",
             Self::SourceSet => "source_set",
             Self::IdentifierNamespace => "identifier_namespace",
+            Self::Representation => "representation",
         }
     }
 
@@ -234,6 +242,10 @@ impl Dimension {
             Self::IdentifierNamespace => {
                 "These must match. Add a `map_identifiers` step; identifiers are never \
                  renamed implicitly."
+            }
+            Self::Representation => {
+                "These must match. Were the two sets standardised differently? Add a \
+                 `standardize` step; molecules are never re-keyed implicitly."
             }
         }
     }
@@ -416,6 +428,8 @@ pub struct Dimensions {
     pub source_set: Dim<SourceSet>,
     /// Which identifier space the entities are named in.
     pub identifier_namespace: Dim<IdentifierNamespace>,
+    /// What a name in a molecule table is, and what produced it.
+    pub representation: Dim<Representation>,
 }
 
 impl Default for Dimensions {
@@ -433,6 +447,7 @@ impl Default for Dimensions {
             subject: Dim::unknown(NOT_SET),
             source_set: Dim::unknown(NOT_SET),
             identifier_namespace: Dim::unknown(NOT_SET),
+            representation: Dim::unknown(NOT_SET),
         }
     }
 }
@@ -470,6 +485,7 @@ impl Dimensions {
             Dimension::IdentifierNamespace => {
                 self.identifier_namespace.value().map(ToString::to_string)
             }
+            Dimension::Representation => self.representation.value().map(ToString::to_string),
         }
     }
 
@@ -491,6 +507,7 @@ impl Dimensions {
             Dimension::Subject => self.subject.source(),
             Dimension::SourceSet => self.source_set.source(),
             Dimension::IdentifierNamespace => self.identifier_namespace.source(),
+            Dimension::Representation => self.representation.source(),
         }
     }
 
@@ -515,6 +532,7 @@ impl Dimensions {
             Dimension::Subject => self.subject.reason(),
             Dimension::SourceSet => self.source_set.reason(),
             Dimension::IdentifierNamespace => self.identifier_namespace.reason(),
+            Dimension::Representation => self.representation.reason(),
         }
     }
 

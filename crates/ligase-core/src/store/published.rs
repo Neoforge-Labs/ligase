@@ -58,7 +58,7 @@ const DOMAIN: &str = "ligase.published-row";
 ///
 /// Version 2 (M18) adds the output's canonical hash to a `steps` row, so
 /// that a worker whose publish was dropped can tell at no cost whether the
-/// machine that got there first *means* the same thing it does (D50).
+/// machine that got there first *means* the same thing it does (D52).
 ///
 /// This number is in [`key_of`]'s hash, and that is not decoration — see
 /// the note there. It was not, until the first bump needed it.
@@ -120,7 +120,7 @@ pub fn key_of(table: &str, key: &str) -> ObjectKey {
 ///
 /// The distinction exists for M18. A step key fixes its ingredients, so two
 /// machines publishing one key have done the same work — but not
-/// necessarily to the same bytes, and in the cases D50 names not even to
+/// necessarily to the same bytes, and in the cases D52 names not even to
 /// the same *meaning*. Which of those it is has to be decided by somebody,
 /// and the store is the right somebody: it is the only layer that knows
 /// what is actually there.

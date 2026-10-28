@@ -1,0 +1,6 @@
+#ligase representation: inchikey; salt-stripped, charge-neutralised
+inchikey	smiles	name	activity_nm
+BSYNRYMUTXBXSQ-UHFFFAOYSA-N	CC(=O)Oc1ccccc1C(=O)O	aspirin	120
+HEFNNWSXXWATRW-JTQLQIEISA-N	C[C@@H](c1ccc(CC(C)C)cc1)C(=O)O	ibuprofen	85
+PJVWKTKQMONHTI-UHFFFAOYSA-N	CC(=O)CC(c1ccccc1)c1c(O)c2ccccc2oc1=O	warfarin	310
+XZWYZXLIPXDOLR-UHFFFAOYSA-N	CN(C)C(=N)NC(N)=N	metformin	4500

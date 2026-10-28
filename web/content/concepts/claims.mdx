@@ -1,0 +1,143 @@
+---
+title: "A number in a paper"
+description: "Provenance answers how a result was produced. A claim asks the other question: what is behind the number I published?"
+---
+
+import { claims } from '../../lib/claims.generated'
+
+# A number in a paper
+
+Provenance answers one question: *how was this result produced?* A claim asks
+the other one, and until now Ligase could not answer it: *what is behind the
+number I published?*
+
+## The asymmetry this closes
+
+`ligase methods` is unusually careful about what it does not know. It names a
+tool it has no reference for rather than leaving it out of the reference
+list, because "a tool silently missing from a reference list lets an
+incomplete methods section look complete"
+([D24](/project/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)).
+It names a sample identifier that is really a file name
+([D26](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)).
+It names a step whose production it cannot account for, rather than printing
+a paragraph with a silent hole in it.
+
+Three different promises, and all the same one: **the record names what it
+cannot account for.**
+
+Now look at what it was silent about. The paper says *variants were called
+above 1% allele frequency*. The pipeline says `min_freq = 0.05`, because the
+threshold moved in June and the sentence did not. Both statements are in
+front of you, in the same terminal, and nothing connects them. The engine
+will tell you that `fastp` has no citation and say nothing at all about the
+number in your abstract — because nothing has ever told it what that number
+is.
+
+A claim is how it is told.
+
+## What a claim is
+
+A sentence a paper states, and the step that produced it:
+
+```python
+pipe = lg.Pipeline(
+    samples.map(lambda s: resistance(call(align(s, hxb2), hxb2))),
+    claims=[
+        lg.Claim(
+            "variants were called above 1% allele frequency",
+            step="call",
+            parameter="min_freq",
+            value=0.01,
+        ),
+    ],
+)
+```
+
+The sentence is yours and is never checked. Everything else is: that `call`
+is a step this pipeline produces, that `min_freq` is a parameter it takes,
+and that the run held it at `0.01`. What comes back is the step key, the
+output's hash and the date that computation happened:
+
+<RunReport>{claims.bound}</RunReport>
+
+## Why the sentence and the value are two fields
+
+A paper writes **1%**. The pipeline holds **0.01**. Comparing the sentence
+against the parameter would be a guess about arithmetic in English, and a
+mechanism built on that guess would be wrong in both directions — calling
+correct papers wrong and, worse, occasionally calling a wrong one right.
+
+So they are separate and each does one job. `text` is what you grep the
+write-up for with the manuscript open beside it. `value` is what the engine
+compares, written the way the pipeline holds it.
+
+## The three verdicts
+
+**Bound.** Every check passed. The number rests on a computation this
+write-up accounts for, named by key.
+
+**Contradicted.** Something stands behind the number and disagrees with it.
+This is the drift above, caught:
+
+<RunReport>{claims.contradicted}</RunReport>
+
+Both numbers are stated, so the fix needs no investigation — and the write-up
+does not guess which of the two is wrong, because it cannot know whether the
+paper or the pipeline is the thing that should move.
+
+**Unbacked.** Nothing in the run stands behind it at all:
+
+<RunReport>{claims.unbacked}</RunReport>
+
+There are five ways to land here and the complaint distinguishes them,
+because a renamed step, a dropped sample, a renamed parameter and a swapped
+tool are four different one-line fixes. A claim whose step is a
+[gap](/guide/provenance/) is the fifth: the step exists, its record does not,
+and a claim resting on a step nothing is known about rests on nothing.
+
+## Why a declaration, and not a guess
+
+The engine does not open your VCF and count its rows. It could do that for
+the formats it knows and would have to skip the rest, which is the
+lenient-canonicaliser failure in a new costume: a mechanism that verified
+some numbers and silently waved the others through.
+
+What it does instead is narrower and honest. A claim with a `value` is
+*compared*. A claim without one is *bound* — to a key, a hash and a date, so
+a reviewer with the bundle can find the computation and rerun it. Neither is
+"the engine checked your arithmetic", and the pages do not say it is.
+
+The one thing a claim must never be is a sentence reprinted under a heading.
+M13 put it in one line: **a declaration nothing can check is a comment.** A
+`Claims` section that merely echoed your prose would make an unchecked
+paragraph look checked, which is the exact failure D24 refuses in the
+reference list — so every part of a claim except its text is checked against
+the run, and a claim that cannot survive that is named rather than printed.
+
+## What a claim is bound to
+
+The **computation**, never the occasion. A claim carries the step key, and a
+key is already the identity of a computation: the same code, the same
+parameters, the same inputs, the same tool versions. So a step served from
+the cache backs its claim completely, and the date you see is when that
+computation happened — which may be months before the run that wrote the
+paper up.
+
+This is deliberate and it is [D45](/project/decisions/#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it).
+The alternative would make `ligase methods --force` the only honest way to
+write up a paper, which is the opposite of what a content-addressed cache is
+for.
+
+The same decision has a second half: **a claim is in no cache key.** Editing
+a sentence in your manuscript reruns nothing. A mechanism whose cost was a
+re-alignment per draft would simply not be kept up to date, which is the
+worst available outcome for a feature whose entire job is to be current.
+
+## Where to go next
+
+[Binding a number you published](/guide/claims/) is the task, with a runnable
+example. [The number in my paper is not the number my pipeline
+produces](/silent-failures/stale-numbers/) is the failure, by symptom.
+[The internals](/project/architecture/provenance/#claims) say how the checks
+are made and what they deliberately do not do.

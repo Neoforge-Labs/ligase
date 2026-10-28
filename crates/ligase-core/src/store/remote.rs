@@ -192,7 +192,7 @@ mod enabled {
         /// Not every S3-compatible server implements the conditional write
         /// this needs, so a store that refuses the mode falls back to an
         /// ordinary put. The lease then has a race again, which costs
-        /// duplicated work and not a wrong answer (D50) — and that is why
+        /// duplicated work and not a wrong answer (D52) — and that is why
         /// a lease is specified as advisory rather than as a lock.
         fn put(&self, key: &ObjectKey, bytes: &[u8]) -> Result<(), StoreError> {
             use object_store::{Error as ObjectError, PutMode};

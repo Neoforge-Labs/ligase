@@ -1,0 +1,159 @@
+---
+title: "What a molecule's name means"
+description: "A compound set's identity rests on what was done to its structures before their keys were computed. Two sets standardised differently are two different sets of names for the same substances, and the engine refuses to join them."
+---
+
+# What a molecule's name means
+
+A gene list's problem is that `TP53` and `ENSG00000141510` are two names for
+one gene. A compound set's problem is stranger and harder to see: the *same*
+naming scheme gives one substance several names, and which one you get
+depends on what somebody did to the structure first.
+
+## The same substance, three names
+
+An InChIKey is a hash of a molecular structure. Standardisation changes the
+structure deliberately — that is what it is for — so it changes the key.
+Aspirin, arriving as its sodium salt the way a supplier ships it:
+
+| What was done to it | InChIKey |
+|---|---|
+| nothing | `JZLOKWGVGHYBKD-UHFFFAOYSA-M` |
+| salts stripped | `BSYNRYMUTXBXSQ-UHFFFAOYSA-M` |
+| salts stripped, charges neutralised | `BSYNRYMUTXBXSQ-UHFFFAOYSA-N` |
+
+One substance, three identities. The last two differ in the final character,
+which is the charge block.
+
+This is not a quirk of aspirin. Of thirty ordinary drugs measured across six
+RDKit releases, **twelve change key under a different standardisation state**
+— and the thirty were marketed drugs, salt forms and tautomer pairs, not
+awkward cases chosen to make a point. The method and the numbers are on [the
+architecture page](/project/architecture/molecules/).
+
+## So the standardisation is a dimension
+
+Ligase's rule for admitting a kind is that it must bring a dimension whose
+mismatch is a documented silent failure
+([D35](/project/decisions/#d35--a-kind-must-bring-a-dimension-that-catches-a-documented-silent-failure)).
+A compound table brings `representation`: what a name in it *is*, and what
+was done before it was computed.
+
+```python
+library = lg.molecule_set("vendor/catalogue.tsv")
+library.dimension("representation").value
+# 'InChIKey, salt-stripped and charge-neutralised'
+library.dimension("representation").source
+# 'from the representation line the standardiser wrote: vendor/catalogue.tsv'
+```
+
+Two sets whose representations disagree do not join. That is the whole of
+what the engine does with chemistry, and it is why the engine needs none:
+comparing two states is string work, and computing one needs RDKit.
+
+## Why this is worse than the gene-list version
+
+[An identifier-space
+mismatch](/concepts/identifiers/) is visible. `TP53` is not
+`ENSG00000141510`, and anyone who looks at two columns sees it immediately. A
+checker that catches it is catching something a careful person would also
+have caught.
+
+A standardisation mismatch is invisible. Both files are columns of
+twenty-seven-character InChIKeys, in the same format, from the same software.
+`BSYNRYMUTXBXSQ-UHFFFAOYSA-M` against `BSYNRYMUTXBXSQ-UHFFFAOYSA-N` is one
+character in the block nobody reads. There is no glance that catches this
+one, which makes it the strongest case for a dimension that this project has
+had: a check that catches only what inspection would also catch is a
+convenience, and a check that catches what inspection *cannot* is the reason
+the engine exists.
+
+The failure it produces is written up as [my compound overlap is almost
+empty](/silent-failures/mixed-standardisation/).
+
+## What a representation records
+
+An **identity** — what a name in the file is — and the **operations** applied
+before the names were computed, as a set:
+
+```
+#ligase representation: inchikey; salt-stripped, charge-neutralised
+```
+
+The identity is part of the value because the two possibilities are not
+equally good. In the same six RDKit releases that left every InChIKey
+untouched, RDKit's canonical SMILES for cisplatin *changed*. A set named by
+structure strings therefore has an identity its own toolkit can move under
+it, and must not compare equal to one named by keys.
+
+Four operations are recognised, and the fourth is the one worth reading
+twice:
+
+- `salt-stripped` — counterions and solvents removed, leaving the parent.
+- `tautomer-normalised` — one tautomer chosen per tautomeric form.
+- `charge-neutralised` — formal charges removed where a neutral form exists.
+- `stereo-discarded` — stereochemistry **lost**.
+
+## Stereochemistry is not something you ask for
+
+RDKit's tautomer canonicaliser removes stereochemistry at an sp3 centre
+inside a tautomeric system. A carboxylic acid's alpha-carbon is inside one.
+So:
+
+```
+ibuprofen (S)   C[C@@H](c1ccc(CC(C)C)cc1)C(=O)O   HEFNNWSXXWATRW-JTQLQIEISA-N
+ibuprofen (R)   C[C@H](c1ccc(CC(C)C)cc1)C(=O)O    HEFNNWSXXWATRW-SNVBAGLBSA-N
+
+both, after tautomer normalisation                HEFNNWSXXWATRW-UHFFFAOYSA-N
+```
+
+Two enantiomers become one compound. For a drug set that is not a technicality:
+two enantiomers are routinely one active compound and one inactive one. That
+failure has its own page, because its symptom is the opposite of the first
+one's — an overlap too *large*, matching a pair that is not a pair: [my
+inactive enantiomer came back as a hit](/silent-failures/discarded-stereo/).
+
+So `stereo-discarded` is recorded as an operation that was **applied**, not
+as a setting somebody chose, and the standardiser checks its own work. The
+check is deliberately lopsided
+([D47](/project/decisions/#d47--a-molecules-identity-is-its-standardisation-not-its-structure)):
+claiming stereo was discarded when none was is a note, because it can only
+cause a refusal you fix by declaring one thing consistently. Not claiming it
+when stereo *was* discarded is an error, because two sets would then agree
+while one of them has lost the difference.
+
+## Two kinds, one axis
+
+A compound set is unordered: the row order says nothing, and two files
+holding the same compounds in different orders have the same semantic hash.
+
+A **ranking** of compounds is the exception, for the reason a [ranked gene
+list](/concepts/identifiers/) is: a virtual screen answers *which of these to
+order*, rank is the row position, and the same ten thousand compounds in two
+orders are two different answers. So `MoleculeRanking` keeps its order where
+`MoleculeSet` discards it, and they are otherwise the same kind with the same
+dimensions.
+
+That second kind brings no dimension of its own, and is admitted on the
+second limb of the scope rule rather than on the first: a canonical form
+whose absence would make the cache serve a wrong answer
+([D48](/project/decisions/#d48--a-kind-may-also-earn-its-place-by-its-canonical-form)).
+For a screen, the order decides the length of the prefix anybody actually
+buys.
+
+## The toolkit is optional, and that is load-bearing
+
+`pip install ligase-bio` is a genomics install and acquires no chemistry.
+Loading a compound table, reading its representation, hashing it and refusing
+to join two that disagree are all the engine's work, in Rust, with no
+toolkit. What needs RDKit is *producing* a set whose standardisation is
+known, which is one function in one module
+([D49](/project/decisions/#d49--the-engine-knows-no-chemistry)):
+
+```bash
+pip install 'ligase-bio[chem]'
+```
+
+See [comparing compound sets](/guide/molecules/) for how to use both halves,
+and [the internals](/project/architecture/molecules/) for the measurement
+behind every number on this page.

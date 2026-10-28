@@ -1,0 +1,237 @@
+---
+title: "Comparing compound sets"
+description: "Load a molecule table, let Ligase refuse a join between two that were standardised differently, and standardise one so that the join is honest rather than merely permitted."
+---
+
+import { diagnostics } from '../../lib/diagnostics.generated'
+
+# Comparing compound sets
+
+A compound table is a tab-separated file with an `inchikey` column, a
+`smiles` column, or both, and whatever else you keep about your compounds:
+
+```
+#ligase representation: inchikey; salt-stripped, charge-neutralised
+inchikey	smiles	name	activity_nm
+BSYNRYMUTXBXSQ-UHFFFAOYSA-N	CC(=O)Oc1ccccc1C(=O)O	aspirin	120
+HEFNNWSXXWATRW-JTQLQIEISA-N	C[C@@H](c1ccc(CC(C)C)cc1)C(=O)O	ibuprofen	85
+```
+
+The first line is the part that matters. It says what a name in this file
+**is** — an InChIKey — and what was done before the keys were computed. Every
+other column is carried without being read.
+
+## Loading one
+
+```python
+import ligase as lg
+
+library = lg.molecule_set("vendor/catalogue.tsv", release="ChEMBL 34")
+
+library.dimension("representation").value
+# 'InChIKey, salt-stripped and charge-neutralised'
+library.dimension("representation").source
+# 'from the representation line the standardiser wrote: vendor/catalogue.tsv'
+```
+
+Four dimensions apply: `representation`, `organism`, `subject` — what the set
+is *of*, which for a screen is usually the target — and `release`. Asking for
+anything else gets `None`, because a table of substances has no coordinate
+system, no contigs and no samples to have.
+
+There is deliberately no `identifier_namespace`. An InChIKey is an identifier
+space, and `representation` already says which one this file is in; two axes
+carrying one fact is one too many.
+
+## Letting it refuse
+
+Two sets prepared differently do not join. This is the whole point, and it
+happens before anything runs:
+
+```python
+library = lg.molecule_set("vendor/catalogue.tsv")
+hits = lg.molecule_set("screen/hits.tsv")
+
+lg.check_step("overlap", {"library": library, "hits": hits})
+```
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.molecularStandardisation}</Diagnostic>
+
+Both states in full, the operations that differ named on their own line, and
+a question to act on. Where the two differ by more than one operation that
+line is the only part worth reading:
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.molecularTautomers}</Diagnostic>
+
+## Where a file says nothing
+
+A downloaded table of InChIKeys usually carries no representation line,
+because nothing but Ligase writes one. Such a table leaves the dimension
+**unknown**, and because `representation` is demanded wherever two compound
+tables are joined, two of them are refused rather than allowed to agree
+about nothing:
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.molecularUndeclared}</Diagnostic>
+
+The engine does not assume `as given` for a file that says nothing. A ChEMBL
+download *is* standardised and a vendor list is not, so assuming the weaker
+state would be inventing the most dangerous of the possible answers.
+
+You have two ways out, and they are not equivalent.
+
+### Declare it, where you know
+
+```python
+library = lg.molecule_set(
+    "chembl/actives.tsv",
+    representation="inchikey; salt-stripped, charge-neutralised",
+)
+```
+
+Accepted as given and **not checked against the molecules**, because the
+engine has no chemistry to check it with. This is the same bargain a declared
+identifier space gets: a declaration is you telling the engine something it
+cannot read.
+
+### Standardise it, where you do not
+
+```python
+library = lg.molecule_set("vendor/catalogue.tsv")  # smiles column
+clean = lg.chem.standardize(
+    library, to="inchikey; salt-stripped, charge-neutralised"
+)
+```
+
+`lg.chem.standardize` needs the chemistry extra:
+
+```bash
+pip install 'ligase-bio[chem]'
+```
+
+Its output carries its own representation line, so everything downstream is
+checked against a statement the step can stand behind rather than one you
+typed. The step is a registered conversion across `representation`, which
+means it is the only way across the axis and the error above sends you to it
+by name.
+
+<Note kind="note" title="Standardising needs structures">
+An InChIKey cannot be turned back into a structure, so a table of keys alone
+cannot be standardised. The step needs a `smiles` column, and says so if
+there is not one.
+</Note>
+
+## The trap worth knowing before you choose a state
+
+Salt stripping **alone** does not match a neutral set. RDKit's
+`FragmentParent` leaves the deprotonated carboxylate, so:
+
+| From aspirin sodium | InChIKey |
+|---|---|
+| `salt-stripped` | `BSYNRYMUTXBXSQ-UHFFFAOYSA-M` |
+| `salt-stripped, charge-neutralised` | `BSYNRYMUTXBXSQ-UHFFFAOYSA-N` |
+
+and plain aspirin is the second. Two files that both say "salts removed" can
+still fail to overlap if only one of them was also neutralised. If you are
+choosing a state for a project, `inchikey; salt-stripped,
+charge-neutralised` is the one that matches a neutral reference set.
+
+## And the one that costs stereochemistry
+
+Asking for `tautomer-normalised` usually discards stereochemistry, because
+RDKit removes it at an sp3 centre inside a tautomeric system. The step will
+not let that happen quietly:
+
+```python
+lg.chem.standardize(library, to="inchikey; tautomer-normalised")
+```
+
+```
+ValueError: standardising discarded stereochemistry on 418 of 2314 molecules,
+and the state you asked for does not say so. [...] Add `stereo-discarded` to
+`to=`, so this set refuses to join one that still knows which enantiomer it
+holds, or drop `tautomer-normalised` to keep the difference.
+```
+
+So you choose, with the number in front of you. Declare `stereo-discarded`
+and the set is honest about having lost the distinction — and will refuse to
+join a set that kept it. Drop `tautomer-normalised` and you keep the
+distinction and lose the tautomer matching. There is no option that gives you
+both, because RDKit does not offer one.
+
+The reverse — declaring `stereo-discarded` when nothing was discarded — is
+only a note. It can cause a refusal you fix by declaring one thing
+consistently, which is the safe direction.
+
+## Ranking compounds
+
+A virtual screen's output is a *ranking*, and its order is the answer:
+
+```python
+scored = lg.molecule_ranking("screen/docked.tsv", subject="EGFR")
+```
+
+Everything above applies unchanged. The one difference is the canonical form:
+a ranking's row order is part of what it means, so reordering it changes its
+hash and reruns everything below it, where reordering a set changes nothing.
+For a screen that is the right way round — the order decides which compounds
+get bought.
+
+Scoring a ranking against a library is the commonest join of the two kinds,
+and `representation` is demanded of it in either direction.
+
+```python
+lg.check_step("score", {"library": library, "hits": scored})
+```
+
+## What the engine will carry for you
+
+A step over a compound set inherits its `representation`, so a ranking
+computed from a tautomer-normalised library carries that state, and anything
+that tries to score it against a set that kept its stereochemistry is refused
+the same way — several steps later, on a file that mentions no
+standardisation anywhere.
+
+Standardising is a conversion, so it is also the one thing that *changes* the
+axis: its output declares the state it arrived in, and carries the organism,
+the subject and the release it was handed.
+
+## Molecules that do not standardise
+
+A structure that does not parse, or a mixture with no single parent, is left
+out of the output and **named** — never dropped in silence:
+
+```
+the molecule `not a molecule at all` could not be standardised, so it is not
+in the output
+1 molecules could not be standardised, so the output is 1 molecules smaller
+than the input
+```
+
+Twenty are named individually and the rest carried by the count, so the
+output being smaller than the input is a recorded fact rather than a
+discrepancy somebody notices six months later. The notes travel into the run
+report, provenance, a reproducibility bundle and the methods paragraph, the
+way every note in this engine does.
+
+## And molecules that become each other
+
+Standardising a table that holds both a salt and its parent brings the two
+rows together: one substance, two rows, one key.
+
+```
+two or more structures standardise to `BSYNRYMUTXBXSQ-UHFFFAOYSA-N`, so this
+table names one substance more than once
+```
+
+**Both rows are kept.** Dropping one would make the output quietly smaller,
+and choosing one would be a guess about whose activity data to carry — which
+is the argument against coercing identifiers, applied unchanged. So the
+collision is named and the decision is left with you: drop the row your
+analysis is not about, or read the table as a ranking, whose rows are not a
+set.
+
+It is worth knowing *why* this one matters. A molecule set's rows are a set,
+so a table naming one substance twice is not the kind it claims to be:
+anything counting its compounds double-counts, and a join on the key matches
+both rows. Nothing else would have told you — both rows are well formed, and
+the key is correct for each of them.

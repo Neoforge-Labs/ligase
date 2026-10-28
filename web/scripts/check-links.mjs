@@ -20,6 +20,13 @@
  * surviving into the rendered text are treated as the mistake they almost
  * always are.
  *
+ * Code is exempt from that one check, and only that one. `[Cl][Pt][Cl]` is a
+ * SMILES string, `[0-9][a-z]` is a character class, and neither is a link
+ * somebody failed to define -- but both match the pattern, so a page quoting
+ * a structure or a regex would fail a gate about prose. Markup inside `<pre>`
+ * and `<code>` is therefore dropped before this scan. Every other check here
+ * reads attributes rather than text and is unaffected.
+ *
  * External links are not fetched. A build gate that depends on the network
  * fails for reasons that have nothing to do with the commit.
  */
@@ -64,6 +71,15 @@ function textOf(html) {
     .replace(/&#39;/g, "'")
     .replace(/&#123;/g, '{')
     .replace(/&#125;/g, '}')
+}
+
+/** The same, with code removed: see the note on brackets in code above. */
+function proseOf(html) {
+  return textOf(
+    stripNonContent(html)
+      .replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/gi, ' ')
+      .replace(/<code\b[^>]*>[\s\S]*?<\/code>/gi, ' ')
+  )
 }
 
 /** `out/guide/installation/index.html` -> `/guide/installation/` */
@@ -166,7 +182,7 @@ for (const [route, page] of pages) {
   }
 
   // --- Markdown that never became a link ---------------------------------
-  const text = textOf(page.html)
+  const text = proseOf(page.html)
   for (const { re, why } of UNRESOLVED) {
     for (const match of text.matchAll(re)) {
       problems.push(`${route}  ${why}: ${match[0].trim().slice(0, 90)}`)

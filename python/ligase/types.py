@@ -25,6 +25,8 @@ __all__ = [
     "EntitySet",
     "Intervals",
     "KnowledgeGraph",
+    "MoleculeRanking",
+    "MoleculeSet",
     "RankedList",
     "Reads",
     "Reference",
@@ -354,6 +356,66 @@ class KnowledgeGraph(Dataset):
     __slots__ = ()
 
 
+class MoleculeSet(Dataset):
+    """A set of molecules, named in one standardisation state.
+
+    The type `representation` exists for. The same substance has different
+    InChIKeys depending on what was done to it before the key was computed,
+    and not marginally: of thirty ordinary drugs measured across six RDKit
+    releases, twelve change key under a different standardisation state.
+    Aspirin has three — `JZLOKWGVGHYBKD-UHFFFAOYSA-M` as a sodium salt,
+    `BSYNRYMUTXBXSQ-UHFFFAOYSA-M` salt-stripped, and
+    `BSYNRYMUTXBXSQ-UHFFFAOYSA-N` salt-stripped and neutralised. The last
+    two differ in the final character.
+
+    So two compound sets prepared differently overlap in nothing for the
+    substances affected while the rest still match, and the hit rate that
+    comes out is small, non-zero and reads as poor enrichment rather than
+    as a mismatch. Nothing about two columns of keys says which
+    standardisation produced them, which is what makes this the one
+    dimension in Ligase that no glance at the data can catch.
+
+    It carries the organism its compounds were measured against, what it is
+    a set of — a target, an assay, a therapeutic area — and the release of
+    the collection it was drawn from. It has no `identifier_namespace`,
+    though an InChIKey is an identifier space, because `representation`
+    already says which space its names are in and two axes carrying one
+    fact is one too many.
+
+    The rows are a **set**: their order says nothing, and two files holding
+    them in different orders have the same semantic hash. For a table whose
+    order is its result, see `MoleculeRanking`.
+    """
+
+    __slots__ = ()
+
+
+class MoleculeRanking(Dataset):
+    """A ranking of molecules: the order is the result.
+
+    A `MoleculeSet` and one more thing, and the one more thing is why the
+    type exists: its canonical form **preserves row order**. A ranking of
+    docked compounds answers *which of these to order*, rank is the row
+    position, and a canonical form that sorted them would declare two
+    different answers identical — after which a cache keyed on that form
+    would serve one when the pipeline asked for the other, in silence
+    ([D41](https://ligase.neoforgelabs.tech/project/decisions/)).
+
+    It carries exactly the dimensions a `MoleculeSet` carries. The
+    difference between the two types is canonicalisation, and nothing else.
+    A score column is optional and compared exactly, with no tolerance.
+
+    This is what §4.4 of the v0.2 design called `BindingScores`. It is
+    named for the shape rather than for one of its contents, because the
+    same file holds docking scores, QSAR-predicted activities, predicted
+    solubilities and synthetic-accessibility scores, and only the first is
+    a binding score
+    ([D48](https://ligase.neoforgelabs.tech/project/decisions/)).
+    """
+
+    __slots__ = ()
+
+
 #: Every type a step may annotate, by the name the engine knows it as.
 #:
 #: Annotating a step with anything else is refused when it is decorated,
@@ -370,5 +432,7 @@ KINDS: Mapping[str, type[Dataset]] = MappingProxyType(
         "EntitySet": EntitySet,
         "RankedList": RankedList,
         "KnowledgeGraph": KnowledgeGraph,
+        "MoleculeSet": MoleculeSet,
+        "MoleculeRanking": MoleculeRanking,
     }
 )

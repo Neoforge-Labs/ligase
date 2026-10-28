@@ -1,7 +1,7 @@
 //! Who a worker is, and the one cache directory it is allowed to have.
 //!
 //! A worker is one `ligase run` among several, dividing a pipeline through
-//! a shared store (D49). It needs two things nothing else in the engine
+//! a shared store (D51). It needs two things nothing else in the engine
 //! needed: a name a user can read in a lease and in a report, and an
 //! exclusive hold on its cache directory.
 //!

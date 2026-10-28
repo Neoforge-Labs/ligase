@@ -251,7 +251,7 @@ pub struct RunReport {
     /// because "an object was refused" is the one store event a user has
     /// to *read* rather than count.
     pub refused: Option<String>,
-    /// Which worker this was, for a run that was one of several (D49).
+    /// Which worker this was, for a run that was one of several (D51).
     ///
     /// `None` for an ordinary run, which prints nothing about workers: a
     /// report must not grow a line for a feature the run did not use.
@@ -263,7 +263,7 @@ pub struct RunReport {
     /// "four steps came from the cache" and "four steps were computed by
     /// somebody else while I waited" are different pieces of news.
     pub waited: usize,
-    /// Steps another worker computed to a different answer (D50).
+    /// Steps another worker computed to a different answer (D52).
     ///
     /// Empty for almost every run, and for every run on one machine. Kept
     /// in full rather than counted, for [`refused`](Self::refused)'s
@@ -279,7 +279,7 @@ pub struct RunReport {
     pub diverged: Vec<Divergence>,
 }
 
-/// Two workers, one step key, two different answers (D50).
+/// Two workers, one step key, two different answers (D52).
 ///
 /// The argument that a lock is unnecessary rests on two workers that agree
 /// on a key agreeing on the result. They agree on the bytes almost never —
@@ -380,7 +380,7 @@ pub struct Options {
     pub jobs: usize,
     /// Run every step, cache or no cache.
     pub force: bool,
-    /// Who this worker is, for a run that is one of several (D49).
+    /// Who this worker is, for a run that is one of several (D51).
     ///
     /// `None` is an ordinary run: it computes whatever is not in the cache
     /// and consults no lease. `Some` makes it a worker — it claims each
@@ -391,7 +391,7 @@ pub struct Options {
     /// too.
     ///
     /// Only read when [`worker`](Self::worker) is set. Both ways of
-    /// getting it wrong are costs rather than wrong answers (D51): too
+    /// getting it wrong are costs rather than wrong answers (D53): too
     /// short and a worker duplicates a step whose holder is still working;
     /// too long and a worker that died keeps others waiting until its
     /// deadline. Set it above your longest step.
@@ -674,6 +674,7 @@ pub const fn output_suffix(kind: DataKind) -> &'static str {
         DataKind::ResistanceReport => ".tsv",
         DataKind::EntitySet | DataKind::RankedList => ".tsv",
         DataKind::KnowledgeGraph => ".json",
+        DataKind::MoleculeSet | DataKind::MoleculeRanking => ".tsv",
     }
 }
 
@@ -943,7 +944,7 @@ struct State {
     deferred: Vec<NodeId>,
     /// How many steps this run ended up taking from another worker.
     waited: usize,
-    /// Steps another worker computed to a different answer (D50).
+    /// Steps another worker computed to a different answer (D52).
     diverged: Vec<Divergence>,
 }
 
@@ -1161,7 +1162,7 @@ impl Runner<'_> {
 
         // And on a shared store another *machine* can be producing it. It
         // is not held off with a lock -- the store cannot offer one, and by
-        // D50 it does not need to -- so this is advisory: a key another
+        // D52 it does not need to -- so this is advisory: a key another
         // worker holds is left alone until its deadline.
         let Some(_held) = self.take_lease(key)? else {
             return Ok(Attempt::Deferred);
@@ -1185,7 +1186,7 @@ impl Runner<'_> {
         // change M18 asks of a single-machine run. The published row
         // carries the canonical hash, so a worker whose publish was
         // dropped can tell at no cost whether the machine that got there
-        // first means the same thing it does (D50).
+        // first means the same thing it does (D52).
         let meaning = self
             .cache
             .semantic(spec.output, &stored.path)
@@ -1656,7 +1657,7 @@ enum Attempt {
     Parked,
     /// Another **worker** holds this step's key. This one is deferred: it
     /// comes back on a timer, by which point the key is either in the
-    /// store or free again (D51).
+    /// store or free again (D53).
     Deferred,
 }
 

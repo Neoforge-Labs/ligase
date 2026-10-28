@@ -98,7 +98,7 @@ pub struct Recording<'a> {
     /// What that output *means* ([`crate::canon`]).
     ///
     /// Published with the row, so another worker that computed the same key
-    /// can tell a difference of bytes from a difference of result (D50).
+    /// can tell a difference of bytes from a difference of result (D52).
     pub canonical: ContentHash,
     /// The tools and versions it ran with, as one line.
     pub tools: &'a str,
@@ -115,7 +115,7 @@ pub struct Recording<'a> {
 /// published the same key first, and because rows are write-once **its**
 /// answer is the one in force — so a worker has to be told, both to use
 /// the right output and to notice the one case where the two answers do not
-/// mean the same thing (D50).
+/// mean the same thing (D52).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Recorded {
     /// Nothing else had published this key, or what was there was
@@ -904,7 +904,7 @@ impl Cache {
         // The canonical hash the row also carries is not read back here:
         // what a hit needs is the object, and `semantic` derives the
         // meaning from it. The field is for the worker that lost a publish
-        // race and has to compare (D50).
+        // race and has to compare (D52).
         let [hash, suffix, duration, notes, _canonical] = fields.as_slice() else {
             return Ok(None);
         };
@@ -956,7 +956,7 @@ impl Cache {
     /// have published first. Rows are write-once, so its answer is the one
     /// in force, and this is where that is settled —
     /// [`Recorded::Superseded`] means the local index now holds the
-    /// store's answer rather than this one's (D50).
+    /// store's answer rather than this one's (D52).
     ///
     /// # Errors
     ///
@@ -985,7 +985,7 @@ impl Cache {
         // only one whose answer means anything here. Rows are write-once,
         // so if another worker published this key first, its row is the
         // one in force -- and asking the tiered store would read this
-        // machine's own local copy and never find out (D50).
+        // machine's own local copy and never find out (D52).
         //
         // No shared tier is the single-machine case: nobody else can have
         // published, so there is nothing to ask. A shared tier that will

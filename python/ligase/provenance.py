@@ -22,7 +22,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 __all__ = [
+    "BoundTo",
     "Bundle",
+    "Claim",
+    "ClaimCheck",
     "InputCheck",
     "Methods",
     "MethodsGap",
@@ -53,6 +56,16 @@ CHANGED = "changed"
 
 #: An input is not where the bundle said it was.
 ABSENT = "absent"
+
+#: A claim rests on a computation this write-up accounts for.
+BOUND = "bound"
+
+#: Nothing in the run stands behind a claim.
+UNBACKED = "unbacked"
+
+#: Something stands behind a claim and disagrees with it. The stronger
+#: statement: the claim is bound, to a computation that contradicts it.
+CONTRADICTED = "contradicted"
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +147,172 @@ class MethodsGap:
     step: str
     scopes: list[str]
     nodes: int
+
+
+@dataclass(frozen=True, slots=True)
+class Claim:
+    """A number or a phrase a paper states, and where it came from.
+
+        pipe = lg.Pipeline(
+            outputs,
+            claims=[
+                lg.Claim(
+                    "variants were called above 1% allele frequency",
+                    step="call",
+                    parameter="min_freq",
+                    value=0.01,
+                ),
+            ],
+        )
+
+    `text` and `value` are separate on purpose. A paper writes **1%**; the
+    pipeline holds **0.01**. Comparing the sentence against the parameter
+    would be a guess about arithmetic in English, so the sentence is what a
+    reader greps the write-up for and `value` is what the engine compares —
+    written the way the pipeline holds it.
+
+    Everything except `text` is checked against the run: the step is one the
+    write-up accounts for, the sample is one it ran on, the parameter or tool
+    is one the record holds, and the value agrees. A claim that survives all
+    of that is `bound` to the step key and the output hash behind it; one
+    that does not is reported rather than reprinted, because a declaration
+    nothing can check is a comment.
+
+    A claim never enters a cache key, so editing one reruns nothing.
+
+    Attributes:
+        text: The sentence as the paper states it. Never checked, and
+            cannot be.
+        step: The step that produced it, by name.
+        scope: The sample it is about, where it is about one. `None` means
+            the step across every sample it ran on, which is right for
+            "every sample was interpreted" and wrong for a count from one of
+            them. There is no inference.
+        parameter: The parameter it restates, where it restates one.
+        tool: The tool whose version it states, where it states one.
+        value: What the paper says that parameter or version is, rendered
+            the way the run recorded it.
+
+    Raises:
+        ValueError: If it names both a parameter and a tool, gives a value
+            with neither to compare it against, or names either with no
+            value — each of which is a declaration with nothing behind it.
+    """
+
+    text: str
+    step: str
+    scope: str | None = None
+    parameter: str | None = None
+    tool: str | None = None
+    value: str | float | None = None
+
+    def __post_init__(self) -> None:
+        """Refuse a declaration the engine could not check.
+
+        Here rather than at run time for the reason `stochastic=` and
+        `seed=` are checked where the step is written: the two halves are
+        one declaration, and the moment to say so is the moment it is made.
+        """
+        if not self.text.strip():
+            raise ValueError(
+                "a claim needs the sentence the paper states, so a reader can "
+                "find it: lg.Claim('...', step=...)"
+            )
+        if not self.step.strip():
+            raise ValueError(
+                f"the claim {self.text!r} names no step, so there is nothing "
+                "for it to rest on. Add `step=` naming the step that "
+                "produces this number"
+            )
+        if self.parameter is not None and self.tool is not None:
+            raise ValueError(
+                f"the claim {self.text!r} restates both a parameter and a "
+                "tool version. A claim restates one thing; write two claims"
+            )
+        named = self.parameter if self.parameter is not None else self.tool
+        if named is not None and self.value is None:
+            raise ValueError(
+                f"the claim {self.text!r} names {named!r} and gives no "
+                "`value=`, so there is nothing to compare it against"
+            )
+        if named is None and self.value is not None:
+            raise ValueError(
+                f"the claim {self.text!r} gives a value and names nothing it "
+                "is the value of. Add `parameter=` or `tool=`, or drop "
+                "`value=` and let the claim rest on the step"
+            )
+
+    @property
+    def rendered(self) -> str | None:
+        """The value as the engine compares it: text, however it was given.
+
+        `value=0.01` is what a person writes and `0.01` is how the parameter
+        was hashed, so one `str()` is the whole conversion. A number in a
+        paper is text.
+        """
+        return None if self.value is None else str(self.value)
+
+    def __repr__(self) -> str:
+        """Identify the claim by its sentence and the step behind it."""
+        return f"<Claim {self.text!r} on {self.step}>"
+
+
+@dataclass(frozen=True, slots=True)
+class BoundTo:
+    """One computation a claim rests on.
+
+    The step key, not the occasion. A key is the identity of a computation —
+    the same code, parameters, inputs and tool versions — so a step served
+    from the cache backs its claim completely, and what this adds is when
+    that computation happened, which may be long before the run that wrote
+    the claim up.
+
+    Attributes:
+        scope: The sample it was for, where anything tells the nodes apart.
+        key: The step key, in full.
+        canonical: The canonical hash of what it produced.
+        recorded_at: When the computation happened, as seconds since the
+            Unix epoch — not when this run fetched it.
+        platform: The platform it happened on.
+    """
+
+    scope: str | None
+    key: str
+    canonical: str
+    recorded_at: int
+    platform: str
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimCheck:
+    """One claim, and what the run had to say about it.
+
+    Attributes:
+        claim: The claim as it was declared.
+        verdict: `bound`, `unbacked` or `contradicted`.
+        reason: The sentence the write-up prints for it, so a script
+            reporting one claim says what `ligase methods` says.
+        recorded: What the run recorded, where that disagrees with the
+            claim, and `None` otherwise.
+        bound: The computations it rests on. Empty for an unbacked claim;
+            one entry for a claim naming a sample, and one per sample for a
+            claim that names none.
+    """
+
+    claim: Claim
+    verdict: str
+    reason: str
+    recorded: str | None
+    bound: list[BoundTo] = field(default_factory=list)
+
+    @property
+    def is_bound(self) -> bool:
+        """Whether the write-up can stand behind the claim."""
+        return self.verdict == BOUND
+
+    def __repr__(self) -> str:
+        """Identify the check by its verdict and the claim it is about."""
+        return f"<ClaimCheck {self.verdict} {self.claim.text!r}>"
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +440,9 @@ class Methods:
         citations: The reference list, as a methods section prints it.
         uncited: Tools with nothing to cite — named rather than omitted, so
             a short reference list cannot pass for a complete one.
+        claims: Each claim the pipeline declared, and what became of it.
+            Empty for a pipeline that declared none, which is why nothing
+            about an existing write-up changes.
         engines: Every version of Ligase that produced any of the results.
             One entry for a run on one machine; more for a distributed run
             where a worker was on an older wheel.
@@ -279,6 +461,7 @@ class Methods:
     references: list[PinnedReference] = field(default_factory=list)
     citations: list[str] = field(default_factory=list)
     uncited: list[str] = field(default_factory=list)
+    claims: list[ClaimCheck] = field(default_factory=list)
     engines: list[str] = field(default_factory=list)
     platforms: list[str] = field(default_factory=list)
     summary: str = ""
@@ -288,11 +471,23 @@ class Methods:
 
     @property
     def accounted_for(self) -> bool:
-        """Whether every step's production is recorded.
+        """Whether every step's production is recorded and every claim bound.
 
-        False means the paragraph has a hole in it and says so.
+        False means the write-up has a hole in it and says so. A number the
+        analysis does not support is such a hole: a property with this name
+        that returned True for one would be making the engine's own promise
+        falsely.
         """
-        return not self.gaps
+        return not self.gaps and not self.unbacked
+
+    @property
+    def unbacked(self) -> list[ClaimCheck]:
+        """The claims this write-up cannot stand behind.
+
+        Contradicted ones included: a number the run positively disagrees
+        with is not a number the write-up stands behind.
+        """
+        return [check for check in self.claims if not check.is_bound]
 
     @property
     def tools(self) -> list[tuple[str, str]]:

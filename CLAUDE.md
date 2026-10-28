@@ -66,7 +66,7 @@ ligase.neoforgelabs.tech, built, link-checked and deployed by
 `.github/workflows/web.yml`. Pages are `web/content/<section>/<page>.mdx`,
 and the nav is the `_meta.ts` in each directory. The MDX is the source: there
 is no Markdown behind it, and nothing is ported or generated from anywhere
-except the six generators listed below.
+except the generators listed below.
 
 It is organised by what a reader is doing, not by how the project is built:
 
@@ -113,6 +113,12 @@ gitignored:
   and an `EntitySet` in a temp directory and reorders each input in turn. The
   ranking rerunning and the set not is the whole of D41, so the build fails
   if either stops being true.
+- `web/lib/stochastic.generated.ts` — by `capture_stochastic.py`.
+- `web/lib/claims.generated.ts` — three real `ligase methods` write-ups, by
+  `capture_claims.py`, which runs a one-step pipeline in a temp directory
+  three times with one claim rewritten each time. It checks the **exit code**
+  as well as the text: an unbacked claim failing and a bound one not is what
+  makes a claim enforceable in CI, so the build fails if either changes.
 
 ### Writing rules
 - Engine output on a page comes from a real run, never from imagination.

@@ -9,6 +9,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Claim binding: a number in a paper, bound to the computation behind it.**
+  `lg.Claim` names a sentence a manuscript states and the step that produced
+  it, declared on the `Pipeline` beside the outputs it is about, and
+  `ligase methods` reports what the run has to say about each one — `bound`,
+  `unbacked` or `contradicted`.
+
+  The asymmetry it closes: the engine already names an uncited tool rather
+  than omitting it (D24), names a sample identifier that is really a file
+  name (D26), and names a step whose production it cannot account for. Three
+  instances of one promise, that the record names what it cannot account for.
+  The number in the paper was the one thing it could not account for and
+  never mentioned, because nothing had told it what that number was.
+
+  ```python
+  pipe = lg.Pipeline(
+      call(hxb2, min_freq=0.05),
+      claims=[
+          lg.Claim(
+              "variants were called above 1% allele frequency",
+              step="call",
+              parameter="min_freq",
+              value=0.01,
+          ),
+      ],
+  )
+  ```
+
+  The threshold moved and the sentence did not, so the write-up states both
+  numbers and `ligase methods` exits non-zero. An unbacked or contradicted
+  claim raises the exit code where an uncited tool does not — an uncited tool
+  is a stated absence you cite by hand, and a number the analysis does not
+  support is a finding. CI is the only place a drifting manuscript is caught.
+
+  Five checks keep the declaration from being prose: the step is one the
+  write-up accounts for, the sample is one it ran on, the parameter or tool
+  it restates is one the record holds, the value agrees, and a step that is
+  only a methods gap stops the chain — a claim resting on a step nothing is
+  known about rests on nothing. Each failure names what there *was*, so a
+  renamed step, a dropped sample, a renamed parameter and a swapped tool are
+  four one-line fixes rather than one hunt. The claim's *text* is never
+  checked and cannot be, which is why the sentence and the value are separate
+  fields: a paper writes 1% and a pipeline holds 0.01, and comparing them
+  would be a guess about arithmetic in English.
+
+  A claim binds to the **computation**, not the occasion (D45). The key is
+  already the identity of a computation, so a step served from the cache
+  backs its claim completely and the date reported is when that computation
+  happened — which may be long before the run that wrote the paper up.
+  Binding only what the current run recomputed would make
+  `ligase methods --force` the only honest way to write up a paper. And a
+  claim is in no cache key, so editing a manuscript reruns nothing: a
+  mechanism costing a re-alignment per draft would not be kept current.
+
+  Claims travel in the bundle as `claims.tsv`, one row per computation with
+  the whole key, including the unbacked ones — the same promise the methods
+  paragraph makes about a step it cannot account for. `pyproject.toml`,
+  `Cargo.toml` and the dependency tree are untouched.
+
+  What the engine does **not** do: read a number out of your output file. It
+  could do that for the formats it knows and would have to skip the rest,
+  which is some numbers verified and the others silently waved through. A
+  claim with a value is compared; a claim without one is bound to a key, a
+  hash and a date, and the documentation says which is which.
+
+  New public names: `Claim`, `ClaimCheck`, `BoundTo`, `Methods.claims`,
+  `Methods.unbacked`, the verdict constants, and `claims=` on `Pipeline`.
+  See [a number in a paper](https://ligase.neoforgelabs.tech/concepts/claims/),
+  [binding a number you published](https://ligase.neoforgelabs.tech/guide/claims/)
+  and [the internals](https://ligase.neoforgelabs.tech/project/architecture/provenance/#claims).
+
+- **`MoleculeSet` and `MoleculeRanking`, and the axis that admits them.** An
+  InChIKey is a hash of a molecular structure, and standardisation changes
+  the structure on purpose — so the same substance has several keys, and the
+  file records which one it used nowhere. Measured across six RDKit releases
+  spanning four years, **twelve of thirty ordinary drugs get a different key
+  under a different standardisation state**; aspirin, arriving as its sodium
+  salt, has three, two of which differ in the final character.
+
+  So two compound sets prepared differently overlap in nothing for the
+  substances affected while the rest still match — an overlap in the tens of
+  per cent, which is exactly the range people attribute to assay noise or a
+  real finding. And unlike every other axis, no inspection catches it: two
+  columns of twenty-seven-character InChIKeys look identical whatever
+  produced them.
+
+  `representation` records an identity (`InChIKey` or `SMILES`) and the
+  standardisations applied, as a closed set. It is read off a
+  `#ligase representation:` line the standardiser writes, declared where a
+  file has none, and **demanded** wherever two molecule tables are joined, so
+  two tables that each say nothing are refused rather than allowed to agree
+  by silence. See
+  [my compound overlap is almost empty](https://ligase.neoforgelabs.tech/silent-failures/mixed-standardisation/).
+
+- **A chemistry extra, `pip install 'ligase-bio[chem]'`.** The engine
+  acquires no chemistry at all: comparing two representations and refusing a
+  join is string work, so loading a compound table, hashing it, early cutoff
+  and every refusal work on a default install. RDKit is needed only to
+  *produce* a standardised set, and lives in one module that imports it
+  inside the one function that uses it.
+
+  That division is asserted rather than described — a subprocess checks that
+  `import ligase` imports no RDKit, a featureless Rust build does the whole
+  of the checking, and the error for a missing toolkit names the extra and
+  says what works without it. The docs site builds with no toolkit either.
+
+- **`lg.chem.standardize`, the conversion registry's second entry.** It
+  crosses `representation`, and molecules that do not standardise are named
+  and counted rather than dropped. It is also the first entry with a
+  **Python** body, and the registry needed a row and nothing else — which is
+  better evidence than another Rust-bodied row that `liftover` and
+  `rename_contigs` will be rows rather than redesigns.
+
 - **Cluster execution: several machines run one pipeline between them, with
   no coordinator.** `ligase run --worker=node03` on as many machines as you
   like, all pointed at one `LIGASE_STORE`. They divide the pipeline, they
@@ -85,6 +197,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the reproducibility bundle gives each its own row.
 
 ### Changed
+
+- **`Methods.accounted_for` covers claims as well as gaps.** It was
+  `not self.gaps` and is now `not self.gaps and not self.unbacked`. A
+  write-up that states a number the analysis does not support has a hole in
+  it, whatever else is complete, and a property with that name returning
+  `True` for one would be making the engine's own promise falsely. Nothing
+  changes for a pipeline that declares no claims — including the methods
+  text and summary, which are byte-identical, since a heading over an empty
+  section is a promise nobody made.
+
+- **Measured: InChIKey is stable across RDKit versions, and canonical SMILES
+  is not.** 1,080 keys over six releases, zero disagreements between
+  versions. In the same span RDKit's canonical SMILES for cisplatin changed
+  while its InChIKey did not move at all:
+
+  ```text
+  2022.09.5-2024.09.6  Cl[Pt]Cl.N.N
+  2025.09.6-2026.09.1  N.N.[Cl][Pt][Cl]
+  ```
+
+  So a canonical form over SMILES would have moved the content hash of every
+  file holding that compound on an upgrade that changed no chemistry. The
+  probe is `scripts/measure_inchikey_stability.py` and the values are
+  asserted by `tests/test_inchikey_stability.py`.
+
+- **RDKit's tautomer canonicaliser discards stereochemistry**, which the
+  design brief it was built from said it did not. Ibuprofen's two
+  enantiomers both become `HEFNNWSXXWATRW-UHFFFAOYSA-N` — one active
+  compound and one inactive one, indistinguishable. So `representation`
+  records `stereo-discarded` as an operation that *was applied* rather than
+  one somebody chose, and the standardiser checks its own work
+  asymmetrically: stereo lost and not declared is an error naming the count,
+  declared and not lost is only a note.
+
+- **The scope rule's second limb is now written down.** D35 admits a kind
+  only for a dimension, which does not admit `MoleculeRanking` — nor, read
+  the same way, the `RankedList` the project shipped in M12. The limb both
+  rely on is that a kind may also earn its place by a canonical form whose
+  absence makes the cache serve a wrong answer, which is D41's argument
+  relocated from the data to the engine. It is deliberately narrow, and D48
+  says what it does not admit.
+
+- **The README explains the project rather than announcing it.** It had a
+  paragraph of premise, a status line and an install command, and not one
+  line of example — a reader could not see what a pipeline looks like, what
+  a diagnostic says, or why any of it is worth their afternoon. It now opens
+  on the failure mode (a plausible number, not a crash), shows three real
+  diagnostics and a real `ligase inspect` run, gives a pipeline whose
+  signatures type-check against the shipped package, and explains the
+  mechanism — inferred dimensions, graph before compute, content-addressed
+  keys, declared randomness, pinned remotes, provenance as a product.
+
+  Every block of output in it is byte-verbatim from the captures the
+  documentation site generates on each build, and the example type-checks
+  under `mypy` against the installed package, because a README is where a
+  stale example costs the most. Worth knowing for the next one:
+  `ruff format --check .` formats Python **inside Markdown**, so a code
+  block in this repository is formatted code and not prose that resembles
+  it — the gate catches a README example the same way it catches a module.
+
+  Links are absolute throughout: this file is also the PyPI long
+  description and the `ligase` crate's README, where relative links resolve
+  nowhere.
 
 - **`Methods.engine` and `Methods.platform` are now `engines` and
   `platforms`, and are lists.** A run on one machine is the one-entry case
