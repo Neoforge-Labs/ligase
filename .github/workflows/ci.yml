@@ -277,8 +277,15 @@ jobs:
           grep -q "s3://ligase-ci" status.txt
           grep -q "reachable              yes" status.txt
 
+      # `tests/test_cluster.py` sets its own `file://` store per test, so it
+      # passes in the ordinary job too. It is here as well because this is
+      # the job with a bucket: a worker run whose store is S3 exercises the
+      # lease over HTTP rather than over a rename, which is the only place
+      # that difference shows up from Python.
       - name: pytest (the store tests must run, not skip)
-        run: pytest -q tests/test_store_cli.py tests/test_queries.py tests/test_methods.py
+        run: |
+          pytest -q tests/test_store_cli.py tests/test_queries.py \
+                    tests/test_methods.py tests/test_cluster.py
 
   # There is no `docs` job here. The site is built, link-checked and deployed
   # by `web.yml`, on the same triggers, by a job that installs what its
