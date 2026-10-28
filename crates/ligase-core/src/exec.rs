@@ -76,14 +76,16 @@ use std::time::{Duration, Instant};
 
 use rayon::Scope;
 
-use crate::cache::{Cache, Entry, Stored};
+use crate::cache::{Cache, Entry, Recorded, Recording, Stored};
 use crate::canon::Note;
 use crate::graph::{Graph, NodeId, StepSpec};
 use crate::hash::ContentHash;
 use crate::key::{Ingredients, StepKey};
 use crate::prov::{self, InputRecord, Prov, Record, day};
 use crate::store::StoreStats;
+use crate::store::lease;
 use crate::types::{DataKind, Dataset, Origin, RemoteVerdict};
+use crate::worker::Worker;
 
 /// How a step's output is produced.
 ///
@@ -249,6 +251,64 @@ pub struct RunReport {
     /// because "an object was refused" is the one store event a user has
     /// to *read* rather than count.
     pub refused: Option<String>,
+    /// Which worker this was, for a run that was one of several (D49).
+    ///
+    /// `None` for an ordinary run, which prints nothing about workers: a
+    /// report must not grow a line for a feature the run did not use.
+    pub worker: Option<String>,
+    /// How many steps this run waited for another worker to produce.
+    ///
+    /// They are [`Outcome::Cached`] like any other hit, because that is
+    /// what they turned out to be. This counts them separately because
+    /// "four steps came from the cache" and "four steps were computed by
+    /// somebody else while I waited" are different pieces of news.
+    pub waited: usize,
+    /// Steps another worker computed to a different answer (D50).
+    ///
+    /// Empty for almost every run, and for every run on one machine. Kept
+    /// in full rather than counted, for [`refused`](Self::refused)'s
+    /// reason: this is the one event in a distributed run a user has to
+    /// *read*.
+    ///
+    /// Deliberately **not** a [`Note`]. A note is recorded with the cache
+    /// entry and read back on every later hit, because a note is a fact
+    /// about the output — a gene barely read stays barely read. A
+    /// divergence is a fact about *this run on this worker*: somebody else
+    /// got there first and disagreed. Persisting it would attach it to a
+    /// key for good and report it to everyone who ever hit that key.
+    pub diverged: Vec<Divergence>,
+}
+
+/// Two workers, one step key, two different answers (D50).
+///
+/// The argument that a lock is unnecessary rests on two workers that agree
+/// on a key agreeing on the result. They agree on the bytes almost never —
+/// a tool writes its own command line into its output — and that is
+/// harmless, because every downstream key is built on the canonical form.
+/// This is the case where the *canonical* forms differ too, which the
+/// argument does not cover: a kind whose canonical form does not fix the
+/// result, or a seeded stochastic tool that is only deterministic given a
+/// thread count as well, which two cluster nodes do not share.
+///
+/// The engine reports it and does not try to resolve it. Pinning such a
+/// step to one worker would make the answer depend on how many workers
+/// happened to be running and hide a real property of the pipeline;
+/// `ligase audit` is the tool for that question, and this is what makes a
+/// distributed run raise it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Divergence {
+    /// The node that computed it here.
+    pub node: NodeId,
+    /// The step's name.
+    pub step: String,
+    /// The key both workers agreed on.
+    pub key: StepKey,
+    /// What this worker's output means.
+    pub ours: ContentHash,
+    /// What the output already in the store means, which is the one in
+    /// force: the alternative is a run where each worker believes its own
+    /// answer, which is the silent failure this project exists to delete.
+    pub theirs: ContentHash,
 }
 
 impl RunReport {
@@ -305,19 +365,52 @@ pub struct Stores<'a> {
 }
 
 /// How to run.
-#[derive(Clone, Copy, Debug)]
+///
+/// No longer `Copy`, because [`worker`](Self::worker) is a name. Every
+/// caller builds one with `..Options::default()` and passes it by
+/// reference, so that costs nothing.
+#[derive(Clone, Debug)]
 pub struct Options {
     /// How many steps may run at once.
+    ///
+    /// This is the knob for **one machine**. Several machines is
+    /// [`worker`](Self::worker), and the two are not alternatives: threads
+    /// coordinate through a mutex at no cost, and workers coordinate
+    /// through a store at a cost per step.
     pub jobs: usize,
     /// Run every step, cache or no cache.
     pub force: bool,
+    /// Who this worker is, for a run that is one of several (D49).
+    ///
+    /// `None` is an ordinary run: it computes whatever is not in the cache
+    /// and consults no lease. `Some` makes it a worker — it claims each
+    /// step through the store, leaves alone whatever another worker holds,
+    /// and waits for work it cannot claim rather than duplicating it.
+    pub worker: Option<Worker>,
+    /// How long a worker may hold a step before another may compute it
+    /// too.
+    ///
+    /// Only read when [`worker`](Self::worker) is set. Both ways of
+    /// getting it wrong are costs rather than wrong answers (D51): too
+    /// short and a worker duplicates a step whose holder is still working;
+    /// too long and a worker that died keeps others waiting until its
+    /// deadline. Set it above your longest step.
+    pub lease: Duration,
 }
+
+/// How long a worker holds a step by default.
+///
+/// An hour: long enough for most alignment steps, short enough that a
+/// crashed worker is not a lost evening. The guide says to raise it.
+pub const DEFAULT_LEASE: Duration = Duration::from_secs(3600);
 
 impl Default for Options {
     fn default() -> Self {
         Self {
             jobs: std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
             force: false,
+            worker: None,
+            lease: DEFAULT_LEASE,
         }
     }
 }
@@ -612,6 +705,8 @@ pub fn run(
         prov: stores.prov,
         host,
         force: options.force,
+        worker: options.worker.clone(),
+        lease: options.lease,
         tasks: tasks.iter().map(|task| (task.node, task)).collect(),
         versions: versions(graph, &nodes, tasks),
         state: Mutex::new(State::new(graph, &nodes)),
@@ -619,12 +714,57 @@ pub fn run(
 
     let jobs = options.jobs.max(1).min(nodes.len());
     match rayon::ThreadPoolBuilder::new().num_threads(jobs).build() {
-        Ok(pool) => pool.scope(|scope| runner.start(scope)),
+        Ok(pool) => {
+            // One scope drains everything this worker can take. A step
+            // another worker holds is *deferred*, not waited on, so the
+            // scope empties with work still outstanding on a machine this
+            // process cannot talk to -- which is exactly what the
+            // single-machine invariant ("the run is over when the scope is
+            // empty") does not cover. Hence the loop.
+            let mut patience = Patience::new();
+            loop {
+                pool.scope(|scope| runner.start(scope));
+                if !runner.rearm(&mut patience) {
+                    break;
+                }
+            }
+        }
         // A pool we cannot build is not a reason to refuse to run.
         Err(_) => runner.alone(),
     }
 
     runner.finish()
+}
+
+/// How long to wait before asking the store again.
+///
+/// Waiting happens **between** scopes, with the pool drained and not one
+/// rayon worker in flight, which is why it does not spend D27: there is no
+/// worker to starve and nothing queued from inside a step to strand. The
+/// invariant D27 protects is that a worker must never block on something
+/// that needs the pool to make progress, and nothing here is on the pool
+/// at all.
+///
+/// Backing off rather than polling at a fixed interval, and not a flag:
+/// each re-arm costs one store read per deferred node, so a worker idling
+/// on a wide cohort would otherwise become a load generator. One knob
+/// (`--lease`) is enough for a user to get wrong.
+struct Patience {
+    next: Duration,
+}
+
+impl Patience {
+    const FIRST: Duration = Duration::from_secs(1);
+    const LONGEST: Duration = Duration::from_secs(30);
+
+    const fn new() -> Self {
+        Self { next: Self::FIRST }
+    }
+
+    fn wait(&mut self) {
+        std::thread::sleep(self.next);
+        self.next = (self.next * 2).min(Self::LONGEST);
+    }
 }
 
 /// Each of a step's arguments' files, by the parameter they fill.
@@ -792,6 +932,19 @@ struct State {
     /// Nodes waiting for a key that another node is already producing,
     /// under that key. They go back onto `ready` when it is released.
     parked: HashMap<StepKey, Vec<NodeId>>,
+    /// Nodes whose key another **worker** holds, on another machine.
+    ///
+    /// Not `parked`, and the difference is the design in one line.
+    /// `running`/`parked` is a *lock*: this process holds it, correctly,
+    /// because a process can. A lease is *advisory*, because the store
+    /// cannot offer a lock — so these come back on a timer rather than
+    /// when something releases them, and a worker that never releases one
+    /// cannot stall them for longer than its deadline.
+    deferred: Vec<NodeId>,
+    /// How many steps this run ended up taking from another worker.
+    waited: usize,
+    /// Steps another worker computed to a different answer (D50).
+    diverged: Vec<Divergence>,
 }
 
 impl State {
@@ -832,6 +985,9 @@ impl State {
             failures: Vec::new(),
             running: HashSet::new(),
             parked: HashMap::new(),
+            deferred: Vec::new(),
+            waited: 0,
+            diverged: Vec::new(),
         }
     }
 
@@ -857,6 +1013,10 @@ struct Runner<'a> {
     prov: &'a Prov,
     host: &'a dyn Host,
     force: bool,
+    /// Who this worker is, or `None` for an ordinary run, which consults
+    /// no lease.
+    worker: Option<Worker>,
+    lease: Duration,
     tasks: HashMap<NodeId, &'a Task>,
     versions: HashMap<String, Result<String, String>>,
     state: Mutex<State>,
@@ -932,6 +1092,9 @@ impl Runner<'_> {
             // Nothing happened yet, and nothing was released. This node is
             // on `parked` under its key, and comes back when it is free.
             Ok(Attempt::Parked) => {}
+            // Another worker holds this key. Nothing was released either,
+            // and this node comes back on the next re-arm.
+            Ok(Attempt::Deferred) => state.deferred.push(node),
             Err(failure) => state.failures.push(failure),
         }
         std::mem::take(&mut state.ready)
@@ -996,6 +1159,14 @@ impl Runner<'_> {
             return Ok(Attempt::Done(self.cached_result(node, spec, key, &entry)?));
         }
 
+        // And on a shared store another *machine* can be producing it. It
+        // is not held off with a lock -- the store cannot offer one, and by
+        // D50 it does not need to -- so this is advisory: a key another
+        // worker holds is left alone until its deadline.
+        let Some(_held) = self.take_lease(key)? else {
+            return Ok(Attempt::Deferred);
+        };
+
         let staging = self.cache.staging(key, output_suffix(spec.output));
         let _ = std::fs::remove_file(&staging);
 
@@ -1009,22 +1180,30 @@ impl Runner<'_> {
             .store(&staging)
             .map_err(|error| error.to_string())?;
         let milliseconds = u64::try_from(produced.duration.as_millis()).unwrap_or(u64::MAX);
-        self.cache
-            .record(
-                key,
-                &spec.name,
-                &stored,
-                &self.tool_summary(task),
-                milliseconds,
-                &produced.notes,
-            )
-            .map_err(|error| error.to_string())?;
 
+        // Canonicalised *before* it is recorded, which is the one ordering
+        // change M18 asks of a single-machine run. The published row
+        // carries the canonical hash, so a worker whose publish was
+        // dropped can tell at no cost whether the machine that got there
+        // first means the same thing it does (D50).
         let meaning = self
             .cache
             .semantic(spec.output, &stored.path)
             .map_err(|error| error.to_string())?;
-        let canonical = meaning.hash;
+        let mine = meaning.hash;
+
+        let recorded = self
+            .cache
+            .record(&Recording {
+                key,
+                step: &spec.name,
+                output: &stored,
+                canonical: mine,
+                tools: &self.tool_summary(task),
+                duration_ms: milliseconds,
+                notes: &produced.notes,
+            })
+            .map_err(|error| error.to_string())?;
 
         // What the step said about its own work, then what reading its
         // output found. Both are notes about the same result and every
@@ -1032,29 +1211,70 @@ impl Runner<'_> {
         // are about how the result was arrived at.
         let notes = noticed(produced.notes, meaning.notes);
 
+        // Whose answer stands. Rows are write-once, so if another machine
+        // published this key first, its row is the one in force -- and
+        // every machine, including this one, has to use it, or each worker
+        // believes its own answer and the run disagrees with itself.
+        let (output, canonical, superseded) = match recorded {
+            Recorded::Fresh => (stored, mine, false),
+            Recorded::Superseded { canonical: theirs } => {
+                if theirs != mine {
+                    self.note_divergence(Divergence {
+                        node,
+                        step: spec.name.clone(),
+                        key,
+                        ours: mine,
+                        theirs,
+                    });
+                }
+                // `record` wrote the store's row into the local index, so
+                // this reads back *their* output, fetching it if it is a
+                // tier down. Gone or refused leaves ours, which is still a
+                // correct answer to the key.
+                match self.cache.lookup(key).map_err(|error| error.to_string())? {
+                    Some(entry) => (entry.output, theirs, true),
+                    None => (stored, mine, false),
+                }
+            }
+        };
+
         // Recorded here and nowhere else: this is the only moment the filled
         // command exists, and a step served from the cache will need it.
-        self.remember(&Made {
-            spec,
-            task,
-            key,
-            inputs: &inputs,
-            command: produced.command,
-            bytes: stored.hash,
-            canonical,
-            notes: &notes,
-            duration_ms: milliseconds,
-        })?;
+        //
+        // Where another machine's answer is the one in force, its record is
+        // the one that explains it, so that is adopted instead of writing
+        // one about bytes that are no longer in force -- the same rule as a
+        // cache hit, reached from the other side. If it has not landed yet,
+        // ours is better than none.
+        let adopted = superseded
+            && self
+                .prov
+                .adopt(self.cache.objects(), key)
+                .map_err(|error| error.to_string())?
+                .is_some();
+        if !adopted {
+            self.remember(&Made {
+                spec,
+                task,
+                key,
+                inputs: &inputs,
+                command: produced.command,
+                bytes: output.hash,
+                canonical,
+                notes: &notes,
+                duration_ms: milliseconds,
+            })?;
+        }
 
         Ok(Attempt::Done(StepResult {
             node,
             step: spec.name.clone(),
             outcome: Outcome::Ran,
             key,
-            hash: stored.hash,
+            hash: output.hash,
             canonical,
             notes,
-            output: stored.path,
+            output: output.path,
             duration: produced.duration,
         }))
     }
@@ -1075,6 +1295,73 @@ impl Runner<'_> {
         }
         state.running.insert(key);
         Ok(Some(Claim { runner: self, key }))
+    }
+
+    /// Hold this key against the other workers, or say it is taken.
+    ///
+    /// `None` means another worker holds it and this node should be
+    /// deferred. An ordinary run -- no `--worker` -- never consults a
+    /// lease at all: it is the only thing computing, so there is nothing to
+    /// divide and no reason to pay a store read per step.
+    fn take_lease(&self, key: StepKey) -> Result<Option<Leased<'_>>, String> {
+        // An ordinary run, or a worker with no shared store: nothing to
+        // divide, so no lease and no store read per step.
+        let (Some(worker), Some(shared)) = (self.worker.as_ref(), self.cache.objects().shared())
+        else {
+            return Ok(Some(Leased {
+                runner: self,
+                held: None,
+            }));
+        };
+
+        let now = prov::now();
+        let deadline = now.saturating_add(i64::try_from(self.lease.as_secs()).unwrap_or(i64::MAX));
+        match lease::acquire(shared, key, worker, deadline, now)
+            .map_err(|error| error.to_string())?
+        {
+            lease::Claimed::Acquired { generation } => Ok(Some(Leased {
+                runner: self,
+                held: Some((key, generation)),
+            })),
+            lease::Claimed::Held { .. } => Ok(None),
+        }
+    }
+
+    /// Put the deferred nodes back on the ready queue, after a wait.
+    ///
+    /// `false` when there is nothing left to come back for, which ends the
+    /// run. The wait happens here, between scopes, with the pool drained
+    /// -- see [`Patience`].
+    fn rearm(&self, patience: &mut Patience) -> bool {
+        {
+            let Ok(state) = self.state.lock() else {
+                return false;
+            };
+            if state.deferred.is_empty() {
+                return false;
+            }
+        }
+
+        // Released before the sleep, so that nothing holds the run's one
+        // lock for thirty seconds.
+        patience.wait();
+
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        let waiting = std::mem::take(&mut state.deferred);
+        // They were waiting on another worker, and whatever they come back
+        // as -- a hit, or work this one takes over -- that is what they
+        // waited for.
+        state.waited = state.waited.saturating_add(waiting.len());
+        state.ready.extend(waiting);
+        true
+    }
+
+    fn note_divergence(&self, divergence: Divergence) {
+        if let Ok(mut state) = self.state.lock() {
+            state.diverged.push(divergence);
+        }
     }
 
     fn cached_result(
@@ -1309,12 +1596,54 @@ impl Runner<'_> {
         // reproducibility tool to print.
         results.sort_by_key(|result| result.node.index());
         failures.sort_by_key(|failure| failure.node.index());
+        let mut diverged = state.diverged;
+        diverged.sort_by_key(|divergence| divergence.node.index());
         RunReport {
             results,
             failures,
             store: self.cache.objects().stats(),
             refused: self.cache.objects().rejection(),
+            worker: self.worker.map(|worker| worker.name().to_owned()),
+            waited: state.waited,
+            diverged,
         }
+    }
+}
+
+/// A step key held against the other workers for the length of one step.
+///
+/// Given back on drop, **whether the step succeeded or failed**, because
+/// either way this worker has stopped working on that key and saying so is
+/// the honest state to leave behind.
+///
+/// Holding it after a success looked like a saving — the entry is there, so
+/// every reader short-circuits before it ever probes a lease — and it was
+/// wrong twice over. It leaves a live claim behind for a step nobody is
+/// computing, which is a lie the store then tells for an hour; and
+/// `--force`, which skips the entry by design, walks straight into it and
+/// waits for a worker that finished long ago. One small row per step is
+/// the right price for a lease state that is true.
+///
+/// `held` is `None` for an ordinary run and for a worker with no shared
+/// store, neither of which takes a lease: the guard still exists so one
+/// code path serves all three.
+struct Leased<'a> {
+    runner: &'a Runner<'a>,
+    held: Option<(StepKey, u32)>,
+}
+
+impl Drop for Leased<'_> {
+    fn drop(&mut self) {
+        let Some((key, generation)) = self.held.take() else {
+            return;
+        };
+        let Some(shared) = self.runner.cache.objects().shared() else {
+            return;
+        };
+        // Nothing useful to do about a release that cannot be written: the
+        // lease expires on its own deadline, which is the slower of the two
+        // correct outcomes rather than a wrong one.
+        let _ = lease::relinquish(shared, key, generation, prov::now());
     }
 }
 
@@ -1322,9 +1651,13 @@ impl Runner<'_> {
 enum Attempt {
     /// The step is finished, by running or straight from the cache.
     Done(StepResult),
-    /// Another node is producing this step's key, so this one is parked on
-    /// it and will be started again once that key is free.
+    /// Another node in *this* run is producing this step's key, so this one
+    /// is parked on it and will be started again once that key is free.
     Parked,
+    /// Another **worker** holds this step's key. This one is deferred: it
+    /// comes back on a timer, by which point the key is either in the
+    /// store or free again (D51).
+    Deferred,
 }
 
 /// What a step just produced, as a provenance record wants it.
@@ -1578,6 +1911,77 @@ fn store_lines(report: &RunReport) -> Vec<String> {
     lines
 }
 
+/// Which worker this was, what it waited for, and what it disagreed about.
+///
+/// Empty for an ordinary run — which is every run that did not ask to be
+/// one of several — because a report must not grow a line for a feature the
+/// run did not use.
+fn worker_lines(report: &RunReport) -> Vec<String> {
+    let Some(worker) = &report.worker else {
+        return Vec::new();
+    };
+
+    let counts = report.counts();
+    let mut parts = Vec::new();
+    if counts.ran > 0 {
+        parts.push(format!("{} ran here", counts.ran));
+    }
+    // Steps this worker waited on are cache hits like any other, so the
+    // hits it did not wait for are what is left. "Four came from the
+    // cache" and "four were computed by somebody else while I waited" are
+    // different news, and a worker's report should give the second.
+    let unwaited = (counts.cached + counts.skipped).saturating_sub(report.waited);
+    if unwaited > 0 {
+        parts.push(format!("{unwaited} from the store"));
+    }
+    if report.waited > 0 {
+        parts.push(format!("{} waited for other workers", report.waited));
+    }
+
+    let mut lines = vec![String::new()];
+    if parts.is_empty() {
+        lines.push(format!("worker    {worker}: nothing to do"));
+    } else {
+        lines.push(format!("worker    {worker}: {}", parts.join(", ")));
+    }
+
+    // The one event in a distributed run a user has to read rather than
+    // count. Named rather than totalled, because the question after
+    // "something diverged" is always "which step".
+    for divergence in &report.diverged {
+        lines.push(String::new());
+        lines.push(format!(
+            "diverged  `{}` was computed by another worker to a different result",
+            divergence.step
+        ));
+        lines.push(format!("          this run made  {}", divergence.ours));
+        lines.push(format!("          the store holds {}", divergence.theirs));
+        lines.push(
+            "          The store's answer is the one in force, here and              everywhere, so"
+                .to_owned(),
+        );
+        lines.push(
+            "          nothing below this step disagrees between              machines. But the step"
+                .to_owned(),
+        );
+        lines.push(
+            "          does not produce one answer from one set of              inputs: either its"
+                .to_owned(),
+        );
+        lines.push(
+            "          canonical form does not fix its result, or its              tool is stochastic"
+                .to_owned(),
+        );
+        lines.push(
+            "          in something other than its seed -- a thread              count, most often."
+                .to_owned(),
+        );
+        lines.push("          `ligase audit` is how to find out which.".to_owned());
+    }
+
+    lines
+}
+
 /// `1 object`, `3 objects`.
 fn plural_count(count: u64, word: &str) -> String {
     if count == 1 {
@@ -1699,6 +2103,10 @@ pub fn render(graph: &Graph, roots: &[NodeId], report: &RunReport) -> String {
     // for an hour because a bucket was briefly away is not *wrong*, and a
     // user who is not told is misled.
     lines.extend(store_lines(report));
+
+    // Who this was, and what the other workers did for it. Nothing at all
+    // for an ordinary run, by the same rule as the store lines.
+    lines.extend(worker_lines(report));
 
     // What the outputs' canonical forms noticed. Not failures: every one of
     // these steps ran and its result stands. They are here because the fix

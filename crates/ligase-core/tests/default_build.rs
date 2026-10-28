@@ -87,3 +87,41 @@ fn a_bucket_url_in_a_default_build_says_so() {
         "{error} does not say what this build *can* do"
     );
 }
+
+#[test]
+fn cluster_execution_needs_no_feature_and_no_new_dependency() {
+    // M18's done-when. Workers coordinate through published rows and
+    // `std::time`, so a `file://` store on a shared filesystem -- which is
+    // most of HPC -- runs a cluster in a default build. If this ever needs
+    // the feature, the install story has quietly acquired cmake.
+    let dir = tempfile::tempdir().unwrap();
+    let shared = dir.path().join("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+
+    let cache = ligase::cache::Cache::open_with(
+        &dir.path().join(".ligase"),
+        Some(&format!("file://{}", shared.display())),
+    )
+    .expect("a default build can share a store on a filesystem");
+
+    let key = ligase::key::Ingredients {
+        step: "align".to_owned(),
+        code: "def align(): ...".to_owned(),
+        recipe: "sh:true".to_owned(),
+        output: ligase::types::DataKind::Alignment,
+        parameters: Vec::new(),
+        inputs: Vec::new(),
+        tools: Vec::new(),
+    }
+    .key();
+
+    let worker = ligase::worker::Worker::named("node01");
+    let shared = cache
+        .objects()
+        .shared()
+        .expect("a file:// store is the tier every worker sees");
+    assert!(matches!(
+        ligase::store::lease::acquire(shared, key, &worker, 9999, 0).unwrap(),
+        ligase::store::lease::Claimed::Acquired { .. }
+    ));
+}

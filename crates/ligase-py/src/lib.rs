@@ -15,6 +15,8 @@ use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
+use std::time::Duration;
+
 use ligase::audit;
 use ligase::cache::Cache;
 use ligase::check::{Binding, CheckError, check_step as core_check_step, render, summarise};
@@ -34,6 +36,7 @@ use ligase::remote::pinned;
 use ligase::remote::recorded::{self, MAX_RECORDED_BYTES, Mode};
 use ligase::remote::request::Auth;
 use ligase::types::{DataKind, Dataset};
+use ligase::worker::Worker;
 
 /// One contig as Python sees it: name, length, checksum.
 type PyContig = (String, Option<u64>, Option<String>);
@@ -103,7 +106,13 @@ type PyRunReport = (
     String,
     String,
     (u64, u64, u64),
+    Vec<PyDivergence>,
 );
+
+/// One step two workers computed to different answers (D50): the node, the
+/// step's name, what this worker's output means, and what the output
+/// already in the store means — which is the one in force.
+type PyDivergence = (usize, String, String, String);
 
 /// What an audit is about, as Python gives it: the step's name, and the one
 /// sample to narrow to.
@@ -163,16 +172,20 @@ type PyMethodsGroup = (
 type PyMethodsGap = (String, Vec<String>, usize);
 
 /// A methods section as Python sees it: the ways steps were run, the gaps,
-/// the references, the reference list, the tools with nothing to cite, the
-/// engine, the platform, the summary line and the whole thing as text.
+/// the references, the reference list, the tools with nothing to cite,
+/// every engine version, every platform, the summary line and the whole
+/// thing as text.
+///
+/// The engines and the platforms are lists because a distributed run can
+/// have spanned several of each (D53).
 type PyMethods = (
     Vec<PyMethodsGroup>,
     Vec<PyMethodsGap>,
     Vec<PyReference>,
     Vec<String>,
     Vec<String>,
-    String,
-    String,
+    Vec<String>,
+    Vec<String>,
     String,
     String,
 );
@@ -1395,7 +1408,16 @@ impl PyGraph {
     /// Returns every finished step, every failure, the summary line, the
     /// whole report as text, and how many input files had to be hashed
     /// against how many the prefilter already knew.
-    #[pyo3(signature = (roots, tasks, cache_dir, callbacks, jobs=None, force=false))]
+    #[pyo3(signature = (
+        roots, tasks, cache_dir, callbacks, jobs=None, force=false,
+        worker=None, lease=None,
+    ))]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the arity is the Python signature this mirrors; bundling \
+                  `worker` and `lease` would hide two separately \
+                  documented knobs behind a tuple nobody could read"
+    )]
     fn run(
         &self,
         roots: Vec<usize>,
@@ -1404,6 +1426,8 @@ impl PyGraph {
         callbacks: Vec<Py<PyAny>>,
         jobs: Option<usize>,
         force: bool,
+        worker: Option<String>,
+        lease: Option<u64>,
     ) -> PyResult<PyRunReport> {
         let roots = nodes(&roots);
         let tasks = recipes(tasks)?;
@@ -1415,6 +1439,10 @@ impl PyGraph {
         let options = Options {
             jobs: jobs.unwrap_or_else(|| Options::default().jobs),
             force,
+            // A name the user gave, or one this process makes up: either
+            // way, `Some` is what makes this a worker (D49).
+            worker: worker.map(|name| Worker::named(&name)),
+            lease: lease.map_or_else(|| Options::default().lease, Duration::from_secs),
         };
         let host = PyHost { callbacks };
 
@@ -1460,6 +1488,18 @@ impl PyGraph {
             summary,
             text,
             (stats.hashed, stats.prefiltered, stats.canonicalised),
+            report
+                .diverged
+                .iter()
+                .map(|divergence| {
+                    (
+                        divergence.node.index(),
+                        divergence.step.clone(),
+                        divergence.ours.to_hex(),
+                        divergence.theirs.to_hex(),
+                    )
+                })
+                .collect(),
         ))
     }
 
@@ -1488,6 +1528,7 @@ impl PyGraph {
         let options = Options {
             jobs: jobs.unwrap_or_else(|| Options::default().jobs),
             force: false,
+            ..Options::default()
         };
         let host = PyHost { callbacks };
 
@@ -1568,6 +1609,7 @@ impl PyGraph {
         let options = Options {
             jobs: jobs.unwrap_or_else(|| Options::default().jobs),
             force: false,
+            ..Options::default()
         };
         let host = PyHost { callbacks };
 
@@ -1695,8 +1737,8 @@ impl PyGraph {
                 methods.references().iter().map(reference).collect(),
                 cited,
                 uncited,
-                methods.engine.clone(),
-                methods.platform.clone(),
+                methods.engines.clone(),
+                methods.platforms.clone(),
                 methods.summary(),
                 methods.text(),
             ),

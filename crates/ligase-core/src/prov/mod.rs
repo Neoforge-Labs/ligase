@@ -404,7 +404,12 @@ impl Prov {
         let Some(record) = self.lookup(key)? else {
             return Ok(());
         };
-        published::publish(
+        // What the store already held is not interesting here, unlike for a
+        // step entry (D50): two records under one key describe the same
+        // computation, because the key fixes its ingredients, and a
+        // methods paragraph wants one of them rather than a reconciliation
+        // of both. The first published wins and is as good as any.
+        published::put(
             store,
             shared::PROV,
             &key.to_hex(),

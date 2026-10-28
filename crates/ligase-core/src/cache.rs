@@ -82,6 +82,77 @@ pub struct Entry {
     pub notes: Vec<Note>,
 }
 
+/// What one step produced, as the cache wants to be told it.
+///
+/// One struct rather than eight arguments, on `exec::Made`'s precedent: a
+/// call with eight positional arguments of which three are strings is a
+/// call that can be got wrong silently.
+#[derive(Clone, Copy, Debug)]
+pub struct Recording<'a> {
+    /// The step's cache key.
+    pub key: StepKey,
+    /// The step's name, for a human reading the index.
+    pub step: &'a str,
+    /// The output it produced, in the store.
+    pub output: &'a Stored,
+    /// What that output *means* ([`crate::canon`]).
+    ///
+    /// Published with the row, so another worker that computed the same key
+    /// can tell a difference of bytes from a difference of result (D50).
+    pub canonical: ContentHash,
+    /// The tools and versions it ran with, as one line.
+    pub tools: &'a str,
+    /// How long it took.
+    pub duration_ms: u64,
+    /// What it noticed about its own work ([`Note`]).
+    pub notes: &'a [Note],
+}
+
+/// What the store turned out to hold when a step was recorded.
+///
+/// On one machine this is always [`Fresh`](Self::Fresh) and there is
+/// nothing to think about. On a shared store another worker may have
+/// published the same key first, and because rows are write-once **its**
+/// answer is the one in force — so a worker has to be told, both to use
+/// the right output and to notice the one case where the two answers do not
+/// mean the same thing (D50).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Recorded {
+    /// Nothing else had published this key, or what was there was
+    /// identical. The local index holds this run's own answer.
+    Fresh,
+    /// Another machine published first. The local index now holds **its**
+    /// answer, so a [`lookup`](Cache::lookup) returns what the store says,
+    /// and this is the canonical hash that answer has.
+    ///
+    /// Equal to the caller's own canonical hash in the ordinary case: two
+    /// workers whose bytes differ because a tool wrote its command line or
+    /// a timestamp into them still agree about what the output *means*,
+    /// which is what every downstream key is built on. Unequal is the case
+    /// worth reporting.
+    Superseded {
+        /// What the store's answer means.
+        canonical: ContentHash,
+    },
+}
+
+/// A published `steps` row, read back.
+struct StepRow<'a> {
+    fields: &'a [String],
+    canonical: ContentHash,
+}
+
+/// Read a published `steps` row, or nothing if this build cannot.
+fn read_step_row(fields: &[String]) -> Option<StepRow<'_>> {
+    let [_hash, _suffix, _duration, _notes, canonical] = fields else {
+        return None;
+    };
+    Some(StepRow {
+        fields,
+        canonical: ContentHash::parse(canonical)?,
+    })
+}
+
 /// One object a remote resolved to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RemoteFile {
@@ -485,7 +556,9 @@ impl Cache {
         row: &RemoteRow,
     ) -> Result<(), CacheError> {
         self.remember_remote(locator, kind, row)?;
-        published::publish(
+        // A locator that resolved twice resolved to the same thing, or the
+        // pin would have caught it: whichever row is there is the answer.
+        published::put(
             &self.objects,
             REMOTES,
             &remote_row_key(locator, kind),
@@ -828,7 +901,11 @@ impl Cache {
         let Some(fields) = published::fetch(&self.objects, STEPS, &key.to_hex())? else {
             return Ok(None);
         };
-        let [hash, suffix, duration, notes] = fields.as_slice() else {
+        // The canonical hash the row also carries is not read back here:
+        // what a hit needs is the object, and `semantic` derives the
+        // meaning from it. The field is for the worker that lost a publish
+        // race and has to compare (D50).
+        let [hash, suffix, duration, notes, _canonical] = fields.as_slice() else {
             return Ok(None);
         };
         Ok(Some((
@@ -874,19 +951,76 @@ impl Cache {
 
     /// Record that a step with this key produced this output.
     ///
+    /// Returns what the **store** says this key produced, which on a shared
+    /// store is not always what was just passed in: another machine may
+    /// have published first. Rows are write-once, so its answer is the one
+    /// in force, and this is where that is settled —
+    /// [`Recorded::Superseded`] means the local index now holds the
+    /// store's answer rather than this one's (D50).
+    ///
     /// # Errors
     ///
     /// If the metadata cannot be written.
-    pub fn record(
-        &self,
-        key: StepKey,
-        step: &str,
-        output: &Stored,
-        tools: &str,
-        duration_ms: u64,
-        notes: &[Note],
-    ) -> Result<(), CacheError> {
-        let duration = i64::try_from(duration_ms).unwrap_or(i64::MAX);
+    pub fn record(&self, made: &Recording<'_>) -> Result<Recorded, CacheError> {
+        let (key, output) = (made.key, made.output);
+        let duration = i64::try_from(made.duration_ms).unwrap_or(i64::MAX);
+        let mine = [
+            output.hash.to_hex(),
+            suffix(&output.path),
+            duration.to_string(),
+            encode_notes(made.notes),
+            made.canonical.to_hex(),
+        ];
+
+        // Into the store first, so that what goes into the local index is
+        // whatever turns out to be authoritative. The other order would
+        // write this machine's answer and then have to take it back.
+        //
+        // Written through the tiering, as every row has been since M14:
+        // local first, pushed behind it, and a push that fails is counted
+        // rather than fatal. The work is done either way.
+        published::put(&self.objects, STEPS, &key.to_hex(), &mine)?;
+
+        // Then asked of the store **every machine sees**, which is the
+        // only one whose answer means anything here. Rows are write-once,
+        // so if another worker published this key first, its row is the
+        // one in force -- and asking the tiered store would read this
+        // machine's own local copy and never find out (D50).
+        //
+        // No shared tier is the single-machine case: nobody else can have
+        // published, so there is nothing to ask. A shared tier that will
+        // not answer is treated the same way, because the honest fallback
+        // is to keep the answer this run computed -- which is a correct
+        // answer to the key however the race went.
+        let theirs = self
+            .objects
+            .shared()
+            .and_then(|shared| {
+                published::fetch(shared, STEPS, &key.to_hex())
+                    .ok()
+                    .flatten()
+            })
+            .filter(|theirs| theirs != &mine);
+
+        let (fields, verdict) = match theirs.as_deref().and_then(read_step_row) {
+            Some(theirs) => (
+                theirs.fields,
+                Recorded::Superseded {
+                    canonical: theirs.canonical,
+                },
+            ),
+            // Ours, or a row this build cannot read: there is nothing to
+            // adopt and nothing to compare, so keep our own answer and let
+            // the next reader decide.
+            None => (&mine[..], Recorded::Fresh),
+        };
+
+        let [hash, row_suffix, row_duration, row_notes, ..] = fields else {
+            return Err(CacheError::Store(StoreError::Impostor {
+                at: key.to_hex(),
+                claims: "a step row with too few fields".to_owned(),
+            }));
+        };
         self.with_database(|database| {
             database.execute(
                 "INSERT OR REPLACE INTO steps
@@ -894,33 +1028,18 @@ impl Cache {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     key.to_hex(),
-                    step,
-                    output.hash.to_hex(),
-                    suffix(&output.path),
-                    tools,
-                    duration,
+                    made.step,
+                    hash,
+                    row_suffix,
+                    made.tools,
+                    row_duration.parse::<i64>().unwrap_or(duration),
                     now(),
-                    encode_notes(notes),
+                    row_notes,
                 ],
             )
         })??;
 
-        // And into the store, so the next machine to compute this key
-        // finds the answer rather than the ingredients (D43). Failing to
-        // publish is not failing the run: the work is done and the row is
-        // local, and `ligase store push` makes it up.
-        published::publish(
-            &self.objects,
-            STEPS,
-            &key.to_hex(),
-            &[
-                output.hash.to_hex(),
-                suffix(&output.path),
-                duration.to_string(),
-                encode_notes(notes),
-            ],
-        )?;
-        Ok(())
+        Ok(verdict)
     }
 
     fn forget(&self, key: StepKey) -> Result<(), CacheError> {

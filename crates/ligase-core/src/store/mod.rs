@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 use crate::hash::ContentHash;
 
 mod fs;
+pub mod lease;
 pub mod published;
 mod remote;
 mod tiered;

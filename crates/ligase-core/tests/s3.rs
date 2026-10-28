@@ -184,7 +184,7 @@ fn a_second_machine_takes_the_work_from_the_bucket() {
     // The clean-machine clause in its smallest honest form: one cache
     // records a step, a second cache with nothing in it finds the entry,
     // the output and the provenance.
-    use ligase::cache::Cache;
+    use ligase::cache::{Cache, Recording};
     use ligase::key::Ingredients;
     use ligase::types::DataKind;
 
@@ -208,7 +208,15 @@ fn a_second_machine_takes_the_work_from_the_bucket() {
     std::fs::write(&staged, b"an alignment from the first machine").unwrap();
     let stored = first.store(&staged).unwrap();
     first
-        .record(key, "align", &stored, "minimap2 2.28", 41, &[])
+        .record(&Recording {
+            key,
+            step: "align",
+            output: &stored,
+            canonical: stored.hash,
+            tools: "minimap2 2.28",
+            duration_ms: 41,
+            notes: &[],
+        })
         .unwrap();
 
     let second = Cache::open_with(&dir.path().join("second"), Some(&url)).unwrap();

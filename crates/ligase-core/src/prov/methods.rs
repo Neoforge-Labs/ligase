@@ -142,10 +142,21 @@ pub struct Methods {
     pub gaps: Vec<Gap>,
     /// What canonicalising the outputs noticed, in graph order (D26).
     pub noticed: Vec<Noticed>,
-    /// The version of Ligase that produced the results.
-    pub engine: String,
-    /// The platform they were produced on.
-    pub platform: String,
+    /// Every version of Ligase that produced any of the results, sorted.
+    ///
+    /// One entry for every run on one machine, which is why this was a
+    /// `String` until M18. A distributed run is the first time it is not:
+    /// a worker on an older wheel is a different engine, and a methods
+    /// section that named one of two would be making a claim nobody
+    /// checked (D53).
+    pub engines: Vec<String>,
+    /// Every platform any of the results were produced on, sorted.
+    ///
+    /// As [`engines`](Self::engines), and for the commoner reason: a mixed
+    /// cluster, or an ARM workstation beside x86 nodes. A record has
+    /// always carried its own platform; before M18 they were all the same
+    /// because one machine ran everything.
+    pub platforms: Vec<String>,
 }
 
 impl Methods {
@@ -282,7 +293,8 @@ impl Methods {
     pub fn paragraph(&self) -> String {
         let mut paragraphs = vec![wrap(&format!(
             "Analyses were run with Ligase {} on {}.",
-            self.engine, self.platform
+            english(&self.engines),
+            english(&self.platforms)
         ))];
 
         if let Some(fetched) = self.fetched_sentence() {
@@ -600,10 +612,31 @@ pub fn methods(
         }
     }
 
-    let (engine, platform) = groups.first().map_or_else(
-        || (crate::version().to_owned(), super::platform()),
-        |group| (group.record.engine.clone(), group.record.platform.clone()),
-    );
+    // Every distinct one, not the first group's. Taking the first was
+    // right for as long as one machine ran everything, and a distributed
+    // run is exactly the case it was wrong for: the records each carry
+    // their own, and a worker's record arrives through the store with
+    // whatever machine wrote it (D53).
+    //
+    // Falls back to this build and this machine when there are no groups
+    // at all, as it always did: a run of nothing still has to say
+    // something true.
+    let mut engines: Vec<String> = groups
+        .iter()
+        .map(|group| group.record.engine.clone())
+        .collect();
+    let mut platforms: Vec<String> = groups
+        .iter()
+        .map(|group| group.record.platform.clone())
+        .collect();
+    if engines.is_empty() {
+        engines.push(crate::version().to_owned());
+        platforms.push(super::platform());
+    }
+    for list in [&mut engines, &mut platforms] {
+        list.sort();
+        list.dedup();
+    }
 
     for group in &mut groups {
         group.scopes.sort();
@@ -618,9 +651,21 @@ pub fn methods(
         groups,
         gaps,
         noticed,
-        engine,
-        platform,
+        engines,
+        platforms,
     })
+}
+
+/// `a`, `a and b`, `a, b and c` — for a sentence rather than a list.
+///
+/// A methods paragraph is read aloud in a seminar, so the separator is a
+/// word and not a comma at the end.
+fn english(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [front @ .., last] => format!("{} and {last}", front.join(", ")),
+    }
 }
 
 /// Everything that could make two nodes' sentences differ.

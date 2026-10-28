@@ -57,6 +57,7 @@ pub mod prov;
 pub mod remote;
 pub mod store;
 pub mod types;
+pub mod worker;
 
 /// The version of the core engine, as compiled.
 ///
