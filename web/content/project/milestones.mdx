@@ -1427,11 +1427,9 @@ chemistry file format is read — no SDF, no MOL, no `.smi` — which is D35's
 first clause applied rather than argued around. `representation` records the
 operations and not which toolkit applied them, because the measurement
 compared RDKit against itself across time and not against another toolkit,
-and recording the toolkit would claim more than the evidence supports. And
-RDKit is not credited in a methods section, which is a shortfall rather than
-a choice: a project-shipped step's citation resolves from its `tool=`, and
-`tool=` means a program the engine runs to ask its version. A library cannot
-be one, which is why the version travels as a parameter instead. Adding a row
-to the citation table would not help, because nothing would look it up —
-closing it means letting a tool be a library, which is a change to D42's
-machinery.
+and recording the toolkit would claim more than the evidence supports. RDKit's
+citation was a shortfall while this milestone shipped and is no longer one:
+it needed a change to D42's machinery, which **D46** made — a tool may be a
+library, whose version the host supplies, because `tool=` had meant a program
+the engine execs as well as a name a citation resolves from. The step now
+declares `tool="rdkit"` and the methods paragraph credits it.

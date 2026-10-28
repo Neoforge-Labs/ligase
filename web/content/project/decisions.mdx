@@ -1776,6 +1776,13 @@ exit is expected, and which line of the output holds the version — and a
 probe that fails unexpectedly, or stops finding its line, is an error rather
 than a usage banner hashed as a version.
 
+What the clause assumed, and no longer does, is that a tool is a *program*.
+[D46](#d46--a-tool-may-be-a-library-and-its-version-comes-from-the-host)
+admits a third kind: a library, which has nothing to run and whose version
+the host supplies. The part of this clause that was load-bearing survives
+unchanged — a non-answer is never hashed as a version — and that is the part
+`bwa` taught.
+
 ### The citation clause is curated, not declared
 
 `cite=` is how a step *you* wrote says what it wants cited. A step the
@@ -2099,6 +2106,69 @@ names what it cannot account for. A number in a paper was the one thing the
 record could not account for and never mentioned. This is the fourth
 instance of an existing promise rather than a new capability, which is why it
 cost no store, no dimension and no dependency.
+## D46 — A tool may be a library, and its version comes from the host
+
+`tool=` has always meant two things at once: the name a citation resolves
+from ([D24](#d24--a-citation-is-curated-or-declared-never-guessed)), and
+something the engine **runs** to ask its version
+([D42](#d42--a-library-step-ships-with-its-dimensions-its-citation-and-its-canonical-form)).
+Those coincide for a program and for nothing else.
+
+M17 ran into the gap. RDKit is software that produced a result and a reviewer
+will want it cited, and there is nothing on `PATH` to interrogate — so it
+could not be a `tool=` at all. The step declared `tool="ligase"` and carried
+the toolkit's version as an ordinary hashed parameter, which got the version
+into the cache key, which is the half that matters for correctness. The other
+half was simply lost: a dependency the analysis rested on, absent from the
+methods section, with no mechanism that could have put it there. Adding a row
+to the citation table would not have helped, because nothing would have
+looked the row up.
+
+So a tool may be a **library**: software with no program to run, whose
+version only the host knows.
+
+### Why the host supplies it rather than the engine asking
+
+Everywhere else the engine asks, and that is deliberate — a version a caller
+hands over is a version a caller can get wrong, and D42's version clause
+exists because a *wrong* version is worse than a missing one.
+
+A library is the case where asking is not available and not better. The
+library lives in the interpreter that is driving the pipeline, which is the
+exact copy of it the step will call. Reading `rdkit.__version__` there is a
+more accurate answer than execing something of that name would be — there is
+nothing of that name to exec, and if there were, it would be a version of the
+wrong thing. The engine therefore refuses to run a library even where a
+program shares its name, which is asserted rather than assumed.
+
+What is kept from D42 is the part that was load-bearing: **a non-answer is
+never hashed as a version.** A library nothing has registered is an error
+naming the library and what to install, not an empty string. That is `bwa`'s
+lesson in another costume — a non-answer is identical for every release, so
+recording one would mean upgrading the library moved no cache key at all.
+
+### Registering is refused on a conflict rather than resolved
+
+A library's version is in every cache key beneath it, so two answers inside
+one process would mean two keys for one computation. Reading a library's own
+version twice cannot disagree, so a conflict is a bug rather than a situation
+— which is why it is refused with both values named, instead of the second
+quietly winning.
+
+### Where this does *not* reach
+
+The registration has to happen before a key is computed, and a graph is built
+from decorated functions **without executing them** — so nothing inside a
+step body runs early enough. `ligase.chem` registers from the function that
+builds the step, which is a wrapper above it, and that is the one piece of
+ceremony this decision costs. A step whose library nobody registered fails
+with the message above rather than silently.
+
+It also does not make the engine able to *find* a library. `ligase.chem`
+knows RDKit is there because it imported it; the engine knows only what it
+was told. A tool that is neither a program, nor carried by the engine, nor
+registered by a host is still a tool with no version, and still an error.
+
 ## D47 — A molecule's identity is its standardisation, not its structure
 
 An InChIKey is a hash of a molecular structure. Standardisation changes the

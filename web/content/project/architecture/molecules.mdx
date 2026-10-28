@@ -227,18 +227,31 @@ before `liftover` and `rename_contigs` arrive.
 Its failures follow `map_identifiers`' contract: twenty molecules named
 individually, the rest carried by a count, and nothing dropped in silence.
 
-### The version capture, which is not a `tool=`
+### The version capture, which is now an ordinary `tool=`
 
-A library step declares `tool=` and the engine probes `<tool> --version`.
-RDKit has no executable to probe. So `lg.chem.standardize` reads
-`rdkit.__version__` **before** building the step and passes it as a
-parameter, which puts it in the step's cache key.
+The step declares `tool="rdkit"` like any other step declares its tool, and
+both halves of D42 then work: the version joins the cache key, and the
+citation resolves from the engine's curated table.
 
-Read inside the body it would not be. The step would then serve a cached
-answer across an upgrade that could have changed every key it computed, which
-is exactly the failure D42's version clause was written for — where
-`bwa --version` printed a complaint identical for every release and upgrading
-the aligner moved no key at all.
+That needed a change to the machinery, because `tool=` meant *a program the
+engine execs* as well as *a name a citation resolves from*, and RDKit is only
+the second. [D46](/project/decisions/#d46--a-tool-may-be-a-library-and-its-version-comes-from-the-host)
+added a third kind of tool, after a program the engine runs and a built-in it
+carries: a **library**, whose version the host supplies because the library
+lives in the interpreter rather than on `PATH`. `exec::LIBRARY` names them and
+`exec::register_library_version` is how one arrives.
+
+`ligase.chem.toolkit_version` registers it, and is called by the wrapper that
+builds the step — not by the step's body, because a graph is built from
+decorated functions without executing them, so a body runs far too late. A
+library nothing registered is an **error** naming the library and the extra,
+never an empty version: that is the `bwa` lesson kept intact, since a
+non-answer is the same text for every release and upgrading the library would
+move no key at all.
+
+The engine also refuses to run a library even where a program shares its
+name, which the tests pin. What the step calls is the library, so a program
+of that name would be a version of the wrong thing.
 
 ### The asymmetric stereo check
 
@@ -276,23 +289,6 @@ axis: a false agreement is unrecoverable, and a loud refusal is not.
   time, not RDKit against OpenEye. Recording the toolkit would be a wider
   claim than the evidence supports, and measuring it is the next experiment
   rather than a line in this milestone.
-- **RDKit cannot be cited, and the reason is an engine gap worth naming.**
-  A step the project ships resolves its tool to a curated reference rather
-  than declaring one (D24, D42), and that resolution is keyed on the tool a
-  step declares with `tool=`. But `tool=` also means *a program the engine
-  runs to ask its version*: `VersionProbe` executes it with arguments and
-  reads a line of its output. RDKit is a library with no executable, so it
-  cannot be a `tool=` — which is why this step declares `tool="ligase"` and
-  carries the toolkit version as a parameter instead.
-
-  The version therefore reaches the cache key, which is the half that
-  matters for correctness, and the citation does not, which is the half that
-  matters for a reference list. Adding a row to `prov/cite.rs` would not fix
-  it: nothing would look the row up. Closing it means letting a tool be a
-  library — a probe that imports rather than execs, and a citation key that
-  does not assume a program — and that is a change to D42's machinery rather
-  than a line in this milestone. Until then RDKit is a dependency a methods
-  section does not credit, which is a real shortfall and is recorded as one.
 - **The whole table is read into memory** by the canonical form, as a gene
   list's is and for the same reason. A library larger than memory is not
   readable today and nothing pretends otherwise.

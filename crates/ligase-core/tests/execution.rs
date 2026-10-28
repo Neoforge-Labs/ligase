@@ -1040,3 +1040,74 @@ fn every_step_of_a_wide_graph_is_run_by_a_single_worker() {
     }
     assert_eq!(outcome(&report, joined), Outcome::Ran);
 }
+
+// ----------------------------------------- a tool that is a library --
+
+#[test]
+fn a_library_tool_is_not_run_and_says_so_until_the_host_supplies_it() {
+    // D46. `tool=` meant two things that only coincide for a program: the
+    // name a citation resolves from, and something the engine execs to ask
+    // its version. RDKit is software that produced a result and a reviewer
+    // will want cited, and there is nothing to exec.
+    //
+    // Unregistered, it must be an *error* naming the tool -- never an empty
+    // version. That is `bwa`'s lesson in another costume: a non-answer
+    // hashed as a version is identical for every release, so upgrading the
+    // library would not move a single cache key.
+    // `rdkit` itself, which is in the engine's list of libraries and which
+    // nothing in a Rust test registers: there is no Python interpreter here
+    // to have imported it.
+    let error = exec::tool_version("rdkit").unwrap_err();
+    assert!(error.contains("rdkit"), "{error}");
+    assert!(
+        error.contains("ligase-bio[chem]"),
+        "and it says what to install, as `ligase store status` does: {error}"
+    );
+    assert!(
+        !error.contains("could not be run"),
+        "a library is not a program that failed to run: {error}"
+    );
+    assert!(
+        error.contains("library"),
+        "the message must say what kind of thing this is: {error}"
+    );
+}
+
+#[test]
+fn a_host_supplied_library_version_is_what_joins_the_key() {
+    exec::register_library_version("ligase-test-registered", "9.9.9").unwrap();
+
+    let version = exec::tool_version("ligase-test-registered").unwrap();
+    assert!(version.contains("9.9.9"), "{version}");
+    assert!(
+        version.contains("ligase-test-registered"),
+        "the tool names itself in its own version, as `ligase` does: {version}"
+    );
+}
+
+#[test]
+fn registering_one_library_twice_over_is_fine_and_disagreeing_is_not() {
+    // The version is in cache keys, so two answers for one library inside
+    // one process would mean two keys for one computation. Reading
+    // `rdkit.__version__` twice cannot disagree, so this cannot happen by
+    // accident -- which is why it is worth refusing rather than resolving.
+    exec::register_library_version("ligase-test-twice", "1.0").unwrap();
+    exec::register_library_version("ligase-test-twice", "1.0")
+        .expect("the same answer again is not a conflict");
+
+    let error = exec::register_library_version("ligase-test-twice", "2.0")
+        .expect_err("a second, different answer is");
+    assert!(error.contains("1.0"), "{error}");
+    assert!(error.contains("2.0"), "{error}");
+}
+
+#[test]
+fn a_library_is_not_asked_whether_a_program_of_that_name_exists() {
+    // The point of the taxonomy. `sh` is a program on every machine this
+    // runs on, so a library registered under that name must still report
+    // the registered version rather than whatever `sh --version` prints.
+    exec::register_library_version("sh", "not a shell at all").unwrap();
+
+    let version = exec::tool_version("sh").unwrap();
+    assert!(version.contains("not a shell at all"), "{version}");
+}
