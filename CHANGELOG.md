@@ -29,6 +29,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   write-up, and `ligase` is never in the uncited list. A user citing it by
   hand can stop. D58.
 
+### Added
+
+- **`map_identifiers` takes `ambiguous="fan-out"`, and a ranking that fans
+  out becomes a set.** An identifier the mapping table sends to several
+  targets was always left out and named, on the grounds that choosing one
+  would be a guess. That is right for an untidy table and wrong for the
+  biology: *P. falciparum* `DHFR-TS` is one polypeptide with two catalytic
+  domains answering to human `DHFR` and `TYMS`, a complex named as a unit
+  maps to its subunits, and a paralogue family has no one-to-one orthologue.
+  "Decide which target you mean" has no correct answer for those.
+
+  `ambiguous="fan-out"` emits a row per target and says how many identifiers
+  fanned and into how many rows, so the output being *larger* than the input
+  is on the record. It is declared at the call site, never inferred, and it
+  joins the cache key. A target two identifiers reach is still left out,
+  because the output is a set.
+
+  A ranking cannot fan out — rank is the row position (D41) — so
+  `map_ranked_identifiers` has no such argument, and the new
+  `lg.fan_out_ranked_identifiers` returns an `EntitySet` instead: the
+  ranking did not survive the crossing, and saying so beats inventing tie
+  ranks. D60.
+
 ### Changed
 
 - **A bare gene-symbol list no longer states its own identifier space.**

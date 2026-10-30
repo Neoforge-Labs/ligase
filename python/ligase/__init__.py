@@ -22,7 +22,11 @@ from typing import TYPE_CHECKING, TypeVar
 
 from . import _core, chem, hivdb, remotes
 from .audit import AuditReport, StepAudit
-from .convert import map_identifiers, map_ranked_identifiers
+from .convert import (
+    fan_out_ranked_identifiers,
+    map_identifiers,
+    map_ranked_identifiers,
+)
 from .errors import (
     CheckError,
     ContigNamingError,
@@ -133,6 +137,7 @@ __all__ = [
     "chem",
     "dimension_errors",
     "entity_set",
+    "fan_out_ranked_identifiers",
     "handle",
     "hivdb",
     "intervals",

@@ -3003,3 +3003,89 @@ sentence listed every key under `Keys:` because naming beats counting
 `Outputs:` now, for the same reason and with the same per-sample
 resolution: a reviewer checking one sample needs that sample's identifier,
 and it has to be the one that still means something next year.
+
+## D60 — A one-to-many crossing is declared, and a ranking does not survive one
+
+[D38](#d38--identifier-namespaces-never-coerce) leaves an identifier the
+mapping table sends to several targets **out** of the output and names it,
+on the grounds that emitting a row for each would make the output larger
+than the input without saying so, and choosing one of them would be a guess
+about which the analysis meant. Both halves of that are still true. What it
+assumed is that the ambiguity is a data-quality problem, and for a real
+class of entity it is not.
+
+A consumer put it precisely: *the remedy "decide which target you mean"
+assumes the ambiguity is a data-quality problem. Often it is. But some of
+the time the identifier genuinely denotes more than one thing, and picking
+one is the wrong answer.*
+
+- **Bifunctional enzymes.** *P. falciparum* `DHFR-TS` is a single
+  polypeptide with two catalytic domains, corresponding to human `DHFR` and
+  `TYMS`. `PPPK-DHPS` is the same story. Both targets are correct; these
+  are not curation errors, they are the organism.
+- **Protein complexes** named as a unit, mapping to their subunit genes.
+- **Paralogue families** where a non-human identifier has no one-to-one
+  human orthologue but a defensible set of them.
+
+And "keep the identifier in the space it is already in" does not resolve it
+either, because the reason to cross at all is to join against something in
+the other space: an identifier left unmapped is absent from the join, which
+is the same outcome as dropping it, arrived at deliberately. In the
+reporting pipeline the **top-ranked** entity was exactly this case, so the
+entity the result was most about was the one that could not cross.
+
+### What is added, and why it is declared rather than defaulted
+
+`map_identifiers` takes `ambiguous`, which is `drop` — the behaviour above,
+unchanged — or `fan-out`, which emits a row per target and says so:
+
+```
+noticed   `map_identifiers`: the identifier `NKX2-1` maps to more than one
+          target, and this step asked for a fan-out, so the output holds a
+          row for each
+noticed   `map_identifiers`: 1 identifier fanned out into 2 rows, so the
+          output is 1 entity larger than the input
+```
+
+Declared at the call site, never inferred. The engine cannot tell an untidy
+mapping table from a bifunctional enzyme, and the whole value of the note
+is that it says *you asked for this* rather than *the engine decided which
+biology this was*. It is an ordinary step parameter, so it joins the cache
+key: changing the answer about the biology reruns the step, which it must,
+because the output is different.
+
+Two rules are **not** suspended by a fan-out. A target that two identifiers
+arrive at is still left out, because the output is a set and one entity
+named twice with two sets of attributes is not one — a fanned identifier
+can collide exactly as a one-to-one one can, and the collision pass counts
+fanned targets for that reason. And an identifier the table has no row for
+still does not cross.
+
+### A ranking does not survive it
+
+[D41](#d41--in-a-ranked-list-rank-order-is-the-result) says rank *is* the
+row position; there is nothing else for it to be. One row becoming two
+therefore has no defensible rank, and all three ways of pretending
+otherwise are worse than refusing:
+
+- **tie ranks** invent an order the pipeline never produced;
+- **renumbering** makes rank *n* of the output mean something no
+  computation assigned;
+- **keeping the fanned entity at its rank and pushing the rest down** does
+  both at once.
+
+So `map_ranked_identifiers` has no `ambiguous` argument and goes on
+dropping, and `fan_out_ranked_identifiers` is a step of its own whose
+return type is an **`EntitySet`**. The ranking did not survive the
+crossing, and saying so is more honest than handing back something shaped
+like a ranking.
+
+That it is a separate function rather than an argument is forced as well as
+preferred: a step's output kind is read off its return annotation once,
+when it is decorated, so one function cannot produce both kinds. The same
+constraint split `map_ranked_identifiers` from `map_identifiers` in M12,
+and the function's name is now where the declaration lives.
+
+The practical advice that follows is the one D41 already gives about
+cut-offs, pointed the other way: take a top ten **before** fanning. The top
+ten of a fanned set is not a thing; the fan-out of the top ten is.

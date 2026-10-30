@@ -165,6 +165,15 @@ pub enum Note {
         /// The identifier, in the space it came from.
         identifier: String,
     },
+    /// An identifier the table sent to several targets, where the caller
+    /// asked for a row at each.
+    ///
+    /// Not a failure to cross: it crossed into more rows than it came
+    /// from, which is a thing the output has to say for itself (D60).
+    IdentifierFannedOut {
+        /// The identifier, in the space it came from.
+        identifier: String,
+    },
     /// An identifier that arrives where another identifier also arrives.
     IdentifierCollides {
         /// The identifier, in the space it came from.
@@ -180,6 +189,17 @@ pub enum Note {
     IdentifiersDidNotCross {
         /// How many, named or not.
         count: u32,
+    },
+    /// How many identifiers fanned out, and into how many rows.
+    ///
+    /// Two numbers because one does not give the size change: a single
+    /// identifier reaching four targets adds three rows, and the
+    /// difference is what a reader comparing input to output needs.
+    IdentifiersFannedOut {
+        /// How many identifiers had more than one target.
+        identifiers: u32,
+        /// How many rows those identifiers produced between them.
+        rows: u32,
     },
     /// A ranking whose ranks moved because the mapping lost rows above
     /// them.
@@ -364,6 +384,8 @@ impl Note {
             Self::IdentifierAmbiguous { .. } => "identifier-ambiguous",
             Self::IdentifierCollides { .. } => "identifier-collides",
             Self::IdentifiersDidNotCross { .. } => "identifiers-did-not-cross",
+            Self::IdentifierFannedOut { .. } => "identifier-fanned-out",
+            Self::IdentifiersFannedOut { .. } => "identifiers-fanned-out",
             Self::MoleculeDidNotStandardise { .. } => "molecule-did-not-standardise",
             Self::MoleculesDidNotStandardise { .. } => "molecules-did-not-standardise",
             Self::MoleculeNotUnique { .. } => "molecule-not-unique",
@@ -416,8 +438,15 @@ impl Note {
             Self::IdentifierIsADate { identifier }
             | Self::IdentifierUnmapped { identifier }
             | Self::IdentifierAmbiguous { identifier }
+            | Self::IdentifierFannedOut { identifier }
             | Self::IdentifierCollides { identifier } => identifier.clone(),
             Self::IdentifiersDidNotCross { count } => format!("count={count}"),
+            // Two numbers and no identifier, so `named` has nothing to
+            // trip over: both fields are digits and the separator is a
+            // space.
+            Self::IdentifiersFannedOut { identifiers, rows } => {
+                format!("identifiers={identifiers} rows={rows}")
+            }
             Self::MoleculeDidNotStandardise { molecule } => molecule.clone(),
             Self::MoleculesDidNotStandardise { count } => format!("count={count}"),
             Self::MoleculeNotUnique { inchikey } => inchikey.clone(),
@@ -493,6 +522,13 @@ impl Note {
                 inchikey: value.to_owned(),
             }),
             "stereo-not-discarded" => Some(Self::StereoNotDiscarded),
+            "identifier-fanned-out" => Some(Self::IdentifierFannedOut {
+                identifier: value.to_owned(),
+            }),
+            "identifiers-fanned-out" => Some(Self::IdentifiersFannedOut {
+                identifiers: counted(value, "identifiers")?,
+                rows: counted(value, "rows")?,
+            }),
             "identifiers-did-not-cross" => Some(Self::IdentifiersDidNotCross {
                 count: counted(value, "count")?,
             }),
@@ -593,6 +629,17 @@ impl Note {
             Self::IdentifiersDidNotCross { .. } => {
                 "Compare this against the size of your input before reading the result: check \
                  the mapping table's release if it is more than a small fraction."
+            }
+            Self::IdentifierFannedOut { .. } => {
+                "Nothing needs doing where the identifier really denotes more than one \
+                 entity -- a bifunctional enzyme, a complex, a family of paralogues. Where it \
+                 does not, drop `ambiguous` back to its default and add a one-to-one row for \
+                 the target you mean."
+            }
+            Self::IdentifiersFannedOut { .. } => {
+                "Compare this against the size of your input before reading the result: a \
+                 fan-out makes the output larger, so anything counting entities is counting \
+                 something else than it was."
             }
             Self::MoleculeDidNotStandardise { .. } => {
                 "Look at this structure by hand: a standardiser rejects a mixture with no \
@@ -709,6 +756,19 @@ impl Note {
                 "The output is smaller than the input by this many entities. A conversion is a \
                  lookup, not a rename, so a count that is a large share of the input usually \
                  means the mapping table is from a different release than the list."
+            }
+            Self::IdentifierFannedOut { .. } => {
+                "The output holds one row per target, so this entity is named more than once \
+                 in a set that is still a set -- the targets are distinct entities in the new \
+                 space. What it is not is the same entity carried across: a bifunctional \
+                 enzyme's two domains are two genes there, and anything counting entities \
+                 counts them separately."
+            }
+            Self::IdentifiersFannedOut { .. } => {
+                "The output is larger than the input by the difference between these two \
+                 numbers, which is the one direction nothing else in this conversion moves. A \
+                 count of entities taken before and after will disagree, and the second is \
+                 the right one for the space the output is in."
             }
             Self::MoleculeDidNotStandardise { .. } => {
                 "A molecule that does not standardise is left out of the output rather than \
@@ -842,6 +902,27 @@ impl fmt::Display for Note {
                 f,
                 "{count} identifiers did not cross into the target space, so the output is \
                  {count} entities smaller than the input"
+            ),
+            Self::IdentifierFannedOut { identifier } => write!(
+                f,
+                "the identifier `{identifier}` maps to more than one target, and this step \
+                 asked for a fan-out, so the output holds a row for each"
+            ),
+            Self::IdentifiersFannedOut { identifiers, rows } => write!(
+                f,
+                "{identifiers} {} fanned out into {rows} rows, so the output is {} {} larger \
+                 than the input",
+                if *identifiers == 1 {
+                    "identifier"
+                } else {
+                    "identifiers"
+                },
+                rows.saturating_sub(*identifiers),
+                if rows.saturating_sub(*identifiers) == 1 {
+                    "entity"
+                } else {
+                    "entities"
+                }
             ),
             Self::MoleculeDidNotStandardise { molecule } => write!(
                 f,

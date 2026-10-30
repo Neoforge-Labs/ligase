@@ -225,6 +225,61 @@ impl Target {
 
 // ------------------------------------------------- map_identifiers --
 
+/// What becomes of an identifier the mapping table sends to several
+/// targets.
+///
+/// A parameter rather than a default, because the two answers mean different
+/// things about the biology and the engine cannot tell which holds. A symbol
+/// in two rows because somebody's table is untidy wants
+/// [`Self::Drop`](Ambiguous::Drop); *P. falciparum*'s `DHFR-TS`, one
+/// polypeptide with two catalytic domains answering to human `DHFR` and
+/// `TYMS`, wants [`Self::FanOut`](Ambiguous::FanOut) — and "decide which
+/// target you mean" has no correct answer for it. So the caller declares,
+/// the note says the choice was theirs, and the parameter joins the cache
+/// key like any other (D60).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Ambiguous {
+    /// Leave the identifier out of the output and name it. The default, and
+    /// what D38 has always done.
+    #[default]
+    Drop,
+    /// Emit a row for each target, and say how many identifiers fanned and
+    /// into how many rows.
+    FanOut,
+}
+
+impl Ambiguous {
+    /// The spelling a caller writes, for the Python surface.
+    pub const DROP: &'static str = "drop";
+    /// The spelling a caller writes to ask for a fan-out.
+    pub const FAN_OUT: &'static str = "fan-out";
+
+    /// Read a caller's spelling.
+    ///
+    /// # Errors
+    ///
+    /// For anything else, naming both spellings. A silent fallback to the
+    /// default would turn a typo into the quiet loss of every ambiguous
+    /// identifier.
+    pub fn parse(declared: &str) -> Result<Self, String> {
+        match declared.trim() {
+            Self::DROP => Ok(Self::Drop),
+            Self::FAN_OUT => Ok(Self::FanOut),
+            other => Err(format!(
+                "`ambiguous` is `{}` or `{}`; `{other}` is neither",
+                Self::DROP,
+                Self::FAN_OUT
+            )),
+        }
+    }
+
+    /// Whether an identifier with several targets emits a row for each.
+    #[must_use]
+    pub const fn fans_out(self) -> bool {
+        matches!(self, Self::FanOut)
+    }
+}
+
 /// How many identifiers that did not cross are named individually.
 ///
 /// A list of twenty thousand converted through a table covering most of it
@@ -253,15 +308,21 @@ const NAMED_AT_MOST: usize = 20;
 /// - one the table sends to several targets, which is ordinary for
 ///   symbol-to-gene mappings. Emitting a row for each would make the output
 ///   larger than the input without saying so, and choosing one of them
-///   would be a guess about which the analysis meant;
+///   would be a guess about which the analysis meant — unless the caller
+///   has declared `ambiguous` to be [`Ambiguous::FanOut`], which is the one
+///   case where a row per target is what was asked for (D60);
 /// - one whose target another identifier in the same list also reaches,
 ///   which is ordinary for a table holding both a deprecated symbol and its
 ///   replacement. Emitting both rows would make the output name one entity
 ///   twice with two sets of attributes, which is not a set, and keeping one
-///   would be a guess about whose attributes to carry.
+///   would be a guess about whose attributes to carry. A fan-out does not
+///   suspend this: a target two identifiers arrive at is left out however
+///   either of them arrived.
 ///
 /// So the output is smaller than the input by exactly the identifiers the
-/// notes name, and [`Note::IdentifiersDidNotCross`] states how many that is.
+/// notes name, and [`Note::IdentifiersDidNotCross`] states how many that
+/// is — or, where a fan-out was asked for, larger by exactly what
+/// [`Note::IdentifiersFannedOut`] states.
 ///
 /// # Errors
 ///
@@ -276,6 +337,7 @@ pub fn map_identifiers(
     table: &Path,
     table_id_column: &str,
     column: &str,
+    ambiguous: Ambiguous,
     out: &Path,
 ) -> Result<Vec<Note>, String> {
     if column.trim() == table_id_column.trim() {
@@ -291,7 +353,7 @@ pub fn map_identifiers(
     // identifiers reaches. A collision cannot be decided row by row: the
     // second identifier to arrive is what makes the first one a problem,
     // and by then the first has already been written.
-    let colliding = collisions(entities, id_column, &mapping)?;
+    let colliding = collisions(entities, id_column, &mapping, ambiguous)?;
 
     let reader = load::open(entities).map_err(|error| error.to_string())?;
     let mut rows = Table::read(reader).map_err(|error| error.to_string())?;
@@ -306,14 +368,33 @@ pub fn map_identifiers(
     let mut found = Noticed::default();
     while let Some(row) = rows.next_row().map_err(|error| error.to_string())? {
         let identifier = row.field(at).unwrap_or_default().to_owned();
+        let write = |written: &mut String, target: &str| {
+            let mut fields: Vec<&str> = row.line.split('\t').collect();
+            fields[at] = target;
+            written.push_str(&fields.join("\t"));
+            written.push('\n');
+        };
         match mapping.get(&identifier).map(Vec::as_slice) {
-            Some([target]) if !colliding.contains(target) => {
-                let mut fields: Vec<&str> = row.line.split('\t').collect();
-                fields[at] = target;
-                written.push_str(&fields.join("\t"));
-                written.push('\n');
-            }
+            Some([target]) if !colliding.contains(target) => write(&mut written, target),
             Some([_]) => found.note(Note::IdentifierCollides { identifier }),
+            // Several targets, and the caller has said a row for each is
+            // what they mean. Every target still has to clear the collision
+            // rule, and an identifier all of whose targets collide is a
+            // collision rather than a fan: it reached the output nowhere.
+            Some(targets) if ambiguous.fans_out() => {
+                let crossed: Vec<&String> = targets
+                    .iter()
+                    .filter(|target| !colliding.contains(*target))
+                    .collect();
+                for target in &crossed {
+                    write(&mut written, target);
+                }
+                if crossed.is_empty() {
+                    found.note(Note::IdentifierCollides { identifier });
+                } else {
+                    found.fanned(crossed.len(), Note::IdentifierFannedOut { identifier });
+                }
+            }
             Some(_) => found.note(Note::IdentifierAmbiguous { identifier }),
             None => found.note(Note::IdentifierUnmapped { identifier }),
         }
@@ -324,10 +405,17 @@ pub fn map_identifiers(
 }
 
 /// Which targets more than one of the list's identifiers reaches.
+///
+/// What counts as "reaches" depends on `ambiguous`, and getting that wrong
+/// would be a silent way to break the set property: under
+/// [`Ambiguous::Drop`] an ambiguous identifier lands nowhere and so cannot
+/// collide, but under [`Ambiguous::FanOut`] it lands at every one of its
+/// targets and can collide at each.
 fn collisions(
     entities: &Path,
     id_column: &str,
     mapping: &BTreeMap<String, Vec<String>>,
+    ambiguous: Ambiguous,
 ) -> Result<BTreeSet<String>, String> {
     let reader = load::open(entities).map_err(|error| error.to_string())?;
     let mut rows = Table::read(reader).map_err(|error| error.to_string())?;
@@ -338,9 +426,15 @@ fn collisions(
     let mut reached: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     while let Some(row) = rows.next_row().map_err(|error| error.to_string())? {
         let identifier = row.field(at).unwrap_or_default();
-        // Only an unambiguous mapping puts an identifier anywhere; an
-        // ambiguous one is left out on its own account and cannot collide.
-        if let Some([target]) = mapping.get(identifier).map(Vec::as_slice) {
+        let targets = match mapping.get(identifier).map(Vec::as_slice) {
+            // One target always puts the identifier there.
+            Some(targets @ [_]) => targets,
+            // Several put it at each where a fan-out was asked for, and
+            // nowhere otherwise.
+            Some(targets) if ambiguous.fans_out() => targets,
+            Some(_) | None => continue,
+        };
+        for target in targets {
             reached
                 .entry(target.clone())
                 .or_default()
@@ -366,26 +460,67 @@ struct Noticed {
     named: Vec<Note>,
     seen: BTreeSet<String>,
     count: u32,
+    fanned: u32,
+    fanned_rows: u32,
 }
 
 impl Noticed {
     fn note(&mut self, note: Note) {
-        if !self.seen.insert(note.value()) {
+        if !self.remember(note.clone()) {
             return;
         }
         self.count = self.count.saturating_add(1);
+    }
+
+    /// An identifier that crossed into `rows` rows rather than failing to
+    /// cross at all.
+    ///
+    /// Counted apart from [`Self::note`] because the two totals say
+    /// opposite things about the output's size, and one counter serving
+    /// both would report a fan-out as a loss.
+    fn fanned(&mut self, rows: usize, note: Note) {
+        if !self.remember(note) {
+            return;
+        }
+        self.fanned = self.fanned.saturating_add(1);
+        self.fanned_rows = self
+            .fanned_rows
+            .saturating_add(u32::try_from(rows).unwrap_or(u32::MAX));
+    }
+
+    /// Record a note unless this identifier already has one, and say
+    /// whether it was new.
+    ///
+    /// One note per identifier: the dedup key is the identifier itself, so
+    /// an identifier cannot be both named as fanned and named as dropped,
+    /// and the arm that noticed it is the one that decided which it was.
+    fn remember(&mut self, note: Note) -> bool {
+        if !self.seen.insert(note.value()) {
+            return false;
+        }
         if self.named.len() < NAMED_AT_MOST {
             self.named.push(note);
         }
+        true
     }
 
-    /// The named notes, with the total beside them.
+    /// The named notes, with the totals beside them.
     ///
-    /// The total is last so a report reads the examples and then the scale.
+    /// The totals are last so a report reads the examples and then the
+    /// scale. Both can be present at once: a mapping table may send one
+    /// identifier nowhere and another to two places in the same pass, and
+    /// the output's size is then the input's less the first and plus the
+    /// second.
     fn into_notes(mut self) -> Vec<Note> {
         if self.count > 0 {
             self.named
                 .push(Note::IdentifiersDidNotCross { count: self.count });
+        }
+        if self.fanned > 0 {
+            self.named.push(Note::IdentifiersFannedOut {
+                identifiers: self.fanned,
+                rows: self.fanned_rows,
+            });
         }
         self.named
     }

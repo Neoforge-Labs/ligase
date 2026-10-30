@@ -146,7 +146,8 @@ input row:
 |---|---|---|
 | exactly one target, reached by this identifier alone | the row, with the identifier replaced | — |
 | nothing | nothing | `IdentifierUnmapped` |
-| several targets | nothing | `IdentifierAmbiguous` |
+| several targets, `ambiguous = Drop` | nothing | `IdentifierAmbiguous` |
+| several targets, `ambiguous = FanOut` | a row per target that does not collide | `IdentifierFannedOut` |
 | one target, which another of the list's identifiers also reaches | nothing | `IdentifierCollides` |
 
 The last row was missed when this was first written, and it is the mirror
@@ -162,6 +163,22 @@ what makes the first one a problem, and by then the first has been written. So
 `map_identifiers` reads the list twice — once to find the contested targets,
 once to write — which is why `collisions` exists as a separate pass.
 
+**That pass depends on `ambiguous`, and the dependency is easy to miss.**
+Under `Drop` an ambiguous identifier lands nowhere and therefore cannot
+collide, which is what the first implementation assumed everywhere. Under
+`FanOut` it lands at *every* one of its targets and can collide at each, so
+`collisions` takes the setting and counts fanned targets as reached.
+Forgetting that would have been a silent way to break the set property —
+two identifiers at one target, each believing itself alone — which is the
+one thing this conversion's failure handling exists to prevent.
+
+An identifier **all** of whose targets collide is reported as a collision
+rather than as a fan: it reached the output nowhere, and the note a user
+reads should say what happened to it rather than what was asked for. Only
+one note is ever recorded per identifier, because the dedup key is the
+identifier itself — so the arm that noticed it is the arm that decides what
+it was.
+
 No failure is dropped and none is carried over unchanged. Carrying one over
 would put a name from the old space into a set that declares the new one, and
 the whole point of the output's declaration is that it is true. So the output
@@ -176,9 +193,43 @@ them into a single methods sentence. So `NAMED_AT_MOST` is twenty — enough to
 recognise a pattern, which is what naming them was for — and
 `Note::IdentifiersDidNotCross` carries the count, which is the half of spec
 §5.1's "noticed, counted, and listed" that the first implementation left out.
+`Noticed` keeps the fan counters apart from the drop counter for the same
+reason it keeps the cap: the two totals say **opposite** things about the
+output's size, and one counter serving both would report a fan-out as a
+loss. Both totals can appear in one pass, since a table may send one
+identifier nowhere and another to two places.
 Deduplication is by a `BTreeSet` of note values rather than by scanning the
 notes, because the scan is quadratic in the number of notes and the number of
 notes is the size of the user's data.
+
+## A fan-out demotes a ranking, and the type system is what says so
+
+`Ambiguous` is a parameter of `convert::map_identifiers` and nothing in the
+registry changes for it: the fan-out is a property of the crossing, not a
+new edge. What does change is which Python step may ask for it.
+
+`map_identifiers` (`EntitySet` → `EntitySet`) takes `ambiguous` and passes
+it through. `map_ranked_identifiers` (`RankedList` → `RankedList`) passes
+`"drop"` always, and has no argument for anything else, because a ranking
+that gained rows is not a ranking
+([D41](/project/decisions/#d41--in-a-ranked-list-rank-order-is-the-result)).
+`fan_out_ranked_identifiers` takes a `RankedList` and returns an
+`EntitySet`, passing `"fan-out"`.
+
+That third step needed no registry change either, and the reason is worth
+recording. `graph::propagate` guards a conversion's axis override on
+`conversion.converts(output)` — the **output** kind — and `map_identifiers`
+is registered for both named-list kinds, so an output typed `EntitySet`
+clears the guard and the target namespace is applied as it is for any other
+crossing. The input's kind is the step signature's business, which is where
+a demotion belongs.
+
+A separate function rather than an argument is forced rather than preferred:
+a step's output kind is read off its return annotation once, when it is
+decorated, so one function cannot produce both kinds. The same constraint
+split `map_ranked_identifiers` off in M12, and here the function's name is
+the declaration — there is no way to write the fan-out of a ranking without
+also writing down that what comes back is a set.
 
 One refusal is an `Err` rather than a note: `column` naming the table's own
 identifier column. That would map every identifier to itself and then declare

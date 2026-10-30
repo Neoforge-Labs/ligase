@@ -48,6 +48,7 @@ def map_identifiers(
     table: str,
     table_id_column: str,
     column: str,
+    ambiguous: str,
     out: str,
 ) -> list[tuple[str, str]]: ...
 def load_reference(

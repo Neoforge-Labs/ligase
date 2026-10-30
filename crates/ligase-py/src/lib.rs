@@ -20,7 +20,7 @@ use std::time::Duration;
 use ligase::audit;
 use ligase::cache::Cache;
 use ligase::check::{Binding, CheckError, check_step as core_check_step, render, summarise};
-use ligase::convert::{self, Conversion};
+use ligase::convert::{self, Ambiguous, Conversion};
 use ligase::dim::{CoordinateSystem, Dimension, Representation};
 use ligase::exec::{self, Host, Options, Recipe, Stores, Task};
 use ligase::graph::{Argument, Converted, Graph, NodeId, StepSpec};
@@ -578,10 +578,17 @@ fn conversion_target_parameter() -> &'static str {
 
 /// Rewrite a gene list's identifiers through a mapping table.
 ///
+/// `ambiguous` is `drop` or `fan-out`, and says what becomes of an
+/// identifier the table sends to several targets: left out and named, or a
+/// row for each (D60). It is read here rather than defaulted, because an
+/// unrecognised spelling must be an error rather than a quiet fallback to
+/// the one that loses rows.
+///
 /// Returns what the conversion noticed, as pairs of a note's code and its
 /// value: what `lg.write` expects a body to hand back, so the engine says
 /// it in the run report, provenance, a bundle and the methods section.
-/// Every identifier that did not cross is named there.
+/// Every identifier that did not cross is named there, and so is every one
+/// that fanned.
 #[pyfunction]
 fn map_identifiers(
     entities: PathBuf,
@@ -589,16 +596,26 @@ fn map_identifiers(
     table: PathBuf,
     table_id_column: &str,
     column: &str,
+    ambiguous: &str,
     out: PathBuf,
 ) -> PyResult<Vec<(String, String)>> {
-    convert::map_identifiers(&entities, id_column, &table, table_id_column, column, &out)
-        .map(|notes| {
-            notes
-                .iter()
-                .map(|note| (note.code().to_owned(), note.value()))
-                .collect()
-        })
-        .map_err(PyValueError::new_err)
+    let ambiguous = Ambiguous::parse(ambiguous).map_err(PyValueError::new_err)?;
+    convert::map_identifiers(
+        &entities,
+        id_column,
+        &table,
+        table_id_column,
+        column,
+        ambiguous,
+        &out,
+    )
+    .map(|notes| {
+        notes
+            .iter()
+            .map(|note| (note.code().to_owned(), note.value()))
+            .collect()
+    })
+    .map_err(PyValueError::new_err)
 }
 
 /// The reference this engine has for a tool, if it has a checked one.

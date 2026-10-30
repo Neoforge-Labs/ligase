@@ -61,7 +61,17 @@ of rows in a file. Let two identifiers land on one, and the output names a
 single gene twice with two sets of attributes, which is not a set at all.
 
 Make it a step instead and all three become visible: the output declares the
-space it has arrived in, and everything that did not cross is named. Nothing
+space it has arrived in, and everything that did not cross is named.
+
+One of the three has a second answer, for the cases where it is not a
+mistake. *P. falciparum* `DHFR-TS` is one polypeptide with two catalytic
+domains answering to human `DHFR` and `TYMS`, so "pick one" has no correct
+answer — and `ambiguous="fan-out"` asks for a row at each target instead,
+declared at the call site and counted in a note, because the engine cannot
+tell a bifunctional enzyme from an untidy table
+([D60](/project/decisions/#d60--a-one-to-many-crossing-is-declared-and-a-ranking-does-not-survive-one)).
+A ranking cannot do it at all: rank is the row position, so the step that
+fans a ranking hands back a set. Nothing
 about this is inherent to identifiers — it is the same reasoning that makes
 [a field that cannot be dropped get noticed](/project/decisions/#d26--a-field-that-cannot-be-dropped-is-noticed-instead)
 rather than repaired.

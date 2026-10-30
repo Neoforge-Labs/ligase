@@ -92,6 +92,7 @@ GROUPS: tuple[Group, ...] = (
             "handle",
             "map_identifiers",
             "map_ranked_identifiers",
+            "fan_out_ranked_identifiers",
             "Pipeline",
             "Step",
             "Shell",

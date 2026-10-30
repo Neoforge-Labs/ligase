@@ -145,3 +145,141 @@ def test_a_blank_target_is_refused_when_the_graph_is_built() -> None:
     mapped = lg.map_identifiers(hgnc(), table(), column="ensembl_gene_id", to="   ")
     with pytest.raises(ValueError, match="blank"):
         lg.Pipeline(mapped)
+
+
+# ---------------------------------- D60: a declared one-to-many crossing --
+
+
+def test_an_ambiguous_identifier_is_dropped_unless_a_fan_out_is_asked_for(
+    tmp_path: Path,
+) -> None:
+    """The default is unchanged: NKX2-1 is in two rows and crosses nowhere."""
+    mapped = lg.map_identifiers(
+        hgnc(), table(), column="ensembl_gene_id", to="Ensembl gene"
+    )
+    report = lg.Pipeline(mapped).run(cache=tmp_path / "cache")
+    run = next(step for step in report.steps if step.step == "map_identifiers")
+
+    written = Path(run.output).read_text()
+    assert "ENSG00000136352" not in written
+    assert any("more than one target" in note for note in run.notes), run.notes
+
+
+def test_a_declared_fan_out_puts_a_row_at_every_target(tmp_path: Path) -> None:
+    """D60: some identifiers denote more than one entity.
+
+    *P. falciparum* `DHFR-TS` is one polypeptide with two catalytic
+    domains, answering to human `DHFR` and `TYMS`. "Decide which target you
+    mean" has no correct answer for it, so the caller declares a fan-out
+    and the note records that the choice was theirs.
+    """
+    mapped = lg.map_identifiers(
+        hgnc(),
+        table(),
+        column="ensembl_gene_id",
+        to="Ensembl gene",
+        ambiguous="fan-out",
+    )
+    report = lg.Pipeline(mapped).run(cache=tmp_path / "cache")
+    run = next(step for step in report.steps if step.step == "map_identifiers")
+
+    written = Path(run.output).read_text()
+    assert "ENSG00000136352" in written
+    assert "ENSG00000268173" in written
+
+    said = " ".join(run.notes)
+    assert "asked for a fan-out" in said, run.notes
+    assert "larger than the input" in said, run.notes
+
+
+def test_the_fan_out_choice_is_a_parameter_so_it_reruns(tmp_path: Path) -> None:
+    """Changing what an ambiguous identifier does changes the output.
+
+    So it has to reach the cache key, which it does by being an ordinary
+    step parameter — the thing a conversion's `to=` already relies on.
+    """
+    cache = tmp_path / "cache"
+    dropped = lg.map_identifiers(
+        hgnc(), table(), column="ensembl_gene_id", to="Ensembl gene"
+    )
+    lg.Pipeline(dropped).run(cache=cache)
+
+    fanned = lg.map_identifiers(
+        hgnc(),
+        table(),
+        column="ensembl_gene_id",
+        to="Ensembl gene",
+        ambiguous="fan-out",
+    )
+    report = lg.Pipeline(fanned).run(cache=cache)
+    run = next(step for step in report.steps if step.step == "map_identifiers")
+
+    assert run.outcome == "ran", (
+        "a different answer about the biology cannot come from the cache "
+        "entry of the other answer"
+    )
+
+
+def test_a_spelling_that_is_neither_is_refused(tmp_path: Path) -> None:
+    """A typo must not fall back to the option that loses rows."""
+    mapped = lg.map_identifiers(
+        hgnc(),
+        table(),
+        column="ensembl_gene_id",
+        to="Ensembl gene",
+        ambiguous="fanout",
+    )
+    with pytest.raises(Exception, match="fan-out"):
+        lg.Pipeline(mapped).run(cache=tmp_path / "cache")
+
+
+def test_fanning_a_ranking_returns_a_set_because_the_ranking_is_gone(
+    tmp_path: Path,
+) -> None:
+    """D41 and D60 together: one row becoming two has no rank.
+
+    So the step that fans a ranking says the ranking did not survive, by
+    returning an `EntitySet`. Inventing tie ranks, or renumbering, would
+    hand back something that looks like a result nobody computed.
+    """
+    ranked = lg.ranked_list(
+        fixture("ranked_degs.tsv"),
+        organism="Homo sapiens",
+        identifier_namespace="HGNC symbol",
+    )
+    fanned = lg.fan_out_ranked_identifiers(
+        ranked, table(), column="ensembl_gene_id", to="Ensembl gene"
+    )
+    lg.Pipeline(fanned).check()
+
+    dataset = lg.handle(fanned).dataset
+    assert dataset is not None
+    assert dataset.kind == "EntitySet", (
+        "a fanned ranking is not a ranking: it has gained rows, and rank is "
+        "the row position (D41)"
+    )
+    found = dataset.dimension("identifier_namespace")
+    assert found is not None
+    assert found.value == "Ensembl gene"
+
+
+def test_a_fanned_ranking_says_what_fanned_and_not_that_ranks_moved(
+    tmp_path: Path,
+) -> None:
+    """There are no ranks to have moved, which is the point of the type."""
+    ranked = lg.ranked_list(
+        fixture("ranked_degs.tsv"),
+        organism="Homo sapiens",
+        identifier_namespace="HGNC symbol",
+    )
+    fanned = lg.fan_out_ranked_identifiers(
+        ranked, table(), column="ensembl_gene_id", to="Ensembl gene"
+    )
+    report = lg.Pipeline(fanned).run(cache=tmp_path / "cache")
+    run = next(
+        step for step in report.steps if step.step == "fan_out_ranked_identifiers"
+    )
+
+    said = " ".join(run.notes)
+    assert "asked for a fan-out" in said, run.notes
+    assert "renumbered" not in said, run.notes
