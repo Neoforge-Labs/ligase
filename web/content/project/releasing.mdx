@@ -102,14 +102,21 @@ workflow's rehearsal step still checks the crate packages correctly.
 1. Make sure `main` is green, including the `demo` job.
 2. Move the `CHANGELOG.md` entries under `[Unreleased]` into a new dated
    version section, and add its link at the bottom.
-3. Bump `version` in the workspace `[workspace.package]`. It is the single
+3. If anything in those entries can **alter a pipeline's results** or refuse
+   something that used to pass, write it in `MIGRATING.md` under a
+   `## <version>` heading — what breaks, the symptom, and the exact edit —
+   and link to it from the changelog entry. A changelog body is not a release
+   signal
+   ([D57](/project/decisions/#d57--a-change-that-alters-results-is-named-where-a-pin-is-chosen)).
+   The pair is checked, in `pytest` and again by step 7's `version` job.
+4. Bump `version` in the workspace `[workspace.package]`. It is the single
    source of truth: the crate, the Python distribution and `ligase.__version__`
    all inherit it, and a test asserts they agree.
-4. Rehearse. Run the workflow with **`dry-run`**: it builds every wheel, the
+5. Rehearse. Run the workflow with **`dry-run`**: it builds every wheel, the
    sdist, verifies the wheel needs no toolchain, and runs
    `cargo publish --dry-run`, uploading nothing.
-5. Optionally run it with **`testpypi`** and install from there.
-6. Tag and push: `git tag -a v0.1.0 -m "0.1.0" && git push origin v0.1.0`.
+6. Optionally run it with **`testpypi`** and install from there.
+7. Tag and push: `git tag -a v0.1.0 -m "0.1.0" && git push origin v0.1.0`.
    The tag publishes to both registries.
 
 A manual run with **`publish`** does the same thing without a tag, for the
@@ -132,6 +139,10 @@ So a `version` job runs before either publisher, and refuses two things:
   a tree that says `0.2.0` would release something nobody named.
 - a version with no dated `## [X.Y.Z] - YYYY-MM-DD` section in
   `CHANGELOG.md` — step 2 above, left undone.
+- a changelog section that points at `MIGRATING.md` where that file has no
+  section for the version — step 3 above, left half done. A pointer into an
+  empty page is worse than no pointer, because a consumer who follows it
+  stops looking (D57).
 
 `pypi` and `crate` both `needs:` it, so neither can run without it. The second
 check is also a test, in `tests/test_import.py`, so a bump whose changelog did

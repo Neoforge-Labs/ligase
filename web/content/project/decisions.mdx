@@ -2874,7 +2874,7 @@ one. That is the migration a consumer performs, performed here first.
 
 ## D58 — The engine cites itself, because a gap has to be closable
 
-[D24](#d24--an-uncited-tool-is-named-rather-than-omitted) names a tool with
+[D24](#d24--a-citation-is-curated-or-declared-never-guessed) names a tool with
 no reference rather than omitting it, so that a short reference list cannot
 be mistaken for a complete one. `ligase` was one of those tools, and it was
 the one case where the mechanism turned against itself.
@@ -3188,3 +3188,83 @@ else comes from the record. And `Eq` is gone from `Claim`, `Restated`,
 `ClaimVerdict` and `ClaimCheck`, because a claim can hold an `f64` and
 `f64` has no total equality. Nothing wanted it: these types are compared
 for sameness and never used as a key.
+
+## D57 — A change that alters results is named where a pin is chosen
+
+Two consumer integrations lost a debugging cycle to the same thing, and
+neither was a defect in the behaviour that broke them. One of them put it
+as a process request rather than a bug report, which is how it is recorded
+here.
+
+**`lg.reference()` began requiring `frame=`.** A reference that is not
+whole-genome length is refused without it, which is right on the merits:
+the silent coordinate shift it prevents had invented Intermediate-level PI
+resistance in a consumer's own evaluation, and the error message names the
+exact fix. It broke 4 of 78 tests on `0.2.0` and the identical 4 on
+`0.3.0`.
+
+**A `gene_coverage` default dropped twelve drugs from a well-formed
+report.** A record covering the full p51 reverse transcriptase — every
+position any rule scores — came back with no RT drugs at all, eight codons
+short of a floor computed over the gene's whole length.
+
+Both shipped as minor bumps with the migration documented inside a long
+changelog body. A consumer pinned `ligase-bio>=0.1.0` picks that up on
+their next lock with no signal at all.
+
+### The asymmetry worth fixing
+
+The `frame` change fails at `pipeline.check()`, before anything runs. That
+is ideal: a refusal with the fix in the message costs a consumer an
+afternoon.
+
+The coverage default did the opposite. The run **succeeded**, the report was
+well-formed, and twelve drugs were simply absent — recorded in a note, so
+nothing was concealed, but a consumer who does not promote notes to a
+visible log level ships a clinical resistance report with no NRTI or NNRTI
+calls and no error. (That consumer logged notes at `DEBUG`, which they have
+fixed. The point stands: the engine made it possible.)
+
+> "The run succeeds and the result is different" is the one category a
+> consumer cannot defend against.
+
+So the rule, in three parts.
+
+**1. A result-altering change is named where a pin is chosen.**
+[`MIGRATING.md`](https://github.com/Neoforge-Labs/ligase/blob/main/MIGRATING.md)
+holds every change that can alter results or refuse what used to pass,
+newest first, with what breaks, the symptom and the exact edit. The
+changelog keeps everything; this file keeps only what a consumer must act
+on, which is what makes it short enough to read before upgrading.
+
+**2. The pair is enforced, not intended.** An entry that points at
+`MIGRATING.md` with no section there fails `tests/test_import.py`, and
+again in the release workflow's `version` job — the last thing between a
+tag and two append-only registries. A migration heading for a version the
+changelog does not know fails too, because `MIGRATING.md` is read *from* a
+release and an unreachable heading is no better than a missing one. M13's
+finding applies to process as much as to code: a declaration nothing can
+check is a comment, and "we will remember to write release notes" is
+exactly such a declaration.
+
+**3. Where a result-altering change can refuse, it refuses.** Preferred over
+every form of notice, because a refusal at check time cannot be missed and a
+note can. D56 is the first change made under this rule and it takes the
+loud option: inference stops answering, two undeclared lists are refused at
+`check()`, and the remedy is one argument. The alternative — keep inferring
+and mark the value as a guess — would have been quieter and would have left
+the join passing.
+
+### What this does not promise
+
+Not a major bump per behaviour change. At `0.x` that would spend version
+numbers on a stability nobody has been offered, and the project says plainly
+that it has no outside users yet. What is promised is the **signal**: the
+change is in `MIGRATING.md`, the changelog entry says what breaks in its
+first sentence rather than its fifth, and the engine refuses rather than
+notes wherever it can.
+
+And not a guarantee that every such change is caught. A default that alters
+numbers is sometimes only visible to the person who measured it — both of
+these were. What the rule buys is that once it *is* known, there is one
+place it goes, and a release cannot quietly fail to mention it.

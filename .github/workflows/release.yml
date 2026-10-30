@@ -61,6 +61,26 @@ jobs:
           fi
           echo "CHANGELOG.md has a dated section for ${version}"
 
+          # And a change that alters results is named where a consumer
+          # choosing a pin will see it (D57). A changelog body is not a
+          # release signal: a consumer pinned `>=0.1.0` picks a minor bump
+          # up on their next lock, and two integrations lost a debugging
+          # cycle to migrations documented only inside a long entry. So an
+          # entry that points at MIGRATING.md must have a section there.
+          #
+          # `tests/test_import.py` asserts the same pair, so this normally
+          # fails in `pytest` long before a tag. It is here as well because
+          # this job is the last thing between a tag and two append-only
+          # registries, and a release is the one moment the pair matters.
+          entries="$(awk "/^## \\[${version}\\] - /{found=1; next} /^## /{if (found) exit} found" CHANGELOG.md)"
+          if printf '%s' "$entries" | grep -q 'MIGRATING.md'; then
+            if ! grep -qE "^## .*${version}" MIGRATING.md; then
+              echo "::error::CHANGELOG.md's ${version} section points at MIGRATING.md, which has no section for ${version}. Write what breaks and the edit that fixes it."
+              exit 1
+            fi
+            echo "MIGRATING.md has a section for ${version}"
+          fi
+
   wheels:
     name: wheel ${{ matrix.target }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

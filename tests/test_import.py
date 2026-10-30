@@ -71,3 +71,70 @@ def test_the_changelog_has_a_dated_section_for_this_version() -> None:
         f"CHANGELOG.md has no dated `## [{version}]` section. Move the"
         " `[Unreleased]` entries into one before releasing."
     )
+
+
+def _section(document: str, heading: str) -> str:
+    """One `## <heading>` section of a Markdown document, without its title.
+
+    Up to the next `## `, so a section's own `###` subsections are part of
+    it. Empty when there is no such heading.
+    """
+    pattern = re.compile(
+        rf"^## {re.escape(heading)}\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL
+    )
+    found = pattern.search(document)
+    return found.group(1) if found else ""
+
+
+def test_a_changelog_entry_that_points_at_migrating_has_a_section_there() -> None:
+    """D57: a result-altering change is named where a pin is chosen.
+
+    A changelog body is not a release signal. A consumer pinned
+    `ligase-bio>=0.1.0` picks a minor bump up on their next lock, and two
+    integrations lost a debugging cycle to migrations documented only
+    inside a long entry. So a change that alters results or refuses
+    something that used to pass links to `MIGRATING.md`, and this is what
+    makes the pair hold: a link with nothing behind it fails here rather
+    than shipping a pointer into an empty page.
+
+    Checked for `[Unreleased]` and for the released version, because those
+    are the two sections a release moves between.
+    """
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    migrating = (REPO_ROOT / "MIGRATING.md").read_text(encoding="utf-8")
+    version = workspace_version()
+
+    for heading, wanted in (("[Unreleased]", "Unreleased"), (f"[{version}]", version)):
+        entries = _section(changelog, heading)
+        if not entries or "MIGRATING.md" not in entries:
+            continue
+        assert _section(migrating, wanted), (
+            f"CHANGELOG.md's `{heading}` section points at MIGRATING.md, which"
+            f" has no `## {wanted}` section. Write what breaks and the edit"
+            " that fixes it: a pointer into an empty page is worse than no"
+            " pointer, because a consumer who follows it stops looking."
+        )
+
+
+def test_every_migrating_section_is_a_version_the_changelog_knows() -> None:
+    """The pair holds in both directions.
+
+    A migration note under a version the changelog never mentions is a note
+    nobody reaches: `MIGRATING.md` is read *from* a release, so a heading
+    with no release behind it is unreachable by the route it exists for.
+    """
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    migrating = (REPO_ROOT / "MIGRATING.md").read_text(encoding="utf-8")
+
+    for heading in re.findall(r"^## (.+?)\s*$", migrating, re.MULTILINE):
+        if heading == "Unreleased":
+            assert "## [Unreleased]" in changelog
+            continue
+        # A heading may cover several releases that needed the same edit,
+        # as the `frame=` migration shipped in two.
+        for version in re.findall(r"\d+\.\d+\.\d+", heading):
+            assert f"## [{version}]" in changelog, (
+                f"MIGRATING.md has a `## {heading}` section and CHANGELOG.md"
+                f" has no `## [{version}]`. One of the two is wrong about what"
+                " was released."
+            )

@@ -31,6 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`MIGRATING.md`, and a check that keeps it honest.** Every change that can
+  alter a pipeline's results or refuse what used to pass is written there,
+  newest first, with what breaks, the symptom and the exact edit. Two
+  consumer integrations lost a debugging cycle to migrations documented only
+  inside a long changelog entry — a consumer pinned `>=0.1.0` picks a minor
+  bump up on their next lock with no signal. A changelog entry that points at
+  `MIGRATING.md` with no section there fails `pytest` and again fails the
+  release workflow's `version` job, because a declaration nothing can check
+  is a comment. D57.
+
 - **A claim may name where its number lives, and the engine reads it.**
   `lg.Claim` bound a sentence to a computation and could not say whether the
   number in the sentence was the number that computation produced — which is
@@ -1269,7 +1279,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `lg.reference(..., frame=("K03455", 2085))` declares that base 1 of a file
   is base 2085 of K03455, which is what a pol-relative reference is. It is
   declared because no FASTA records it, and a whole genome needs no
-  declaration because its length identifies it.
+  declaration because its length identifies it. Any reference that is not a
+  whole genome is refused without it, which broke two consumer integrations:
+  see [MIGRATING.md](MIGRATING.md). (Noted here after the fact, when
+  MIGRATING.md was written; the release itself carried no such pointer, which
+  is the gap D57 exists to close.)
 - **A gene read too thinly is reported as not assessed**, rather than scored
   against the little that was seen. A `gene_coverage` parameter on
   `lg.hivdb.interpret` says how much of a gene must be read, four fifths by
