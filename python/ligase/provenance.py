@@ -60,6 +60,10 @@ ABSENT = "absent"
 #: A claim rests on a computation this write-up accounts for.
 BOUND = "bound"
 
+#: A claim rests on a computation *and* the number it publishes was read
+#: out of that computation's output and agrees. The strongest verdict.
+VERIFIED = "verified"
+
 #: Nothing in the run stands behind a claim.
 UNBACKED = "unbacked"
 
@@ -150,6 +154,69 @@ class MethodsGap:
 
 
 @dataclass(frozen=True, slots=True)
+class Cell:
+    """A cell of a step's output: a column by name, a row by position.
+
+        lg.Claim(
+            "malaria F1 = 0.333 against seven curated targets",
+            step="validate",
+            value=0.333,
+            at=lg.cell(column="f1", row=0),
+            tolerance=5e-4,
+        )
+
+    Row 0 is the first row **after** the header, because that is the first
+    row of data and a claim is about data. A ranking's top row is therefore
+    row 0, which is the row its own rank 1 is.
+
+    The engine reads the place it is given and nowhere else. It will not go
+    looking for a number in output it was not pointed at, and it parses one
+    format — a TSV with a header — rather than guessing at others. A claim
+    that cannot say where its number is stays step-only, which is a
+    legitimate state and not an error.
+
+    Attributes:
+        column: The column's name, as the output's header spells it.
+        row: The row's position among the data rows, counting from zero.
+    """
+
+    column: str
+    row: int = 0
+
+    def __post_init__(self) -> None:
+        """Refuse a location the engine could not read."""
+        if not self.column.strip():
+            raise ValueError(
+                "a cell needs the name of the column its number is in: "
+                "lg.cell(column='f1', row=0)"
+            )
+        if self.row < 0:
+            raise ValueError(
+                f"a row is counted from zero, so {self.row} is not one. Row 0 "
+                "is the first row after the header"
+            )
+
+    def __repr__(self) -> str:
+        """Identify the cell the way a claim's author wrote it."""
+        return f"<Cell {self.column!r} row {self.row}>"
+
+
+def cell(*, column: str, row: int = 0) -> Cell:
+    """Name the cell of a step's output a claim's number lives in.
+
+    Args:
+        column: The column's name, as the output's header spells it.
+        row: The row's position among the data rows, from zero. Defaults to
+            the first row of data, which is the common case for a one-row
+            summary table.
+
+    Returns:
+        A location a `Claim` can carry in `at=`.
+    """
+    return Cell(column=column, row=row)
+
+
+@dataclass(frozen=True, slots=True)
 class Claim:
     """A number or a phrase a paper states, and where it came from.
 
@@ -191,12 +258,25 @@ class Claim:
         parameter: The parameter it restates, where it restates one.
         tool: The tool whose version it states, where it states one.
         value: What the paper says that parameter or version is, rendered
-            the way the run recorded it.
+            the way the run recorded it — or, beside `at`, the number the
+            paper publishes.
+        at: Where in the step's output the number lives, from `lg.cell`.
+            Given, the engine reads that cell and compares: the claim comes
+            back `verified` or `contradicted` rather than merely `bound`.
+            Left out, the claim rests on the computation and the number is
+            not checked, which is what it has always done.
+        tolerance: How far the number in the output may be from the one the
+            paper states. Required with `at`, and never defaulted: a claim
+            to three decimals and a claim to machine precision are
+            different claims, and a default would invent a precision
+            nobody stated.
 
     Raises:
         ValueError: If it names both a parameter and a tool, gives a value
-            with neither to compare it against, or names either with no
-            value — each of which is a declaration with nothing behind it.
+            with nothing to compare it against, names either with no value,
+            gives `at` without a `value` and a `tolerance`, or gives `at`
+            beside a parameter or a tool — each of which is a declaration
+            with nothing behind it, or two declarations in one.
     """
 
     text: str
@@ -205,6 +285,8 @@ class Claim:
     parameter: str | None = None
     tool: str | None = None
     value: str | float | None = None
+    at: Cell | None = None
+    tolerance: float | None = None
 
     def __post_init__(self) -> None:
         """Refuse a declaration the engine could not check.
@@ -230,16 +312,63 @@ class Claim:
                 "tool version. A claim restates one thing; write two claims"
             )
         named = self.parameter if self.parameter is not None else self.tool
+        if named is not None and self.at is not None:
+            raise ValueError(
+                f"the claim {self.text!r} restates {named!r} and also names a "
+                "cell of the output. A claim restates one thing: a parameter "
+                "the run recorded, or a number the run produced"
+            )
         if named is not None and self.value is None:
             raise ValueError(
                 f"the claim {self.text!r} names {named!r} and gives no "
                 "`value=`, so there is nothing to compare it against"
             )
-        if named is None and self.value is not None:
+        if named is None and self.at is None and self.value is not None:
             raise ValueError(
                 f"the claim {self.text!r} gives a value and names nothing it "
-                "is the value of. Add `parameter=` or `tool=`, or drop "
+                "is the value of. Add `parameter=`, `tool=` or `at=`, or drop "
                 "`value=` and let the claim rest on the step"
+            )
+        self._check_location()
+
+    def _check_location(self) -> None:
+        """Refuse a located claim that cannot be compared.
+
+        A location, a number and a precision are one declaration in three
+        parts, and any two without the third is a claim the engine would
+        have to complete by guessing — which is the thing it will not do
+        with a published number.
+        """
+        if self.at is None:
+            if self.tolerance is not None:
+                raise ValueError(
+                    f"the claim {self.text!r} gives a `tolerance=` and no "
+                    "`at=`, so there is nothing for the tolerance to apply "
+                    "to. Add `at=lg.cell(...)`, or drop the tolerance"
+                )
+            return
+        if self.value is None:
+            raise ValueError(
+                f"the claim {self.text!r} names a cell of the output and no "
+                "`value=`, so there is nothing to compare what is there "
+                "against"
+            )
+        if not isinstance(self.value, (int, float)) or isinstance(self.value, bool):
+            raise ValueError(
+                f"the claim {self.text!r} names a cell of the output, so its "
+                f"`value=` has to be a number; {self.value!r} is not one"
+            )
+        if self.tolerance is None:
+            raise ValueError(
+                f"the claim {self.text!r} names a cell of the output and no "
+                "`tolerance=`. State the precision the paper states: a claim "
+                "to three decimals is `tolerance=5e-4`, and defaulting it "
+                "would invent a precision nobody wrote"
+            )
+        if self.tolerance < 0:
+            raise ValueError(
+                f"the claim {self.text!r} gives a negative tolerance, which "
+                "no number can be within"
             )
 
     @property
@@ -249,8 +378,30 @@ class Claim:
         `value=0.01` is what a person writes and `0.01` is how the parameter
         was hashed, so one `str()` is the whole conversion. A number in a
         paper is text.
+
+        `None` for a located claim, whose value is a number the engine
+        compares numerically rather than a string the record holds.
         """
-        return None if self.value is None else str(self.value)
+        if self.value is None or self.at is not None:
+            return None
+        return str(self.value)
+
+    @property
+    def located(self) -> tuple[float, str, int, float] | None:
+        """The number, the cell and the tolerance, as the engine takes them.
+
+        `None` for a claim that names no cell, which is most claims.
+        `__post_init__` has already refused every incomplete combination,
+        so this reads the three parts without checking them again.
+        """
+        if self.at is None:
+            return None
+        return (
+            float(self.value),  # type: ignore[arg-type]
+            self.at.column,
+            self.at.row,
+            float(self.tolerance),  # type: ignore[arg-type]
+        )
 
     def __repr__(self) -> str:
         """Identify the claim by its sentence and the step behind it."""
@@ -289,11 +440,15 @@ class ClaimCheck:
 
     Attributes:
         claim: The claim as it was declared.
-        verdict: `bound`, `unbacked` or `contradicted`.
+        verdict: `bound`, `verified`, `unbacked` or `contradicted`.
+            `verified` is `bound` and more: the number was read out of the
+            output and agrees. `contradicted` for a located claim means the
+            number in the sentence is not the number in the bytes.
         reason: The sentence the write-up prints for it, so a script
             reporting one claim says what `ligase methods` says.
         recorded: What the run recorded, where that disagrees with the
-            claim, and `None` otherwise.
+            claim — and, for a verified claim, the number that was read.
+            `None` otherwise.
         bound: The computations it rests on. Empty for an unbacked claim;
             one entry for a claim naming a sample, and one per sample for a
             claim that names none.
@@ -307,8 +462,18 @@ class ClaimCheck:
 
     @property
     def is_bound(self) -> bool:
-        """Whether the write-up can stand behind the claim."""
-        return self.verdict == BOUND
+        """Whether the write-up can stand behind the claim.
+
+        True for a verified claim as well as a bound one: verified is bound
+        and more, so a property that excluded it would make
+        `accounted_for` false for the claims the engine is most sure of.
+        """
+        return self.verdict in (BOUND, VERIFIED)
+
+    @property
+    def is_verified(self) -> bool:
+        """Whether the number was read out of the output and agreed."""
+        return self.verdict == VERIFIED
 
     def __repr__(self) -> str:
         """Identify the check by its verdict and the claim it is about."""

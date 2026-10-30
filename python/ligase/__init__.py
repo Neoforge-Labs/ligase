@@ -44,6 +44,7 @@ from .graph import Pipeline, Report, Step, StepOutput, handle, step
 from .provenance import (
     BoundTo,
     Bundle,
+    Cell,
     Claim,
     ClaimCheck,
     InputCheck,
@@ -53,6 +54,7 @@ from .provenance import (
     ResultCheck,
     StepMethods,
     Verification,
+    cell,
 )
 from .recipes import Shell, Written, sh, write
 from .run import RunError, RunReport, StepFailure, StepRun
@@ -87,6 +89,7 @@ __all__ = [
     "AuditReport",
     "BoundTo",
     "Bundle",
+    "Cell",
     "CheckError",
     "Claim",
     "ClaimCheck",
@@ -133,6 +136,7 @@ __all__ = [
     "Written",
     "__version__",
     "alignment",
+    "cell",
     "check_step",
     "chem",
     "dimension_errors",

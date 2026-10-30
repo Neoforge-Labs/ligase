@@ -31,6 +31,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A claim may name where its number lives, and the engine reads it.**
+  `lg.Claim` bound a sentence to a computation and could not say whether the
+  number in the sentence was the number that computation produced — which is
+  the gap that makes published numbers wrong in practice, because the
+  pipeline is rerun after the table is pasted into the manuscript and nothing
+  notices.
+
+  `value=`, `at=lg.cell(column=..., row=...)` and `tolerance=` together ask
+  the engine to read that cell and compare. The verdict is `verified` where
+  they agree — `bound` and more — and `contradicted` where they do not, and a
+  contradicted claim makes the write-up not accounted for, so `ligase
+  methods` exits non-zero and CI fails when a manuscript's number stops
+  matching its artifact.
+
+  Four refusals come with it: only a declared location, never a search; one
+  format, a TSV with a header; no defaulted tolerance, because a claim to
+  three decimals and a claim to machine precision are different claims; and
+  an unreadable location is `unbacked` rather than `contradicted`, since a
+  missing column says nothing about whether a sentence is true. A claim with
+  no `at` behaves exactly as before. D61.
+
+  `Eq` is no longer derived on `Claim`, `Restated`, `ClaimVerdict` or
+  `ClaimCheck`: a claim can hold an `f64`. `PartialEq` is unchanged.
+
 - **`map_identifiers` takes `ambiguous="fan-out"`, and a ranking that fans
   out becomes a set.** An identifier the mapping table sends to several
   targets was always left out and named, on the grounds that choosing one

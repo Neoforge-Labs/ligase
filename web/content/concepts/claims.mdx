@@ -143,6 +143,27 @@ a sentence in your manuscript reruns nothing. A mechanism whose cost was a
 re-alignment per draft would simply not be kept up to date, which is the
 worst available outcome for a feature whose entire job is to be current.
 
+## And a claim may name where its number lives
+
+Everything above checks a claim against the **record**: the step, the
+sample, the parameter, the tool version. The number itself was the one part
+that could not be checked, because nothing told the engine where it was.
+
+`at=lg.cell(column="f1", row=0)` tells it, and then `ligase methods` reads
+that cell and compares it against `value=` within a `tolerance=` the claim
+states. The verdict is `verified` where they agree and `contradicted` where
+they do not, and a contradicted claim exits non-zero — so CI fails when a
+manuscript's number stops matching its artifact
+([D61](/project/decisions/#d61--a-claim-may-name-where-its-number-lives)).
+
+Four things it will not do, and each is the same refusal in a different
+place. It will not go looking for a number in output it was not pointed at.
+It will not parse a format it was not told. It will not default the
+tolerance, because a claim to three decimals and a claim to machine
+precision are different claims. And it will not call a claim wrong because
+it could not find the cell — an unreadable location is reported as
+unbacked, which is "I could not check", not "you are wrong".
+
 ## Where to go next
 
 [Binding a number you published](/guide/claims/) is the task, with a runnable

@@ -2,6 +2,7 @@
 title: "Decision Records"
 description: "The coordinates dimension records what a step sees, not the on-disk convention. SAM and BAM both present 1-based closed alignment records, so re-encoding between them changes"
 ---
+import { claims } from '../../lib/claims.generated'
 import { diagnostics } from '../../lib/diagnostics.generated'
 
 # Decision Records
@@ -3089,3 +3090,101 @@ and the function's name is now where the declaration lives.
 The practical advice that follows is the one D41 already gives about
 cut-offs, pointed the other way: take a top ten **before** fanning. The top
 ten of a fanned set is not a thing; the fan-out of the top ten is.
+
+## D61 — A claim may name where its number lives
+
+[D45](#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it)
+binds a sentence to a computation, and M13's finding — *a declaration
+nothing can check is a comment* — made the engine check every part of that
+declaration except the sentence itself. One part was never checkable: the
+number. `lg.Claim` could say that `0.333` was stated and that `validate`
+produced something; it could not say that `0.333` was what `validate`
+produced, and the guide said so plainly.
+
+That is the gap that makes published numbers wrong in practice. They go
+wrong not because anyone falsified anything, but because the pipeline was
+rerun after the table was pasted in, or the table was copied from a run
+with different inputs — and nothing in the toolchain was in a position to
+notice.
+
+So a claim may name where its number lives:
+
+```python
+lg.Claim(
+    "malaria F1 = 0.333 against seven curated targets",
+    step="validate",
+    value=0.333,
+    at=lg.cell(column="f1", row=0),
+    tolerance=5e-4,
+)
+```
+
+<RunReport>{claims.verified}</RunReport>
+
+And when the artifact moves and the manuscript does not:
+
+<RunReport>{claims.refuted}</RunReport>
+
+`ligase methods` exits non-zero on that, because a refuted number is not a
+number the write-up stands behind — the same rule `accounted_for` already
+applied to an unbacked claim.
+
+### Four constraints, each a refusal
+
+**Only a declared location.** The engine never goes looking for a number in
+output it was not pointed at, and never parses a format it was not told. One
+location kind exists — a cell of a TSV with a header, by column name and row
+position — and `Located` is an enum so that a second is a variant rather
+than a redesign. A claim that cannot say where its number is stays
+step-only, which is a legitimate state and not an error.
+
+**The tolerance is the consumer's, declared.** A claim to three decimals and
+a claim to machine precision are different claims, and a default would
+invent a precision nobody stated. `at` without `tolerance` is refused where
+it is written, as is `tolerance` without `at`.
+
+**Not a statistics engine.** No recomputation, and no checking that an F1 is
+a well-formed F1. Just: the number you published is the number in the bytes.
+
+**An unreadable location is `unbacked`, not `contradicted`.** A column that
+is not there says nothing about whether the sentence is true, so the
+write-up reports that it could not check rather than that the claim is
+wrong — and names what *was* there, because the columns the output does have
+is what tells a wrong column from a wrong row.
+
+### Why `verified` is a fourth verdict
+
+`bound` says the sentence rests on a computation this write-up accounts for.
+`verified` says the number in the sentence is the number in the bytes. The
+second is strictly stronger, and collapsing them would throw away the whole
+of what a located claim buys — a reader could not tell a claim the engine
+checked from one it merely bound. `is_bound` is true for both, because
+verified is bound and more.
+
+A disagreement reuses `contradicted` rather than adding a `refuted`, because
+the engine already has a word for *something stands behind this claim and
+disagrees with it* and two words for one state is how a vocabulary comes
+apart. What does differ is the **sentence**: for a parameter or a tool
+version the write-up says *one of the two is wrong, and this write-up cannot
+tell you which*, because the claim may be describing a run that happened and
+the pipeline may have been edited since. For a number read out of the
+artifact the claim is bound to, there is nothing left to be uncertain about,
+so it says which.
+
+### Why this belongs in the engine and not in a consumer's tests
+
+A consumer can and should assert this in their own tests. But a test asserts
+against whatever the test can see, and what it cannot see is the provenance
+chain — that the artifact it read is the one the claim is bound to, produced
+by that step, with those inputs, at those tool versions. Ligase is the only
+component holding both halves. It is the same argument that puts `cite` in
+the engine rather than in a consumer's methods script (D24).
+
+### What it cost elsewhere
+
+`Produced` and `Bound` now carry the output's path, which is the only thing
+in a write-up that depends on an artifact still being on disk; everything
+else comes from the record. And `Eq` is gone from `Claim`, `Restated`,
+`ClaimVerdict` and `ClaimCheck`, because a claim can hold an `f64` and
+`f64` has no total equality. Nothing wanted it: these types are compared
+for sameness and never used as a key.

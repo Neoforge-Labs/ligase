@@ -58,7 +58,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub use cite::Citation;
-pub use claim::{Bound, Claim, ClaimCheck, ClaimVerdict, Restated, Unbacked, version_states};
+pub use claim::{
+    Bound, Claim, ClaimCheck, ClaimVerdict, Located, Restated, Unbacked, version_states,
+};
 pub use methods::{Gap, Group, Methods, Noticed, Produced, methods};
 
 use crate::canon::Note;

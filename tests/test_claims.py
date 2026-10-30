@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 import ligase as lg
-from ligase.provenance import BOUND, CONTRADICTED, UNBACKED
+from ligase.provenance import BOUND, CONTRADICTED, UNBACKED, VERIFIED
 from ligase.types import Alignment, Reference
 from tests.conftest import fixture
 
@@ -361,6 +361,37 @@ pipe = lg.Pipeline(
 '''
 
 
+#: A pipeline whose step writes a one-row table of scores, for the claims
+#: that name where their number lives. The published value is the caller's,
+#: because the drift D61 catches is a sentence that no longer matches the
+#: artifact.
+SCORED_PIPELINE = '''import ligase as lg
+from ligase.types import Alignment, Reference
+
+ref = lg.reference({fixture!r}, organism="HIV-1", build="tiny")
+
+
+@lg.step
+def validate(ref: Reference) -> Alignment:
+    """Score the calls against a curated truth set."""
+    return lg.sh("printf 'precision\\tf1\\n0.5000\\t0.3333\\n' > {{out}}")
+
+
+pipe = lg.Pipeline(
+    validate(ref),
+    claims=[
+        lg.Claim(
+            "F1 = {published} against seven curated targets",
+            step="validate",
+            value={published},
+            at=lg.cell(column="f1", row=0),
+            tolerance=5e-4,
+        )
+    ],
+)
+'''
+
+
 def run_cli(pipeline: Path, cache: Path) -> subprocess.CompletedProcess[str]:
     """`ligase methods` on a pipeline file, as a user runs it."""
     return subprocess.run(
@@ -415,3 +446,186 @@ def test_ligase_methods_exits_non_zero_on_an_unbacked_claim(tmp_path: Path) -> N
         "unbacked claim has to fail there"
     )
     assert "has nothing behind it" in done.stdout
+
+
+# ------------------------ D61: a claim that names where its number lives --
+
+
+@lg.step
+def validate(ref: Reference) -> Alignment:
+    """A step whose output is a one-row table holding an F1 score."""
+    return lg.sh("printf 'precision\\tf1\\n0.5\\t0.3333\\n' > {out}")
+
+
+@lg.step
+def validate_worse(ref: Reference) -> Alignment:
+    """The same, with a number a paper's 0.62 does not match."""
+    return lg.sh("printf 'precision\\tf1\\n0.4\\t0.5714\\n' > {out}")
+
+
+def test_a_located_claim_is_verified_against_the_artifact(tmp_path: Path) -> None:
+    """D61: the engine reads the cell it was pointed at and compares.
+
+    What `ligase methods` could say before was that the sentence rested on
+    a computation it accounted for. What it could not say is whether 0.333
+    was the number that computation produced — which is the gap that makes
+    published numbers wrong in practice, because the pipeline is rerun
+    after the table is pasted into the manuscript.
+    """
+    pipe = lg.Pipeline(
+        validate(reference()),
+        claims=[
+            lg.Claim(
+                "malaria F1 = 0.333 against seven curated targets",
+                step="validate",
+                value=0.333,
+                at=lg.cell(column="f1", row=0),
+                tolerance=5e-4,
+            )
+        ],
+    )
+    methods = pipe.methods(cache=tmp_path)
+    check = methods.claims[0]
+
+    assert check.verdict == VERIFIED
+    assert check.is_verified
+    assert check.is_bound, "verified is bound and more"
+    assert check.recorded == "0.3333"
+    assert methods.accounted_for
+
+
+def test_a_located_claim_the_artifact_refutes_is_not_accounted_for(
+    tmp_path: Path,
+) -> None:
+    """A refuted number makes the write-up not accounted for, so CI fails."""
+    pipe = lg.Pipeline(
+        validate_worse(reference()),
+        claims=[
+            lg.Claim(
+                "breast cancer F1 = 0.62 against the curated set",
+                step="validate_worse",
+                value=0.62,
+                at=lg.cell(column="f1"),
+                tolerance=5e-4,
+            )
+        ],
+    )
+    methods = pipe.methods(cache=tmp_path)
+    check = methods.claims[0]
+
+    assert check.verdict == CONTRADICTED
+    assert not check.is_bound
+    assert check.recorded == "0.5714"
+    assert not methods.accounted_for
+    assert "the number in the bytes" in " ".join(check.reason.split())
+
+
+def test_a_cell_that_is_not_there_is_unbacked_and_says_what_was(
+    tmp_path: Path,
+) -> None:
+    """An unreadable location cannot refute a sentence, so it does not."""
+    pipe = lg.Pipeline(
+        validate(reference()),
+        claims=[
+            lg.Claim(
+                "malaria F1 = 0.333",
+                step="validate",
+                value=0.333,
+                at=lg.cell(column="f_one"),
+                tolerance=5e-4,
+            )
+        ],
+    )
+    methods = pipe.methods(cache=tmp_path)
+    check = methods.claims[0]
+
+    assert check.verdict == UNBACKED
+    assert "f_one" in check.reason
+    assert "precision, f1" in check.reason, (
+        "the columns the output does have are named, which is what tells a "
+        "wrong column from a wrong row"
+    )
+
+
+def test_a_tolerance_is_required_and_is_never_guessed() -> None:
+    """A claim to three decimals and one to machine precision differ."""
+    with pytest.raises(ValueError, match="tolerance"):
+        lg.Claim("F1 = 0.333", step="validate", value=0.333, at=lg.cell(column="f1"))
+
+
+def test_a_tolerance_without_a_cell_has_nothing_to_apply_to() -> None:
+    with pytest.raises(ValueError, match="nothing for the tolerance"):
+        lg.Claim("F1 = 0.333", step="validate", tolerance=5e-4)
+
+
+def test_a_cell_without_a_value_has_nothing_to_compare() -> None:
+    with pytest.raises(ValueError, match="nothing to compare"):
+        lg.Claim("F1 = 0.333", step="validate", at=lg.cell(column="f1"))
+
+
+def test_a_cell_beside_a_parameter_is_two_claims_in_one() -> None:
+    with pytest.raises(ValueError, match="restates one thing"):
+        lg.Claim(
+            "called above 1%",
+            step="call",
+            parameter="min_freq",
+            value=0.01,
+            at=lg.cell(column="f1"),
+            tolerance=5e-4,
+        )
+
+
+def test_a_located_claim_needs_a_number_not_a_phrase() -> None:
+    with pytest.raises(ValueError, match="has to be a number"):
+        lg.Claim(
+            "F1 = a third",
+            step="validate",
+            value="a third",
+            at=lg.cell(column="f1"),
+            tolerance=5e-4,
+        )
+
+
+def test_a_cell_is_counted_from_the_first_row_of_data() -> None:
+    with pytest.raises(ValueError, match="counted from zero"):
+        lg.cell(column="f1", row=-1)
+
+
+def test_ligase_methods_exits_non_zero_on_a_refuted_number(tmp_path: Path) -> None:
+    """The point of the whole mechanism: CI fails when the number drifts.
+
+    A consumer's own test can assert against whatever the test can see. What
+    it cannot see is that the artifact it read is the one the claim is bound
+    to, produced by that step with those inputs and that tool version — and
+    the engine is the only component holding both halves.
+    """
+    pipeline = tmp_path / "refuted.py"
+    pipeline.write_text(
+        SCORED_PIPELINE.format(
+            fixture=str(fixture("tiny_bare.fasta")),
+            published=0.62,
+        )
+    )
+
+    done = run_cli(pipeline, tmp_path / "cache")
+
+    assert done.returncode != 0, done.stdout + done.stderr
+    said = " ".join(done.stdout.split())
+    assert "The number in the sentence is not the number in the bytes" in said
+
+
+def test_ligase_methods_exits_zero_on_a_verified_number(tmp_path: Path) -> None:
+    """And passes when it matches, so the check is worth having in CI."""
+    pipeline = tmp_path / "verified.py"
+    pipeline.write_text(
+        SCORED_PIPELINE.format(
+            fixture=str(fixture("tiny_bare.fasta")),
+            published=0.333,
+        )
+    )
+
+    done = run_cli(pipeline, tmp_path / "cache")
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    said = " ".join(done.stdout.split())
+    assert "whose output gives f1 = 0.3333" in said

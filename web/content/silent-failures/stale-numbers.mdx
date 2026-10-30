@@ -91,15 +91,46 @@ For the renamed step, the same mechanism says the other thing:
 
 <RunReport>{claims.unbacked}</RunReport>
 
+## Or point it at the number itself
+
+The claim above compares a parameter the run **recorded**. Point a claim at
+the number in the **output** and the engine reads it:
+
+```python
+lg.Claim(
+    "malaria F1 = 0.333 against seven curated targets",
+    step="validate",
+    value=0.333,
+    at=lg.cell(column="f1", row=0),
+    tolerance=5e-4,
+)
+```
+
+<RunReport>{claims.verified}</RunReport>
+
+Rerun the analysis and leave the manuscript alone, and the verdict turns
+over:
+
+<RunReport>{claims.refuted}</RunReport>
+
+This is the form that catches the failure at the top of this page directly:
+the table in the paper and the number in the artifact have diverged, and the
+build says so rather than passing
+([D61](/project/decisions/#d61--a-claim-may-name-where-its-number-lives)).
+
 ## What it does not claim to do
 
-It does not read your number out of your output file. A claim about a count
-of mutations binds to the step key, the output hash and the date that
-computation happened — enough for a reviewer with your bundle to find the
-computation and rerun it, and not a verification of the count. Where there
-*is* a value the engine holds, a parameter or a tool version, it is compared;
-where there is not, the claim is a binding rather than a check, and
-[the guide](/guide/claims/) says which is which.
+It does not go looking for a number it was not pointed at, and it parses one
+format: a TSV with a header, a column by name, a row by position. A claim
+that cannot say where its number is binds to the step key, the output digest
+and the date that computation happened — enough for a reviewer with your
+bundle to find the computation and rerun it, and not a verification of the
+number. That is a legitimate state rather than a shortcoming, and
+[the guide](/guide/claims/) says which claims are in it.
+
+It is also not a statistics engine. It does not recompute your F1 or check
+that it is a well-formed F1. The promise is narrower and worth more: the
+number you published is the number in the bytes.
 
 ## See also
 
@@ -107,3 +138,7 @@ where there is not, the claim is a binding rather than a check, and
 - [A number in a paper](/concepts/claims/) — why the engine owes this.
 - [D45](/project/decisions/#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it)
   — what a claim binds to, and why editing a manuscript reruns nothing.
+- [D59](/project/decisions/#d59--a-claim-is-cited-by-its-output-digest-not-by-its-step-key)
+  — which of a claim's two identifiers is safe to print in a manuscript.
+- [D61](/project/decisions/#d61--a-claim-may-name-where-its-number-lives)
+  — reading the number out of the artifact, and the four things that is not.

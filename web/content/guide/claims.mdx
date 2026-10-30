@@ -238,10 +238,84 @@ An unbacked claim is in that table too, with an empty key, rather than left
 out of it — which is the same promise the methods paragraph makes about a
 step it cannot account for.
 
+## Verifying the number itself
+
+Everything above binds a sentence to a computation. None of it says that
+`0.333` is the number that computation produced — and that is the gap that
+makes published numbers wrong in practice: the pipeline is rerun after the
+table is pasted into the manuscript, and nothing notices.
+
+Tell the claim where its number lives and the engine will read it:
+
+```python
+lg.Claim(
+    "malaria F1 = 0.333 against seven curated targets",
+    step="validate",
+    value=0.333,
+    at=lg.cell(column="f1", row=0),
+    tolerance=5e-4,
+)
+```
+
+<RunReport>{claims.verified}</RunReport>
+
+The verdict is **verified**, which is `bound` and more: the number in the
+sentence is the number in the bytes. The write-up gives the number it read
+and the tolerance it was allowed, so a reader can check the comparison as
+well as the claim.
+
+Rerun the analysis, leave the manuscript alone, and:
+
+<RunReport>{claims.refuted}</RunReport>
+
+`ligase methods` exits non-zero, so CI fails when a manuscript's number
+stops matching its artifact.
+
+### The three parts are one declaration
+
+`value`, `at` and `tolerance` are refused in any incomplete combination,
+where they are written:
+
+```python
+>>> lg.Claim("F1 = 0.333", step="validate", value=0.333, at=lg.cell(column="f1"))
+ValueError: the claim 'F1 = 0.333' names a cell of the output and no
+`tolerance=`. State the precision the paper states: a claim to three
+decimals is `tolerance=5e-4`, and defaulting it would invent a precision
+nobody wrote
+```
+
+The tolerance is yours and is never defaulted — a claim to three decimals
+and a claim to machine precision are different claims. And `at` beside
+`parameter=` or `tool=` is two claims in one, so it is refused too.
+
+<Note kind="note" title="Row 0 is the first row of data">
+`lg.cell(column="f1", row=0)` reads the first row **after** the header. A
+ranking's top row is row 0, which is the row its own rank 1 is.
+</Note>
+
+### What a wrong location does
+
+It reports that it could not check, not that the claim is wrong — and names
+what was there instead:
+
+```text
+"malaria F1 = 0.333" has nothing behind it: `validate` is in this pipeline
+and its output has no column named `f_one`; its columns are precision, f1.
+Point the claim at a cell that holds the number, or drop `at` and let the
+claim be bound without being verified.
+```
+
+A column that is not there says nothing about whether the sentence is true,
+so the verdict is `unbacked` rather than `contradicted`
+([D61](/project/decisions/#d61--a-claim-may-name-where-its-number-lives)).
+
 ## What this does not do
 
-- It does not read a number out of an output file. See the three shapes
-  above.
+- It does not go looking for a number it was not pointed at, and it parses
+  one format: a TSV with a header. A claim that cannot say where its number
+  is stays step-only, which is a legitimate state.
+- It does not recompute anything, or check that an F1 is a well-formed F1.
+  Just: the number you published is the number in the bytes.
 - It does not know your *sentence* has gone stale. It knows the value you
   restated has, which is why `parameter=` and `tool=` are worth giving
   whenever there is one to give.

@@ -212,6 +212,8 @@ GROUPS: tuple[Group, ...] = (
             "MethodsGap",
             "Claim",
             "ClaimCheck",
+            "Cell",
+            "cell",
             "BoundTo",
             "Bundle",
             "Verification",

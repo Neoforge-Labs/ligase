@@ -23,7 +23,7 @@ use ligase::exec::{self, Host, Options, Outcome, Recipe, RunReport, Stores, Task
 use ligase::graph::{Argument, Graph, NodeId, StepSpec};
 use ligase::load::{self, Declared};
 use ligase::note::Note;
-use ligase::prov::{self, Claim, ClaimVerdict, Prov, Restated, Unbacked, bundle};
+use ligase::prov::{self, Claim, ClaimVerdict, Located, Prov, Restated, Unbacked, bundle};
 use ligase::types::{DataKind, Dataset};
 use tempfile::TempDir;
 
@@ -1004,4 +1004,196 @@ fn the_write_up_indexes_every_result_by_the_computation_that_produced_it() {
     let keys: Vec<_> = methods.produced.iter().map(|row| row.key).collect();
     assert!(keys.contains(&report.result(one).unwrap().key));
     assert!(keys.contains(&report.result(two).unwrap().key));
+}
+
+// ------------------ a claim that names where its number lives, D61 --
+
+/// A step whose output is a one-row table holding `f1`.
+///
+/// Written by the shell rather than declared as an input, so the number is
+/// genuinely in a step's output and the claim has an artifact to read.
+fn scored(bench: &mut Bench, f1: &str) -> NodeId {
+    let input = bench.input("truth.tsv", "id\nTP53\n");
+    bench.step_with(
+        "validate",
+        &format!("printf 'precision\\tf1\\n0.5\\t{f1}\\n' > {{out}}"),
+        &[("truth", input)],
+        &[],
+        &[],
+    )
+}
+
+/// A claim about `validate`'s `f1`, stated to three decimals.
+fn about_f1(text: &str, value: f64) -> Claim {
+    let mut claim = about(text, "validate");
+    claim.restates = Some(Restated::Value {
+        value,
+        at: Located::Cell {
+            column: "f1".to_owned(),
+            row: 0,
+        },
+        tolerance: 5e-4,
+    });
+    claim
+}
+
+#[test]
+fn a_claim_that_names_its_cell_is_verified_against_the_output() {
+    // D61. `ligase methods` could say the sentence rested on a computation
+    // it accounted for, and could not say whether 0.333 was the number that
+    // computation produced -- which is the gap that makes published numbers
+    // wrong in practice: the pipeline is rerun after the table is pasted in,
+    // and nothing in the toolchain is in a position to notice.
+    let mut bench = Bench::new();
+    let node = scored(&mut bench, "0.3333");
+    let report = bench.run(&[node]);
+
+    let methods = bench.methods(
+        &[node],
+        &report,
+        &[about_f1(
+            "malaria F1 = 0.333 against seven curated targets",
+            0.333,
+        )],
+    );
+    let check = only(&methods);
+
+    assert_eq!(check.verdict.name(), "verified", "{:?}", check.verdict);
+    assert!(check.verdict.is_bound(), "a verified claim is also bound");
+    assert!(check.verdict.is_verified());
+
+    let text = methods.text();
+    assert!(text.contains("f1 = 0.3333"), "{text}");
+    assert!(
+        text.contains("at row 0"),
+        "the sentence names the cell that was opened: {text}"
+    );
+    assert!(
+        text.contains("0.0005"),
+        "and the tolerance, which is what makes the agreement a fact: {text}"
+    );
+}
+
+#[test]
+fn a_number_outside_the_declared_tolerance_is_refuted() {
+    // The failure this exists for, and the one a consumer's CI has to fail
+    // on: the number in the table is not the number in the artifact.
+    let mut bench = Bench::new();
+    let node = scored(&mut bench, "0.5714");
+    let report = bench.run(&[node]);
+
+    let methods = bench.methods(
+        &[node],
+        &report,
+        &[about_f1(
+            "breast cancer F1 = 0.62 against the curated set",
+            0.62,
+        )],
+    );
+    let check = only(&methods);
+
+    assert_eq!(check.verdict.name(), "contradicted", "{:?}", check.verdict);
+    assert!(
+        !check.verdict.is_bound(),
+        "a write-up cannot stand behind a number its own artifact refutes"
+    );
+
+    let text = methods.text();
+    assert!(text.contains("0.5714"), "{text}");
+    assert!(
+        text.contains("the number in the bytes"),
+        "a located disagreement is the one this write-up can adjudicate: {text}"
+    );
+}
+
+#[test]
+fn the_tolerance_is_the_claims_own_and_is_not_guessed() {
+    // A claim to three decimals and a claim to machine precision are
+    // different claims. 0.3334 is a tenth of a thousandth away from 0.333,
+    // which the first accepts and the second refutes -- and the engine
+    // defaults neither.
+    let mut bench = Bench::new();
+    let node = scored(&mut bench, "0.3334");
+    let report = bench.run(&[node]);
+
+    let loose = about_f1("F1 = 0.333", 0.333);
+    assert_eq!(
+        bench.methods(&[node], &report, &[loose]).claims[0]
+            .verdict
+            .name(),
+        "verified"
+    );
+
+    let mut strict = about_f1("F1 = 0.333", 0.333);
+    strict.restates = Some(Restated::Value {
+        value: 0.333,
+        at: Located::Cell {
+            column: "f1".to_owned(),
+            row: 0,
+        },
+        tolerance: 1e-12,
+    });
+    assert_eq!(
+        bench.methods(&[node], &report, &[strict]).claims[0]
+            .verdict
+            .name(),
+        "contradicted"
+    );
+}
+
+#[test]
+fn a_cell_that_is_not_there_is_unbacked_rather_than_refuted() {
+    // An unreadable location says nothing about whether the sentence is
+    // true, so the write-up reports that it could not check rather than
+    // that the claim is wrong -- and names what was there instead, which is
+    // what tells a wrong column from a wrong row.
+    let mut bench = Bench::new();
+    let node = scored(&mut bench, "0.3333");
+    let report = bench.run(&[node]);
+
+    let mut wrong_column = about_f1("F1 = 0.333", 0.333);
+    wrong_column.restates = Some(Restated::Value {
+        value: 0.333,
+        at: Located::Cell {
+            column: "f_one".to_owned(),
+            row: 0,
+        },
+        tolerance: 5e-4,
+    });
+    let methods = bench.methods(&[node], &report, &[wrong_column]);
+    let check = only(&methods);
+    assert_eq!(check.verdict.name(), "unbacked", "{:?}", check.verdict);
+    let text = methods.text();
+    assert!(text.contains("f_one"), "{text}");
+    assert!(
+        text.contains("precision, f1"),
+        "the columns it does have are named: {text}"
+    );
+
+    let mut wrong_row = about_f1("F1 = 0.333", 0.333);
+    wrong_row.restates = Some(Restated::Value {
+        value: 0.333,
+        at: Located::Cell {
+            column: "f1".to_owned(),
+            row: 7,
+        },
+        tolerance: 5e-4,
+    });
+    let text = bench.methods(&[node], &report, &[wrong_row]).text();
+    assert!(text.contains("1 rows"), "{text}");
+    assert!(text.contains("no row 7"), "{text}");
+}
+
+#[test]
+fn a_claim_with_no_location_is_bound_without_being_verified() {
+    // The legitimate state, and the one most claims are in: a consumer who
+    // cannot say where the number is gets what 0.3.0 gave them, with no
+    // verdict pretending otherwise.
+    let mut bench = Bench::new();
+    let node = scored(&mut bench, "0.3333");
+    let report = bench.run(&[node]);
+
+    let methods = bench.methods(&[node], &report, &[about("malaria F1 = 0.333", "validate")]);
+
+    assert_eq!(only(&methods).verdict.name(), "bound");
 }

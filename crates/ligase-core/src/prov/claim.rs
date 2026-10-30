@@ -63,7 +63,12 @@ use crate::key::StepKey;
 /// **0.01**. Comparing the sentence against the parameter would be a guess
 /// about arithmetic in English, so the sentence is what a reader greps for
 /// and [`Restated`] is what the engine compares.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+///
+/// `Eq` is deliberately absent, here and on every type that can hold a
+/// [`Restated::Value`]: a claim can now carry an `f64`, which has no total
+/// equality. Nothing wanted it — these types are compared for sameness and
+/// never used as a key.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Claim {
     /// The sentence as the paper states it. Never checked, and cannot be.
     pub text: String,
@@ -87,7 +92,7 @@ pub struct Claim {
 /// surface is flat — `parameter=`, `tool=`, `value=` — because that is how a
 /// person writes one, and refusing the incoherent combinations is the one
 /// job its `__post_init__` has.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Restated {
     /// A parameter, and the value the paper gives it.
     Parameter {
@@ -103,6 +108,93 @@ pub enum Restated {
         /// What the paper says its version was.
         version: String,
     },
+    /// A number, where in the output it lives, and to what precision the
+    /// paper states it.
+    ///
+    /// The third kind, and the first the engine cannot answer from the
+    /// record alone: a parameter and a tool version are things the run
+    /// *recorded*, and this is a number in the bytes the run *produced*.
+    /// So it is the only restatement that reads an artifact, and it reads
+    /// exactly where it was told and nowhere else (D61).
+    Value {
+        /// What the paper says the number is.
+        value: f64,
+        /// Where in the output it lives.
+        at: Located,
+        /// How far the recorded number may be from the stated one.
+        ///
+        /// The consumer's, declared, and never defaulted: a claim to three
+        /// decimals and a claim to machine precision are different claims,
+        /// and a default would invent a precision nobody stated.
+        tolerance: f64,
+    },
+}
+
+/// Where in a step's output a number lives.
+///
+/// An enum with one variant, so that a second way of locating a number is
+/// a variant rather than a redesign — and so that the engine is never
+/// asked to go looking. It reads the place it was given, in the one format
+/// it already knows how to read, and a claim that cannot say where its
+/// number is stays step-only (which is a legitimate state, not an error).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Located {
+    /// A cell of a TSV with a header: a column by name, a row by position.
+    ///
+    /// Row 0 is the first row *after* the header, because that is the first
+    /// row of data and a claim is about data. A ranking's top row is
+    /// therefore row 0, which is also the row a ranking's own rank 1 is.
+    Cell {
+        /// The column's name, as the output's header spells it.
+        column: String,
+        /// The row's position among the data rows, counting from zero.
+        row: usize,
+    },
+}
+
+impl Located {
+    /// The number at this location, or why there is not one.
+    ///
+    /// # Errors
+    ///
+    /// A phrase for [`Unbacked::NoSuchCell`], naming what was there
+    /// instead: the columns the file does have, how many rows it holds, or
+    /// the text that is not a number. Each is a different mistake with a
+    /// different fix, and a claim that merely said "could not read it"
+    /// would send a reader looking for all three.
+    pub fn read(&self, output: &std::path::Path) -> Result<f64, String> {
+        let Self::Cell { column, row } = self;
+        let reader = crate::load::open(output)
+            .map_err(|error| format!("its output could not be read: {error}"))?;
+        let mut table = crate::load::Table::read(reader)
+            .map_err(|detail| format!("its output is not a table with a header: {detail}"))?;
+        let at = table.column(column).ok_or_else(|| {
+            format!(
+                "its output has no column named `{column}`; its columns are {}",
+                table.header().join(", ")
+            )
+        })?;
+
+        let mut seen = 0usize;
+        while let Some(line) = table
+            .next_row()
+            .map_err(|detail| format!("its output could not be read past row {seen}: {detail}"))?
+        {
+            if seen == *row {
+                let field = line.field(at).unwrap_or_default().trim();
+                return field.parse::<f64>().map_err(|_| {
+                    format!(
+                        "its output holds `{field}` at column `{column}` row {row}, which is \
+                         not a number"
+                    )
+                });
+            }
+            seen += 1;
+        }
+        Err(format!(
+            "its output has {seen} rows, so there is no row {row}"
+        ))
+    }
 }
 
 /// One computation a claim rests on.
@@ -114,6 +206,8 @@ pub struct Bound {
     pub key: StepKey,
     /// The canonical hash of what it produced.
     pub canonical: ContentHash,
+    /// Where that output is, so a located claim can read its number (D61).
+    pub output: std::path::PathBuf,
     /// When the computation happened, which is not when this run was.
     pub recorded_at: i64,
     /// The platform it happened on.
@@ -121,11 +215,22 @@ pub struct Bound {
 }
 
 /// What became of one claim.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ClaimVerdict {
     /// Every check passed: the number rests on a computation this write-up
     /// accounts for.
     Bound,
+    /// Bound, **and** the number was read out of the output and agrees.
+    ///
+    /// Its own verdict rather than a kind of [`Self::Bound`], because it is
+    /// the stronger statement and the difference is the whole of what a
+    /// located claim buys: bound says the sentence rests on a computation
+    /// this write-up accounts for, and verified says the number in the
+    /// sentence is the number in the bytes (D61).
+    Verified {
+        /// The number the output holds, as read.
+        recorded: f64,
+    },
     /// Nothing in the run stands behind it.
     Unbacked(Unbacked),
     /// Something stands behind it and disagrees with it.
@@ -147,6 +252,7 @@ impl ClaimVerdict {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Bound => "bound",
+            Self::Verified { .. } => "verified",
             Self::Unbacked(_) => "unbacked",
             Self::Contradicted { .. } => "contradicted",
         }
@@ -155,7 +261,13 @@ impl ClaimVerdict {
     /// Whether the write-up can stand behind the claim.
     #[must_use]
     pub fn is_bound(&self) -> bool {
-        matches!(self, Self::Bound)
+        matches!(self, Self::Bound | Self::Verified { .. })
+    }
+
+    /// Whether the number was read out of the output and agreed.
+    #[must_use]
+    pub const fn is_verified(&self) -> bool {
+        matches!(self, Self::Verified { .. })
     }
 }
 
@@ -198,10 +310,22 @@ pub enum Unbacked {
         /// The tools it did run.
         ran: Vec<String>,
     },
+    /// The claim named a place in the output, and there is no number there.
+    ///
+    /// One variant for several mistakes, because they are one mistake from
+    /// the claim's side — the location is wrong — and the `detail` is where
+    /// the difference lives: the columns the output does have, how many
+    /// rows it holds, or the text that is not a number. It is phrased where
+    /// it is discovered, by [`Located::read`], for the same reason a
+    /// loader's unknown-dimension reason is.
+    NoSuchCell {
+        /// What was there instead, as a phrase a sentence can carry.
+        detail: String,
+    },
 }
 
 /// One claim, and what the run had to say about it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ClaimCheck {
     /// The claim as it was declared.
     pub claim: Claim,
@@ -261,6 +385,7 @@ pub(super) fn check(methods: &Methods, claim: &Claim) -> ClaimCheck {
             scope: row.scope.clone(),
             key: row.key,
             canonical: row.canonical,
+            output: row.output.clone(),
             recorded_at: row.recorded_at,
             platform: row.platform.clone(),
         })
@@ -294,6 +419,33 @@ pub(super) fn check(methods: &Methods, claim: &Claim) -> ClaimCheck {
                 }
             })
         }
+        // The only restatement that reads an artifact. Every bound row is
+        // checked rather than the first: a claim naming no sample is about
+        // the step across every sample it ran on, and one sample whose
+        // number disagrees refutes the sentence as surely as all of them
+        // would.
+        Restated::Value {
+            value,
+            at,
+            tolerance,
+        } => match read_value(&bound, at) {
+            Err(detail) => ClaimVerdict::Unbacked(Unbacked::NoSuchCell { detail }),
+            Ok(found) => match found
+                .iter()
+                .find(|recorded| (*recorded - value).abs() > *tolerance)
+            {
+                Some(recorded) => ClaimVerdict::Contradicted {
+                    stated: format!("{value}"),
+                    recorded: format!("{recorded}"),
+                },
+                // Every reading agreed, so the number in the sentence is
+                // the number in the bytes. The first is reported because a
+                // claim over one sample has exactly one.
+                None => ClaimVerdict::Verified {
+                    recorded: found.first().copied().unwrap_or(*value),
+                },
+            },
+        },
         Restated::Tool { name, version } => {
             // A tool's version is compared by `version_states` rather than by
             // equality, because `samtools --version` prints its own name and
@@ -334,6 +486,19 @@ pub(super) fn check(methods: &Methods, claim: &Claim) -> ClaimCheck {
         verdict,
         bound,
     }
+}
+
+/// The number at `at` in each computation's output.
+///
+/// # Errors
+///
+/// The first reading that fails, with the phrase [`Located::read`] gave it.
+/// Stopping at the first is right for a wrong *location*, which is what
+/// this can report: a column name that is wrong is wrong for every sample,
+/// and a claim that listed the same complaint once per sample would bury
+/// it.
+fn read_value(bound: &[Bound], at: &Located) -> Result<Vec<f64>, String> {
+    bound.iter().map(|row| at.read(&row.output)).collect()
 }
 
 /// Compare a stated value against every value the run holds for it.

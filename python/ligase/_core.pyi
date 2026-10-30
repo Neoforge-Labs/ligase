@@ -280,9 +280,19 @@ MethodsGroup = tuple[
 MethodsGap = tuple[str, list[str], int]
 
 # One claim as the engine takes it: the sentence, the step, the sample, the
-# parameter it restates, the tool it restates, the value it gives either. At
-# most one of the two names is set.
-Claim = tuple[str, str, str | None, str | None, str | None, str | None]
+# parameter it restates, the tool it restates, the value it gives either, and
+# the number it reads out of the output where it names a place for one. At
+# most one of the three is set.
+Located = tuple[float, str, int, float]
+Claim = tuple[
+    str,
+    str,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    Located | None,
+]
 
 # One computation a claim rests on: the sample, the key, the output's
 # canonical hash, when that computation happened and where.

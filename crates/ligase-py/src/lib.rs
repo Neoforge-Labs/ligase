@@ -173,12 +173,13 @@ type PyMethodsGap = (String, Vec<String>, usize);
 
 /// One claim as Python gives it: the sentence, the step, the sample, and the
 /// value it restates — a parameter name, a tool name, and the value, of which
-/// at most one of the two names is set.
+/// at most one of the two names is set — then the number it states and where
+/// that number lives.
 ///
 /// Flat here and a sum type in the core, deliberately. A user writes
-/// `parameter=` or `tool=` beside `value=`, which is the readable surface;
-/// the core cannot hold both at once, and `Claim.__post_init__` is where an
-/// incoherent pair is refused.
+/// `parameter=` or `tool=` beside `value=`, or `value=` beside `at=`, which
+/// is the readable surface; the core cannot hold two at once, and
+/// `Claim.__post_init__` is where an incoherent pair is refused.
 type PyClaim = (
     String,
     String,
@@ -186,7 +187,12 @@ type PyClaim = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<PyLocated>,
 );
+
+/// A number a claim states, where it lives, and how far off it may be:
+/// the value, the column, the row, the tolerance.
+type PyLocated = (f64, String, usize, f64);
 
 /// One computation a claim rests on: the sample, the key, the output's
 /// canonical hash, when that computation happened and where.
@@ -1987,16 +1993,29 @@ fn declared(claims: &[PyClaim]) -> PyResult<Vec<prov::Claim>> {
     claims
         .iter()
         .cloned()
-        .map(|(text, step, scope, parameter, tool, value)| {
-            let restates = match (parameter, tool, value) {
-                (None, None, None) => None,
-                (Some(name), None, Some(value)) => Some(prov::Restated::Parameter { name, value }),
-                (None, Some(name), Some(version)) => Some(prov::Restated::Tool { name, version }),
+        .map(|(text, step, scope, parameter, tool, value, located)| {
+            let restates = match (parameter, tool, value, located) {
+                (None, None, None, None) => None,
+                (Some(name), None, Some(value), None) => {
+                    Some(prov::Restated::Parameter { name, value })
+                }
+                (None, Some(name), Some(version), None) => {
+                    Some(prov::Restated::Tool { name, version })
+                }
+                // A number the engine reads out of the output, rather than
+                // one the record holds (D61).
+                (None, None, None, Some((value, column, row, tolerance))) => {
+                    Some(prov::Restated::Value {
+                        value,
+                        at: prov::Located::Cell { column, row },
+                        tolerance,
+                    })
+                }
                 _ => {
                     return Err(PyValueError::new_err(format!(
                         "the claim {text:?} restates a value the engine cannot \
-                         read: name exactly one of `parameter=` and `tool=`, \
-                         and give `value=` beside it"
+                         read: name exactly one of `parameter=`, `tool=` and \
+                         `at=`, and give `value=` beside it"
                     )));
                 }
             };
@@ -2015,18 +2034,34 @@ fn declared(claims: &[PyClaim]) -> PyResult<Vec<prov::Claim>> {
 /// Named for the type rather than the verb, because `checked` is what the
 /// verification half of `methods` already calls its own result.
 fn claim_check(check: &prov::ClaimCheck) -> PyClaimCheck {
-    let (parameter, tool, value) = match &check.claim.restates {
-        None => (None, None, None),
+    let (parameter, tool, value, located) = match &check.claim.restates {
+        None => (None, None, None, None),
         Some(prov::Restated::Parameter { name, value }) => {
-            (Some(name.clone()), None, Some(value.clone()))
+            (Some(name.clone()), None, Some(value.clone()), None)
         }
         Some(prov::Restated::Tool { name, version }) => {
-            (None, Some(name.clone()), Some(version.clone()))
+            (None, Some(name.clone()), Some(version.clone()), None)
+        }
+        Some(prov::Restated::Value {
+            value,
+            at,
+            tolerance,
+        }) => {
+            let prov::Located::Cell { column, row } = at;
+            (
+                None,
+                None,
+                None,
+                Some((*value, column.clone(), *row, *tolerance)),
+            )
         }
     };
+    // What the run holds, whichever way the two disagreed -- or agreed, for
+    // a verified claim, where the number read is the useful half.
     let recorded = match &check.verdict {
         prov::ClaimVerdict::Contradicted { recorded, .. } => Some(recorded.clone()),
-        _ => None,
+        prov::ClaimVerdict::Verified { recorded } => Some(format!("{recorded}")),
+        prov::ClaimVerdict::Bound | prov::ClaimVerdict::Unbacked(_) => None,
     };
 
     (
@@ -2037,6 +2072,7 @@ fn claim_check(check: &prov::ClaimCheck) -> PyClaimCheck {
             parameter,
             tool,
             value,
+            located,
         ),
         check.verdict.name().to_owned(),
         // The sentence the write-up prints, so a script reporting one claim

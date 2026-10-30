@@ -75,6 +75,38 @@ UNBACKED = """lg.Claim(
             step="resistance",
         ),"""
 
+#: A second pipeline, for a claim that names where its number lives. Its
+#: step writes a one-row table of scores, so there is an artifact with a
+#: number in it to read -- which is the whole difference D61 makes: every
+#: other claim is checked against the *record*, and this one against the
+#: bytes. The published value is substituted per capture, because the drift
+#: this catches is a sentence that no longer matches the artifact.
+SCORED = '''import ligase as lg
+from ligase.types import Alignment, Reference
+
+hxb2 = lg.reference("refs/HXB2.fasta", organism="HIV-1", build="HXB2")
+
+
+@lg.step
+def validate(ref: Reference) -> Alignment:
+    """Score the calls against a curated truth set."""
+    return lg.sh("printf 'precision\\tf1\\n0.5000\\t0.3333\\n' > {{out}}")
+
+
+pipe = lg.Pipeline(
+    validate(hxb2),
+    claims=[
+        lg.Claim(
+            "F1 = {published} against seven curated targets",
+            step="validate",
+            value={published},
+            at=lg.cell(column="f1", row=0),
+            tolerance=5e-4,
+        )
+    ],
+)
+'''
+
 
 def run_cli(*argv: str) -> tuple[str, int]:
     """Run the CLI in-process and return what it printed and its exit code."""
@@ -164,7 +196,57 @@ def main() -> int:
                 os.chdir(here)
             captured[key] = expect(key, text, exited, contains, code)
 
+    # The two captures that read an artifact rather than the record (D61).
+    # A separate loop because they are a different pipeline: the step has to
+    # produce a number for the claim to be pointed at, which the one above
+    # does not.
+    for key, published, required, exit_code in (
+        # The table says 0.333 and the artifact holds 0.3333, which is
+        # within the three decimals the sentence states.
+        (
+            "verified",
+            "0.333",
+            ("f1 = 0.3333", "at row 0", "0.0005"),
+            0,
+        ),
+        # The analysis was rerun and the artifact now holds 0.3333, while
+        # the manuscript still says 0.62. Nothing about the pipeline is
+        # wrong; the paper is.
+        (
+            "refuted",
+            "0.62",
+            ("The number in the sentence is not the number", "0.3333"),
+            1,
+        ),
+    ):
+        with tempfile.TemporaryDirectory(prefix=f"ligase-claims-{key}-") as tmp:
+            project = Path(tmp)
+            (project / "refs").mkdir()
+            (project / "refs/HXB2.fasta").write_text(REFERENCE)
+            (project / "pipeline.py").write_text(SCORED.format(published=published))
+
+            os.chdir(project)
+            try:
+                text, exited = run_cli("methods")
+            finally:
+                os.chdir(here)
+            # Compared with line breaks collapsed: these sentences are
+            # longer than the wrap width, so where they break is a fact
+            # about the terminal rather than about the engine.
+            expect(key, " ".join(text.split()), exited, required, exit_code)
+            captured[key] = text
+
     described = {
+        "verified": (
+            "A claim that names the cell its number lives in. `ligase "
+            "methods` reads the artifact and compares; the write-up gives "
+            "the number it read and the tolerance it was allowed."
+        ),
+        "refuted": (
+            "The same claim after the analysis moved and the manuscript did "
+            "not. The number in the sentence is not the number in the "
+            "bytes, and `ligase methods` exits non-zero."
+        ),
         "bound": (
             "`ligase methods` on a pipeline whose claim restates the "
             "threshold the run used."

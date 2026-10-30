@@ -333,6 +333,19 @@ the claim states its value, check 5 catches it; if the claim states only a
 sentence, the output digest in the write-up and in `claims.tsv` is what a
 reviewer compares.
 
+**A located claim is the only thing in a write-up that reads an artifact.**
+Every other check — the step, the sample, the parameter, the tool version —
+is against the record, which is why a write-up works for a run whose outputs
+were pruned. `Restated::Value` is not: `Located::read` opens the output and
+reads a cell, so `Produced` and `Bound` carry the output's path for it. That
+is the one dependency on an artifact still being on disk, and it is confined
+to the claims that asked for it: a claim with no `at` never touches the
+store. An output that cannot be read comes back as
+`Unbacked::NoSuchCell`, phrased where it was discovered, because what was
+there instead — the columns the file does have, how many rows it holds, the
+text that is not a number — is known only at the point of reading
+([D61](/project/decisions/#d61--a-claim-may-name-where-its-number-lives)).
+
 **A claim binds to a key and is cited by a digest.** Two identifiers, two
 jobs. `Bound` carries both; `claim_sentence` prints only the digest, because
 the key is the identity of a *computation* and so moves when the step's
