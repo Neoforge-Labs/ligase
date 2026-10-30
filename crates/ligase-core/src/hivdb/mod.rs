@@ -86,8 +86,9 @@ impl std::error::Error for ReportError {}
 /// - `algorithm` — which vendored algorithm to use, e.g. `HIVDB_9.8`.
 /// - `mixture` — the fraction an allele must reach to count as present.
 /// - `depth` — the depth a position must reach to count as read.
-/// - `gene_coverage` — the share of a gene's codons that must be read for
-///   the gene to be assessed rather than reported as not assessed.
+/// - `gene_coverage` — the share of a gene's *scored* codons — the ones
+///   the chosen algorithm's rules name — that must be read for the gene to
+///   be assessed rather than reported as not assessed.
 ///
 /// # Returns
 ///
@@ -120,6 +121,7 @@ pub fn write_report(
         reference,
         variants,
         alignment,
+        &ruleset,
         mixture,
         depth,
         gene_coverage,

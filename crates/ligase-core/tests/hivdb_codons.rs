@@ -17,8 +17,8 @@
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 
-use ligase::hivdb::Reading;
 use ligase::hivdb::codon::{DEPTH, GENES, Gene, MIXTURE, read};
+use ligase::hivdb::{Reading, Ruleset};
 use ligase::note::Note;
 use noodles::sam::alignment::io::Write as _;
 use noodles::{bam, sam};
@@ -31,6 +31,15 @@ use tempfile::TempDir;
 /// be read before it is assessed at all is a separate judgement, tested in
 /// `hivdb_frame.rs`; here it would only throw away the gene under test.
 const ANY: f64 = 0.0;
+
+/// The algorithm these tests read against.
+///
+/// Which one barely matters here: with [`ANY`] for the share, nothing in
+/// these tests turns on which positions it scores. A reading needs one
+/// because the share it is given is a share of them.
+fn ruleset() -> Ruleset {
+    Ruleset::vendored("HIVDB_9.8").unwrap()
+}
 
 /// The gene a test is about, by name.
 fn gene(name: &str) -> Gene {
@@ -137,6 +146,7 @@ fn reading(
         reads
             .map(|reads| alignment(directory.path(), reads))
             .as_deref(),
+        &ruleset(),
         mixture,
         DEPTH,
         ANY,
@@ -246,6 +256,7 @@ fn without_an_alignment_the_reading_says_what_it_assumed() {
         &reference(directory.path(), &[]),
         &variants(directory.path(), &[]),
         None,
+        &ruleset(),
         MIXTURE,
         DEPTH,
         ANY,

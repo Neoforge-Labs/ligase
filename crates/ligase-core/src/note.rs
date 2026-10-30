@@ -123,13 +123,17 @@ pub enum Note {
         depth: u32,
     },
     /// A gene too little of which was read to be assessed at all (D34).
+    ///
+    /// Counted over the codons the algorithm scores rather than over the
+    /// gene: a position no rule names cannot change an answer, so reading
+    /// it is not evidence the gene was read well enough to score.
     GeneBarelyRead {
         /// The gene.
         gene: String,
-        /// How many of its codons were read.
+        /// How many of its scored codons were read.
         read: u32,
-        /// How many codons it has.
-        codons: u32,
+        /// How many codons the algorithm scores in it.
+        scored: u32,
         /// How many had to be read for it to be assessed.
         needed: u32,
     },
@@ -392,9 +396,9 @@ impl Note {
             Self::GeneBarelyRead {
                 gene,
                 read,
-                codons,
+                scored,
                 needed,
-            } => format!("gene={gene} read={read} codons={codons} needed={needed}"),
+            } => format!("gene={gene} read={read} scored={scored} needed={needed}"),
             Self::CodonsUnread {
                 gene,
                 read,
@@ -453,7 +457,12 @@ impl Note {
             "gene-barely-read" => Some(Self::GeneBarelyRead {
                 gene: named(value, "gene")?.to_owned(),
                 read: counted(value, "read")?,
-                codons: counted(value, "codons")?,
+                // `codons` is what releases up to 0.3.0 wrote, when the
+                // floor was counted over the whole gene. Read rather than
+                // dropped: a stored note is a record of what that run
+                // noticed, and the number it holds is the number that run
+                // used.
+                scored: counted(value, "scored").or_else(|| counted(value, "codons"))?,
                 needed: counted(value, "needed")?,
             }),
             "codons-unread" => Some(Self::CodonsUnread {
@@ -634,10 +643,11 @@ impl Note {
                  a negative result."
             }
             Self::GeneBarelyRead { .. } => {
-                "A gene read in part refutes nothing and shows nothing, so every drug scored \
-                 against it would land at zero, which this algorithm's own ranges read as \
-                 susceptible. The gene is left out of the report instead, so the absence of \
-                 its drugs means no data and not a negative result."
+                "A gene whose scored positions were mostly unread refutes nothing and shows \
+                 nothing, so every drug scored against it would land at zero, which this \
+                 algorithm's own ranges read as susceptible. The gene is left out of the \
+                 report instead, so the absence of its drugs means no data and not a \
+                 negative result."
             }
             Self::CodonsUnread { .. } => {
                 "A drug whose rules name an unread position has that position listed in the \
@@ -759,13 +769,13 @@ impl fmt::Display for Note {
             Self::GeneBarelyRead {
                 gene,
                 read,
-                codons,
+                scored,
                 needed,
             } => write!(
                 f,
-                "only {read} of {gene}'s {codons} codons were read, where this reading \
-                 required {needed}, so {gene} was not assessed rather than scored against \
-                 what little was seen"
+                "only {read} of the {scored} codons this algorithm scores in {gene} were \
+                 read, where this reading required {needed}, so {gene} was not assessed \
+                 rather than scored against what little was seen"
             ),
             Self::CodonsUnread {
                 gene,
@@ -1039,9 +1049,9 @@ mod tests {
             },
             Note::GeneBarelyRead {
                 gene: "IN".to_owned(),
-                read: 92,
-                codons: 288,
-                needed: 231,
+                read: 5,
+                scored: 26,
+                needed: 21,
             },
             Note::CodonsUnread {
                 gene: "RT".to_owned(),
@@ -1144,6 +1154,24 @@ mod tests {
         // half-read: a note with a gene and no count could not be worded.
         assert_eq!(Note::parse("codons-unread", "gene=RT read=548"), None);
         assert_eq!(Note::parse("codons-unread", ""), None);
+    }
+
+    #[test]
+    fn a_barely_read_note_from_an_older_release_is_still_readable() {
+        // Up to 0.3.0 the floor was counted over the whole gene and the
+        // note spelled its total `codons`. A bundle written then is a
+        // record of what that run noticed, so it is read rather than
+        // dropped -- with the number that run actually used.
+        assert_eq!(
+            Note::parse("gene-barely-read", "gene=IN read=92 codons=288 needed=231"),
+            Some(Note::GeneBarelyRead {
+                gene: "IN".to_owned(),
+                read: 92,
+                scored: 288,
+                needed: 231,
+            })
+        );
+        assert_eq!(Note::parse("gene-barely-read", "gene=IN read=92"), None);
     }
 
     #[test]

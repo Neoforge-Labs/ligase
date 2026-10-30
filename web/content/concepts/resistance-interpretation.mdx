@@ -168,9 +168,19 @@ algorithm's own global range reads as level 1, Susceptible.
 That is the worst shape this failure can take: not a missing drug class, which
 a reader notices, but a full set of clean negatives from a gene the run barely
 covered. A sequence with 32% of integrase came back as five susceptible
-integrase inhibitors. So a gene read below a stated share of its codons is
-reported as Not assessed, and the reading says by how much it fell short
+integrase inhibitors. So a gene read below a stated share is reported as Not
+assessed, and the reading says by how much it fell short
 ([D34](/project/decisions/#d34--a-gene-barely-read-is-not-assessed)).
+
+The share is of the codons the algorithm **scores**, not of the gene. A
+position no rule names cannot change an answer however well it was read, so
+reading it says nothing about whether the gene was read well enough to score.
+HIVDB 9.8 scores 40 of reverse transcriptase's 560 codons, the highest at 348:
+counted over the gene, four fifths asked for 448 codons, so a clinical
+genotype covering every position any drug is scored on was refused for the 212
+codons past the last rule. Counted over the scored codons it passes — and a
+dropout that takes out half the scored positions while leaving 86% of the gene
+read, which the old count waved through, does not.
 
 ## What it is checked against
 

@@ -73,6 +73,18 @@
 //! reading, which makes its drugs *not assessed* — the same state as a gene
 //! the pipeline never supplied, which is what it effectively is.
 //!
+//! The share is counted over the codons the algorithm *scores*, not over
+//! the gene. A position no rule names cannot change an answer however it
+//! was read, so reading it is not evidence that the gene was read well
+//! enough to score — and counting it made the default close to
+//! unsatisfiable for the records clinical labs actually hold. HIVDB 9.8
+//! scores 40 of reverse transcriptase's 560 codons and the highest is 348,
+//! so a partial-pol genotype that read every position the rules consult
+//! still covered 62% of the gene and was refused. Counted over the scored
+//! codons the same reading passes, and the gene it is really about — 32% of
+//! integrase, five of the twenty-six positions any rule names — is still
+//! refused.
+//!
 //! # The windows mean nothing without the frame they are stated in
 //!
 //! [`GENES`] holds positions in HXB2 K03455 counted from the first base of
@@ -89,7 +101,7 @@ use noodles::bam;
 use noodles::sam::alignment::record::cigar::op::Kind;
 
 use super::frame;
-use super::ruleset::Acids;
+use super::ruleset::{Acids, Ruleset};
 use super::score::{Observed, Protein};
 use crate::load::{LoadError, open};
 use crate::note::Note;
@@ -178,21 +190,30 @@ pub const MIXTURE: f64 = 0.15;
 /// The default depth a position must reach to count as read.
 pub const DEPTH: u32 = 100;
 
-/// The default share of a gene's codons that must be read for the gene to
-/// be assessed at all.
+/// The default share of a gene's *scored* codons that must be read for the
+/// gene to be assessed at all.
 ///
 /// A policy rather than a fact, which is why it is a parameter: how much of
 /// a gene a surveillance programme is willing to call susceptible on is its
 /// own decision, and a judgement belongs in a cache key rather than in a
 /// constant nobody can see. Four fifths is the default because the failure
 /// it guards against is a *susceptible* call made from a gene that was
-/// largely not sequenced, and a gene missing more than a fifth of its
-/// codons cannot support one.
+/// largely not sequenced, and a gene missing more than a fifth of the
+/// positions its drugs are scored on cannot support one.
 ///
-/// It is deliberately blunt. The exact question is whether the positions
-/// *this drug's rules* name were read, which the report already answers
-/// per drug by marking the score as a floor and listing what was unread;
-/// turning that into a refusal to state a level is D34's deferred half.
+/// The denominator is [`Ruleset::scored`] rather than [`Gene::codons`]
+/// because a position no rule names cannot change an answer, so reading it
+/// says nothing about whether the gene was read well enough to score.
+/// Counted over the gene, four fifths asked for 448 of reverse
+/// transcriptase's 560 codons while the highest position HIVDB 9.8 scores
+/// is 348 — a floor no partial-pol record could clear, whatever it covered
+/// of what the rules look at.
+///
+/// It is still blunt. The exact question is whether what the unread
+/// positions could have contributed would change the *level*, which the
+/// report already gestures at per drug by marking the score as a floor and
+/// listing what was unread; turning that into a refusal to state a level is
+/// D34's deferred half.
 pub const GENE_COVERAGE: f64 = 0.8;
 
 /// What was read, and what could not be.
@@ -223,10 +244,14 @@ pub struct Reading {
 ///   and for phasing. Without it no position can be known to be unread
 ///   and no codon can be read as the triplets its reads carry, and the
 ///   reading says so.
+/// - `ruleset` — the algorithm the reading will be scored against, which
+///   is what says which of a gene's codons are scored at all. The reading
+///   does no scoring; it needs the positions to count `gene_coverage`
+///   over.
 /// - `mixture` — the fraction an allele must reach to count as present.
 /// - `depth` — the depth a position must reach to count as read.
-/// - `gene_coverage` — the share of a gene's codons that must be read for
-///   the gene to be assessed rather than left out.
+/// - `gene_coverage` — the share of a gene's *scored* codons that must be
+///   read for the gene to be assessed rather than left out.
 ///
 /// # Errors
 ///
@@ -236,6 +261,7 @@ pub fn read(
     reference: &Path,
     variants: &Path,
     alignment: Option<&Path>,
+    ruleset: &Ruleset,
     mixture: f64,
     depth: u32,
     gene_coverage: f64,
@@ -381,12 +407,31 @@ pub fn read(
         // every drug scored against it would come out at zero, which the
         // algorithm's own ranges read as susceptible. Not assessed is the
         // honest answer, and the same one Stanford's service gives (D34).
-        let needed = needed(gene.codons(), gene_coverage);
-        if protein.read() < needed as usize {
+        //
+        // Counted over the codons the algorithm scores: a position no rule
+        // names cannot change an answer, so reading it is not evidence the
+        // gene was read well enough to score. A position the ruleset names
+        // beyond the end of the gene is left out of the count, because no
+        // reading could ever cover it and a floor nothing can clear is not
+        // a floor.
+        let scored: Vec<u32> = ruleset
+            .scored(gene.name)
+            .into_iter()
+            .filter(|position| *position <= gene.codons())
+            .collect();
+        let read_scored = scored
+            .iter()
+            .filter(|position| protein.at(**position).is_some())
+            .count();
+        let needed = needed(
+            u32::try_from(scored.len()).unwrap_or(u32::MAX),
+            gene_coverage,
+        );
+        if read_scored < needed as usize {
             notes.push(Note::GeneBarelyRead {
                 gene: gene.name.to_owned(),
-                read: u32::try_from(protein.read()).unwrap_or(u32::MAX),
-                codons: gene.codons(),
+                read: u32::try_from(read_scored).unwrap_or(u32::MAX),
+                scored: u32::try_from(scored.len()).unwrap_or(u32::MAX),
                 needed,
             });
             continue;
@@ -434,12 +479,16 @@ struct Called {
     alleles: Vec<(Allele, f64)>,
 }
 
-/// How many of a gene's codons must be read, at this share of them.
+/// How many of a gene's scored codons must be read, at this share of them.
 ///
 /// Rounded up, so the share is a floor: a gene cannot be a fraction of a
 /// codon short of it. Counted rather than kept as a share because a note
-/// is read by a person and stored in a bundle, and `231 of 288` says what
+/// is read by a person and stored in a bundle, and `21 of 26` says what
 /// `80%` leaves them to work out.
+///
+/// Zero where the algorithm scores nothing in the gene, which is the
+/// honest answer rather than a gap: there is nothing a reading could have
+/// covered, and no drug that could come out susceptible for want of it.
 ///
 /// A share above one asks for more codons than the gene has, which no
 /// reading could satisfy; it is taken as one, which asks for all of them.

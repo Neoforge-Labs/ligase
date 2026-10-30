@@ -101,7 +101,9 @@ def barely_read(tmp_path: Path) -> tuple[Variants, Reference]:
 
     `N` is what a sequence that did not reach a region actually holds, and
     it is a different thing from a sequence that agrees with the reference.
-    Ninety-two of integrase's 288 codons is the 32% SAWA saw in the field.
+    Ninety-two of integrase's 288 codons is the 32% SAWA saw in the field,
+    and it holds five of the twenty-six integrase positions HIVDB 9.8
+    scores, where the floor asks for twenty-one.
     """
     bases = ["A"] * 9719
     for position in range(4230 + 92 * 3, 5093 + 1):
@@ -198,7 +200,8 @@ def test_a_reading_says_which_gene_it_barely_read(tmp_path: Path) -> None:
 
     said = notes(report)
     assert any(
-        note.startswith("only 92 of IN's 288 codons were read") for note in said
+        note.startswith("only 5 of the 26 codons this algorithm scores in IN were read")
+        for note in said
     ), said
     assert "gene_coverage=" in report.text
 

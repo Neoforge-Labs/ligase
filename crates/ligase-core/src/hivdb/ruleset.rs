@@ -12,7 +12,7 @@
 //! silently drop a drug, and a dropped drug reads as "susceptible" — a false
 //! negative in the direction that matters.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
 
@@ -47,7 +47,8 @@ pub const VENDORED: &[(&str, &str)] = &[
 /// A pipeline that wants today's science names `HIVDB_10.2`.
 pub const DEFAULT: &str = "HIVDB_9.8";
 
-/// What every vendored algorithm is, by name, version, date and content.
+/// What every vendored algorithm is, by name, version, date and content,
+/// and which engine reads them.
 ///
 /// This is what a `hivdb` step records as its tool version, so it is what
 /// puts the rules into the cache key. It names what the engine *ships*,
@@ -69,6 +70,15 @@ pub const DEFAULT: &str = "HIVDB_9.8";
 /// already commits to — a cache that is too cold costs time, one that is too
 /// warm is wrong.
 ///
+/// The engine's own version is here for the same reason. The rules are half
+/// of what a `hivdb` step is; the other half is this engine's judgements
+/// about reading them — which codons count as read, how much of a gene has
+/// to be, what a mixture satisfies. Those move between releases, and a key
+/// naming only the rules would serve an interpretation the engine in front
+/// of the reader would not produce. It is over-conservative in the same
+/// direction: a release that touched none of this still reruns every
+/// `hivdb` step.
+///
 /// # Errors
 ///
 /// If any embedded ruleset does not parse, which would mean the engine
@@ -88,7 +98,11 @@ pub fn fingerprint() -> Result<String, String> {
     // paragraph renders this after "ran with" -- and "ran with HIVdb 10.2"
     // would be a false statement about a step that named 9.8. Which one a
     // step used is its `algorithm` parameter, reported beside this.
-    Ok(format!("HIVdb rules as shipped: {}", parts.join("; ")))
+    Ok(format!(
+        "HIVdb rules as shipped: {}; read by ligase {}",
+        parts.join("; "),
+        env!("CARGO_PKG_VERSION")
+    ))
 }
 
 /// The amino acids a rule may name at one position.
@@ -291,6 +305,28 @@ impl Ruleset {
             }
         }
         genes
+    }
+
+    /// Every position of a gene that some drug's rules name.
+    ///
+    /// These are the codons an answer can turn on. A position no rule
+    /// mentions cannot change a score however it was read, so it is not
+    /// evidence that the gene was read well enough to score — which is
+    /// why the coverage floor is counted over these and not over the
+    /// gene (D34).
+    ///
+    /// Empty for a gene no drug is scored against, which is the honest
+    /// answer: there is nothing to have read.
+    #[must_use]
+    pub fn scored(&self, gene: &str) -> BTreeSet<u32> {
+        self.drugs
+            .iter()
+            .filter(|drug| drug.gene == gene)
+            .flat_map(|drug| &drug.groups)
+            .flatten()
+            .flat_map(|item| &item.residues)
+            .map(|residue| residue.position)
+            .collect()
     }
 
     /// The level a score falls in.

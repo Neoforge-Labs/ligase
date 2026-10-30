@@ -70,6 +70,15 @@ nothing shows it, so every drug lands at zero, which the algorithm's own
 ranges read as susceptible -- a clean clinical negative from a gene the run
 never covered. So a gene read below `gene_coverage` of its codons is
 reported as not assessed, which is what it is.
+
+The share is counted over the codons the chosen algorithm *scores*, not
+over the gene. A position no rule names cannot change an answer however it
+was read, so reading it is no evidence the gene was read well enough to
+score -- and counting it put the default out of reach of the records
+clinical labs hold. HIVDB 9.8 scores 40 of reverse transcriptase's 560
+codons and the highest is 348, so a partial-pol genotype covering every
+position the rules consult had still read 62% of the gene, and was refused
+for it.
 """
 
 from __future__ import annotations
@@ -115,27 +124,38 @@ MIXTURE: float = 0.15
 #: What depth a position must reach to count as read at all.
 DEPTH: int = 100
 
-#: What share of a gene's codons must be read for the gene to be assessed.
+#: What share of a gene's scored codons must be read for the gene to be
+#: assessed.
 #:
 #: A policy, not a fact, which is why it is a parameter: how much of a gene
 #: a surveillance programme will call susceptible on is its own decision,
 #: and a judgement belongs in a cache key rather than in a constant nobody
 #: can see. Four fifths by default, because the failure it guards against
 #: is a susceptible call made from a gene that was largely not sequenced.
+#:
+#: Counted over the codons the algorithm scores -- the positions some
+#: drug's rules name -- rather than over the gene: a position no rule
+#: names cannot change an answer, so reading it is no evidence the gene
+#: was read well enough to score.
 GENE_COVERAGE: float = 0.8
 
 
 def fingerprint() -> str:
-    """What the vendored algorithms are, by version, date and content.
+    """What the vendored algorithms are, and which engine reads them.
 
     This is what a step declaring `tool="hivdb"` records as its tool
     version, so it is what puts the rules into the cache key. It names
     every vendored algorithm rather than only the one in use, because the
     engine probes versions before any step body has said which it wants.
 
+    It ends with this engine's own version, because the rules are only
+    half of what the step is: the other half is the engine's judgements
+    about reading them -- which codons count as read, how much of a gene
+    has to be -- and those move between releases.
+
     Returns:
         A line naming each algorithm, its version, its date and the BLAKE3
-        of its rules.
+        of its rules, then the version of the engine reading them.
     """
     return _core.resistance_fingerprint()
 
@@ -177,11 +197,14 @@ def interpret(
         depth: The depth a position must reach to count as read. A codon
             whose bases do not all reach it is reported as unread rather
             than as reference.
-        gene_coverage: The share of a gene's codons that must be read for
-            the gene to be assessed at all. A gene below it is reported as not
-            assessed rather than scored against the little that was seen,
-            because a gene mostly unread scores zero, and zero reads as
-            susceptible.
+        gene_coverage: The share of a gene's *scored* codons -- the ones
+            `algorithm`'s rules name -- that must be read for the gene to be
+            assessed at all. A gene below it is reported as not assessed
+            rather than scored against the little that was seen, because a
+            gene whose scored positions are mostly unread scores zero, and
+            zero reads as susceptible. Counted over the scored codons
+            rather than the gene because a position no rule names cannot
+            change an answer.
 
     Returns:
         A recipe, typed as the report the step declares.

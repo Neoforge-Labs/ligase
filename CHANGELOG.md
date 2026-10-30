@@ -7,7 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The gene-coverage floor is counted over the codons the algorithm scores,
+  not over the gene.** `gene_coverage` asked what share of a gene's codons a
+  reading covered. Reverse transcriptase has 560 codons and HIVDB 9.8 scores
+  40 of them, the highest at position 348 — so four fifths of the gene was
+  448 codons, a floor no partial-pol record could clear whatever it covered
+  of what the rules actually look at. A clinical genotype reading protease
+  and RT 1–348, which is every position any drug is scored on, came back
+  with the whole of RT *not assessed*.
+
+  The share is now counted over the scored codons: those the chosen
+  algorithm's rules name, restricted to the gene's own window. The same
+  partial-pol reading passes with 40 of 40, its unread codons still reported
+  per drug so the scores read as floors (D34).
+
+  This is not only a loosening. A dropout across RT 40–120 leaves 86% of the
+  gene read, which the old floor waved through, and takes 21 of the 40
+  positions the rules score, leaving 19 against a floor of 32 — so the gene is
+  now refused where it used to be scored against under half the evidence that
+  could have refuted it. The
+  failure D34 exists for is unchanged: 32% of integrase is five of the
+  twenty-six scored positions against a floor of twenty-one, and is still
+  reported as not assessed.
+
+  The `gene-barely-read` note's second count is now the scored codons rather
+  than the gene's, and is written `scored=`. A note stored by 0.3.0 or
+  earlier under `codons=` is still read, with the number that run used.
+
+- **A `hivdb` step's tool version names the engine as well as the rules.**
+  It was the vendored rulesets' versions, dates and digests alone, so a
+  release that changed how the engine *reads* those rules — which codons
+  count as read, how much of a gene has to be — left every cached
+  interpretation in place and served answers the new engine would not
+  produce. The engine's own version is now part of it. A cache too cold
+  costs time; one too warm is wrong (D20).
 
 ## [0.3.0] - 2026-10-28
 
