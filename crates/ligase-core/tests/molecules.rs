@@ -815,3 +815,103 @@ fn stereo_discarded_is_the_only_difference_this_page_is_about() {
         "the one operation that differs is the only part worth reading: {said}"
     );
 }
+
+// ------------------------------- what the keys can refute (#40) --
+
+#[test]
+fn a_table_declared_charge_neutralised_whose_keys_are_charged_is_refused() {
+    // #40, measured by a consumer: `salt-stripped` does not pin a charge
+    // state and an InChIKey's final block does, so two mutually
+    // incompatible reference sets both carried the honest declaration
+    // `inchikey; salt-stripped`, the join passed, and the novelty count came
+    // out at 0% or 50% depending on which one was loaded.
+    //
+    // The part the keys *can* settle is this one: the third block is the
+    // protonation layer, so a table declared charge-neutralised whose keys
+    // end in anything but `N` is provably not charge-neutralised. D38 says a
+    // declaration is recorded rather than verified; this is the half that is
+    // checkable, and the engine needs no chemistry to check it.
+    let declared = Declared {
+        representation: Some("inchikey; salt-stripped, charge-neutralised".to_owned()),
+        ..Declared::default()
+    };
+    let error = load::molecule_set(&fixture("molecules_salt_stripped_anion.tsv"), &declared)
+        .expect_err("a charge-neutralised table has no charged keys")
+        .to_string();
+
+    assert!(error.contains("charge-neutralised"), "{error}");
+    assert!(error.contains("BSYNRYMUTXBXSQ-UHFFFAOYSA-M"), "{error}");
+    // The remedy, both ways round: the declaration may be wrong, or the
+    // table may be the thing that was never standardised.
+    assert!(error.contains("salt-stripped"), "{error}");
+}
+
+#[test]
+fn a_representation_line_the_keys_refute_is_refused_too() {
+    // The standardiser writes that line, so a file carrying it and charged
+    // keys was either edited by hand or written by something else claiming
+    // to have done the work.
+    let error = load::molecule_set(
+        &fixture("molecules_neutralised_but_charged.tsv"),
+        &Declared::default(),
+    )
+    .expect_err("the file's own line is checked as a declaration is")
+    .to_string();
+
+    assert!(error.contains("charge-neutralised"), "{error}");
+    assert!(error.contains("BSYNRYMUTXBXSQ-UHFFFAOYSA-M"), "{error}");
+}
+
+#[test]
+fn a_salt_stripped_table_with_a_charged_key_is_exactly_right() {
+    // The other side of the same check, and the case that must not become a
+    // refusal: `-M` is what salt-stripping an aspirin salt produces, the
+    // declaration says so, and the file is correct. It is also the file that
+    // matches nothing a public collection ships, which is a documentation
+    // problem rather than a loading one.
+    let loaded = load::molecule_set(
+        &fixture("molecules_salt_stripped_anion.tsv"),
+        &Declared::default(),
+    )
+    .expect("salt-stripped keys may be charged");
+
+    assert_eq!(
+        loaded
+            .dimensions()
+            .render(Dimension::Representation)
+            .as_deref(),
+        Some("InChIKey, salt-stripped")
+    );
+    assert!(loaded.notes().is_empty(), "{:?}", loaded.notes());
+}
+
+#[test]
+fn a_salt_stripped_table_whose_keys_are_all_neutral_is_noticed() {
+    // The suspicious direction, which the keys cannot settle: a molecule
+    // with nothing to neutralise keys `-N` with nothing applied, so an
+    // all-`-N` salt-stripped table may be honest or may have been
+    // neutralised by a step nobody declared. Public collections hand out
+    // neutral parents, so this is the common shape -- and a note is what is
+    // proportionate to a suspicion.
+    let declared = Declared {
+        representation: Some("inchikey; salt-stripped".to_owned()),
+        ..Declared::default()
+    };
+    let loaded =
+        load::molecule_set(&fixture("molecules_library.tsv"), &declared).expect("it loads");
+
+    let notes = loaded.notes();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(
+        matches!(notes[0], Note::KeysLookNeutralised { keys: 4 }),
+        "{notes:?}"
+    );
+    let said = notes[0].to_string();
+    assert!(said.contains("charge-neutralised"), "{said}");
+}
+
+#[test]
+fn a_charge_neutralised_table_whose_keys_agree_raises_nothing() {
+    let loaded = molecules("molecules_library.tsv");
+    assert!(loaded.notes().is_empty(), "{:?}", loaded.notes());
+}

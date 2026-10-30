@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A molecule table's charge state is checked against its own keys.**
+  `salt-stripped` does not pin a charge state and an InChIKey's third block
+  does, so two mutually incompatible reference sets could both carry the
+  honest declaration `inchikey; salt-stripped`, compare equal, and produce a
+  novelty count of 0% or 50% depending on which was loaded — with `ligase
+  check` reporting no problems for both. A table declared
+  `charge-neutralised`, by argument or by its own representation line, whose
+  keys end in anything but `N` is now refused at load, naming the key, its
+  row and the state those keys are in. A table declaring `salt-stripped`
+  alone whose keys are all neutral gets a `keys-look-neutralised` note, which
+  is all the keys can support in that direction. No chemistry is read to do
+  either. See `MIGRATING.md`. D65.
+
+### Changed
+
+- **The guide says what `salt-stripped` alone is for.** Public compound
+  collections ship neutral parents, so standardising *to* `inchikey;
+  salt-stripped` emits keys that match nothing in the wild. The one-term form
+  stays in the vocabulary, because files are in that state and the axis has to
+  be able to say so, and the trap is now named where a state is chosen.
+
 - **`ligase inspect` reads a molecule table keyed by SMILES.** The `.tsv`
   dispatch asked for an `inchikey` column and nothing else, so a table of
   structures — what a generative model emits, and the one shape

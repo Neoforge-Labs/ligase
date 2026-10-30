@@ -22,6 +22,53 @@ needed migrating in that release. Versions with no section needed nothing.
 
 ## Unreleased
 
+### A molecule table declared `charge-neutralised` must have neutral keys
+
+**What breaks.** `lg.molecule_set`, `lg.molecule_ranking` and `ligase
+inspect` now refuse a table whose representation says `charge-neutralised`
+— by argument or by its own `#ligase representation:` line — when any of its
+InChIKeys ends in something other than `N`. This is a refusal that did not
+used to happen, at load, before anything runs.
+
+**Why.** An InChIKey's third block is its protonation layer, so such a table
+contains the evidence against its own declaration. Until now nothing checked
+it, and the cost was measured by a consumer: two reference sets differing
+only in charge state both declared `inchikey; salt-stripped`, compared equal,
+and gave the same generated set a novelty of 0% or 50% depending on which one
+was loaded, with `ligase check` reporting no problems for either.
+
+**The symptom.**
+
+```
+LoadError: cannot read reference.tsv in the state it says it is in:
+representation is declared `inchikey; salt-stripped, charge-neutralised`, and
+the key in row 1 is not charge-neutralised: `BSYNRYMUTXBXSQ-UHFFFAOYSA-M`
+ends `M`, and an InChIKey's third block is its protonation layer [...]
+```
+
+**The edit.** Whichever of the two is wrong. If the keys are right and the
+declaration overstates what was done, declare the state the message names:
+
+```diff
+-reference = lg.molecule_set("reference.tsv",
+-                            representation="inchikey; salt-stripped, charge-neutralised")
++reference = lg.molecule_set("reference.tsv",
++                            representation="inchikey; salt-stripped")
+```
+
+If the declaration is right, the keys were computed before the table was
+neutralised and have to be recomputed from the structures
+(`lg.chem.standardize(table, to="inchikey; salt-stripped,
+charge-neutralised")`).
+
+**Also new, and not a refusal.** A table declaring `salt-stripped` without
+`charge-neutralised` whose keys are *all* neutral now carries a
+`keys-look-neutralised` note. Nothing fails; it is what the keys can support
+in that direction, since a compound with nothing to neutralise keys `-N` with
+nothing applied. If such a table was neutralised, declaring it is what lets
+it join the public collections, which ship neutral parents.
+
+
 ### `ligase methods` labels a claim's digest `canonical`, not `output`
 
 **What breaks.** Nothing runs differently, and the digest itself is

@@ -231,6 +231,21 @@ def a_replay_with_no_record_of_the_query(lg: Any) -> None:
         lg.remotes.reset()
 
 
+def a_table_whose_keys_refute_its_charge_state(lg: Any) -> None:
+    """Declare a salt-stripped-only table charge-neutralised.
+
+    The fixture is the measurement from the issue that asked for this check:
+    a salt-stripped aspirin salt keys `-M`, which is correct and is not
+    charge-neutralised. No pipeline is built, because the refusal happens as
+    the file is loaded.
+    """
+    lg.molecule_set(
+        fixture("molecules_salt_stripped_anion.tsv"),
+        organism="Homo sapiens",
+        representation="inchikey; salt-stripped, charge-neutralised",
+    )
+
+
 def a_stochastic_step_that_names_no_seed(lg: Any) -> None:
     """Declare a step stochastic and forget to say what seeds it.
 
@@ -575,6 +590,22 @@ SCENARIOS: tuple[Scenario, ...] = (
                 release="HGNC 2026-03",
             ),
         },
+    ),
+    Scenario(
+        key="chargeStateRefuted",
+        step="",
+        expect="LoadError",
+        description=(
+            "A table declared charge-neutralised whose own InChIKeys say it "
+            "is not: the one part of a representation a file can refute."
+        ),
+        provoke=a_table_whose_keys_refute_its_charge_state,
+        contains=(
+            "charge-neutralised",
+            "BSYNRYMUTXBXSQ-UHFFFAOYSA-M",
+            "protonation layer",
+            "inchikey; salt-stripped",
+        ),
     ),
     Scenario(
         key="remoteMoved",

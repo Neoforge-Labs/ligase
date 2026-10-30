@@ -3492,3 +3492,90 @@ an identifier says which identifier it is. This is
 finding, everywhere — applied to identifiers rather than to findings, and
 the failure mode is the same: a reader who cannot tell two accounts apart
 assumes they disagree.
+
+## D65 — A declaration is refused where the file itself refutes it
+
+[D38](#d38--identifier-namespaces-never-coerce) says a declared dimension is
+recorded and not verified, and
+[architecture/molecules](/project/architecture/molecules) gives the sharper
+reason for the representation axis: the engine has no chemistry (D49), so it
+could not check the claim if it wanted to.
+
+A consumer took that seriously enough to test it, and found the sentence
+true of three operations and false of the fourth.
+
+> `salt-stripped` does not pin a molecule's charge state, but an InChIKey's
+> final block does.
+
+Their measurement, against the released 0.3.0: one generated set, and two
+reference sets differing only in charge state, each declared `inchikey;
+salt-stripped`.
+
+```text
+reference keyed -N (salt-stripped then uncharged)
+    generated=2 reference=2 novel=1 -> novelty=50%
+reference keyed -M (salt-stripped only)
+    generated=2 reference=2 novel=0 -> novelty=0%
+```
+
+`ligase check` printed `no problems found` and exited 0 for both, because
+both declarations read the same and they matched. Aspirin was in the
+reference set either way; in the first reading it came back novel.
+
+They opened by saying `lg.chem.standardize` is correct and that they had gone
+looking for a bug in it and found none. That is right, and it is what makes
+the finding structural: **the vocabulary term is coarser than the identifier
+it keys to.** It is D56's defect one level down — there, two inferred values
+compared equal and the join passed; here, two honest declarations do.
+
+### What a key can be made to say
+
+An InChIKey's third block is the protonation layer: `N` for a proton balance
+of zero, `M`, `L`, `K` for one, two and three protons removed, `O`, `P`, `Q`
+for as many added. So:
+
+**`charge-neutralised` declared over a key that is not neutral is refused at
+load.** Not noted, not inferred around — refused, as a contig-naming
+mismatch is, and for the same reason: the file contains the evidence against
+the claim. The error names the key, its row, its block and the state those
+keys *are* in, so the honest declaration is in front of the reader.
+
+**All-neutral keys under `salt-stripped` alone are a note.** This direction
+cannot be proved. A molecule with nothing to neutralise keys `-N` with
+nothing applied, so a table of such compounds is honest and looks identical
+to one that was neutralised by a step nobody declared. The note says what the
+shape usually means and leaves the judgement with the person who prepared the
+file.
+
+That asymmetry is this project's standing answer — the stereo check reached
+it from the other side, and M10a's case folding before that: a false
+agreement is unrecoverable, a loud refusal is not.
+
+### Why this is not an exception to D38
+
+D38 is about what the engine must not *invent*. Checking a declaration
+against evidence the file already contains invents nothing: the engine reads
+one character of a string it is already reading, and no structure is parsed,
+no ring perceived, no InChI computed. D49 is untouched.
+
+The rule the two make together is the one worth carrying to the next axis: a
+declaration is taken on trust **only where there is nothing to check it
+against.** Where the data can refute it, the data wins.
+
+### Why `salt-stripped` stays expressible
+
+The report's third suggestion was to consider removing the one-term form as
+a destination for `standardize`, since every constructible use of it also
+wants `charge-neutralised`. It stays, for a reason that is about the axis
+rather than about the API: files really are in that state. A salt-stripped
+export is a thing a collaborator hands you, and a vocabulary that could not
+describe it would push that file into `as given` or into a gap — which is the
+dimension system failing at its own job to avoid a trap at a different
+surface.
+
+What was wrong was the documentation, so that is what changed. The guide says
+plainly that public collections ship neutral parents, that the one-term form
+emits keys matching nothing in the wild, and that it is not a state to
+standardise *to*. A trap named where somebody is choosing is worth more than
+a removed option, and the removal was the reporter's own least-preferred
+remedy.

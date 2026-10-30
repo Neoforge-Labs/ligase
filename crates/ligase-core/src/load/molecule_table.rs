@@ -49,7 +49,8 @@
 use std::path::Path;
 
 use super::{Declared, LoadError, Table, open};
-use crate::dim::{Dim, Dimensions, Identity, Representation, Source};
+use crate::dim::{Dim, Dimensions, Identity, Representation, Source, Standardisation};
+use crate::note::Note;
 use crate::types::{DataKind, Dataset};
 
 /// The line a standardiser writes, and this loader reads.
@@ -133,17 +134,28 @@ pub(super) fn molecule_table(
         ));
     }
 
-    // Read to the end even though no dimension comes out of the rows, so
+    // Read to the end even though no *dimension* comes out of the rows, so
     // that a table whose rows do not fit its header is refused here rather
     // than by the canonical form alone. A file the loader accepts and the
     // canonical form rejects would load successfully and then hash as its
     // own bytes, which costs early cutoff everything below it and says
     // nothing.
-    while table
+    //
+    // One thing does come out of them, and it is the one part of a
+    // representation the engine can check without any chemistry: an
+    // InChIKey's third block is its protonation layer.
+    let at = table.column(Identity::InChIKey.spelling());
+    let mut charge = ChargeState::default();
+    let mut row_number = 0_usize;
+    while let Some(row) = table
         .next_row()
         .map_err(|detail| LoadError::format(path, detail))?
-        .is_some()
-    {}
+    {
+        row_number += 1;
+        if let Some(at) = at {
+            charge.read(row_number, row.field(at).unwrap_or_default().trim());
+        }
+    }
 
     // The representation is parsed before the dataset is built, so that a
     // line naming an operation the engine has never heard of is a load
@@ -153,11 +165,197 @@ pub(super) fn molecule_table(
         Representation::parse(spelled).map_err(|detail| LoadError::format(path, detail))?;
     }
 
+    let notes = charge.against(path, stated(declared, &comments).as_ref())?;
+
     Ok(Dataset::new(
         kind,
         Some(path.to_path_buf()),
         dimensions(path, declared, &comments, has_keys),
-    ))
+    )
+    .with_notes(notes))
+}
+
+/// The value a protonation block has when nothing was added or removed.
+///
+/// An InChIKey's third block is the protonation layer: `N` for a balance of
+/// zero, `M`, `L`, `K` for one, two, three protons removed, and `O`, `P`,
+/// `Q` for as many added. A molecule's net charge is not always in there --
+/// a quaternary ammonium carries its charge in the InChI's `/q` layer and
+/// still keys `N` -- which is exactly why this check is one-sided: a block
+/// that is not `N` is a molecule the charge-neutraliser would have
+/// neutralised, and a block that is `N` proves nothing.
+const NEUTRAL: char = 'N';
+
+/// What the table's keys say about its charge state.
+///
+/// Counted while the rows go past, since they are being read anyway.
+#[derive(Default)]
+struct ChargeState {
+    /// How many well-formed InChIKeys were read.
+    keys: u32,
+    /// How many of them are not protonation-neutral.
+    charged: u32,
+    /// The first that is not, with its row and its block, for an error that
+    /// names one thing rather than counting (D15).
+    first_charged: Option<(usize, String, char)>,
+}
+
+impl ChargeState {
+    /// Take in one row's key.
+    fn read(&mut self, row: usize, key: &str) {
+        let Some(block) = protonation_block(key) else {
+            return;
+        };
+        self.keys += 1;
+        if block != NEUTRAL {
+            self.charged += 1;
+            if self.first_charged.is_none() {
+                self.first_charged = Some((row, key.to_owned(), block));
+            }
+        }
+    }
+
+    /// The keys read against the state the table says it is in.
+    ///
+    /// # Errors
+    ///
+    /// [`LoadError::Representation`] where the state says
+    /// `charge-neutralised` and a key says it is not. That is the half of a
+    /// representation the file can refute: D38 holds that a declaration is
+    /// recorded rather than verified, and it holds because the engine
+    /// usually *cannot* verify one -- salt-stripping and tautomer
+    /// normalisation leave no trace in a key. Charge state does leave one,
+    /// so refusing here is the same rule as a contig-naming mismatch rather
+    /// than an exception to D38.
+    fn against(
+        &self,
+        path: &Path,
+        stated: Option<&(Representation, bool)>,
+    ) -> Result<Vec<Note>, LoadError> {
+        let Some((stated, by_declaration)) = stated else {
+            return Ok(Vec::new());
+        };
+        if stated.identity() != Identity::InChIKey || self.keys == 0 {
+            return Ok(Vec::new());
+        }
+        let applied = |operation| stated.applied().contains(&operation);
+
+        if applied(Standardisation::ChargeNeutralised) {
+            if let Some((row, key, block)) = &self.first_charged {
+                return Err(LoadError::representation(
+                    path,
+                    refuted(
+                        stated,
+                        *by_declaration,
+                        row,
+                        key,
+                        *block,
+                        self.charged,
+                        self.keys,
+                    ),
+                ));
+            }
+            return Ok(Vec::new());
+        }
+
+        // The suspicious direction, which the keys cannot settle, so a note
+        // (#40). Public collections hand out neutral parents, so an
+        // all-neutral table that declares only `salt-stripped` is more often
+        // a table that was neutralised by a step nobody wrote down than one
+        // whose compounds had nothing to neutralise.
+        if applied(Standardisation::SaltStripped) && self.charged == 0 {
+            return Ok(vec![Note::KeysLookNeutralised { keys: self.keys }]);
+        }
+        Ok(Vec::new())
+    }
+}
+
+/// What to say to a table whose keys refute its own charge state.
+///
+/// Both halves of the remedy, because the engine cannot tell which of the
+/// two is the mistake: a declaration naming work that was never done, or
+/// work that was done after these keys were computed.
+fn refuted(
+    stated: &Representation,
+    by_declaration: bool,
+    row: &usize,
+    key: &str,
+    block: char,
+    charged: u32,
+    keys: u32,
+) -> String {
+    let said = if by_declaration {
+        format!("representation is declared `{}`", stated.spell())
+    } else {
+        format!("this file's representation line says `{}`", stated.spell())
+    };
+    let counted = if charged == 1 {
+        String::new()
+    } else {
+        format!(" ({charged} of {keys} keys are not)")
+    };
+    let honest = Representation::new(
+        stated.identity(),
+        stated
+            .applied()
+            .iter()
+            .copied()
+            .filter(|operation| *operation != Standardisation::ChargeNeutralised),
+    );
+    format!(
+        "{said}, and the key in row {row} is not charge-neutralised{counted}: \
+         `{key}` ends `{block}`, and an InChIKey's third block is its protonation \
+         layer -- `{NEUTRAL}` is the only value it takes for a molecule with no proton \
+         added or removed. So this is the one part of a representation a table's own keys \
+         can refute. Either the state names standardisation this table did not get, in \
+         which case `{honest}` is what these keys are in, or it was standardised after \
+         the keys were computed and they have to be recomputed from the structures.",
+        honest = honest.spell(),
+        block = block,
+    )
+}
+
+/// The protonation block of an InChIKey, if this is one.
+///
+/// `BSYNRYMUTXBXSQ-UHFFFAOYSA-M` is fourteen characters of skeleton, ten of
+/// everything else, and one of protonation. Anything else is not a standard
+/// InChIKey and is passed over rather than refused: the loader does not
+/// validate identifiers, and a table whose keys are something else has a
+/// bigger problem than its charge state, which `representation` is not the
+/// axis to report.
+fn protonation_block(key: &str) -> Option<char> {
+    let mut blocks = key.split('-');
+    let skeleton = blocks.next()?;
+    let middle = blocks.next()?;
+    let mut protonation = blocks.next()?.chars();
+    if blocks.next().is_some() {
+        return None;
+    }
+    let block = protonation.next()?;
+    if protonation.next().is_some() {
+        return None;
+    }
+    let shaped = |part: &str, length: usize| {
+        part.len() == length && part.chars().all(|character| character.is_ascii_uppercase())
+    };
+    (shaped(skeleton, 14) && shaped(middle, 10) && block.is_ascii_uppercase()).then_some(block)
+}
+
+/// The representation a declaration or the file's own line states.
+///
+/// The second half of the pair says whether it was the declaration, which
+/// decides nothing about the value and everything about how an error reads:
+/// "representation is declared" and "this file's representation line says"
+/// send a user to different places.
+fn stated(declared: &Declared, comments: &[String]) -> Option<(Representation, bool)> {
+    if let Some(spelled) = declared.representation.as_deref()
+        && let Ok(stated) = Representation::parse(spelled)
+    {
+        return Some((stated, true));
+    }
+    spelled_on_a_line(comments)
+        .and_then(|spelled| Representation::parse(spelled).ok())
+        .map(|read| (read, false))
 }
 
 /// What a representation line spells, if the file has one.
@@ -181,22 +379,18 @@ fn representation(
     comments: &[String],
     has_keys: bool,
 ) -> Dim<Representation> {
-    if let Some(spelled) = declared.representation.as_deref()
-        && let Ok(stated) = Representation::parse(spelled)
-    {
-        return Dim::known(stated, Source::Declared);
-    }
-
-    if let Some(spelled) = spelled_on_a_line(comments)
-        && let Ok(read) = Representation::parse(spelled)
-    {
-        return Dim::known(
-            read,
-            Source::Inferred {
-                path: path.to_path_buf(),
-                detail: "the representation line the standardiser wrote",
-            },
-        );
+    match stated(declared, comments) {
+        Some((stated, true)) => return Dim::known(stated, Source::Declared),
+        Some((read, false)) => {
+            return Dim::known(
+                read,
+                Source::Inferred {
+                    path: path.to_path_buf(),
+                    detail: "the representation line the standardiser wrote",
+                },
+            );
+        }
+        None => {}
     }
 
     // A table named by structures alone is `as given` by observation rather
