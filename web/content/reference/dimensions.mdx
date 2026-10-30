@@ -18,7 +18,7 @@ Every biological type carries dimensions. Each dimension is inferred from the fi
 | release | which versioned external resource the data came from, e.g. `GRCh38.p14`, `Ensembl 110`, `ChEMBL 34` | declared | n/a | n/a | n/a | n/a | declared | declared | declared |
 | subject | what the data is about when that is one named thing: a disease, a cell line, a cohort | n/a | n/a | n/a | n/a | n/a | declared | declared | declared |
 | source_set | the sources a dataset was assembled from, as a **set**: kept in insertion order for display only, and compared as a set, so the order they were listed in is not part of the identity (unlike `sample_set`). Compared **exactly**, case included, unlike `organism` | n/a | n/a | n/a | n/a | n/a | n/a | from the sources named on its nodes and edges, or declared | n/a |
-| identifier_namespace | which identifier space the entities are named in, e.g. `HGNC symbol`, `Ensembl gene`, `Entrez gene`, `UniProt accession` | n/a | n/a | n/a | n/a | n/a | from the identifiers' own pattern, or declared | from the node ids' own pattern, or declared | n/a |
+| identifier_namespace | which identifier space the entities are named in, e.g. `HGNC symbol`, `Ensembl gene`, `Entrez gene`, `UniProt accession` | n/a | n/a | n/a | n/a | n/a | from the identifiers' own pattern where it carries a marker, else declared | from the node ids' own pattern where it carries a marker, else declared | n/a |
 | representation | what a name in a molecule table **is**, and what was done to the structures before it was computed: an identity (`InChIKey` or `SMILES`) and the standardisations applied, as a set — `salt-stripped`, `tautomer-normalised`, `charge-neutralised`, `stereo-discarded`. Compared by equality of the identity and set equality of the operations | n/a | n/a | n/a | n/a | n/a | n/a | n/a | from its own representation line, or declared |
 
 The last five arrived after the others and sit at the bottom on purpose: a report of
@@ -160,8 +160,8 @@ So the space is a dimension, and it is the one dimension in this table the
 engine can usually read without being told:
 
 ```python
-genes = lg.entity_set("results/degs.tsv", organism="Homo sapiens")
-genes.dimension("identifier_namespace").value   # 'HGNC symbol'
+genes = lg.entity_set("results/degs_ensembl.tsv", organism="Homo sapiens")
+genes.dimension("identifier_namespace").value   # 'Ensembl gene'
 genes.dimension("identifier_namespace").source  # "from the identifiers' own pattern: ..."
 ```
 
@@ -176,8 +176,25 @@ symbols such as `C9orf72`, and readthrough symbols such as
 broad claims another space's identifiers, which is the silent failure itself.
 
 The space is inferred only when **every** identifier in the file resolves to
-the same one; a file that mixes two, a file with no rows, and a file holding
-one name nothing claims all leave the dimension unknown rather than guessed.
+the same one **and that one carries a marker**; a file that mixes two, a file
+with no rows, a file holding one name nothing claims, and a file of bare gene
+symbols all leave the dimension unknown rather than guessed.
+
+The last of those is the one that catches people, and it is deliberate. The
+symbol shape is the only one with no marker, and ChEMBL's component synonyms
+(`DHFR-TS`), a lab's own panel and an approved readthrough symbol
+(`TNFSF12-TNFSF13`) are the same string shape, so a list of symbols has not
+stated its space and is not given one
+([D56](/project/decisions/#d56--a-shape-with-no-marker-is-not-a-namespace)).
+Declare it:
+
+```python
+genes = lg.entity_set(
+    "results/degs.tsv",
+    organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
+)
+```
 
 A declaration is accepted as given and not checked against the identifiers,
 because a curated list's own spelling is a space too and the engine has never

@@ -27,6 +27,24 @@
 //! shapes get first refusal and the symbol takes what is left. Adding a
 //! namespace means deciding where in this order it belongs.
 //!
+//! # And why the marker-less shape is not inferred at all
+//!
+//! The order settles which shape *claims* an identifier. It cannot settle
+//! which *space* a file of such identifiers is in, because the symbol shape
+//! has no marker to be recognised by: `DHFR-TS` is ChEMBL's name for a
+//! *P. falciparum* bifunctional enzyme and `MT-CYB`, `HLA-A` and
+//! `NAT8B-AS1` are approved HGNC symbols, and nothing about the strings
+//! tells them apart. A list of the first inferred `HGNC symbol` through
+//! 0.3.0, and because both sides of a join inferred the same wrong answer,
+//! the join passed.
+//!
+//! So [`KnownNamespace::infer`] answers [`Inference::Indistinguishable`]
+//! wherever the agreeing shape carries no marker, the dimension comes back
+//! unknown with a reason, and a join of two such lists is refused until the
+//! user declares. That is D56, and it is the fourth of the refusals to
+//! guess that D38 already lists. The six marker-bearing shapes infer as
+//! they always have.
+//!
 //! There is no regex here on purpose. The shapes are short enough to read
 //! as code, and a dependency is a thing to ask about rather than reach for.
 
@@ -38,6 +56,7 @@
 #[derive(Clone, Copy)]
 pub struct KnownNamespace {
     name: &'static str,
+    marker: Option<&'static str>,
     claims: fn(&str) -> bool,
 }
 
@@ -68,30 +87,37 @@ impl KnownNamespace {
     pub const ALL: [Self; 7] = [
         Self {
             name: "Ensembl gene",
+            marker: Some("the `ENS` prefix"),
             claims: ensembl_gene,
         },
         Self {
             name: "UniProt accession",
+            marker: Some("digits in fixed positions, at six characters or ten"),
             claims: uniprot_accession,
         },
         Self {
             name: "RefSeq",
+            marker: Some("a two-letter prefix and an underscore"),
             claims: refseq,
         },
         Self {
             name: "HGNC ID",
+            marker: Some("the `HGNC:` prefix"),
             claims: hgnc_id,
         },
         Self {
             name: "ChEMBL target",
+            marker: Some("the `CHEMBL` prefix"),
             claims: chembl_target,
         },
         Self {
             name: "Entrez gene",
+            marker: Some("digits throughout"),
             claims: entrez_gene,
         },
         Self {
             name: "HGNC symbol",
+            marker: None,
             claims: hgnc_symbol,
         },
     ];
@@ -100,6 +126,29 @@ impl KnownNamespace {
     #[must_use]
     pub const fn name(&self) -> &'static str {
         self.name
+    }
+
+    /// What tells this shape from every other shape in the catalogue, or
+    /// `None` for the one shape that carries nothing.
+    ///
+    /// A field rather than a remark in prose, because [`Self::infer`] reads
+    /// it. A shape with no marker cannot tell its own space from the several
+    /// that look like it, and the engine's answer to a question it cannot
+    /// settle is to say so rather than to pick (D56).
+    #[must_use]
+    pub const fn marker(&self) -> Option<&'static str> {
+        self.marker
+    }
+
+    /// Whether this shape's marker tells it from the others.
+    ///
+    /// False for `HGNC symbol` alone, which is upper-case letters, digits
+    /// and hyphens — the shape of a gene symbol, and equally the shape of
+    /// ChEMBL's component synonyms, a consortium's internal names and most
+    /// in-house panels.
+    #[must_use]
+    pub const fn discriminates(&self) -> bool {
+        self.marker.is_some()
     }
 
     /// Whether this namespace claims the identifier.
@@ -132,33 +181,91 @@ impl KnownNamespace {
             .find(|namespace| namespace.claims(identifier))
     }
 
-    /// The one namespace every identifier resolves to, if there is one.
+    /// What the identifiers themselves say about which space they are in.
     ///
-    /// `None` in three cases, and each is a refusal to guess rather than a
-    /// failure. An **empty** list infers nothing, because every shape
-    /// vacuously fits all zero identifiers and answering would declare a
-    /// space for a file that names nothing. A list resolving to **more than
-    /// one** namespace infers nothing, because a file that mixes two spaces
-    /// is the thing this dimension exists to catch and picking the majority
-    /// would hide it. And a list holding **one identifier nothing claims**
-    /// infers nothing, because such a file is partly corrupt — an Excel
-    /// date among the symbols — and a namespace declared over it would be
-    /// a claim about identifiers the engine could not read.
+    /// Four answers, and only one of them is a namespace. An **empty** list
+    /// settles nothing, because every shape vacuously fits all zero
+    /// identifiers and answering would declare a space for a file that names
+    /// nothing. A list resolving to **more than one** namespace settles
+    /// nothing, because a file that mixes two spaces is the thing this
+    /// dimension exists to catch and picking the majority would hide it. A
+    /// list holding **one identifier nothing claims** settles nothing,
+    /// because such a file is partly corrupt — an Excel date among the
+    /// symbols — and a namespace declared over it would be a claim about
+    /// identifiers the engine could not read.
+    ///
+    /// And a list that agrees on a shape carrying **no marker** settles
+    /// nothing either, which is D56 and the fourth refusal to guess. Its
+    /// own variant rather than a fourth way to be [`Inference::Unsettled`],
+    /// because the remedy differs: these identifiers are perfectly readable
+    /// and the user need only say which space they are in, where a file
+    /// holding `2-Sep` must be re-exported and would be made permanently
+    /// wrong by a declaration.
     #[must_use]
-    pub fn infer<'a, I>(identifiers: I) -> Option<&'static Self>
+    pub fn infer<'a, I>(identifiers: I) -> Inference
     where
         I: IntoIterator<Item = &'a str>,
     {
         let mut found: Option<&'static Self> = None;
         for identifier in identifiers {
-            let resolved = Self::resolve(identifier)?;
+            let Some(resolved) = Self::resolve(identifier) else {
+                return Inference::Unsettled;
+            };
             match found {
                 None => found = Some(resolved),
                 Some(agreed) if agreed == resolved => {}
-                Some(_) => return None,
+                Some(_) => return Inference::Unsettled,
             }
         }
-        found
+        match found {
+            None => Inference::Unsettled,
+            Some(shape) if shape.discriminates() => Inference::Settled(shape),
+            Some(shape) => Inference::Indistinguishable(shape),
+        }
+    }
+}
+
+/// What a file's own identifiers say about which space they are in.
+///
+/// Three variants rather than an `Option`, because the two ways of settling
+/// nothing need different advice and the loader is what phrases it. A
+/// loader that could only see `None` would have to send the user of a
+/// perfectly good gene-symbol list and the user of a spreadsheet-corrupted
+/// one to the same remedy, and one of those two remedies makes the
+/// corruption permanent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Inference {
+    /// One namespace, whose marker tells it from every other shape.
+    Settled(&'static KnownNamespace),
+    /// The identifiers do not agree on one shape, or hold a name no shape
+    /// claims, or there are none of them.
+    Unsettled,
+    /// They all fit one shape, and that shape carries no marker — so it
+    /// cannot tell its own space from the several that look like it.
+    ///
+    /// Carries the shape anyway, because a message worth reading names what
+    /// the identifiers looked like.
+    Indistinguishable(&'static KnownNamespace),
+}
+
+impl Inference {
+    /// The namespace, where the identifiers settled one.
+    #[must_use]
+    pub const fn settled(self) -> Option<&'static KnownNamespace> {
+        match self {
+            Self::Settled(namespace) => Some(namespace),
+            Self::Unsettled | Self::Indistinguishable(_) => None,
+        }
+    }
+
+    /// The shape every identifier fitted, where one did but could not
+    /// settle the question.
+    #[must_use]
+    pub const fn indistinguishable(self) -> Option<&'static KnownNamespace> {
+        match self {
+            Self::Indistinguishable(namespace) => Some(namespace),
+            Self::Settled(_) | Self::Unsettled => None,
+        }
     }
 }
 

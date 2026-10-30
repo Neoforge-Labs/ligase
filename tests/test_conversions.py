@@ -11,13 +11,23 @@ from tests.conftest import fixture
 
 
 def hgnc(**declared: str) -> lg.EntitySet:
+    """A list of HGNC symbols, which has to say so.
+
+    Bare symbols carry no marker, so the file states no space of its own
+    (D56) and a list meant to be joined or mapped declares one.
+    """
+    declared.setdefault("identifier_namespace", "HGNC symbol")
     return lg.entity_set(
         fixture("entities_hgnc.tsv"), organism="Homo sapiens", **declared
     )
 
 
 def table() -> lg.EntitySet:
-    return lg.entity_set(fixture("map_hgnc_to_ensembl.tsv"), organism="Homo sapiens")
+    return lg.entity_set(
+        fixture("map_hgnc_to_ensembl.tsv"),
+        organism="Homo sapiens",
+        identifier_namespace="HGNC symbol",
+    )
 
 
 def ensembl() -> lg.EntitySet:

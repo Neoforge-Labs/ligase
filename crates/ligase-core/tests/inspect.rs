@@ -136,10 +136,13 @@ fn the_dimensions_that_do_not_apply_are_named_once_as_not_applying() {
 
 #[test]
 fn a_gene_list_is_not_described_as_missing_a_reference() {
-    let described = describe(&entity_set("genes", "entities_hgnc.tsv"));
+    // An Ensembl list rather than a symbol one, because since M19 a bare
+    // symbol list states no space (D56) and this test is about what a gene
+    // list is *not* asked for. The symbol case has its own test below.
+    let described = describe(&entity_set("genes", "entities_ensembl.tsv"));
 
     assert!(
-        described.contains("genes.identifier_namespace = HGNC symbol"),
+        described.contains("genes.identifier_namespace = Ensembl gene"),
         "the dimension a gene list exists for, read off the identifiers: {described}"
     );
     assert!(
@@ -149,6 +152,28 @@ fn a_gene_list_is_not_described_as_missing_a_reference() {
     assert!(
         !described.contains("genes.contig_naming is unknown"),
         "nor a naming convention for them: {described}"
+    );
+}
+
+#[test]
+fn a_bare_symbol_list_is_described_as_unknown_rather_than_guessed() {
+    // What a consumer sees first, and the whole of what #32 asked for: the
+    // command that reads a file's dimensions says it cannot tell, in the
+    // language it already has for an unknown dimension, instead of printing
+    // `HGNC symbol` as though the file had said so.
+    let described = describe(&entity_set("genes", "entities_hgnc.tsv"));
+
+    assert!(
+        !described.contains("genes.identifier_namespace = HGNC symbol"),
+        "0.3.0 printed this as a fact: {described}"
+    );
+    assert!(
+        described.contains("genes.identifier_namespace is unknown"),
+        "{described}"
+    );
+    assert!(
+        described.contains("indistinguishable by pattern"),
+        "the reason has to say why no pattern can settle it: {described}"
     );
 }
 

@@ -375,12 +375,32 @@ SCENARIOS: tuple[Scenario, ...] = (
         description=("A gene list of HGNC symbols scored against one of Ensembl IDs."),
         build=lambda lg: {
             "truth": lg.entity_set(
-                fixture("entities_hgnc.tsv"), organism="Homo sapiens"
+                fixture("entities_hgnc.tsv"),
+                organism="Homo sapiens",
+                identifier_namespace="HGNC symbol",
             ),
             "found": lg.entity_set(
                 fixture("entities_ensembl.tsv"), organism="Homo sapiens"
             ),
         },
+    ),
+    Scenario(
+        key="undeclaredSymbols",
+        step="score",
+        expect="UndeclaredDimensionError",
+        description=(
+            "Two lists of bare gene symbols, neither declaring its space: "
+            "the shape carries no marker, so neither file states one."
+        ),
+        build=lambda lg: {
+            "truth": lg.entity_set(
+                fixture("entities_hgnc.tsv"), organism="Homo sapiens"
+            ),
+            "found": lg.entity_set(
+                fixture("entities_degs_symbols.tsv"), organism="Homo sapiens"
+            ),
+        },
+        contains=("indistinguishable by pattern", "declare identifier_namespace"),
     ),
     Scenario(
         key="rankedNamespace",
@@ -391,7 +411,9 @@ SCENARIOS: tuple[Scenario, ...] = (
         ),
         build=lambda lg: {
             "ranked": lg.ranked_list(
-                fixture("ranked_degs.tsv"), organism="Homo sapiens"
+                fixture("ranked_degs.tsv"),
+                organism="Homo sapiens",
+                identifier_namespace="HGNC symbol",
             ),
             "truth": lg.entity_set(
                 fixture("entities_ensembl.tsv"), organism="Homo sapiens"
@@ -526,7 +548,9 @@ SCENARIOS: tuple[Scenario, ...] = (
                 fixture("graph_targets.json"), organism="Homo sapiens"
             ),
             "truth": lg.entity_set(
-                fixture("entities_hgnc.tsv"), organism="Homo sapiens"
+                fixture("entities_hgnc.tsv"),
+                organism="Homo sapiens",
+                identifier_namespace="HGNC symbol",
             ),
         },
     ),
@@ -541,11 +565,13 @@ SCENARIOS: tuple[Scenario, ...] = (
             "ranked": lg.ranked_list(
                 fixture("ranked_degs.tsv"),
                 organism="Homo sapiens",
+                identifier_namespace="HGNC symbol",
                 release="HGNC 2026-09",
             ),
             "truth": lg.entity_set(
                 fixture("entities_hgnc.tsv"),
                 organism="Homo sapiens",
+                identifier_namespace="HGNC symbol",
                 release="HGNC 2026-03",
             ),
         },

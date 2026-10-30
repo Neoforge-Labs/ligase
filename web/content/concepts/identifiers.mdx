@@ -3,6 +3,8 @@ title: "Identifier spaces"
 description: "Why the space a gene list's names live in is a dimension, why the engine infers it only when it is certain, and why there is no alias table."
 ---
 
+import { diagnostics } from '../../lib/diagnostics.generated'
+
 # Identifier spaces
 
 <Lede>
@@ -73,6 +75,22 @@ also what a UniProt accession is made of. So the shapes are tried most
 specific first and the symbol is the fallback, which is how `P04637` reaches
 `UniProt accession` rather than being read as an unusual gene name.
 
+That the symbol shape has no marker has a second consequence, and it is the
+one worth reading twice: **a file of bare symbols is not inferred at all.**
+`DHFR-TS` is ChEMBL's name for a *P. falciparum* bifunctional enzyme and
+`MT-CYB` is an approved HGNC symbol, and no pattern separates them, so a
+list of either reports its space as *unknown* rather than as `HGNC symbol`
+([D56](/project/decisions/#d56--a-shape-with-no-marker-is-not-a-namespace)).
+Such a list declares its space in one argument:
+
+```python
+genes = lg.entity_set(
+    "results/degs.tsv",
+    organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
+)
+```
+
 That ordering is load-bearing in a way worth stating, because getting it
 wrong does not produce an error. A UniProt accession read as a gene symbol
 makes a protein list and a gene list *agree* about being in one space, and the
@@ -87,8 +105,9 @@ merely inconvenient; a shape that is too broad claims somebody else's
 identifiers, which is the bug.
 
 The loader then infers the space when, and only when, **every identifier in
-the file resolves to the same one**. It declines in three cases, and each is a
-refusal to guess rather than a shortcoming:
+the file resolves to the same one and that one carries a marker**. It
+declines in four cases, and each is a refusal to guess rather than a
+shortcoming:
 
 - **A file that mixes two spaces.** This is precisely the corruption the
   dimension exists to catch. Taking the majority would hide it.
@@ -97,11 +116,17 @@ refusal to guess rather than a shortcoming:
 - **A file holding one identifier nothing claims.** `2-Sep` is in no space.
   A file with one of those is partly corrupt, and a space declared over it
   would be a claim about identifiers the engine could not read.
+- **A file of bare gene symbols.** The shape has no marker, so the file has
+  not said which of the several spaces of that shape it is in. This is the
+  one decline whose remedy is simply to declare: the identifiers are
+  perfectly readable, and the engine is not.
 
 Where it declines, the dimension is unknown with a reason, and two gene lists
 that both leave it unknown are **refused rather than joined** — because two
 lists agreeing by silence is the false agreement this dimension exists to
 break. Declare it, or fix the file.
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.undeclaredSymbols}</Diagnostic>
 
 ## Why a declaration is taken on trust
 

@@ -182,8 +182,11 @@ fn declared_human() -> Declared {
 
 #[test]
 fn a_namespace_is_inferred_from_the_identifiers_themselves() {
+    // `entities_hgnc.tsv` was in this table until M19 and is now in
+    // `a_list_of_bare_symbols_leaves_the_namespace_unknown` below: its
+    // shape carries no marker, so the file does not state its own space
+    // (D56). Every space here does carry one, and still infers.
     for (file, expected) in [
-        ("entities_hgnc.tsv", "HGNC symbol"),
         ("entities_ensembl.tsv", "Ensembl gene"),
         ("entities_entrez.tsv", "Entrez gene"),
         ("entities_uniprot.tsv", "UniProt accession"),
@@ -249,16 +252,41 @@ fn the_loader_notices_a_symbol_excel_turned_into_a_date() {
 
 #[test]
 fn a_carriage_return_is_not_part_of_an_identifier() {
-    // Excel writes CRLF, and `TP53\r` would match no namespace at all.
+    // Excel writes CRLF, and `TP53\r` matches no namespace at all.
+    //
+    // Since M19 a bare-symbol list infers no namespace either (D56), so
+    // what is asserted is the *reason* the axis is unknown, and it is the
+    // stronger assertion: `TP53` reaches the symbol shape and declines for
+    // want of a marker, where `TP53\r` would reach no shape and decline for
+    // being unreadable. Two sentences, and only one of them is this file's.
     let loaded = load::entity_set(&fixture("entities_crlf.tsv"), None, &declared_human()).unwrap();
-    assert_eq!(
-        loaded
-            .dimensions()
-            .render(Dimension::IdentifierNamespace)
-            .as_deref(),
-        Some("HGNC symbol")
-    );
+    let why = loaded
+        .dimensions()
+        .reason(Dimension::IdentifierNamespace)
+        .unwrap_or_default();
+    assert!(why.contains("bare gene-symbol shapes"), "{why}");
     assert!(loaded.notes().is_empty());
+}
+
+#[test]
+fn a_list_of_bare_symbols_leaves_the_namespace_unknown() {
+    // D56. `entities_hgnc.tsv` holds `TP53`, `BRCA1`, `SEPT7` and `NKX2-1`,
+    // which are HGNC symbols — and are also the exact shape of ChEMBL's
+    // component synonyms and of most in-house panels. Through 0.3.0 this
+    // file reported `HGNC symbol` with no hedge, and two files reporting it
+    // alike is how an undeclared join across two spaces passed `check`.
+    let loaded = load::entity_set(&fixture("entities_hgnc.tsv"), None, &declared_human()).unwrap();
+    let dimensions = loaded.dimensions();
+    assert_eq!(dimensions.render(Dimension::IdentifierNamespace), None);
+
+    // And the reason sends the user to the one-argument fix, which is what
+    // separates this from the spreadsheet-date case below.
+    let why = dimensions
+        .reason(Dimension::IdentifierNamespace)
+        .unwrap_or_default();
+    assert!(why.contains("bare gene-symbol shapes"), "{why}");
+    assert!(why.contains("declare identifier_namespace"), "{why}");
+    assert!(!why.contains("re-export"), "{why}");
 }
 
 #[test]
@@ -293,12 +321,21 @@ fn a_blank_declared_namespace_is_a_gap_not_a_blank_label() {
             ..declared_human()
         };
         let loaded = load::entity_set(&fixture("entities_hgnc.tsv"), None, &declared).unwrap();
+        // A blank is not a label, so the loader falls back to the
+        // identifiers — which since M19 do not settle a bare-symbol list's
+        // space either. Either way the axis must be *unknown*: a blank
+        // label would compare equal to another blank label, and that is the
+        // false agreement this test is about.
         assert_eq!(
             loaded
                 .dimensions()
                 .render(Dimension::IdentifierNamespace)
                 .as_deref(),
-            Some("HGNC symbol"),
+            None,
+            "{blank:?}"
+        );
+        assert!(
+            !loaded.dimensions().is_known(Dimension::IdentifierNamespace),
             "{blank:?}"
         );
     }
@@ -332,13 +369,15 @@ fn the_identifier_column_can_be_named() {
         &declared_human(),
     )
     .unwrap();
-    assert_eq!(
-        loaded
-            .dimensions()
-            .render(Dimension::IdentifierNamespace)
-            .as_deref(),
-        Some("HGNC symbol")
-    );
+    // The named column holds this table's source identifiers, which are
+    // bare symbols: read, and declining for want of a marker (D56) rather
+    // than for being unreadable. Had the column not been found, the loader
+    // would have errored instead of reaching a reason at all.
+    let why = loaded
+        .dimensions()
+        .reason(Dimension::IdentifierNamespace)
+        .unwrap_or_default();
+    assert!(why.contains("bare gene-symbol shapes"), "{why}");
 }
 
 #[test]
@@ -361,13 +400,15 @@ fn a_file_with_carriage_return_line_endings_is_read_as_its_rows() {
     // is data loss that every later check would be happy with.
     let loaded =
         load::entity_set(&fixture("entities_cr_only.tsv"), None, &declared_human()).unwrap();
-    assert_eq!(
-        loaded
-            .dimensions()
-            .render(Dimension::IdentifierNamespace)
-            .as_deref(),
-        Some("HGNC symbol")
-    );
+    // Read as one line the file holds a single unreadable identifier, which
+    // declines for being unreadable; read as its rows it holds bare symbols,
+    // which decline for want of a marker (D56). The reason is what tells
+    // the two apart, so it is what this asserts.
+    let why = loaded
+        .dimensions()
+        .reason(Dimension::IdentifierNamespace)
+        .unwrap_or_default();
+    assert!(why.contains("bare gene-symbol shapes"), "{why}");
 }
 
 #[test]

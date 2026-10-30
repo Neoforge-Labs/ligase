@@ -541,7 +541,9 @@ fn a_mapped_list_is_in_the_space_it_was_mapped_to() {
         .collect();
     assert!(!identifiers.is_empty());
     assert_eq!(
-        KnownNamespace::infer(identifiers).map(KnownNamespace::name),
+        KnownNamespace::infer(identifiers)
+            .settled()
+            .map(KnownNamespace::name),
         Some("Ensembl gene")
     );
 }

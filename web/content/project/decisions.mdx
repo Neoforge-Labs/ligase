@@ -2,6 +2,8 @@
 title: "Decision Records"
 description: "The coordinates dimension records what a step sees, not the on-disk convention. SAM and BAM both present 1-based closed alignment records, so re-encoding between them changes"
 ---
+import { diagnostics } from '../../lib/diagnostics.generated'
+
 # Decision Records
 
 ## D1 — Rust core, Python surface
@@ -1221,7 +1223,7 @@ destination from the same parameter, and the engine's planned automatic fixes
 are a path search over those rows. See
 [conversions](/project/architecture/conversions/).
 
-### Inference, and three refusals to guess
+### Inference, and four refusals to guess
 
 The space is the one dimension the engine can usually read without being told.
 Six of the seven spaces it recognises carry a marker — a prefix, an
@@ -1231,7 +1233,7 @@ and the symbol is the fallback. `P04637` reaches `UniProt accession` rather
 than being read as an unusual gene name.
 
 Inference then succeeds only when every identifier in the file resolves to the
-same space, and declines in three cases:
+same space **and that space carries a marker**, and declines in four cases:
 
 - **a file that mixes two spaces** — precisely the corruption the dimension
   exists to catch, where taking the majority would hide it;
@@ -1239,7 +1241,11 @@ same space, and declines in three cases:
   answer would declare a space for a file that names nothing;
 - **a file holding one identifier nothing claims** — `2-Sep` is in no space,
   and a space declared over such a file would be a claim about names the
-  engine could not read.
+  engine could not read;
+- **a file whose identifiers all fit the marker-less shape** — bare gene
+  symbols, which are also the shape of ChEMBL's component synonyms and of
+  most in-house panels, so the file has not stated a space
+  ([D56](#d56--a-shape-with-no-marker-is-not-a-namespace)).
 
 Where it declines, the dimension is unknown with a reason. And unlike
 `release`, `subject` and `source_set`, this axis **is** demanded where two
@@ -2770,3 +2776,97 @@ platforms has two facts to state rather than one sentence about both.
 This is a public API change and it is the clause this milestone would have
 been least honest to skip. A tool whose argument is reproducibility cannot be
 vague about where a result was computed.
+
+## D56 — A shape with no marker is not a namespace
+
+`identifier_namespace` is the one dimension the engine can usually read
+without being told, and
+[D38](#d38--identifier-namespaces-never-coerce) already lists three cases
+where it declines to guess. This is the fourth, and it was measured against
+the published `0.3.0` wheel by a consumer rather than found here.
+
+Six of the seven shapes in the catalogue carry a **marker**: a prefix
+(`ENS`, `CHEMBL`), an underscore (`NM_`), a colon (`HGNC:`), digits
+throughout, or digits in fixed positions at a fixed length. `HGNC symbol`
+carries none. It is an upper-case letter followed by letters, digits and
+hyphens, which is what an approved symbol looks like — and equally what
+ChEMBL's component synonyms, a consortium's internal names and most
+in-house panels look like.
+
+So the file below infers `HGNC symbol` and is not in that space at all:
+
+```
+id	score
+DHFR-TS	0.90
+PPPK-DHPS	0.82
+```
+
+`DHFR-TS` is *P. falciparum*'s bifunctional dihydrofolate
+reductase–thymidylate synthase, named in ChEMBL's component-synonym space.
+`PPPK-DHPS` is the same story. `MT-CYB`, `HLA-A` and `NAT8B-AS1` are real
+HGNC symbols of the same shape, so **no matcher separates them** — this is
+not a pattern that wants improving.
+
+### Why a wrong value here is worse than no value
+
+A wrong guess would be bad enough on one side. The failure is that it is
+made identically on both: two files of symbol-shaped identifiers each
+inferred `HGNC symbol`, the values compared **equal**, and the join went
+ahead. `ligase check` printed `no problems found` and exited 0 for a
+pipeline scoring a ranking against a truth set across two identifier
+spaces — which is the exact defect this dimension was added to catch, in
+its purest form, produced by the engine rather than by the user.
+
+The consumer who measured it put the cost at 0 of 7 entities recovered
+undeclared, against 2 of 7 after an explicit mapping step. Neither number
+was reported by the undeclared pipeline. It simply ran.
+
+### What the engine does instead
+
+`KnownNamespace::infer` answers `Inference::Indistinguishable` wherever
+every identifier fits one shape and that shape carries no marker. The
+dimension is then **unknown with a reason**, `ligase inspect` says so in
+the language it already has for an unknown dimension, and a join of two
+such lists is refused by the demand `required_pair` already makes:
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.undeclaredSymbols}</Diagnostic>
+
+The six marker-bearing shapes infer exactly as they did. A declaration is
+still recorded and not verified, so `identifier_namespace="HGNC symbol"` is
+accepted on the user's word — which is the whole remedy, and is one
+argument.
+
+### Why not keep the guess and mark it
+
+Two weaker options were considered, both proposed in the report. **Marking
+the value** — printing `HGNC symbol (guessed)` — leaves a value in the
+field, and a value in the field is what `check` compares; the join would
+still pass unless equality were also taught to distinguish a guess from a
+fact, which is two mechanisms where one will do. **Refusing only
+guess-against-guess** keeps equality honest but leaves `inspect` printing a
+space the file never stated, and leaves a guess satisfying a comparison
+against a *declared* value — so a correct declaration on one side would be
+validated by a guess on the other.
+
+Neither is wrong, and both are smaller changes. What decides it is that
+this engine's answer to a question it cannot settle is to say so, and the
+identifiers genuinely do not settle this one. An unknown dimension is a
+state the whole system already handles: it has a reason, `inspect` prints
+it, `check` demands it where it matters, and the remedy is named.
+
+### The cost, which is real
+
+A list of bare gene symbols no longer states its own space, so pipelines
+that joined two such lists without declaring now refuse until one argument
+is added to each load. That is a behaviour change in the direction this
+project always takes it — a refusal before anything runs, with the fix in
+the message — but it is a change that breaks working pipelines, and it is
+the reason [D57](#d57--a-change-that-alters-results-is-named-where-a-pin-is-chosen)
+asks for it to be announced where a consumer choosing a pin will see it
+rather than in a changelog body. It is listed in
+[MIGRATING.md](https://github.com/Neoforge-Labs/ligase/blob/main/MIGRATING.md).
+
+The project's own fixtures felt it: sixteen Python tests and nine Rust
+tests declared a space they had been getting for free, and the four
+generated captures that build a pipeline over a symbol list now declare
+one. That is the migration a consumer performs, performed here first.

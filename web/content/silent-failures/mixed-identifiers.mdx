@@ -100,20 +100,33 @@ your back and keep the failures to itself. That is
 
 ## How it is caught
 
-Load each list as an `EntitySet`. Nothing is declared here, because the
-identifiers settle it:
+Load each list as an `EntitySet`. The Ensembl side settles itself — `ENSG`
+is a marker no other space has — and the symbol side says so, because bare
+symbols are the shape of several spaces at once and the engine will not pick
+between them
+([D56](/project/decisions/#d56--a-shape-with-no-marker-is-not-a-namespace)):
 
 ```python
 import ligase as lg
 
-mine = lg.entity_set("results/degs.tsv", organism="Homo sapiens")
+mine = lg.entity_set(
+    "results/degs.tsv",
+    organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
+)
 published = lg.entity_set("truth/published_set.tsv", organism="Homo sapiens")
 
 # Nothing has run. This reads the two files' identifier columns.
 lg.check_step("score", {"truth": published, "found": mine})
 ```
 
-That refuses with the message above. To get the join you wanted, convert —
+That refuses with the message above.
+
+Leave the symbol side undeclared and the refusal is the other one — the
+dimension is unknown, and two lists that each say nothing are not allowed
+to agree by silence:
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.undeclaredSymbols}</Diagnostic> To get the join you wanted, convert —
 which is one step, and which tells you what it could not convert:
 
 ```python

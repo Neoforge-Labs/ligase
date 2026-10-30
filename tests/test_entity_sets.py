@@ -10,27 +10,42 @@ from tests.conftest import fixture
 
 
 def test_a_gene_list_infers_the_space_its_identifiers_are_in() -> None:
-    genes = lg.entity_set(fixture("entities_hgnc.tsv"), organism="Homo sapiens")
+    # An Ensembl list, because a bare-symbol one no longer infers: that
+    # shape carries no marker, so the file does not state its own space
+    # (D56). See `test_a_bare_symbol_list_declines_to_infer_its_space`.
+    genes = lg.entity_set(fixture("entities_ensembl.tsv"), organism="Homo sapiens")
 
     found = genes.dimension("identifier_namespace")
     assert found is not None
-    assert found.value == "HGNC symbol"
+    assert found.value == "Ensembl gene"
     # And it says where it got that from, so the inference is checkable.
     assert "pattern" in found.source
+
+
+def test_a_bare_symbol_list_declines_to_infer_its_space() -> None:
+    # D56, measured by a consumer against 0.3.0: `DHFR-TS` is ChEMBL's name
+    # for a bifunctional enzyme and is the same string shape as `MT-CYB`,
+    # which is an HGNC symbol. 0.3.0 answered `HGNC symbol` for both, and
+    # two files answering alike is how a join across two spaces passed
+    # `check` with exit 0.
+    genes = lg.entity_set(fixture("entities_hgnc.tsv"), organism="Homo sapiens")
+
+    assert genes.dimension("identifier_namespace") is None
+    reason = genes.unknown_reason("identifier_namespace")
+    assert reason is not None
+    assert "indistinguishable by pattern" in reason
+    assert "declare identifier_namespace" in reason
 
 
 @pytest.mark.parametrize(
     ("file", "expected"),
     [
-        ("entities_hgnc.tsv", "HGNC symbol"),
         ("entities_ensembl.tsv", "Ensembl gene"),
         ("entities_entrez.tsv", "Entrez gene"),
         ("entities_uniprot.tsv", "UniProt accession"),
     ],
 )
-def test_every_namespace_the_catalogue_knows_is_inferred(
-    file: str, expected: str
-) -> None:
+def test_every_marker_bearing_namespace_is_inferred(file: str, expected: str) -> None:
     genes = lg.entity_set(fixture(file), organism="Homo sapiens")
     found = genes.dimension("identifier_namespace")
     assert found is not None
@@ -123,9 +138,12 @@ def test_a_named_identifier_column_is_read() -> None:
         organism="Homo sapiens",
         id_column="id",
     )
-    found = table.dimension("identifier_namespace")
-    assert found is not None
-    assert found.value == "HGNC symbol"
+    # The column was read, so its bare symbols declined for want of a
+    # marker (D56) rather than for holding a name nothing claims; a column
+    # that was not found would have raised instead.
+    reason = table.unknown_reason("identifier_namespace")
+    assert reason is not None
+    assert "indistinguishable by pattern" in reason
 
 
 def test_a_file_with_no_such_column_says_which_columns_it_has() -> None:

@@ -35,7 +35,7 @@
 use std::path::Path;
 
 use super::{Declared, LoadError, Row, Table, open};
-use crate::dim::{Dim, Dimensions, IdentifierNamespace, KnownNamespace, Source};
+use crate::dim::{Dim, Dimensions, IdentifierNamespace, Inference, KnownNamespace, Source};
 use crate::note::Note;
 use crate::types::{DataKind, Dataset};
 
@@ -46,6 +46,20 @@ pub(super) const DEFAULT_ID_COLUMN: &str = "id";
 /// did not settle it.
 const NOT_INFERRED: &str = "not declared, and the identifiers do not all match one \
                             namespace's pattern -- declare identifier_namespace";
+
+/// Why a namespace is unknown when every identifier is a bare symbol.
+///
+/// The third reason, and the one a consumer measured: these identifiers are
+/// perfectly readable, they all fit one shape, and that shape is the only
+/// one in the catalogue with no marker. A gene symbol, a ChEMBL component
+/// synonym and a lab's own panel are the same string shape, so a value here
+/// would be a guess — and two files guessing alike is how an undeclared
+/// cross-space join came to pass `check` (D56). The advice is the short one
+/// because the fix is one argument.
+const INDISTINGUISHABLE: &str = "not declared, and the identifiers are bare gene-symbol \
+                                 shapes -- symbols and several synonym spaces are \
+                                 indistinguishable by pattern, so declare \
+                                 identifier_namespace";
 
 /// The same, for a file holding an identifier a spreadsheet turned into a
 /// date.
@@ -172,22 +186,21 @@ fn namespace(
         return Dim::known(label, Source::Declared);
     }
 
-    KnownNamespace::infer(identifiers.iter().map(String::as_str)).map_or_else(
-        || {
-            Dim::unknown(if dated {
-                DATES_AMONG_THEM
-            } else {
-                NOT_INFERRED
-            })
-        },
-        |found| {
-            Dim::known(
-                IdentifierNamespace::new(found.name()),
-                Source::Inferred {
-                    path: path.to_path_buf(),
-                    detail: "the identifiers' own pattern",
-                },
-            )
-        },
-    )
+    match KnownNamespace::infer(identifiers.iter().map(String::as_str)) {
+        Inference::Settled(found) => Dim::known(
+            IdentifierNamespace::new(found.name()),
+            Source::Inferred {
+                path: path.to_path_buf(),
+                detail: "the identifiers' own pattern",
+            },
+        ),
+        // A shape with no marker is not a namespace this file has stated,
+        // however confidently its identifiers fit (D56).
+        Inference::Indistinguishable(_) => Dim::unknown(INDISTINGUISHABLE),
+        Inference::Unsettled => Dim::unknown(if dated {
+            DATES_AMONG_THEM
+        } else {
+            NOT_INFERRED
+        }),
+    }
 }

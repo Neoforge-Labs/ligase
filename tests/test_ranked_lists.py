@@ -18,7 +18,14 @@ from tests.conftest import fixture
 
 
 def ranked(**declared: object) -> lg.RankedList:
-    """A ranking of HGNC symbols, with anything else the caller declares."""
+    """A ranking of HGNC symbols, with anything else the caller declares.
+
+    The space is declared rather than left to the identifiers. A bare
+    symbol list states no space of its own (D56), and these files are
+    symbols, so a caller wanting a ranking that can be joined has to say
+    which space it is in — which is what every one of these tests wants.
+    """
+    declared.setdefault("identifier_namespace", "HGNC symbol")
     return lg.ranked_list(
         fixture("ranked_degs.tsv"),
         organism="Homo sapiens",
@@ -28,6 +35,7 @@ def ranked(**declared: object) -> lg.RankedList:
 
 def truth_set(**declared: object) -> lg.EntitySet:
     """A curated truth set of HGNC symbols, as a gene list."""
+    declared.setdefault("identifier_namespace", "HGNC symbol")
     return lg.entity_set(
         fixture("entities_hgnc.tsv"),
         organism="Homo sapiens",
@@ -44,11 +52,27 @@ def test_a_ranked_list_is_a_kind_a_step_may_annotate() -> None:
 
 
 def test_a_ranked_list_infers_the_space_its_identifiers_are_in() -> None:
-    found = ranked().dimension("identifier_namespace")
+    # An Ensembl ranking, because bare symbols carry no marker and so
+    # state no space (D56). The two kinds share their loader, which is why
+    # this reads the same as the gene list's.
+    listed = lg.ranked_list(
+        fixture("ranked_targets_ensembl.tsv"), organism="Homo sapiens"
+    )
+    found = listed.dimension("identifier_namespace")
     assert found is not None
-    assert found.value == "HGNC symbol"
+    assert found.value == "Ensembl gene"
     # And it says where it got that from, so the inference is checkable.
     assert "pattern" in found.source
+
+
+def test_a_ranking_of_bare_symbols_declines_to_infer_its_space() -> None:
+    # The same refusal a gene list gets, inherited from the shared loader.
+    listed = lg.ranked_list(fixture("ranked_degs.tsv"), organism="Homo sapiens")
+
+    assert listed.dimension("identifier_namespace") is None
+    reason = listed.unknown_reason("identifier_namespace")
+    assert reason is not None
+    assert "indistinguishable by pattern" in reason
 
 
 def test_a_ranked_list_carries_a_ranking_s_own_identifier_column() -> None:
@@ -58,9 +82,11 @@ def test_a_ranked_list_carries_a_ranking_s_own_identifier_column() -> None:
         id_column="gene",
         organism="Homo sapiens",
     )
-    found = listed.dimension("identifier_namespace")
-    assert found is not None
-    assert found.value == "HGNC symbol"
+    # The named column was read, so its bare symbols declined for want of a
+    # marker (D56); an unfound column would have raised instead.
+    reason = listed.unknown_reason("identifier_namespace")
+    assert reason is not None
+    assert "indistinguishable by pattern" in reason
 
 
 def test_a_ranked_list_applies_exactly_what_a_gene_list_applies() -> None:
@@ -186,7 +212,11 @@ def mapping() -> lg.EntitySet:
     `EGFR` has no row at all. So any ranking mapped through it loses rows,
     which is the case that matters.
     """
-    return lg.entity_set(fixture("map_hgnc_to_ensembl.tsv"), organism="Homo sapiens")
+    return lg.entity_set(
+        fixture("map_hgnc_to_ensembl.tsv"),
+        organism="Homo sapiens",
+        identifier_namespace="HGNC symbol",
+    )
 
 
 def test_a_mapped_ranking_declares_the_space_it_crossed_into() -> None:
@@ -267,7 +297,9 @@ def test_a_mapped_ranking_says_which_rank_became_the_first(
     from pathlib import Path
 
     leading = lg.ranked_list(
-        fixture("ranked_top_unmapped.tsv"), organism="Homo sapiens"
+        fixture("ranked_top_unmapped.tsv"),
+        organism="Homo sapiens",
+        identifier_namespace="HGNC symbol",
     )
     mapped = lg.map_ranked_identifiers(
         leading, mapping(), column="ensembl_gene_id", to="Ensembl gene"
@@ -304,6 +336,7 @@ def test_a_ranking_that_loses_nothing_says_nothing_about_ranks(
         lg.ranked_list(
             fixture("ranked_named_column.tsv"),
             organism="Homo sapiens",
+            identifier_namespace="HGNC symbol",
             id_column="gene",
         ),
         mapping(),

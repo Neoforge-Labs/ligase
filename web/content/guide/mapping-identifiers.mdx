@@ -20,7 +20,11 @@ is `id` unless you say otherwise.
 ```python
 import ligase as lg
 
-mine = lg.entity_set("results/degs.tsv", organism="Homo sapiens")
+mine = lg.entity_set(
+    "results/degs.tsv",
+    organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
+)
 published = lg.entity_set(
     "truth/published_set.tsv",
     organism="Homo sapiens",
@@ -28,22 +32,30 @@ published = lg.entity_set(
 )
 ```
 
-Neither call declares an identifier space, because neither needs to. Ask what
-was loaded:
+One call declares an identifier space and the other does not, and the
+difference is the whole of what the loader can and cannot read. Ask what was
+loaded:
 
 ```python
 >>> mine.dimension("identifier_namespace").value
 'HGNC symbol'
 >>> mine.dimension("identifier_namespace").source
-"from the identifiers' own pattern: results/degs.tsv"
+'declared'
 >>> published.dimension("identifier_namespace").value
 'Ensembl gene'
+>>> published.dimension("identifier_namespace").source
+"from the identifiers' own pattern: truth/published_set.tsv"
 ```
 
-The loader read the space off the identifiers, and says so. It only does this
-when every identifier in the file resolves to one space; see
-[identifier spaces](/concepts/identifiers/) on the three cases where it
-declines and leaves the dimension unknown instead.
+`ENSG00000141510` carries a marker no other space has, so the published set
+states its own space and the loader says where it read it. `TP53` carries
+none: it is the shape of an HGNC symbol, of a ChEMBL component synonym and of
+most in-house panels at once, so a symbol list has to say which it is
+([D56](/project/decisions/#d56--a-shape-with-no-marker-is-not-a-namespace)).
+Leave it off and the dimension is unknown with a reason, which the join then
+refuses rather than guesses past. See
+[identifier spaces](/concepts/identifiers/) on all four cases where inference
+declines.
 
 ## Watch the join be refused
 
@@ -181,7 +193,7 @@ the methods paragraph. Nothing about the conversion is invisible later. See
 If the list has been through Excel, some symbols are now dates:
 
 ```python
->>> genes = lg.entity_set("results/degs_from_excel.tsv", organism="Homo sapiens")
+>>> genes = lg.entity_set("results/degs_from_excel.tsv", organism="Homo sapiens")  # undeclared, on purpose
 >>> for note in genes.notes:
 ...     print(note)
 the identifier `2-Sep` is a date, not a name; a spreadsheet does this to SEPT7, MARCH1 and DEC1

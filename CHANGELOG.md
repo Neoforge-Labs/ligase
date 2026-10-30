@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **A bare gene-symbol list no longer states its own identifier space.**
+  `identifier_namespace` is inferred from the identifiers' own pattern, and
+  six of the seven shapes the engine recognises carry a marker — a prefix, an
+  underscore, a colon, or digits. `HGNC symbol` carries none: `DHFR-TS` is
+  ChEMBL's name for a *P. falciparum* bifunctional enzyme and `MT-CYB` is an
+  approved HGNC symbol, and no pattern separates them. Through 0.3.0 a list of
+  either inferred `HGNC symbol` with no hedge, and because both sides of a
+  join inferred the same wrong answer, `ligase check` reported no problems and
+  exited 0 for a pipeline joining two different identifier spaces.
+
+  Inference now declines where the agreeing shape carries no marker, and the
+  dimension is unknown with a reason naming why. The six marker-bearing shapes
+  infer as before, and a declaration is still recorded without being checked.
+
+  **This breaks pipelines that joined two symbol lists without declaring**,
+  with a refusal at `check()` before anything runs. Add
+  `identifier_namespace="HGNC symbol"` to each load. See
+  [MIGRATING.md](MIGRATING.md) and D56.
+
+  `KnownNamespace::infer` returns a three-way `Inference` rather than an
+  `Option`, so a Rust caller gets a compile error rather than a changed
+  answer.
+
 - **The gene-coverage floor is counted over the codons the algorithm scores,
   not over the gene.** `gene_coverage` asked what share of a gene's codons a
   reading covered. Reverse transcriptase has 560 codons and HIVDB 9.8 scores
