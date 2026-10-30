@@ -22,6 +22,26 @@ needed migrating in that release. Versions with no section needed nothing.
 
 ## Unreleased
 
+### `ligase methods` labels a claim's digest `canonical`, not `output`
+
+**What breaks.** Nothing runs differently, and the digest itself is
+unchanged. A bound claim's sentence ends `canonical b78ad78abbb2` where it
+ended `output b78ad78abbb2`, and a claim over several samples lists
+`Canonical digests:` where it listed `Outputs:`. A script matching the old
+words in `ligase methods` output needs the new ones; nothing reading
+`claims.tsv`, `bound.canonical` or the bundle is affected.
+
+**Why.** The digest was always the canonical form's. `output` read as the
+digest of the output's *bytes* — which is a different string, is the
+artifact's filename in the store, and is what `ligase audit` prints — so a
+reader handed one identifier by `methods` and shown the other by `audit`
+could not tell whether the two commands were describing the same result.
+
+**The edit.** None, unless you grep the write-up. `ligase audit` also prints
+a `canonical form` line now for a step whose two runs wrote the same bytes,
+so the two commands can be reconciled by eye.
+
+
 ### A hand-added Ligase reference is dropped in favour of the engine's
 
 **What breaks.** Nothing runs differently. What changes is a write-up: a

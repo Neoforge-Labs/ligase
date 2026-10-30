@@ -686,3 +686,31 @@ fn a_declared_step_whose_seed_names_no_parameter_is_still_not_deterministic() {
     assert_eq!(report.audited[0].verdict, Verdict::Reproducible);
     assert_eq!(report.audited[0].seed, None);
 }
+
+#[test]
+fn a_deterministic_step_prints_the_canonical_digest_too() {
+    // #43: a reader given a claim's digest by `ligase methods` and shown a
+    // different one by `ligase audit` has no way to tell whether they are
+    // looking at the same result. `methods` cites the canonical form, so
+    // this report names both and says which is which.
+    let mut bench = Bench::new();
+    let reference = bench.input("ref.fasta", ">1\nACGT\n");
+    let step = bench.step("align", "cat {in} > {out}", reference);
+
+    let report = bench.audit(&[step], "align");
+    let audited = report.audited.first().expect("one step was audited");
+    let text = report.text();
+
+    assert_eq!(audited.verdict, audit::Verdict::Deterministic);
+    assert!(
+        text.contains(&audited.first.to_hex()[..12]),
+        "the bytes both runs wrote: {text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "canonical form              {}",
+            &audited.first_canonical.to_hex()[..12]
+        )),
+        "and what `methods` cites, so the two commands reconcile: {text}"
+    );
+}

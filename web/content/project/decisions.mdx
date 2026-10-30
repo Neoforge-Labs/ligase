@@ -1583,6 +1583,7 @@ step. So the report says what the equality rests on:
 ```text
 reproducible     `permute`
     the same bytes both times   6c636bdb27d9
+    canonical form              8a1f52d0c4bb
     because `seed` was held at 20260101, not because the step cannot wobble
 ```
 
@@ -2972,7 +2973,7 @@ rest of the engine already prints a content hash:
 
 ```
 "variants were called above 1% allele frequency" rests on `call`, where
-    min_freq = 0.01 as this claim states, output 4a366b6cfeb0, recorded
+    min_freq = 0.01 as this claim states, canonical 4a366b6cfeb0, recorded
     30 October 2026 on macos-aarch64.
 ```
 
@@ -3004,6 +3005,11 @@ sentence listed every key under `Keys:` because naming beats counting
 `Outputs:` now, for the same reason and with the same per-sample
 resolution: a reviewer checking one sample needs that sample's identifier,
 and it has to be the one that still means something next year.
+
+Both words were `output` when this decision shipped, which was wrong about
+the one thing the decision is for; they are `canonical` and `Canonical
+digests:` since
+[D64](#d64--two-commands-naming-one-result-name-it-the-same-way).
 
 ## D60 — A one-to-many crossing is declared, and a ranking does not survive one
 
@@ -3424,3 +3430,65 @@ be [D24](#d24--a-citation-is-curated-or-declared-never-guessed)'s
 forbidden invention in a new place. The engine's own reference is the one
 case where it holds the fact rather than inferring it — which is exactly
 what makes the deduplication checkable rather than clever.
+
+## D64 — Two commands naming one result name it the same way
+
+[D59](#d59--a-claim-is-cited-by-its-output-digest-not-by-its-step-key) put
+the stable identifier in a claim's sentence and called it the wrong thing.
+The consumer who had asked for it checked the fix and found the same
+irreconcilability in a new form:
+
+```text
+$ ligase methods pipelines/malaria_validation.py
+"malaria F1 = 0.333 against seven curated targets" rests on `validate`,
+    output b78ad78abbb2, recorded 30 October 2026 on macos-aarch64.
+
+$ ligase audit validate pipelines/malaria_validation.py
+deterministic    `validate`
+    the same bytes both times   98bf0c2be9e1
+```
+
+`98bf0c2be9e1` is the output's bytes — it is the artifact's filename in the
+store. `b78ad78abbb2` is the digest of its canonical form, and there is no
+file under `store/b7`. So a reader given the first identifier and shown the
+second could not tell whether they were looking at the same result, a
+different one, or two kinds of digest. The whole point of D59 was that a
+reader can take an identifier from a methods section and reconcile it with
+the artifact.
+
+Two separate mistakes, with two separate fixes.
+
+**The word was wrong.** A write-up says `canonical b78ad78abbb2`, because
+that is which of a step's two digests it is. `output` was accurate about
+*whose* digest it is and silent about *which*, and silence is what let the
+two commands look like they disagreed. The multi-sample line reads
+`Canonical digests:` for the same reason.
+
+**The other command printed only one of the two.** `ligase audit` now prints
+`canonical form` under the bytes for every verdict whose bytes matched. The
+verdicts that disagree about the bytes already printed it — `what they mean
+does not` is the canonical digest, and `not reproducible` prints both runs'
+— so this is the case where the report had named only the filename.
+
+### Why the canonical digest is the one cited, which the report left open
+
+The reporter was tentative about this and right. The canonical form is what
+[D4](#d4--semantic-hashing) makes *scientifically identical* mean: it is
+stable across byte-level differences that do not change the result, which is
+exactly the stability a manuscript needs from an identifier it will carry for
+a year. The bytes digest moves when a tool writes the time of day into a
+header — a rerun that reproduces perfectly gets a different one — so citing
+it would have reintroduced D59's defect through a different door.
+
+So: cited by the canonical digest, labelled as the canonical digest, and the
+bytes digest stays out of the write-up altogether. It is a filename, and a
+filename in somebody else's cache is not an identifier a reader can use.
+
+### The general rule it leaves behind
+
+Two surfaces naming one thing name it the same way, and a word in front of
+an identifier says which identifier it is. This is
+[D26](#d26--one-sentence-per-finding-everywhere)'s rule — one sentence per
+finding, everywhere — applied to identifiers rather than to findings, and
+the failure mode is the same: a reader who cannot tell two accounts apart
+assumes they disagree.

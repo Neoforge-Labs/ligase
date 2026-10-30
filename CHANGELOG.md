@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`ligase methods` says which digest it is printing, and `ligase audit`
+  prints the same one.** A bound claim's sentence ends `canonical
+  b78ad78abbb2` where it ended `output b78ad78abbb2` — the digest was always
+  the canonical form's, and `output` read as the bytes', which is the digest
+  `audit` printed and the artifact's filename in the store. A reader given
+  one and shown the other could not tell whether the two commands described
+  the same result. `audit` now prints `canonical form` under the bytes for
+  every verdict whose bytes matched, and a claim over several samples lists
+  `Canonical digests:` where it listed `Outputs:`. See `MIGRATING.md`. D64.
+
 - **A Ligase reference added by hand is no longer printed twice.** 0.3.0 told
   consumers to cite the engine themselves, and D58's self-citation then
   rendered the same work twice — same version, same URL — with no spelling of
