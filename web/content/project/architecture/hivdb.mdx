@@ -301,7 +301,7 @@ long, makes the exception visible rather than hiding it inside the probe,
 and `hivdb` resolves to:
 
 ```text
-HIVdb rules as shipped: 9.8 2025-01-05 blake3:a1139c…; 10.2 2026-04-26 blake3:3268c9…; read by ligase 0.3.0
+HIVdb rules as shipped: 9.8 2025-01-05 blake3:a1139c…; 10.2 2026-04-26 blake3:3268c9…; read by ligase 0.4.0
 ```
 
 Four consequences, all deliberate:
@@ -327,6 +327,17 @@ Four consequences, all deliberate:
   rules; without this a cache would have gone on serving the old refusals.
   Over-conservative in the same direction: a release that touched none of
   it still reruns every `hivdb` step.
+- **The *build*, not the release**, which is a distinction the first
+  version of this line did not draw. `CARGO_PKG_VERSION` is read from the
+  manifest, and the manifest is bumped by a release commit — so every
+  commit between one release and the next reported the number of the
+  release it followed. A consumer measured the cost on a source build of
+  the commit carrying the scored-codon floor: it reported `read by ligase
+  0.3.0` while answering differently from the published 0.3.0, so a shared
+  store would serve one engine's answer to the other. A build that is not
+  a release now says so — `read by ligase 0.4.0+13.g0c5980e` — and the key
+  follows the source for free
+  ([D62](/project/decisions/#d62--a-build-that-is-not-a-release-says-so)).
 
 Doing it this way also picks up provenance, the methods sentence and
 [D24](/project/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)'s

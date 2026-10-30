@@ -255,7 +255,9 @@ fn a_step_that_runs_records_the_command_that_ran() {
     );
     assert_eq!(record.step, "copy");
     assert_eq!(record.code, "def copy(): ...");
-    assert_eq!(record.engine, ligase::version());
+    // The build, not the release: between releases they differ, and what a
+    // record asserts is the software that ran (D62).
+    assert_eq!(record.engine, ligase::build());
     assert!(!record.platform.is_empty(), "the platform is recorded");
 }
 

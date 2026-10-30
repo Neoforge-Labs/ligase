@@ -3268,3 +3268,84 @@ And not a guarantee that every such change is caught. A default that alters
 numbers is sometimes only visible to the person who measured it — both of
 these were. What the rule buys is that once it *is* known, there is one
 place it goes, and a release cannot quietly fail to mention it.
+
+## D62 — A build that is not a release says so
+
+`env!("CARGO_PKG_VERSION")` is read from the manifest at compile time, and
+the manifest is bumped by a release commit. So for every commit between one
+release and the next, a source build reported the number of the release it
+*followed* — and that string is not only printed. It is the engine's half of
+a `hivdb` step's tool version
+([D20](#d20--a-tolerance-is-a-quantisation)'s rule applied in
+[architecture/hivdb](/project/architecture/hivdb)), so it reaches the cache
+key.
+
+A consumer measured what that costs. A source build of `550a70f` — the
+commit carrying the scored-codon floor, after `v0.3.0` and before the
+`0.4.0` bump — reported `read by ligase 0.3.0` while answering differently
+from the published 0.3.0, which does not carry the floor. Their words for
+the consequence:
+
+> if CI builds from a branch and shares a store, two engines collide under
+> one key.
+
+That is the failure the cache is built to prevent, arriving through the
+version string rather than through the content. Two engines that disagree
+about a result share a key, so the store serves one engine's answer to the
+other — and worse than a wrong number, it is a wrong number with a
+provenance record asserting the version that did not produce it. The same
+string goes into a methods paragraph, so a manuscript generated from a
+branch build cites a version whose released artifact would not reproduce it.
+
+### Two questions, so two answers
+
+The mistake was having one number answer both of these:
+
+- *What release is this?* — what a wheel publishes, what `lg.__version__`
+  reports, what `ligase-bio>=0.4.0` resolves against. `version()`.
+- *What software ran?* — what the rule fingerprint, `tool="ligase"`, the
+  provenance record and the self-citation report. `build()`.
+
+Between releases those differ, and only the second may carry a marker: a
+wheel whose metadata said `0.4.0+13.g0c5980e` would be a different
+distribution from the one a pin resolves to, and the workspace's one-number
+rule exists so the Rust and Python halves cannot disagree about *that*
+number. So `version()` is untouched and `build()` is new beside it.
+
+`build()` is the release version plus a local version part — `0.4.0`,
+`0.4.0+13.g0c5980e`, `0.4.0+dirty` — composed from what `git describe`
+says about the source. After a single `+`, because the result is printed in
+a methods paragraph and has to stay a version a reader can resolve.
+
+### Why the git description, and not the two alternatives
+
+The reporter offered three remedies. The other two were a bare
+dirty-or-branch marker, and refusing to share a store between builds whose
+version strings match but whose binary hashes do not.
+
+A bare marker is strictly weaker: it separates a modified tree from a clean
+one and leaves every clean commit after a release claiming that release.
+The binary hash is stronger than what is implemented here and was not taken,
+for the reason the project usually takes the stronger option and here does
+not: a hash is not a version. It cannot be printed in a methods section, it
+differs between two builds of one commit that are the same software — a
+different toolchain, a different feature set — and it would put a value in
+the key that nobody can reconcile with anything published. The git
+description is the conventional answer because it is the one that stays
+*legible*: `0.4.0+13.g0c5980e` names a commit a reader can check out.
+
+What it does not catch is written down in `build.rs` rather than discovered
+later. A build with no repository to ask — an sdist, crates.io — falls back
+to the manifest version, which is the truth for a release and the old
+behaviour for a snapshot tarball; `LIGASE_GIT_DESCRIBE` is how a packager
+says which. Cargo reruns a build script only when a watched file changes, so
+`HEAD`, the current branch's ref and `packed-refs` are watched and a marker
+can still sit a commit behind until the crate is rebuilt. And it describes
+the source, not the binary, which is the third remedy above and remains
+available if a consumer measures a collision it would have caught.
+
+### The intended cost
+
+Development builds get new cache keys, and every `hivdb` step reruns once
+per build. That is the change, not a side effect of it: the keys were wrong,
+and a key that is right is a key that differs whenever the engine does.

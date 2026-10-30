@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **A build that is not a release reports the commit it is.** The engine read
+  its version from `CARGO_PKG_VERSION`, which is the manifest's number, and
+  the manifest is bumped by a release commit — so every commit between one
+  release and the next claimed the number of the release it followed. That
+  string is the engine's half of a `hivdb` step's tool version, so it reached
+  the cache key: a consumer measured a source build of the commit carrying
+  the scored-codon floor reporting `read by ligase 0.3.0` while answering
+  differently from the published 0.3.0, which is two engines sharing one key.
+  `ligase::build()` now answers `0.4.0+13.g0c5980e` for a source build and
+  `0.4.0+dirty` for a modified tree, and it is what the rule fingerprint,
+  `tool="ligase"`, the provenance record and the self-citation report.
+  `ligase::version()` and `lg.__version__` are unchanged: a wheel's metadata
+  and a dependency floor are about releases. See `MIGRATING.md`. D62.
 
 ## [0.4.0] - 2026-10-30
 

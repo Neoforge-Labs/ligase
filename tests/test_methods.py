@@ -69,7 +69,12 @@ def test_a_methods_section_describes_every_step(tmp_path: Path) -> None:
     # Lists since M18: a distributed run can have spanned several of each,
     # and a run on one machine is the one-entry case rather than a
     # different shape.
-    assert methods.engines == [lg.version()]
+    #
+    # The *build* rather than the release, since D62: a source build reports
+    # `0.4.0+13.g0c5980e`, which starts with the release it followed and is
+    # not it. A write-up names the software that ran.
+    assert len(methods.engines) == 1
+    assert methods.engines[0].startswith(lg.version()), methods.engines
     assert methods.platforms
     assert "copy" in methods.text
 

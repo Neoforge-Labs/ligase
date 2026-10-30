@@ -427,7 +427,7 @@ fn the_engine_that_reads_the_rules_is_in_the_key_too() {
     let fingerprint = ligase::hivdb::ruleset::fingerprint().unwrap();
 
     assert!(
-        fingerprint.contains(&format!("ligase {}", env!("CARGO_PKG_VERSION"))),
+        fingerprint.contains(&format!("ligase {}", ligase::build())),
         "{fingerprint}"
     );
 }

@@ -20,6 +20,40 @@ docs. `CHANGELOG.md` has all of it.
 **How to read the headings.** A `## <version>` section is everything that
 needed migrating in that release. Versions with no section needed nothing.
 
+## Unreleased
+
+### A source build no longer shares cache keys with the release it followed
+
+**What breaks.** Nothing on a released wheel. A build from a checkout —
+`maturin develop`, a CI build from a branch, an editable install — now
+reports `0.4.0+13.g0c5980e`, or `0.4.0+dirty` from a modified tree, where it
+reported `0.4.0`. That string is part of a `hivdb` step's tool version, so
+**every `hivdb` step reruns once** on such a build, and a source build and
+the published release no longer hit each other's cache entries. A methods
+paragraph and a rule fingerprint from a source build carry the marker too.
+
+**Why.** The manifest's number is bumped by a release commit, so a build of
+any commit after a release claimed that release's number. One consumer
+measured a build of `550a70f` reporting `read by ligase 0.3.0` while
+answering differently from the published 0.3.0, because that commit carries
+the scored-codon floor and the published 0.3.0 does not: *if CI builds from
+a branch and shares a store, two engines collide under one key*. A wrong
+answer with a provenance record asserting the version that did not produce
+it is the failure the cache exists to prevent.
+
+**The edit.** None, and nothing to undo: this is the intended key change.
+Two notes for a shared store — a store shared between a release wheel and a
+branch build now holds both engines' answers separately, which is the point,
+and it will grow by one entry per `hivdb` step per build; and if you build
+from an sdist or a tarball with no `.git`, set `LIGASE_GIT_DESCRIBE` at build
+time (for example `LIGASE_GIT_DESCRIBE=v0.4.0-13-g0c5980e`) or the build
+falls back to claiming the manifest's release.
+
+**Scripts.** `lg.__version__` and `ligase::version()` still answer `0.4.0`:
+the release number is what a wheel publishes and what `ligase-bio>=0.4.0`
+resolves against. What a build is, as software that ran, is
+`ligase::build()`.
+
 ## 0.4.0
 
 ### A list of bare gene symbols no longer states its own identifier space
