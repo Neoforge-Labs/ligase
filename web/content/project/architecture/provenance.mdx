@@ -445,6 +445,30 @@ whose stated remedy did not exist, and a gap that cannot be closed teaches a
 reader to skip the ones that can be
 ([D58](/project/decisions/#d58--the-engine-cites-itself-because-a-gap-has-to-be-closable)).
 
+### And it recognises its own work when somebody else cites it
+
+That change had a cost nobody saw until a consumer upgraded. 0.3.0's
+message had told them to cite Ligase by hand; they did, on their one
+decoratable step; and the self-citation then rendered the same work twice —
+same version, same URL, two entries in a reference list. There was no
+spelling of the pipeline that was correct on both versions, so they kept
+theirs with a `REMOVE this when the floor moves` comment.
+
+`cite::is_engine_reference` is the answer: a declared reference naming
+Ligase's own repository is the same work, and `Methods::citations` keeps the
+engine's own rather than the consumer's, because the engine's names the
+build that ran. The match is on `cite::REPOSITORY` — one constant, rendered
+by `cite::engine` and recognised here, so the two cannot drift — and only
+where the repository name ends there, which is what keeps a sibling
+repository under the same owner a different work
+([D63](/project/decisions/#d63--one-work-is-one-reference-and-the-engine-knows-its-own)).
+
+The URL is the identity rather than the title because that is how this kind
+of software is cited at all: a reference-list entry is free text and a title
+can be written twenty ways, while the repository a reader is pointed at is
+the thing being named. It is the same reasoning that gave RDKit its website
+in the table above.
+
 ## What is not here
 
 **Validation.** Whether the resistance calls agree with the published ones

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A Ligase reference added by hand is no longer printed twice.** 0.3.0 told
+  consumers to cite the engine themselves, and D58's self-citation then
+  rendered the same work twice — same version, same URL — with no spelling of
+  a pipeline correct on both versions: deleting the hand-added line brought
+  the unclosable gap back on the pinned one. A declared reference naming
+  Ligase's own repository is now recognised as the same work and dropped in
+  favour of the engine's, which names the build that ran rather than the
+  version the string was written against. A reference to anything else,
+  including a sibling repository, is untouched. See `MIGRATING.md`. D63.
+
 - **A build that is not a release reports the commit it is.** The engine read
   its version from `CARGO_PKG_VERSION`, which is the manifest's number, and
   the manifest is bumped by a release commit — so every commit between one

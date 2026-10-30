@@ -22,6 +22,29 @@ needed migrating in that release. Versions with no section needed nothing.
 
 ## Unreleased
 
+### A hand-added Ligase reference is dropped in favour of the engine's
+
+**What breaks.** Nothing runs differently. What changes is a write-up: a
+pipeline that cites Ligase itself through `@lg.step(cite=...)` — which
+0.3.0's own message asked for — now shows one Ligase reference rather than
+two, and the one shown is the engine's own wording, naming the build that
+ran.
+
+**Why.** D58 made the engine cite itself, which turned the remedy 0.3.0
+instructed into a duplicate reference, and a duplicated entry in a submitted
+methods section is what a copy-editor sends back. Removing the hand-added
+line fixed the newer build and brought the unclosable gap back on 0.3.0, so
+there was no spelling of a pipeline that was correct on both.
+
+**The edit.** None required: a reference pointing at
+`github.com/Neoforge-Labs/ligase` is recognised and dropped, so a `cite=`
+written for 0.3.0 keeps working and stops duplicating. You can delete the
+hand-added entry whenever your floor is past 0.4.0; if you format references
+to a journal's house style, note that it is the engine's wording that
+survives. A reference to anything else is untouched, a sibling repository
+such as `.../ligase-bio` included.
+
+
 ### A source build no longer shares cache keys with the release it followed
 
 **What breaks.** Nothing on a released wheel. A build from a checkout —

@@ -1355,3 +1355,56 @@ fn the_paragraph_names_every_engine_version_a_run_used() {
     assert!(text.contains("0.1.99"), "{text}");
     assert!(text.contains(ligase::version()), "{text}");
 }
+
+#[test]
+fn a_hand_added_ligase_reference_does_not_double_the_engines_own() {
+    // #44, reported against the build that shipped D58: 0.3.0 told a
+    // consumer "No reference is recorded for ligase. Add one with
+    // `@lg.step(cite=...)`", they did, and the self-citation then printed
+    // both -- two entries for one work, same version, same URL, in a
+    // methods section a copy-editor sends back. Worse, there was no
+    // spelling of a pipeline correct on both versions: removing it fixed
+    // the new build and brought the gap back on the pinned one.
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with(
+        "copy",
+        "cat {in} > {out}",
+        &[("in", input)],
+        &[],
+        &["python3"],
+    );
+    bench.cite(
+        node,
+        &[
+            "Njeri, K. Ligase: type-safe, reproducible computational biology \
+             pipelines (version 0.3.0). https://github.com/Neoforge-Labs/ligase",
+            "Python Software Foundation. Python 3.15.0. https://www.python.org",
+        ],
+    );
+
+    let report = bench.run(&[node]);
+    let methods = methods_of(&bench, &[node], &report);
+    let (cited, _) = methods.citations();
+
+    let ligase: Vec<&String> = cited
+        .iter()
+        .filter(|reference| reference.contains("github.com/Neoforge-Labs/ligase"))
+        .collect();
+    assert_eq!(ligase.len(), 1, "one work, one reference: {cited:?}");
+    // The engine's own survives rather than the consumer's, because it
+    // names the build that actually ran instead of whichever version they
+    // typed into a string a year ago.
+    assert!(
+        ligase[0].contains(ligase::build()),
+        "the surviving reference names the build that ran: {:?}",
+        ligase[0]
+    );
+    // And a reference that is not the engine's is untouched.
+    assert!(
+        cited
+            .iter()
+            .any(|reference| reference.contains("Python Software Foundation")),
+        "{cited:?}"
+    );
+}

@@ -3349,3 +3349,78 @@ available if a consumer measures a collision it would have caught.
 Development builds get new cache keys, and every `hivdb` step reruns once
 per build. That is the change, not a side effect of it: the keys were wrong,
 and a key that is right is a key that differs whenever the engine does.
+
+## D63 — One work is one reference, and the engine knows its own
+
+[D58](#d58--the-engine-cites-itself-because-a-gap-has-to-be-closable) closed
+a gap nobody could close and opened a smaller one in its place. The
+consumer who reported the gap had followed 0.3.0's advice:
+
+```text
+No reference is recorded for ligase. Add one with `@lg.step(cite=...)`, or
+cite it by hand.
+```
+
+So they cited it by hand. On the build that cites itself, that pipeline
+renders:
+
+```text
+References
+
+Njeri K. Ligase: dimension-checked, reproducible computational biology
+    pipelines (version 0.3.0). https://github.com/Neoforge-Labs/ligase
+Njeri, K. Ligase: type-safe, reproducible computational biology pipelines
+    (version 0.3.0). https://github.com/Neoforge-Labs/ligase
+Python Software Foundation. Python 3.15.0. https://www.python.org
+```
+
+Two entries for one work. Their framing of why that is not merely untidy is
+the part worth keeping: deleting the hand-added line fixes the new build and
+brings the unclosable gap straight back on the pinned one, so **no spelling
+of the pipeline was correct on both versions**. A consumer at the floor had
+to choose which version their source file was right for, and they kept a
+`REMOVE this when the floor moves` comment instead.
+
+A fix that only documented the remedy would have been
+[D57](#d57--a-change-that-alters-results-is-named-where-a-pin-is-chosen)
+applied to D58's own change, and worth doing. It is not enough on its own:
+the advice would be *delete a line you were told to write*, acted on at a
+different time by every consumer, with a duplicated reference in a
+manuscript as the cost of forgetting.
+
+### Deduplicate, rather than assume nobody cited you
+
+The engine knows its own citation. A declared reference pointing at the same
+repository is the same work, so one of the two goes.
+
+**The engine's own is kept.** It names the versions the run actually
+recorded — the build, since
+[D62](#d62--a-build-that-is-not-a-release-says-so) — where a hand-written
+string names whichever version it was typed against. The consumer's example
+says `version 0.3.0` in a write-up produced by 0.4.0, which is the kind of
+wrongness this project refuses from itself and should not propagate because
+a user supplied it. The cost is that their formatting is dropped; the
+alternative is a reference list asserting a version that did not run.
+
+**The URL identifies the work.** For software with no DOI that is how it is
+cited at all: a reference-list entry is free text, and the repository a
+reader is pointed at is the thing being named. `cite::REPOSITORY` is one
+constant, rendered by `cite::engine` and matched by
+`cite::is_engine_reference`, so the renderer and the recogniser cannot
+drift.
+
+**The match ends at the repository name.** `github.com/Neoforge-Labs/ligase`
+followed by `/`, `.`, a space or nothing is this work;
+`.../ligase-bio` is a different one. A loose substring test would have
+silently eaten a consumer's reference to a sibling repository, which is the
+same class of error in the opposite direction.
+
+### What this does not become
+
+A general citation deduplicator. The engine compares nothing else: two
+`cite=` strings for the same paper, written differently, are both printed,
+because the engine has no way to know they are one work and guessing would
+be [D24](#d24--a-citation-is-curated-or-declared-never-guessed)'s
+forbidden invention in a new place. The engine's own reference is the one
+case where it holds the fact rather than inferring it — which is exactly
+what makes the deduplication checkable rather than clever.
