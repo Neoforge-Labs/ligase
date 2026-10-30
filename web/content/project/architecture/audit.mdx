@@ -144,6 +144,7 @@ saying what the equality rests on:
 ```text
 reproducible     `permute`
     the same bytes both times   6c636bdb27d9
+    canonical form              8a1f52d0c4bb
     because `seed` was held at 20260101, not because the step cannot wobble
 ```
 
@@ -159,6 +160,22 @@ declaration bought:
 
 Both are pinned, by `the_report_does_not_say_the_bytes_differ_when_they_did_not`
 and `a_stochastic_step_whose_result_moves_is_told_its_seed_did_not_hold`.
+
+## Why a matching run still prints two digests
+
+`canonical form` is on every verdict whose bytes matched, and it is there for
+a command that is not this one. `ligase methods` cites a claim by the
+canonical digest of the step's output, and until this line existed a reader
+handed that identifier and shown a bytes digest here had no way to tell
+whether the two commands were describing the same result, a different one,
+or two kinds of digest — which a consumer reported as the same
+irreconcilability D59 set out to fix, in a new form
+([D64](/project/decisions/#d64--two-commands-naming-one-result-name-it-the-same-way)).
+
+The verdicts that *disagree* about the bytes already printed it: `what they
+mean does not` carries the canonical digest for `reproducible`, and `not
+reproducible` prints both runs'. So the line is where the report would
+otherwise have named only the artifact's filename in the store.
 
 ## Where the declaration travels
 

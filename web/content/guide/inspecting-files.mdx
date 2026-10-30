@@ -149,10 +149,20 @@ The loader is chosen by extension, with a `.gz` or `.bgz` suffix ignored:
 | `.sam` `.bam` | `Alignment` |
 | `.vcf` | `Variants` |
 | `.bed` `.gff` `.gff3` `.gtf` | `Intervals` |
-| `.tsv` | `EntitySet` |
+| `.tsv` | `EntitySet`, or `MoleculeSet` — see below |
 
 Anything else is a file it cannot read: exit `2`, naming the extensions it
-knows. In a pipeline you say what a file is by calling the loader for it —
+knows.
+
+`.tsv` is the one suffix that cannot settle it, so the header does: a table
+with an `inchikey` column is a `MoleculeSet`, a table with a `smiles` column
+and no `id` is one too, and anything else is an `EntitySet`. A table of
+structures — what a generative model emits, and what
+[`lg.chem.standardize`](/guide/molecules/) takes — therefore inspects as a
+molecule set whose representation is `SMILES, as given`. A file with both
+`id` and `smiles` is read as the entity set it most likely is: a list of
+genes may carry a structure as an attribute, while a molecule table has no
+reason to carry an identifier column. In a pipeline you say what a file is by calling the loader for it —
 `lg.reference(...)`, `lg.entity_set(...)` — and `inspect` is the one surface
 with nobody to ask.
 

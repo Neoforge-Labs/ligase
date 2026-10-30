@@ -263,6 +263,7 @@ impl AuditReport {
                         "    the same bytes both times   {}",
                         short(step.first)
                     ));
+                    lines.push(canonical_line(step));
                 }
                 // A seeded step whose bytes matched. Saying "the bytes
                 // differ" of it would be false, and leaving it at "the same
@@ -274,6 +275,7 @@ impl AuditReport {
                         "    the same bytes both times   {}",
                         short(step.first)
                     ));
+                    lines.push(canonical_line(step));
                     if let Some((name, value)) = &step.seed {
                         lines.push(format!(
                             "    because `{name}` was held at {value}, not because the step \
@@ -352,6 +354,23 @@ impl AuditReport {
         lines.push(self.summary());
         lines.join("\n")
     }
+}
+
+/// The line naming the canonical digest of what the runs produced.
+///
+/// Printed for the verdicts where the bytes matched, which are the ones that
+/// would otherwise show only the artifact's name in the store. `ligase
+/// methods` cites the canonical digest of a claim's output, and a reader
+/// given that identifier and shown a different one here could not tell
+/// whether the two commands were describing the same result, a different
+/// one, or two kinds of digest (D64). The two runs agree on the canonical
+/// form in every verdict but [`Verdict::NotReproducible`], which prints both
+/// of its own.
+fn canonical_line(step: &StepAudit) -> String {
+    format!(
+        "    canonical form              {}",
+        short(step.first_canonical)
+    )
 }
 
 /// Run one step twice and report whether it is reproducible.

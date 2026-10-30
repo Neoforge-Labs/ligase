@@ -219,6 +219,20 @@ A gene below it is left out, which makes its drugs *not assessed* — the
 same state as a gene the pipeline never supplied. The reading emits
 `Note::GeneBarelyRead`, whose counts are of scored codons.
 
+That it is one verdict for a whole gene is its real limit, and a consumer
+running a per-drug policy measured what the limit costs. An RT 40–120 dropout
+with M184V read — the mutation in covered sequence — keeps four RT rows at
+`gene_coverage=0.0`, a high-level 3TC call among them, each marked with its
+unread positions, while nine susceptible calls are declined; at the 0.8
+default the gene is skipped and the 3TC call goes with it. Their policy is
+asymmetric on purpose: a resistant call rests on a mutation that was read and
+unread positions could only add to it, while a susceptible call leaning on
+unread codons is absence of evidence. A share over a gene cannot say that, so
+`gene_coverage=0.0` plus the per-drug `unread` column is how such a policy is
+expressed here — a supported configuration rather than a workaround for the
+old denominator. Whether a per-drug floor should be the shape of the rule is
+D34's open question, now with a measurement behind it.
+
 A position a ruleset names past the end of a gene is left out of the count:
 no reading could cover it, and a floor nothing can clear is not a floor.
 `hivdb_codons.rs` checks the windows against the rules for the same
@@ -301,7 +315,7 @@ long, makes the exception visible rather than hiding it inside the probe,
 and `hivdb` resolves to:
 
 ```text
-HIVdb rules as shipped: 9.8 2025-01-05 blake3:a1139c…; 10.2 2026-04-26 blake3:3268c9…; read by ligase 0.3.0
+HIVdb rules as shipped: 9.8 2025-01-05 blake3:a1139c…; 10.2 2026-04-26 blake3:3268c9…; read by ligase 0.4.0
 ```
 
 Four consequences, all deliberate:
@@ -327,6 +341,17 @@ Four consequences, all deliberate:
   rules; without this a cache would have gone on serving the old refusals.
   Over-conservative in the same direction: a release that touched none of
   it still reruns every `hivdb` step.
+- **The *build*, not the release**, which is a distinction the first
+  version of this line did not draw. `CARGO_PKG_VERSION` is read from the
+  manifest, and the manifest is bumped by a release commit — so every
+  commit between one release and the next reported the number of the
+  release it followed. A consumer measured the cost on a source build of
+  the commit carrying the scored-codon floor: it reported `read by ligase
+  0.3.0` while answering differently from the published 0.3.0, so a shared
+  store would serve one engine's answer to the other. A build that is not
+  a release now says so — `read by ligase 0.4.0+13.g0c5980e` — and the key
+  follows the source for free
+  ([D62](/project/decisions/#d62--a-build-that-is-not-a-release-says-so)).
 
 Doing it this way also picks up provenance, the methods sentence and
 [D24](/project/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)'s

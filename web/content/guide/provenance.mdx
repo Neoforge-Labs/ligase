@@ -134,6 +134,14 @@ Through 0.3.0 `ligase` was instead reported as *uncited*, which was a gap
 nobody could close: the tool belonged to the built-in conversions, and those
 are steps the engine owns and that take no decorator to put `cite=` on
 ([D58](/project/decisions/#d58--the-engine-cites-itself-because-a-gap-has-to-be-closable)).
+
+If you added a Ligase reference by hand because that message asked you to,
+you can leave it where it is. A declared reference pointing at Ligase's own
+repository is recognised as the same work and dropped in favour of the
+engine's, which names the build that actually ran rather than the version
+the string was written against
+([D63](/project/decisions/#d63--one-work-is-one-reference-and-the-engine-knows-its-own)).
+A reference to anything else is untouched, including a sibling repository.
 </Note>
 
 ## The reproducibility bundle

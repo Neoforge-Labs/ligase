@@ -349,6 +349,15 @@ impl Methods {
 
         for group in &self.groups {
             for text in &group.declared {
+                // A consumer who added a Ligase reference by hand -- which
+                // 0.3.0's own message told them to do -- is citing the same
+                // work as the self-citation above. One work, one entry, and
+                // the engine's own is the one kept: it names the build that
+                // ran rather than whichever version the string was written
+                // against (D63).
+                if cite::is_engine_reference(text) {
+                    continue;
+                }
                 cited.insert(text.clone());
             }
             for (tool, _) in &group.record.tools {
@@ -915,7 +924,14 @@ fn claim_sentence(check: &ClaimCheck) -> String {
                     }
                     sentence.push_str(&restated_clause(check));
                     sentence.push_str(&format!(
-                        ", output {}, recorded {} on {}.",
+                        // `canonical`, because that is which digest it is.
+                        // The raw output's digest is the artifact's name in
+                        // the store and is what `audit` prints for a step
+                        // whose bytes matched: a reader handed one under the
+                        // word `output` and shown the other by `audit` could
+                        // not tell whether the two commands were describing
+                        // the same result (D64).
+                        ", canonical {}, recorded {} on {}.",
                         digest(only.canonical),
                         day(only.recorded_at),
                         only.platform
@@ -938,7 +954,7 @@ fn claim_sentence(check: &ClaimCheck) -> String {
                             None => digest(row.canonical),
                         })
                         .collect();
-                    sentence.push_str(&format!(". Outputs: {}.", digests.join(", ")));
+                    sentence.push_str(&format!(". Canonical digests: {}.", digests.join(", ")));
                 }
             }
             sentence

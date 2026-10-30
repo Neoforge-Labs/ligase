@@ -1583,6 +1583,7 @@ step. So the report says what the equality rests on:
 ```text
 reproducible     `permute`
     the same bytes both times   6c636bdb27d9
+    canonical form              8a1f52d0c4bb
     because `seed` was held at 20260101, not because the step cannot wobble
 ```
 
@@ -2972,7 +2973,7 @@ rest of the engine already prints a content hash:
 
 ```
 "variants were called above 1% allele frequency" rests on `call`, where
-    min_freq = 0.01 as this claim states, output 4a366b6cfeb0, recorded
+    min_freq = 0.01 as this claim states, canonical 4a366b6cfeb0, recorded
     30 October 2026 on macos-aarch64.
 ```
 
@@ -3004,6 +3005,11 @@ sentence listed every key under `Keys:` because naming beats counting
 `Outputs:` now, for the same reason and with the same per-sample
 resolution: a reviewer checking one sample needs that sample's identifier,
 and it has to be the one that still means something next year.
+
+Both words were `output` when this decision shipped, which was wrong about
+the one thing the decision is for; they are `canonical` and `Canonical
+digests:` since
+[D64](#d64--two-commands-naming-one-result-name-it-the-same-way).
 
 ## D60 — A one-to-many crossing is declared, and a ranking does not survive one
 
@@ -3268,3 +3274,308 @@ And not a guarantee that every such change is caught. A default that alters
 numbers is sometimes only visible to the person who measured it — both of
 these were. What the rule buys is that once it *is* known, there is one
 place it goes, and a release cannot quietly fail to mention it.
+
+## D62 — A build that is not a release says so
+
+`env!("CARGO_PKG_VERSION")` is read from the manifest at compile time, and
+the manifest is bumped by a release commit. So for every commit between one
+release and the next, a source build reported the number of the release it
+*followed* — and that string is not only printed. It is the engine's half of
+a `hivdb` step's tool version
+([D20](#d20--a-tolerance-is-a-quantisation)'s rule applied in
+[architecture/hivdb](/project/architecture/hivdb)), so it reaches the cache
+key.
+
+A consumer measured what that costs. A source build of `550a70f` — the
+commit carrying the scored-codon floor, after `v0.3.0` and before the
+`0.4.0` bump — reported `read by ligase 0.3.0` while answering differently
+from the published 0.3.0, which does not carry the floor. Their words for
+the consequence:
+
+> if CI builds from a branch and shares a store, two engines collide under
+> one key.
+
+That is the failure the cache is built to prevent, arriving through the
+version string rather than through the content. Two engines that disagree
+about a result share a key, so the store serves one engine's answer to the
+other — and worse than a wrong number, it is a wrong number with a
+provenance record asserting the version that did not produce it. The same
+string goes into a methods paragraph, so a manuscript generated from a
+branch build cites a version whose released artifact would not reproduce it.
+
+### Two questions, so two answers
+
+The mistake was having one number answer both of these:
+
+- *What release is this?* — what a wheel publishes, what `lg.__version__`
+  reports, what `ligase-bio>=0.4.0` resolves against. `version()`.
+- *What software ran?* — what the rule fingerprint, `tool="ligase"`, the
+  provenance record and the self-citation report. `build()`.
+
+Between releases those differ, and only the second may carry a marker: a
+wheel whose metadata said `0.4.0+13.g0c5980e` would be a different
+distribution from the one a pin resolves to, and the workspace's one-number
+rule exists so the Rust and Python halves cannot disagree about *that*
+number. So `version()` is untouched and `build()` is new beside it.
+
+`build()` is the release version plus a local version part — `0.4.0`,
+`0.4.0+13.g0c5980e`, `0.4.0+dirty` — composed from what `git describe`
+says about the source. After a single `+`, because the result is printed in
+a methods paragraph and has to stay a version a reader can resolve.
+
+### Why the git description, and not the two alternatives
+
+The reporter offered three remedies. The other two were a bare
+dirty-or-branch marker, and refusing to share a store between builds whose
+version strings match but whose binary hashes do not.
+
+A bare marker is strictly weaker: it separates a modified tree from a clean
+one and leaves every clean commit after a release claiming that release.
+The binary hash is stronger than what is implemented here and was not taken,
+for the reason the project usually takes the stronger option and here does
+not: a hash is not a version. It cannot be printed in a methods section, it
+differs between two builds of one commit that are the same software — a
+different toolchain, a different feature set — and it would put a value in
+the key that nobody can reconcile with anything published. The git
+description is the conventional answer because it is the one that stays
+*legible*: `0.4.0+13.g0c5980e` names a commit a reader can check out.
+
+What it does not catch is written down in `build.rs` rather than discovered
+later. A build with no repository to ask — an sdist, crates.io — falls back
+to the manifest version, which is the truth for a release and the old
+behaviour for a snapshot tarball; `LIGASE_GIT_DESCRIBE` is how a packager
+says which. Cargo reruns a build script only when a watched file changes, so
+`HEAD`, the current branch's ref and `packed-refs` are watched and a marker
+can still sit a commit behind until the crate is rebuilt. And it describes
+the source, not the binary, which is the third remedy above and remains
+available if a consumer measures a collision it would have caught.
+
+### The intended cost
+
+Development builds get new cache keys, and every `hivdb` step reruns once
+per build. That is the change, not a side effect of it: the keys were wrong,
+and a key that is right is a key that differs whenever the engine does.
+
+## D63 — One work is one reference, and the engine knows its own
+
+[D58](#d58--the-engine-cites-itself-because-a-gap-has-to-be-closable) closed
+a gap nobody could close and opened a smaller one in its place. The
+consumer who reported the gap had followed 0.3.0's advice:
+
+```text
+No reference is recorded for ligase. Add one with `@lg.step(cite=...)`, or
+cite it by hand.
+```
+
+So they cited it by hand. On the build that cites itself, that pipeline
+renders:
+
+```text
+References
+
+Njeri K. Ligase: dimension-checked, reproducible computational biology
+    pipelines (version 0.3.0). https://github.com/Neoforge-Labs/ligase
+Njeri, K. Ligase: type-safe, reproducible computational biology pipelines
+    (version 0.3.0). https://github.com/Neoforge-Labs/ligase
+Python Software Foundation. Python 3.15.0. https://www.python.org
+```
+
+Two entries for one work. Their framing of why that is not merely untidy is
+the part worth keeping: deleting the hand-added line fixes the new build and
+brings the unclosable gap straight back on the pinned one, so **no spelling
+of the pipeline was correct on both versions**. A consumer at the floor had
+to choose which version their source file was right for, and they kept a
+`REMOVE this when the floor moves` comment instead.
+
+A fix that only documented the remedy would have been
+[D57](#d57--a-change-that-alters-results-is-named-where-a-pin-is-chosen)
+applied to D58's own change, and worth doing. It is not enough on its own:
+the advice would be *delete a line you were told to write*, acted on at a
+different time by every consumer, with a duplicated reference in a
+manuscript as the cost of forgetting.
+
+### Deduplicate, rather than assume nobody cited you
+
+The engine knows its own citation. A declared reference pointing at the same
+repository is the same work, so one of the two goes.
+
+**The engine's own is kept.** It names the versions the run actually
+recorded — the build, since
+[D62](#d62--a-build-that-is-not-a-release-says-so) — where a hand-written
+string names whichever version it was typed against. The consumer's example
+says `version 0.3.0` in a write-up produced by 0.4.0, which is the kind of
+wrongness this project refuses from itself and should not propagate because
+a user supplied it. The cost is that their formatting is dropped; the
+alternative is a reference list asserting a version that did not run.
+
+**The URL identifies the work.** For software with no DOI that is how it is
+cited at all: a reference-list entry is free text, and the repository a
+reader is pointed at is the thing being named. `cite::REPOSITORY` is one
+constant, rendered by `cite::engine` and matched by
+`cite::is_engine_reference`, so the renderer and the recogniser cannot
+drift.
+
+**The match ends at the repository name.** `github.com/Neoforge-Labs/ligase`
+followed by `/`, `.`, a space or nothing is this work;
+`.../ligase-bio` is a different one. A loose substring test would have
+silently eaten a consumer's reference to a sibling repository, which is the
+same class of error in the opposite direction.
+
+### What this does not become
+
+A general citation deduplicator. The engine compares nothing else: two
+`cite=` strings for the same paper, written differently, are both printed,
+because the engine has no way to know they are one work and guessing would
+be [D24](#d24--a-citation-is-curated-or-declared-never-guessed)'s
+forbidden invention in a new place. The engine's own reference is the one
+case where it holds the fact rather than inferring it — which is exactly
+what makes the deduplication checkable rather than clever.
+
+## D64 — Two commands naming one result name it the same way
+
+[D59](#d59--a-claim-is-cited-by-its-output-digest-not-by-its-step-key) put
+the stable identifier in a claim's sentence and called it the wrong thing.
+The consumer who had asked for it checked the fix and found the same
+irreconcilability in a new form:
+
+```text
+$ ligase methods pipelines/malaria_validation.py
+"malaria F1 = 0.333 against seven curated targets" rests on `validate`,
+    output b78ad78abbb2, recorded 30 October 2026 on macos-aarch64.
+
+$ ligase audit validate pipelines/malaria_validation.py
+deterministic    `validate`
+    the same bytes both times   98bf0c2be9e1
+```
+
+`98bf0c2be9e1` is the output's bytes — it is the artifact's filename in the
+store. `b78ad78abbb2` is the digest of its canonical form, and there is no
+file under `store/b7`. So a reader given the first identifier and shown the
+second could not tell whether they were looking at the same result, a
+different one, or two kinds of digest. The whole point of D59 was that a
+reader can take an identifier from a methods section and reconcile it with
+the artifact.
+
+Two separate mistakes, with two separate fixes.
+
+**The word was wrong.** A write-up says `canonical b78ad78abbb2`, because
+that is which of a step's two digests it is. `output` was accurate about
+*whose* digest it is and silent about *which*, and silence is what let the
+two commands look like they disagreed. The multi-sample line reads
+`Canonical digests:` for the same reason.
+
+**The other command printed only one of the two.** `ligase audit` now prints
+`canonical form` under the bytes for every verdict whose bytes matched. The
+verdicts that disagree about the bytes already printed it — `what they mean
+does not` is the canonical digest, and `not reproducible` prints both runs'
+— so this is the case where the report had named only the filename.
+
+### Why the canonical digest is the one cited, which the report left open
+
+The reporter was tentative about this and right. The canonical form is what
+[D4](#d4--semantic-hashing) makes *scientifically identical* mean: it is
+stable across byte-level differences that do not change the result, which is
+exactly the stability a manuscript needs from an identifier it will carry for
+a year. The bytes digest moves when a tool writes the time of day into a
+header — a rerun that reproduces perfectly gets a different one — so citing
+it would have reintroduced D59's defect through a different door.
+
+So: cited by the canonical digest, labelled as the canonical digest, and the
+bytes digest stays out of the write-up altogether. It is a filename, and a
+filename in somebody else's cache is not an identifier a reader can use.
+
+### The general rule it leaves behind
+
+Two surfaces naming one thing name it the same way, and a word in front of
+an identifier says which identifier it is. This is
+[D26](#d26--a-field-that-cannot-be-dropped-is-noticed-instead)'s rule — every
+surface says the same thing in the same words — applied to identifiers rather
+than to findings, and the failure mode is the same: a reader who cannot tell
+two accounts apart assumes they disagree.
+
+## D65 — A declaration is refused where the file itself refutes it
+
+[D38](#d38--identifier-namespaces-never-coerce) says a declared dimension is
+recorded and not verified, and
+[architecture/molecules](/project/architecture/molecules) gives the sharper
+reason for the representation axis: the engine has no chemistry (D49), so it
+could not check the claim if it wanted to.
+
+A consumer took that seriously enough to test it, and found the sentence
+true of three operations and false of the fourth.
+
+> `salt-stripped` does not pin a molecule's charge state, but an InChIKey's
+> final block does.
+
+Their measurement, against the released 0.3.0: one generated set, and two
+reference sets differing only in charge state, each declared `inchikey;
+salt-stripped`.
+
+```text
+reference keyed -N (salt-stripped then uncharged)
+    generated=2 reference=2 novel=1 -> novelty=50%
+reference keyed -M (salt-stripped only)
+    generated=2 reference=2 novel=0 -> novelty=0%
+```
+
+`ligase check` printed `no problems found` and exited 0 for both, because
+both declarations read the same and they matched. Aspirin was in the
+reference set either way; in the first reading it came back novel.
+
+They opened by saying `lg.chem.standardize` is correct and that they had gone
+looking for a bug in it and found none. That is right, and it is what makes
+the finding structural: **the vocabulary term is coarser than the identifier
+it keys to.** It is D56's defect one level down — there, two inferred values
+compared equal and the join passed; here, two honest declarations do.
+
+### What a key can be made to say
+
+An InChIKey's third block is the protonation layer: `N` for a proton balance
+of zero, `M`, `L`, `K` for one, two and three protons removed, `O`, `P`, `Q`
+for as many added. So:
+
+**`charge-neutralised` declared over a key that is not neutral is refused at
+load.** Not noted, not inferred around — refused, as a contig-naming
+mismatch is, and for the same reason: the file contains the evidence against
+the claim. The error names the key, its row, its block and the state those
+keys *are* in, so the honest declaration is in front of the reader.
+
+**All-neutral keys under `salt-stripped` alone are a note.** This direction
+cannot be proved. A molecule with nothing to neutralise keys `-N` with
+nothing applied, so a table of such compounds is honest and looks identical
+to one that was neutralised by a step nobody declared. The note says what the
+shape usually means and leaves the judgement with the person who prepared the
+file.
+
+That asymmetry is this project's standing answer — the stereo check reached
+it from the other side, and M10a's case folding before that: a false
+agreement is unrecoverable, a loud refusal is not.
+
+### Why this is not an exception to D38
+
+D38 is about what the engine must not *invent*. Checking a declaration
+against evidence the file already contains invents nothing: the engine reads
+one character of a string it is already reading, and no structure is parsed,
+no ring perceived, no InChI computed. D49 is untouched.
+
+The rule the two make together is the one worth carrying to the next axis: a
+declaration is taken on trust **only where there is nothing to check it
+against.** Where the data can refute it, the data wins.
+
+### Why `salt-stripped` stays expressible
+
+The report's third suggestion was to consider removing the one-term form as
+a destination for `standardize`, since every constructible use of it also
+wants `charge-neutralised`. It stays, for a reason that is about the axis
+rather than about the API: files really are in that state. A salt-stripped
+export is a thing a collaborator hands you, and a vocabulary that could not
+describe it would push that file into `as given` or into a gap — which is the
+dimension system failing at its own job to avoid a trap at a different
+surface.
+
+What was wrong was the documentation, so that is what changed. The guide says
+plainly that public collections ship neutral parents, that the one-term form
+emits keys matching nothing in the wild, and that it is not a state to
+standardise *to*. A trap named where somebody is choosing is worth more than
+a removed option, and the removal was the reporter's own least-preferred
+remedy.

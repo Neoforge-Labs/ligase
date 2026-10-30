@@ -7,7 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **A molecule table's charge state is checked against its own keys.**
+  `salt-stripped` does not pin a charge state and an InChIKey's third block
+  does, so two mutually incompatible reference sets could both carry the
+  honest declaration `inchikey; salt-stripped`, compare equal, and produce a
+  novelty count of 0% or 50% depending on which was loaded — with `ligase
+  check` reporting no problems for both. A table declared
+  `charge-neutralised`, by argument or by its own representation line, whose
+  keys end in anything but `N` is now refused at load, naming the key, its
+  row and the state those keys are in. A table declaring `salt-stripped`
+  alone whose keys are all neutral gets a `keys-look-neutralised` note, which
+  is all the keys can support in that direction. No chemistry is read to do
+  either. See `MIGRATING.md`. D65.
+
+### Changed
+
+- **`MIGRATING.md` stops telling a per-drug consumer to drop a workaround they
+  still need.** The 0.4.0 gene-coverage entry said `gene_coverage=0.0` should
+  no longer be needed once the floor counted scored codons. For a consumer
+  whose coverage policy is per drug rather than per gene it still is: the
+  floor returns one verdict for a whole gene, and on an RT 40–120 dropout with
+  M184V read the 0.8 default skips the gene and discards a high-level 3TC call
+  that rests on a mutation someone actually read. `gene_coverage=0.0` is
+  documented as a supported configuration, in the migration note, the guide
+  and the architecture page.
+
+- **The guide says what `salt-stripped` alone is for.** Public compound
+  collections ship neutral parents, so standardising *to* `inchikey;
+  salt-stripped` emits keys that match nothing in the wild. The one-term form
+  stays in the vocabulary, because files are in that state and the axis has to
+  be able to say so, and the trap is now named where a state is chosen.
+
+- **`ligase inspect` reads a molecule table keyed by SMILES.** The `.tsv`
+  dispatch asked for an `inchikey` column and nothing else, so a table of
+  structures — what a generative model emits, and the one shape
+  `lg.chem.standardize` is specified to consume — went to the gene-list
+  loader and came back as `no column named \`id\` to read identifiers from`,
+  blaming a column a molecule table has no reason to have. `lg.molecule_set`
+  had always loaded it. Such a file now inspects as a `MoleculeSet` whose
+  representation is `SMILES, as given`; a table carrying both `id` and
+  `smiles` is still read as an `EntitySet`.
+
+- **`ligase methods` says which digest it is printing, and `ligase audit`
+  prints the same one.** A bound claim's sentence ends `canonical
+  b78ad78abbb2` where it ended `output b78ad78abbb2` — the digest was always
+  the canonical form's, and `output` read as the bytes', which is the digest
+  `audit` printed and the artifact's filename in the store. A reader given
+  one and shown the other could not tell whether the two commands described
+  the same result. `audit` now prints `canonical form` under the bytes for
+  every verdict whose bytes matched, and a claim over several samples lists
+  `Canonical digests:` where it listed `Outputs:`. See `MIGRATING.md`. D64.
+
+- **A Ligase reference added by hand is no longer printed twice.** 0.3.0 told
+  consumers to cite the engine themselves, and D58's self-citation then
+  rendered the same work twice — same version, same URL — with no spelling of
+  a pipeline correct on both versions: deleting the hand-added line brought
+  the unclosable gap back on the pinned one. A declared reference naming
+  Ligase's own repository is now recognised as the same work and dropped in
+  favour of the engine's, which names the build that ran rather than the
+  version the string was written against. A reference to anything else,
+  including a sibling repository, is untouched. See `MIGRATING.md`. D63.
+
+- **A build that is not a release reports the commit it is.** The engine read
+  its version from `CARGO_PKG_VERSION`, which is the manifest's number, and
+  the manifest is bumped by a release commit — so every commit between one
+  release and the next claimed the number of the release it followed. That
+  string is the engine's half of a `hivdb` step's tool version, so it reached
+  the cache key: a consumer measured a source build of the commit carrying
+  the scored-codon floor reporting `read by ligase 0.3.0` while answering
+  differently from the published 0.3.0, which is two engines sharing one key.
+  `ligase::build()` now answers `0.4.0+13.g0c5980e` for a source build and
+  `0.4.0+dirty` for a modified tree, and it is what the rule fingerprint,
+  `tool="ligase"`, the provenance record and the self-citation report.
+  `ligase::version()` and `lg.__version__` are unchanged: a wheel's metadata
+  and a dependency floor are about releases. See `MIGRATING.md`. D62.
 
 ## [0.4.0] - 2026-10-30
 

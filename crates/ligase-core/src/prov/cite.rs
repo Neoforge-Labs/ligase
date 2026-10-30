@@ -127,6 +127,49 @@ pub const KNOWN: &[Citation] = &[
 /// crate's version instead of probing for a binary.
 pub const ENGINE: &str = "ligase";
 
+/// Where the engine's own reference points a reader.
+///
+/// A constant because two things read it: [`engine`], which renders the
+/// reference, and [`is_engine_reference`], which recognises a reference to
+/// the same work that somebody else wrote.
+pub const REPOSITORY: &str = "https://github.com/Neoforge-Labs/ligase";
+
+/// Whether a reference a step declared is this engine's own work.
+///
+/// # Why this is asked at all
+///
+/// Because 0.3.0 told consumers to write one. Before [`engine`] existed, a
+/// write-up named `ligase` as uncited and advised `@lg.step(cite=...)`, so
+/// the consumers who read the message added a Ligase reference by hand. Once
+/// the engine cited itself (D58), those pipelines rendered the same work
+/// twice -- same version, same URL -- which is a duplicated entry in a
+/// submitted methods section, and no spelling of the pipeline was correct on
+/// both versions at once: deleting the hand-added line fixed the new build
+/// and brought the unclosable gap back on the pinned one.
+///
+/// So the engine recognises its own work rather than assuming nobody else
+/// cited it. The URL is what identifies it, as it does for any software with
+/// no DOI: a reference list entry is free text and a title can be written
+/// twenty ways, while the repository a reader is pointed at is the thing
+/// being cited.
+///
+/// Matched on the repository rather than on the host, and only where the
+/// name ends there, so that a sibling repository under the same owner is a
+/// different work.
+#[must_use]
+pub fn is_engine_reference(text: &str) -> bool {
+    let needle = REPOSITORY
+        .trim_start_matches("https://")
+        .to_ascii_lowercase();
+    let text = text.to_ascii_lowercase();
+    text.match_indices(&needle).any(|(at, _)| {
+        text[at + needle.len()..]
+            .chars()
+            .next()
+            .is_none_or(|next| !next.is_ascii_alphanumeric() && next != '-' && next != '_')
+    })
+}
+
 /// The engine's own reference, naming the versions a run used.
 ///
 /// # Why this is not a row in [`KNOWN`]
@@ -163,7 +206,7 @@ pub fn engine(versions: &[String]) -> String {
     };
     format!(
         "Njeri K. Ligase: dimension-checked, reproducible computational biology \
-         pipelines (version {versions}). https://github.com/Neoforge-Labs/ligase"
+         pipelines (version {versions}). {REPOSITORY}"
     )
 }
 
@@ -274,6 +317,36 @@ mod tests {
     fn the_engine_falls_back_to_this_build_when_a_run_recorded_nothing() {
         let reference = engine(&[]);
         assert!(reference.contains(crate::version()), "{reference}");
+    }
+
+    #[test]
+    fn the_engines_own_work_is_recognised_however_it_was_written() {
+        // The exact string a consumer added after 0.3.0 told them to, and
+        // the shapes a reference list legitimately writes a URL in.
+        for text in [
+            "Njeri, K. Ligase: type-safe, reproducible computational biology \
+             pipelines (version 0.3.0). https://github.com/Neoforge-Labs/ligase",
+            "Ligase. https://github.com/Neoforge-Labs/ligase/",
+            "Ligase (software). http://www.github.com/neoforge-labs/LIGASE",
+            "Njeri K. Ligase. github.com/Neoforge-Labs/ligase.git, accessed 2026.",
+            &engine(&["0.4.0".to_owned()]),
+        ] {
+            assert!(is_engine_reference(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_reference_to_something_else_is_left_alone() {
+        // The second entry in the consumer's own `cite=`, and a sibling
+        // repository, which is a different work however similar its name.
+        for text in [
+            "Python Software Foundation. Python 3.15.0. https://www.python.org",
+            "Li H (2018) Minimap2. Bioinformatics 34(18):3094-3100.",
+            "Someone. Ligase recipes. https://github.com/Neoforge-Labs/ligase-bio",
+            "Someone. https://github.com/elsewhere/ligase",
+        ] {
+            assert!(!is_engine_reference(text), "{text}");
+        }
     }
 
     #[test]
