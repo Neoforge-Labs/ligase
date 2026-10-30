@@ -1,5 +1,5 @@
 {% set name = "ligase-bio" %}
-{% set version = "0.1.0" %}
+{% set version = "0.4.0" %}
 
 package:
   name: {{ name|lower }}
@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/ligase_bio-{{ version }}.tar.gz
-  sha256: 83a7b4ae63107d6fbdcea59fc13e7faa4346b7c63a63bfe34cb267a6345101b5
+  sha256: 7d75be04a40c83144356cd31e4df0f76ad1ea54fb216a4a04d32c2bfbd2daa1b
 
 build:
   number: 0
