@@ -1197,3 +1197,122 @@ fn a_claim_with_no_location_is_bound_without_being_verified() {
 
     assert_eq!(only(&methods).verdict.name(), "bound");
 }
+
+#[test]
+fn the_digest_a_claim_cites_is_labelled_for_what_it_is() {
+    // Reported against this change: the sentence said `output b78ad78abbb2`
+    // and that digest is not the output's — it is the digest of the
+    // output's canonical form, and no file in the store is named after it.
+    // A reader who took it to `ligase audit` was shown the bytes digest and
+    // had no way to tell whether the two were the same result. Citing the
+    // canonical form is right (D59); calling it the output was not.
+    let mut bench = Bench::new();
+    let node = scored(&mut bench, "0.3333");
+    let report = bench.run(&[node]);
+    let result = report.result(node).unwrap();
+
+    let claim = about("one score was computed", "validate");
+    let text = bench.methods(&[node], &report, &[claim]).text();
+
+    assert!(
+        text.contains(&format!("canonical {}", &result.canonical.to_hex()[..12])),
+        "the digest is named for the form it is of: {text}"
+    );
+    assert!(
+        !text.contains(&format!("output {}", &result.canonical.to_hex()[..12])),
+        "and not for the bytes, which are a different digest: {text}"
+    );
+    // The bytes digest is the artifact's name in the store. Printing it here
+    // would be the other half of the same confusion.
+    assert!(
+        !text.contains(&result.hash.to_hex()[..12]),
+        "the bytes digest is `audit`'s to print, not this sentence's: {text}"
+    );
+}
+
+#[test]
+fn a_claim_over_several_samples_names_the_same_kind_of_digest() {
+    // The plural case had the same label. Both are fixed together or a
+    // reader learns the word from one sentence and is misled by the other.
+    let mut bench = Bench::new();
+    let first = bench.sample("SRR1", "ACGT");
+    let second = bench.sample("SRR2", "ACGT");
+    let left = bench.step("interpret", "cat {reads} > {out}", &[("reads", first)]);
+    let right = bench.step("interpret", "cat {reads} > {out}", &[("reads", second)]);
+    let report = bench.run(&[left, right]);
+
+    let claim = about("every sample was interpreted", "interpret");
+    let text = bench.methods(&[left, right], &report, &[claim]).text();
+
+    assert!(text.contains("Canonical digests:"), "{text}");
+    assert!(!text.contains("Outputs:"), "{text}");
+}
+
+#[test]
+fn a_consumer_who_cites_the_engine_by_hand_gets_one_reference() {
+    // Reported against this change: 0.3.0's own error message told
+    // consumers to add a Ligase reference with `cite=`, and they did. Once
+    // the engine cited itself, that instruction produced two entries for
+    // one piece of software — which a copy-editor sends back, and which
+    // left a consumer at the 0.3.0 floor with no spelling correct on both
+    // versions.
+    //
+    // Matching on the repository URL is not a guess: it is identity on a
+    // canonical identifier, the same basis on which `samtools` and
+    // `bcftools` already share one paper in the citation table.
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with("copy", "cat {in} > {out}", &[("in", input)], &[], &[]);
+    bench.cite(
+        node,
+        &[
+            "Njeri, K. Ligase: type-safe, reproducible computational biology pipelines \
+             (version 0.3.0). https://github.com/Neoforge-Labs/ligase",
+        ],
+    );
+
+    let report = bench.run(&[node]);
+    let methods = bench.methods(&[node], &report, &[]);
+    let (cited, uncited) = methods.citations();
+
+    let ligase: Vec<&String> = cited
+        .iter()
+        .filter(|reference| reference.contains("github.com/Neoforge-Labs/ligase"))
+        .collect();
+    assert_eq!(
+        ligase.len(),
+        1,
+        "one reference for one piece of software: {cited:?}"
+    );
+    assert!(
+        ligase[0].starts_with("Njeri, K."),
+        "and it is the one the consumer declared, because a declaration is \
+         recorded rather than overruled: {ligase:?}"
+    );
+    assert!(!uncited.iter().any(|tool| tool == "ligase"), "{uncited:?}");
+}
+
+#[test]
+fn the_engine_still_cites_itself_where_nobody_else_did() {
+    // The dedup must not cost the fix it is narrowing.
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with(
+        "copy",
+        "cat {in} > {out}",
+        &[("in", input)],
+        &[],
+        &["ligase"],
+    );
+
+    let report = bench.run(&[node]);
+    let (cited, uncited) = bench.methods(&[node], &report, &[]).citations();
+
+    assert!(
+        cited
+            .iter()
+            .any(|reference| reference.contains("github.com/Neoforge-Labs/ligase")),
+        "{cited:?}"
+    );
+    assert!(!uncited.iter().any(|tool| tool == "ligase"), "{uncited:?}");
+}

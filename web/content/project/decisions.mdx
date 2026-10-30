@@ -2925,6 +2925,28 @@ D24 refuses. And it is added **for the run rather than per step**, so two
 steps running the engine do not make two references and a step declaring its
 own does not make the engine's disappear.
 
+### Unless a step has already cited it
+
+0.3.0 told consumers to add a Ligase reference with `cite=`, and they did.
+Citing the engine as well turned that instruction into **two** entries for
+one piece of software — which a copy-editor sends back, and which left a
+consumer pinned at the 0.3.0 floor with no spelling of their pipeline that
+was correct on both versions. They reported it, and they were right that
+the fix had punished them for following the engine's own advice.
+
+So a declared reference naming this project's repository is the engine's
+own, and the engine does not add a second. The match is on a canonical
+identifier rather than on prose — the same basis on which `samtools` and
+`bcftools` share one paper in the table — and nothing like inferring that
+two differently worded references are the same work, which is the guess
+D24 refuses.
+
+The **consumer's** wording wins. A step that declared its references has
+said what it wants cited, and replacing one of them would be an engine
+overruling a declaration, which this project does nowhere else. Their
+reference may name an older version than the one that ran; the paragraph's
+first sentence states the version that ran, so nothing is concealed.
+
 ### Why it is in every write-up, not only in those with a built-in step
 
 The engine always ran. `Methods::paragraph` opens by naming it and the
@@ -2972,9 +2994,19 @@ rest of the engine already prints a content hash:
 
 ```
 "variants were called above 1% allele frequency" rests on `call`, where
-    min_freq = 0.01 as this claim states, output 4a366b6cfeb0, recorded
+    min_freq = 0.01 as this claim states, canonical 4a366b6cfeb0, recorded
     30 October 2026 on macos-aarch64.
 ```
+
+The word `canonical` is load-bearing, and it took a second report to get
+there. The sentence first said `output`, and a consumer took the digest to
+`ligase audit`, which printed the **bytes** digest — the artifact's name in
+the store — leaving them unable to tell whether the two commands were
+describing one result or two. No file is named after the canonical digest.
+So the sentence names the form the digest is of, and `audit` prints the
+canonical digest beside the bytes for every verdict, so the two commands
+reconcile by eye. The irreconcilability this decision set out to remove had
+reappeared in a new form, which is the kind of thing only a consumer finds.
 
 The canonical digest rather than the raw bytes', although the report asked
 for the bytes'. The canonical form is what
@@ -3001,7 +3033,7 @@ look a computation up — which is where an internal identifier belongs.
 A claim naming no sample binds to one computation per sample, and the
 sentence listed every key under `Keys:` because naming beats counting
 ([D15](#d15--an-error-identifies-its-node-not-just-its-step)). It lists every digest under
-`Outputs:` now, for the same reason and with the same per-sample
+`Canonical digests:` now, for the same reason and with the same per-sample
 resolution: a reviewer checking one sample needs that sample's identifier,
 and it has to be the one that still means something next year.
 

@@ -345,7 +345,18 @@ impl Methods {
         let mut cited: BTreeSet<String> = BTreeSet::new();
         let mut uncited: BTreeSet<String> = BTreeSet::new();
 
-        cited.insert(cite::engine(&self.engines));
+        // The engine's own reference, unless a step has already declared
+        // one for it. 0.3.0 told consumers to add that line by hand, so
+        // adding a second would turn following its advice into a duplicated
+        // reference in a methods section (D58).
+        let declared_the_engine = self
+            .groups
+            .iter()
+            .flat_map(|group| &group.declared)
+            .any(|text| cite::is_engine(text));
+        if !declared_the_engine {
+            cited.insert(cite::engine(&self.engines));
+        }
 
         for group in &self.groups {
             for text in &group.declared {
@@ -915,7 +926,7 @@ fn claim_sentence(check: &ClaimCheck) -> String {
                     }
                     sentence.push_str(&restated_clause(check));
                     sentence.push_str(&format!(
-                        ", output {}, recorded {} on {}.",
+                        ", canonical {}, recorded {} on {}.",
                         digest(only.canonical),
                         day(only.recorded_at),
                         only.platform
@@ -938,7 +949,7 @@ fn claim_sentence(check: &ClaimCheck) -> String {
                             None => digest(row.canonical),
                         })
                         .collect();
-                    sentence.push_str(&format!(". Outputs: {}.", digests.join(", ")));
+                    sentence.push_str(&format!(". Canonical digests: {}.", digests.join(", ")));
                 }
             }
             sentence
@@ -1120,6 +1131,13 @@ fn quoted(names: &[String]) -> Vec<String> {
 /// **canonical** digest rather than the raw bytes' — that is what `audit`
 /// compares two runs by and what a bundle verifies against, so it is the
 /// one a reader can check on another machine (D4, D59).
+///
+/// The sentence calls it `canonical`, and that word is load-bearing. It was
+/// `output` at first, and a consumer took the digest to `ligase audit`,
+/// which printed the *bytes* digest — the artifact's name in the store —
+/// and had no way to reconcile the two. No file is named after this digest.
+/// Naming it for the form it is the digest of is half the fix; `audit`
+/// printing it too is the other half.
 fn digest(hash: ContentHash) -> String {
     hash.to_hex().chars().take(12).collect()
 }

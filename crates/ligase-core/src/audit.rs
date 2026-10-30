@@ -263,6 +263,17 @@ impl AuditReport {
                         "    the same bytes both times   {}",
                         short(step.first)
                     ));
+                    // And the canonical digest, which is the one a claim
+                    // cites. Without it these two commands named different
+                    // digests of the same result and a reader given one
+                    // could not reconcile it with the other -- which is the
+                    // irreconcilability D59 set out to remove, in a new
+                    // form. The bytes digest stays first: it is the
+                    // artifact's name in the store.
+                    lines.push(format!(
+                        "    canonical                   {}",
+                        short(step.first_canonical)
+                    ));
                 }
                 // A seeded step whose bytes matched. Saying "the bytes
                 // differ" of it would be false, and leaving it at "the same
@@ -273,6 +284,10 @@ impl AuditReport {
                     lines.push(format!(
                         "    the same bytes both times   {}",
                         short(step.first)
+                    ));
+                    lines.push(format!(
+                        "    canonical                   {}",
+                        short(step.first_canonical)
                     ));
                     if let Some((name, value)) = &step.seed {
                         lines.push(format!(

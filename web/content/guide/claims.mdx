@@ -58,8 +58,8 @@ ligase methods
 The claim is **bound**: `call` is a step this pipeline produces, `min_freq`
 is a parameter it takes, and the run held it at `0.01`.
 
-The identifier the sentence gives is the **output digest** — the digest of
-the canonical form of what the step produced. That is the one to put in a
+The identifier the sentence gives is the **canonical digest** — the digest
+of the canonical form of what the step produced. That is the one to put in a
 manuscript, and the reason is worth a paragraph of its own.
 
 <Note kind="caution" title="Cite the digest, not the step key">
@@ -70,11 +70,25 @@ So the key moves when any of those move — including under edits that
 provably cannot change the number. Adding `cite=` to the step moves it,
 while the artifact stays byte-identical and nothing reruns.
 
-The **output digest** is what stayed the same across that edit, and it is
+The **canonical digest** is what stayed the same across that edit, and it is
 what `ligase audit` compares two runs by and what a bundle verifies
 against. A manuscript written over months survives on the digest and goes
 stale on the key, so the digest is what `ligase methods` prints
 ([D59](/project/decisions/#d59--a-claim-is-cited-by-its-output-digest-not-by-its-step-key)).
+
+It is the digest of the output's *canonical form*, not of its bytes, and the
+sentence says so. `ligase audit` prints both, so you can reconcile a
+manuscript's identifier with a rerun:
+
+```console
+$ ligase audit validate
+deterministic    `validate`
+    the same bytes both times   4bed5fc0c903
+    canonical                   a37b0e298628
+```
+
+The second is the one a claim cites. No file in the store is named after
+it — the first is the artifact's filename.
 
 The key is still recorded — in provenance, in `claims.tsv`, and on
 `bound.key` — because that is where an internal identifier belongs.
@@ -149,7 +163,7 @@ lg.Claim("three resistance mutations were found in SRR8525904",
          step="resistance", scope="SRR8525904")
 ```
 
-This is still a real binding: the claim carries that sample's output digest,
+This is still a real binding: the claim carries that sample's canonical digest,
 key and date, so a reviewer with your bundle can find the computation and
 rerun it. What it is not is a verification of the number three — the engine
 does not open your report and count. Nothing on this page pretends it does.
@@ -320,7 +334,7 @@ so the verdict is `unbacked` rather than `contradicted`
   restated has, which is why `parameter=` and `tool=` are worth giving
   whenever there is one to give.
 - It does not add a verdict to `ligase methods --verify`. A claim names an
-  output digest, and whether that result still reproduces on another machine
+  canonical digest, and whether that result still reproduces on another machine
   is what `results.tsv`'s verdict already says.
 
 ## See also

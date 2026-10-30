@@ -71,12 +71,29 @@ marker-bearing spaces — `Ensembl gene`, `UniProt accession`, `RefSeq`,
 `Option<&KnownNamespace>`. `.settled()` gives the old value, so the change
 is a compile error rather than a different answer.
 
-### `ligase methods` prints a claim's output digest, not its step key
+### If you added a Ligase reference by hand, remove it
+
+**What breaks.** Nothing refuses, but your methods section gains a duplicate
+reference. 0.3.0 reported `ligase` as uncited and told you to add one with
+`@lg.step(cite=...)`; the engine cites itself now, so a hand-added entry and
+the engine's own both appear.
+
+**The edit.** Delete the Ligase entry from your `cite=` tuple. Keep it only
+if you are also running 0.3.0 from the same source file, where removing it
+brings the uncited warning back — the engine recognises a declared reference
+naming its own repository and stands down, so keeping yours is also correct
+on 0.4.0 and is the safer choice while your floor is `>=0.3.0`.
+
+This entry exists because a consumer pointed out that it was missing from
+this file, which is [D57](https://ligase.neoforgelabs.tech/project/decisions/#d57--a-change-that-alters-results-is-named-where-a-pin-is-chosen)
+applied to the change that introduced the duplicate. They were right.
+
+### `ligase methods` prints a claim's canonical digest, not its step key
 
 **What breaks.** Nothing runs differently. What changes is the identifier in
-the write-up: a bound claim's sentence ends `output 4a366b6cfeb0` where it
+the write-up: a bound claim's sentence ends `canonical 4a366b6cfeb0` where it
 used to end `at key b4884fc9df9aa706`, and a claim over several samples
-lists `Outputs:` where it listed `Keys:`.
+lists `Canonical digests:` where it listed `Keys:`.
 
 **Why.** The key is the identity of a computation, so it moves when the
 step's code, parameters, inputs or tool versions move — including under
@@ -87,6 +104,11 @@ what `audit` and a bundle verify against.
 **The edit.** If you quoted a claim's key in a manuscript, requote the
 digest. Scripts reading `bound.key` are unaffected: the key is unchanged in
 provenance, in `claims.tsv` and on that attribute.
+
+**Which digest.** The canonical form's, not the bytes'. `ligase audit` prints
+both — `the same bytes both times` is the artifact's filename in the store,
+and `canonical` is what a claim cites — so a manuscript's identifier can be
+reconciled with a rerun by eye.
 
 ### The gene-coverage floor is counted over scored codons
 

@@ -21,8 +21,16 @@ Nothing yet.
   provably cannot change the number. `ligase methods` prints the digest of
   the output's canonical form instead, which is what `audit` compares two
   runs by and what a bundle verifies against; a claim over several samples
-  lists `Outputs:` where it listed `Keys:`. The key is unchanged in
-  provenance, in `claims.tsv` and on `bound.key`. D59.
+  lists `Canonical digests:` where it listed `Keys:`. The key is unchanged in
+  provenance, in `claims.tsv` and on `bound.key`.
+
+  The sentence names it `canonical` rather than `output`, and `ligase audit`
+  prints the canonical digest beside the bytes digest for every verdict. A
+  consumer reported that the first wording sent them to `audit`, which showed
+  a different digest of the same result — the bytes digest is the artifact's
+  filename in the store, and nothing is named after the canonical one — so
+  the two commands could not be reconciled. That was D59's own
+  irreconcilability in a new form. D59.
 
 - **`ligase methods` no longer reports a gap for ligase itself.** `ligase` is
   the tool of the built-in conversions, and those are steps the engine owns:
@@ -30,8 +38,15 @@ Nothing yet.
   named a place that does not exist, and every write-up ended with a warning
   nobody could act on. The engine's own reference — naming the version, or
   versions, the run recorded — is now in the reference list of every
-  write-up, and `ligase` is never in the uncited list. A user citing it by
-  hand can stop. D58.
+  write-up, and `ligase` is never in the uncited list.
+
+  Unless a step already declared one for it. 0.3.0 told consumers to add a
+  Ligase reference with `cite=`, so citing the engine as well turned that
+  advice into two entries for one piece of software. A declared reference
+  naming this project's repository is recognised as the engine's own and the
+  engine stands down, keeping the consumer's wording — a declaration is
+  recorded, not overruled. So a user citing it by hand may stop, and loses
+  nothing by not stopping. D58.
 
 ### Added
 

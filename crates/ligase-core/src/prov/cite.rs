@@ -127,6 +127,43 @@ pub const KNOWN: &[Citation] = &[
 /// crate's version instead of probing for a binary.
 pub const ENGINE: &str = "ligase";
 
+/// Where a reader is pointed for the engine itself.
+///
+/// Named once because two things depend on it: the reference
+/// [`engine`] renders, and [`is_engine`], which recognises the same work in
+/// a reference somebody else wrote.
+pub const REPOSITORY: &str = "https://github.com/Neoforge-Labs/ligase";
+
+/// Whether a reference a step declared is already the engine's own work.
+///
+/// # Why a URL comparison is not a guess
+///
+/// Through 0.3.0 the engine reported `ligase` as uncited and told consumers
+/// to add a reference with `cite=`. They did. When the engine began citing
+/// itself, that instruction produced **two** entries for one piece of
+/// software — which a copy-editor sends back, and which left a consumer
+/// pinned at the 0.3.0 floor with no spelling of their pipeline that was
+/// correct on both versions.
+///
+/// So a declared reference naming this repository is the engine's own, and
+/// the engine does not add a second. The match is on a canonical
+/// identifier rather than on prose: it is the same basis on which
+/// `samtools` and `bcftools` already share one paper in [`KNOWN`], and it
+/// is nothing like inferring that two differently worded references are the
+/// same work, which would be the guess D24 refuses.
+///
+/// The **consumer's** wording wins, and that direction is deliberate. A
+/// step that declared its references has said what it wants cited, and an
+/// engine that silently replaced one of them would be overruling a
+/// declaration — the thing this project does not do anywhere else. Their
+/// reference may name an older version than the one that ran; the
+/// paragraph's first sentence still states the version that ran, so
+/// nothing is concealed.
+#[must_use]
+pub fn is_engine(reference: &str) -> bool {
+    reference.contains(REPOSITORY)
+}
+
 /// The engine's own reference, naming the versions a run used.
 ///
 /// # Why this is not a row in [`KNOWN`]
@@ -163,7 +200,7 @@ pub fn engine(versions: &[String]) -> String {
     };
     format!(
         "Njeri K. Ligase: dimension-checked, reproducible computational biology \
-         pipelines (version {versions}). https://github.com/Neoforge-Labs/ligase"
+         pipelines (version {versions}). {REPOSITORY}"
     )
 }
 
@@ -268,6 +305,31 @@ mod tests {
         let reference = engine(&["0.3.0".to_owned(), "0.4.0".to_owned()]);
         assert!(reference.contains("0.3.0"), "{reference}");
         assert!(reference.contains("0.4.0"), "{reference}");
+    }
+
+    #[test]
+    fn a_reference_naming_the_repository_is_the_engines_own() {
+        // What a consumer wrote when 0.3.0 told them to cite the engine by
+        // hand, in their own wording and naming an older version. It is the
+        // same work, and the engine must not add a second entry for it.
+        assert!(is_engine(
+            "Njeri, K. Ligase: type-safe, reproducible computational biology \
+             pipelines (version 0.3.0). https://github.com/Neoforge-Labs/ligase"
+        ));
+        assert!(is_engine(&engine(&["0.4.0".to_owned()])));
+    }
+
+    #[test]
+    fn another_projects_reference_is_not_the_engines() {
+        // The match is on this repository and nothing looser. A reference
+        // that merely says "Ligase" -- a different tool of the same name, or
+        // a sentence mentioning it -- is somebody else's work.
+        assert!(!is_engine(
+            "Li H (2018) Minimap2: pairwise alignment for nucleotide sequences."
+        ));
+        assert!(!is_engine(
+            "Some A (2024) Ligase: a different tool entirely."
+        ));
     }
 
     #[test]
