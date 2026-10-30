@@ -82,8 +82,8 @@ disagrees with contig identity is reported against the sequence.
 # Reproducibility and provenance
 
 A step's cache key is a hash over its code, its parameters, its inputs'
-content digests and the versions of the external tools it calls, so a result
-is reused only when the computation that produced it is the same computation.
+content digests and the versions of the external tools it calls, so a change
+to any of them is a different computation and is not served from the cache.
 Outputs are canonicalised before hashing — records sorted, volatile headers
 such as timestamps stripped — so a tool that writes the same data in a
 different order does not invalidate everything downstream. Random seeds are
@@ -91,8 +91,8 @@ explicit, typed, hashed parameters, and an audit mode runs a step twice to
 report whether it is reproducible.
 
 `ligase methods` writes a methods paragraph from the recorded run: tool
-versions, parameters, references and citations. It is built to name what it
-cannot account for — a tool with no citation on file is reported as a gap
+versions, parameters, references and citations. It names what it cannot
+account for — a tool with no citation on file is reported as a gap
 rather than omitted from the reference list, on the grounds that a tool
 silently missing from a reference list lets an incomplete methods section
 look complete.

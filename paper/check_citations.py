@@ -29,6 +29,7 @@ def defined(bib: str) -> list[str]:
 
 
 def main() -> int:
+    """Report every mismatch, and exit non-zero if there was one."""
     md = (HERE / "paper.md").read_text(encoding="utf-8")
     bib = (HERE / "paper.bib").read_text(encoding="utf-8")
 

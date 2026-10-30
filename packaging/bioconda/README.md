@@ -21,8 +21,14 @@ Recipes are added by pull request to
    a human reviews it; expect iteration rather than a merge on the first try.
 
 Read their [contributing
-guide](https://bioconda.github.io/contributor/index.html) first — the
-conventions are theirs and they change.
+guide](https://bioconda.github.io/contributor/index.html) and
+[linting](https://bioconda.github.io/contributor/linting.html) pages first —
+the conventions are theirs and they change, and the account below was written
+against them at a particular moment. Two things worth re-checking each time,
+because both have moved recently across the conda ecosystem: whether new
+recipes still use `meta.yaml` rather than rattler-build's `recipe.yaml`
+(as of October 2026 Bioconda is still on `meta.yaml`), and which lints are
+enforced.
 
 ## Why the recipe looks like this
 
@@ -42,6 +48,18 @@ ABI from 3.11, which is also the floor the package declares.
 files live inside the package, and the engine cannot score without them. A
 build that dropped them would install cleanly and fail at a user's first
 interpretation, so the recipe asserts `hivdb.ALGORITHMS` is non-empty.
+
+**`{{ stdlib('c') }}` beside `{{ compiler('c') }}`.** Bioconda's linter has a
+`compiler_needs_stdlib_c` check: a recipe that requests a compiler in its
+build section and does not request the matching stdlib is flagged. Asking for
+the C compiler therefore means asking for the C stdlib too.
+
+**`run_exports`.** The linter's `missing_run_exports` check wants a recipe to
+state how downstream packages should pin it. The pin here is to the **minor**
+version, not the major, because this is pre-1.0 and a minor release can refuse
+a pipeline the release before it accepted — which is what `MIGRATING.md`
+exists to record. A package built against 0.4 should not be assumed to work
+against 0.5.
 
 ## Keeping it current
 
