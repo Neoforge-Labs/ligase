@@ -330,10 +330,19 @@ and a date, and the pages say which is which.
 
 **A claim's text is never checked.** It cannot be. If `min_freq` moves and
 the claim states its value, check 5 catches it; if the claim states only a
-sentence, the key in the write-up and in `claims.tsv` is what a reviewer
-compares.
+sentence, the output digest in the write-up and in `claims.tsv` is what a
+reviewer compares.
 
-**No claim verdict in `verify`.** A claim names a key, and whether that key's
+**A claim binds to a key and is cited by a digest.** Two identifiers, two
+jobs. `Bound` carries both; `claim_sentence` prints only the digest, because
+the key is the identity of a *computation* and so moves when the step's
+code, parameters, inputs or tool versions move — `cite=` among them, which
+changes no number and reruns nothing. The canonical digest is what survived
+that edit in the reported case, and it is what `audit` and `verify` already
+compare, so it is the one a manuscript can quote
+([D59](/project/decisions/#d59--a-claim-is-cited-by-its-output-digest-not-by-its-step-key)).
+
+**No claim verdict in `verify`.** A claim names a digest, and whether that
 result still reproduces elsewhere is what `results.tsv`'s verdict already
 says. A parallel verdict path would duplicate that comparison in a second
 place that could disagree with the first.

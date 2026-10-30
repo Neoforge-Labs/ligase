@@ -2931,3 +2931,75 @@ version it was — *"Analyses were run with Ligase 0.3.0 on
 macos-aarch64"* — so a reference list that left it out was missing one of
 the pieces of software the sentence above it credits. A user who was citing
 it by hand can stop.
+
+## D59 — A claim is cited by its output digest, not by its step key
+
+[D45](#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it)
+settled what a claim **binds** to: the step key, because the key is the
+identity of a computation and a step served from the cache therefore backs
+its claim completely. What it did not settle is what a claim is **cited
+by**, and `ligase methods` printed the key — which is the one identifier
+that must not go in a manuscript.
+
+A consumer measured it. One pipeline, one claim, `cite=(...)` added to the
+step and nothing else changed:
+
+```
+"malaria F1 = 0.333 …" rests on `validate`, at key 25c2762d4d8766aa, …
+"malaria F1 = 0.333 …" rests on `validate`, at key b4884fc9df9aa706, …
+```
+
+Nothing reran — the run report says `cached` for both steps, which is D45's
+other half working exactly as promised, since `cite` never joins a cache
+key. The artifact was byte-identical. Both provenance rows survived in the
+store under the two keys, carrying the **same output digest** and the
+**same canonical digest**. So the identifier the paper would have quoted
+stopped resolving for an edit that provably cannot change the number.
+
+### Why the key moves, and why that is correct
+
+The key is a hash of the step's code, its parameters, its input content and
+its tool versions. A citation is part of the step's declaration, so it is
+part of the code that was hashed — and that is the right behaviour for a
+*key*, whose job is to identify a computation exactly. The defect is not
+that the key moved. It is that the key was offered as a citable identifier.
+
+### What is printed instead
+
+The digest of the output's **canonical form**, twelve characters, as the
+rest of the engine already prints a content hash:
+
+```
+"variants were called above 1% allele frequency" rests on `call`, where
+    min_freq = 0.01 as this claim states, output 4a366b6cfeb0, recorded
+    30 October 2026 on macos-aarch64.
+```
+
+The canonical digest rather than the raw bytes', although the report asked
+for the bytes'. The canonical form is what
+[D4](#d4--semantic-hashing) makes "scientifically identical" mean; it is
+what `ligase audit` compares two runs by, and what a bundle's `verify`
+checks a rerun against. It is therefore the digest that still resolves when
+a rerun on another machine writes a different timestamp into a header — and
+a manuscript's identifier wants every bit of that stability.
+
+### Why the key is no longer in the sentence
+
+Printing both was the report's first suggestion and the smaller change. It
+was declined for one reason: a reader who is offered two identifiers will
+sometimes quote the wrong one, and the whole finding here is that one of
+them is unsafe to quote. A write-up that names only the stable identifier
+cannot be misread.
+
+The key is not lost. It is in provenance, in the bundle's `claims.tsv`
+beside the canonical digest, and on `bound.key` for anything that wants to
+look a computation up — which is where an internal identifier belongs.
+
+### The multi-sample sentence changes with it
+
+A claim naming no sample binds to one computation per sample, and the
+sentence listed every key under `Keys:` because naming beats counting
+([D15](#d15--an-error-identifies-its-node-not-just-its-step)). It lists every digest under
+`Outputs:` now, for the same reason and with the same per-sample
+resolution: a reviewer checking one sample needs that sample's identifier,
+and it has to be the one that still means something next year.

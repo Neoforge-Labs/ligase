@@ -56,8 +56,8 @@ pipe = lg.Pipeline(
 
 The sentence is yours and is never checked. Everything else is: that `call`
 is a step this pipeline produces, that `min_freq` is a parameter it takes,
-and that the run held it at `0.01`. What comes back is the step key, the
-output's hash and the date that computation happened:
+and that the run held it at `0.01`. What comes back is the digest of what the
+step produced, and the date that computation happened:
 
 <RunReport>{claims.bound}</RunReport>
 
@@ -104,7 +104,7 @@ lenient-canonicaliser failure in a new costume: a mechanism that verified
 some numbers and silently waved the others through.
 
 What it does instead is narrower and honest. A claim with a `value` is
-*compared*. A claim without one is *bound* — to a key, a hash and a date, so
+*compared*. A claim without one is *bound* — to a digest, a key and a date, so
 a reviewer with the bundle can find the computation and rerun it. Neither is
 "the engine checked your arithmetic", and the pages do not say it is.
 
@@ -117,7 +117,7 @@ the run, and a claim that cannot survive that is named rather than printed.
 
 ## What a claim is bound to
 
-The **computation**, never the occasion. A claim carries the step key, and a
+The **computation**, never the occasion. A claim binds to the step key, and a
 key is already the identity of a computation: the same code, the same
 parameters, the same inputs, the same tool versions. So a step served from
 the cache backs its claim completely, and the date you see is when that
@@ -128,6 +128,15 @@ This is deliberate and it is [D45](/project/decisions/#d45--a-claim-binds-to-the
 The alternative would make `ligase methods --force` the only honest way to
 write up a paper, which is the opposite of what a content-addressed cache is
 for.
+
+What a claim is bound to and what it is **cited by** are then two different
+things, and conflating them cost a consumer a test. The key is the identity
+of a computation, so it moves when the computation's code, parameters,
+inputs or tool versions move — and `cite=` moves the key while the artifact
+stays byte-identical and nothing reruns. The **output digest** is what
+survives such an edit, and it is what `audit` and a bundle verify against,
+so the digest is the identifier a write-up prints and a paper quotes
+([D59](/project/decisions/#d59--a-claim-is-cited-by-its-output-digest-not-by-its-step-key)).
 
 The same decision has a second half: **a claim is in no cache key.** Editing
 a sentence in your manuscript reruns nothing. A mechanism whose cost was a

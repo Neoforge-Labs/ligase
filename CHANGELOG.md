@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A claim is cited by its output digest rather than by its step key.** The
+  key is the identity of a computation, so it moves when the step's code,
+  parameters, inputs or tool versions move — and adding `cite=` to a step
+  moves it while the artifact stays byte-identical and nothing reruns. A
+  manuscript's identifier therefore stopped resolving for an edit that
+  provably cannot change the number. `ligase methods` prints the digest of
+  the output's canonical form instead, which is what `audit` compares two
+  runs by and what a bundle verifies against; a claim over several samples
+  lists `Outputs:` where it listed `Keys:`. The key is unchanged in
+  provenance, in `claims.tsv` and on `bound.key`. D59.
+
 - **`ligase methods` no longer reports a gap for ligase itself.** `ligase` is
   the tool of the built-in conversions, and those are steps the engine owns:
   there is no `@lg.step` for `cite=` to go on, so the advice the gap gave

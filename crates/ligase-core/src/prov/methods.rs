@@ -906,8 +906,8 @@ fn claim_sentence(check: &ClaimCheck) -> String {
                     }
                     sentence.push_str(&restated_clause(claim));
                     sentence.push_str(&format!(
-                        ", at key {}, recorded {} on {}.",
-                        short(&only.key),
+                        ", output {}, recorded {} on {}.",
+                        digest(only.canonical),
                         day(only.recorded_at),
                         only.platform
                     ));
@@ -920,16 +920,16 @@ fn claim_sentence(check: &ClaimCheck) -> String {
                         counted(bound.len(), &scopes, Some("sample"))
                     ));
                     sentence.push_str(&restated_clause(claim));
-                    // Every key, because naming beats counting (D15) and a
-                    // reviewer checking one sample needs that sample's.
-                    let keys: Vec<String> = bound
+                    // Every digest, because naming beats counting (D15) and
+                    // a reviewer checking one sample needs that sample's.
+                    let digests: Vec<String> = bound
                         .iter()
                         .map(|row| match &row.scope {
-                            Some(scope) => format!("{scope} at {}", short(&row.key)),
-                            None => short(&row.key),
+                            Some(scope) => format!("{scope} at {}", digest(row.canonical)),
+                            None => digest(row.canonical),
                         })
                         .collect();
-                    sentence.push_str(&format!(". Keys: {}.", keys.join(", ")));
+                    sentence.push_str(&format!(". Outputs: {}.", digests.join(", ")));
                 }
             }
             sentence
@@ -1048,13 +1048,14 @@ fn quoted(names: &[String]) -> Vec<String> {
     names.iter().map(|name| format!("`{name}`")).collect()
 }
 
-/// A key as a sentence names one: enough to find it, not the whole 64.
+/// The citable identifier of a result: the digest of its canonical form.
 ///
-/// Sixteen hex characters is 64 bits, which is more than enough to identify
-/// one computation among a pipeline's own and short enough to read aloud.
-/// The whole key is in the bundle's `claims.tsv`.
-fn short(key: &StepKey) -> String {
-    key.to_hex().chars().take(16).collect()
+/// Twelve characters, as `audit` already prints a content hash, and the
+/// **canonical** digest rather than the raw bytes' — that is what `audit`
+/// compares two runs by and what a bundle verifies against, so it is the
+/// one a reader can check on another machine (D4, D59).
+fn digest(hash: ContentHash) -> String {
+    hash.to_hex().chars().take(12).collect()
 }
 
 /// A rendered value with one layer of surrounding quotes removed.

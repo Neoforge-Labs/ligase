@@ -129,6 +129,21 @@ impl Bench {
         node
     }
 
+    /// Give a step references of its own, as `@lg.step(cite=...)` does.
+    ///
+    /// Here so that a claim can be checked across the one edit that
+    /// provably cannot change a number: `cite` never joins a cache key
+    /// (D45), so the step is served from the cache and the artifact is the
+    /// same bytes.
+    fn cite(&mut self, node: NodeId, references: &[&str]) {
+        let task = self
+            .tasks
+            .iter_mut()
+            .find(|task| task.node == node)
+            .unwrap();
+        task.citations = references.iter().map(|text| (*text).to_owned()).collect();
+    }
+
     fn run(&self, roots: &[NodeId]) -> RunReport {
         exec::run(
             &self.graph,
@@ -724,12 +739,69 @@ fn a_bound_claim_names_the_step_and_the_computation_in_the_write_up() {
         "a bound claim names the step behind it: {text}"
     );
     assert!(
-        text.contains(&key[..16]),
-        "and the key, so a reviewer can find the computation: {text}"
-    );
-    assert!(
         text.contains("min_freq = 0.01"),
         "and the value it restates, as the run recorded it: {text}"
+    );
+
+    // Not the key. It is the identity of a *computation*, so it moves when
+    // the computation's inputs do — including under edits that cannot
+    // change the number, which is what makes it unsafe to print in a
+    // manuscript (D59). The step key is still recorded, in provenance and
+    // in the bundle's claims table.
+    assert!(
+        !text.contains(&key[..16]),
+        "a manuscript must not be handed the identifier that moves: {text}"
+    );
+}
+
+#[test]
+fn a_bound_claim_names_the_digest_of_what_it_rests_on() {
+    // D59, measured by a consumer against 0.3.0: adding `cite=` to a step
+    // moved the claim's printed identifier while the artifact stayed
+    // byte-identical, nothing reran, and both provenance rows carried the
+    // same canonical digest. So the paper's identifier stopped resolving
+    // for an edit that provably cannot change the result.
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with("call", "cat {in} > {out}", &[("in", input)], &[], &[]);
+    let report = bench.run(&[node]);
+    let canonical = report.result(node).unwrap().canonical.to_hex();
+
+    let claim = about("one variant was called", "call");
+    let text = bench.methods(&[node], &report, &[claim]).text();
+
+    assert!(
+        text.contains(&canonical[..12]),
+        "the digest of the canonical form is what a reader can verify, and \
+         it is what the sentence gives: {text}"
+    );
+}
+
+#[test]
+fn an_edit_that_cannot_change_the_number_does_not_move_what_a_claim_prints() {
+    // The reported reproduction, as a test. `cite` never joins a cache key
+    // (D45), so the step is served from the cache and the artifact is the
+    // same bytes — and what the claim prints has to be the same too.
+    let identifier = |cited: bool| {
+        let mut bench = Bench::new();
+        let input = bench.input("in.txt", "one\n");
+        let node = bench.step_with("call", "cat {in} > {out}", &[("in", input)], &[], &[]);
+        if cited {
+            bench.cite(node, &["Van Rossum G (1995) Python reference manual."]);
+        }
+        let report = bench.run(&[node]);
+        let canonical = report.result(node).unwrap().canonical.to_hex();
+        let claim = about("one variant was called", "call");
+        let text = bench.methods(&[node], &report, &[claim]).text();
+        assert!(text.contains(&canonical[..12]), "{text}");
+        canonical[..12].to_owned()
+    };
+
+    assert_eq!(
+        identifier(false),
+        identifier(true),
+        "adding a citation cannot change a number, so it cannot change the \
+         identifier a paper cites"
     );
 }
 
