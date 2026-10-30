@@ -102,7 +102,7 @@ const jsonLd = {
   applicationCategory: 'DeveloperApplication',
   operatingSystem: 'Linux, macOS, Windows',
   programmingLanguage: ['Rust', 'Python'],
-  softwareVersion: '0.3.0',
+  softwareVersion: '0.4.0',
   sameAs: 'https://github.com/Neoforge-Labs/ligase',
   license: ['https://spdx.org/licenses/MIT.html', 'https://spdx.org/licenses/Apache-2.0.html'],
   author: { '@type': 'Person', name: 'Kelyn Njeri' },
