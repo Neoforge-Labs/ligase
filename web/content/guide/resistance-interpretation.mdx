@@ -158,16 +158,27 @@ So a gene has to be read at all before it is assessed:
 
 | Parameter | Default | Question |
 |---|---|---|
-| `gene_coverage` | `0.8` | what share of a gene's codons must be read for the gene to be assessed |
+| `gene_coverage` | `0.8` | what share of a gene's *scored* codons must be read for the gene to be assessed |
+
+The share is of the codons the algorithm scores — the positions some drug's
+rules name — and not of the gene. Reverse transcriptase has 560 codons and
+HIVDB 9.8 scores 40 of them, the highest at 348, so a genotype that read
+protease and RT 1–348 has read every position any drug is scored on. Over the
+gene that is 62%, and four fifths of the gene would refuse it.
+
+It can also refuse a gene most of which *was* read. A dropout over RT 40–120
+leaves 86% of the gene covered and takes 21 of those 40 positions, leaving 19
+against a floor of 32 — under half of what could have refuted a resistant
+call, which is the question the share is asking.
 
 A gene below it is reported as **Not assessed**, the same as a gene the
 pipeline never supplied — which is what it effectively is — and the reading
 says which gene and by how much it fell short:
 
 ```text
-noticed  resistance  only 92 of IN's 288 codons were read, where this reading
-                     required 231, so IN was not assessed rather than scored
-                     against what little was seen
+noticed  resistance  only 5 of the 26 codons this algorithm scores in IN were
+                     read, where this reading required 21, so IN was not
+                     assessed rather than scored against what little was seen
                      Sequence more of this gene, or lower the share this
                      reading asks for — `gene_coverage=` — if a floor is of
                      more use to you than no answer.

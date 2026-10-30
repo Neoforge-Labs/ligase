@@ -193,19 +193,41 @@ window would never fire and would do so quietly.
 
 ### A gene has to be read before it is assessed
 
-`gene_coverage` is the share of a gene's codons that must be read for the
-gene to go into `Observed` at all, defaulting to 0.8. `codon::needed`
-turns it into a count, rounded up, so the comparison is in integers and the
-note can say `92 of 288, where 231 were needed` rather than a percentage
-the reader has to do arithmetic on.
+`gene_coverage` is the share of a gene's **scored** codons that must be
+read for the gene to go into `Observed` at all, defaulting to 0.8.
+`codon::needed` turns it into a count, rounded up, so the comparison is in
+integers and the note can say `5 of 26, where 21 were needed` rather than a
+percentage the reader has to do arithmetic on.
+
+The denominator is `Ruleset::scored(gene)` — every position some drug
+scored against that gene names, restricted to the gene's own window — and
+the numerator counts those of them `Protein::at` returns something for.
+`codon::read` therefore takes the `&Ruleset`, which is why `write_report`
+loads the algorithm before it reads the calls. The reading still does no
+scoring; it needs the positions to count over.
+
+Counting over the gene instead was close to unsatisfiable. RT is 560
+codons and HIVDB 9.8 scores 40 of them, the highest at 348, so four fifths
+of the gene asked for 448 codons — a floor a partial-pol genotype cannot
+clear however much of what the rules consult it covered
+([D34](/project/decisions/#d34--a-gene-barely-read-is-not-assessed)). It
+cuts the other way too: a dropout over RT 40–120 leaves 86% of the gene
+read and takes 21 of the 40 scored positions, leaving 19 against a floor of
+32 — which the old share waved through and this one refuses.
 
 A gene below it is left out, which makes its drugs *not assessed* — the
 same state as a gene the pipeline never supplied. The reading emits
-`Note::GeneBarelyRead`.
+`Note::GeneBarelyRead`, whose counts are of scored codons.
+
+A position a ruleset names past the end of a gene is left out of the count:
+no reading could cover it, and a floor nothing can clear is not a floor.
+`hivdb_codons.rs` checks the windows against the rules for the same
+reason — a rule about a position outside the window never fires, and did so
+quietly.
 
 It is enforced here, in the reading, rather than in `score`, and that
-placement is the whole reason the rule is a blunt share rather than the
-sharper per-drug one. `hivdb_scoring.rs` builds `Observed` directly from
+placement is the whole reason the rule is a share over a gene rather than
+the sharper per-drug one. `hivdb_scoring.rs` builds `Observed` directly from
 3,348 published Stanford expectations whose fixtures name only the
 positions that differ from consensus B; a coverage rule in the scoring
 layer would see almost every position as unread and turn the oracle's own
@@ -279,10 +301,10 @@ long, makes the exception visible rather than hiding it inside the probe,
 and `hivdb` resolves to:
 
 ```text
-HIVdb rules as shipped: 9.8 2025-01-05 blake3:a1139c…; 10.2 2026-04-26 blake3:3268c9…
+HIVdb rules as shipped: 9.8 2025-01-05 blake3:a1139c…; 10.2 2026-04-26 blake3:3268c9…; read by ligase 0.3.0
 ```
 
-Three consequences, all deliberate:
+Four consequences, all deliberate:
 
 - **By content, not by name.** Upstream publishes corrections under
   near-identical names, so a key that moved only with the version number
@@ -296,6 +318,15 @@ Three consequences, all deliberate:
   after "ran with", and a step that named 9.8 must not appear to have run
   with 10.2. Which one a step used is its `algorithm` parameter, reported
   beside it.
+- **"read by ligase \<version\>"**, because the rules are only half of
+  what a `hivdb` step is. The other half is this engine's judgements about
+  reading them — which codons count as read, how much of a gene has to be,
+  what a mixture satisfies — and those move between releases. Moving
+  `gene_coverage` onto the scored codons changed what the engine answers
+  for the same calls, the same reference, the same parameters and the same
+  rules; without this a cache would have gone on serving the old refusals.
+  Over-conservative in the same direction: a release that touched none of
+  it still reruns every `hivdb` step.
 
 Doing it this way also picks up provenance, the methods sentence and
 [D24](/project/decisions/#d24--a-citation-is-curated-or-declared-never-guessed)'s

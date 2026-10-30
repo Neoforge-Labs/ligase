@@ -82,12 +82,18 @@ fn no_variants(directory: &Path) -> PathBuf {
     path
 }
 
+/// The algorithm these tests read against.
+fn ruleset() -> Ruleset {
+    Ruleset::vendored("HIVDB_9.8").unwrap()
+}
+
 /// Read a reference with no calls, no alignment and the default policy.
 fn reading(path: &Path, directory: &Path) -> Result<Reading, String> {
     read(
         path,
         &no_variants(directory),
         None,
+        &ruleset(),
         MIXTURE,
         DEPTH,
         GENE_COVERAGE,
@@ -97,7 +103,7 @@ fn reading(path: &Path, directory: &Path) -> Result<Reading, String> {
 
 /// What the algorithm says about one drug.
 fn call(reading: &Reading, drug: &str) -> String {
-    let ruleset = Ruleset::vendored("HIVDB_9.8").unwrap();
+    let ruleset = ruleset();
     interpret(&ruleset, &reading.observed)
         .unwrap()
         .into_iter()
@@ -247,11 +253,13 @@ fn a_gene_barely_read_is_not_assessed_rather_than_susceptible() {
     // And the reading says why, as a note the engine carries into the run
     // report, provenance, a bundle and the methods section (D32): what it
     // read, and what it would have had to read.
+    // Five of the twenty-six integrase positions HIVDB 9.8 scores fall in
+    // the 32% that was covered, where the floor asks for twenty-one.
     let note = Note::GeneBarelyRead {
         gene: "IN".to_owned(),
-        read: covered,
-        codons: integrase.codons(),
-        needed: 231,
+        read: 5,
+        scored: 26,
+        needed: 21,
     };
     assert!(reading.notes.contains(&note), "{:?}", reading.notes);
     assert!(
@@ -279,4 +287,100 @@ fn a_gene_read_almost_in_full_is_still_scored() {
     // Assessed, at whatever level this background earns. What matters is
     // that the gene was not withheld for one unread codon.
     assert_ne!(call(&reading, "DTG"), "Not assessed");
+}
+
+#[test]
+fn an_algorithm_scores_only_a_fraction_of_a_genes_codons() {
+    let ruleset = ruleset();
+
+    // A gene's codons and the codons an algorithm scores are not the same
+    // number, and for reverse transcriptase they are not close: 560 codons,
+    // 40 of which any rule in HIVDB 9.8 names. The highest is 348, so a
+    // reading that covered every position the rules look at would still
+    // have read 62% of the gene.
+    assert_eq!(ruleset.scored("RT").len(), 40);
+    assert_eq!(ruleset.scored("RT").last().copied(), Some(348));
+    assert_eq!(ruleset.scored("PR").len(), 25);
+    assert_eq!(ruleset.scored("IN").len(), 26);
+    assert_eq!(ruleset.scored("CA").len(), 8);
+
+    // A gene no drug is scored against has nothing to be read: the floor
+    // over it is zero rather than a share of a gene nothing would consult.
+    assert!(ruleset.scored("gag").is_empty());
+}
+
+#[test]
+fn a_partial_pol_record_is_assessed_rather_than_withheld() {
+    let directory = TempDir::new().unwrap();
+
+    // What a clinical genotype actually covers: protease, and reverse
+    // transcriptase as far as the rules reach. Past RT 348 nothing in
+    // HIVDB 9.8 is scored, so a record that stops there has read every
+    // position any drug would consult — and 348 of 560 codons, which a
+    // floor over the whole gene reads as a gene barely sequenced.
+    let rt = gene("RT");
+    let beyond = (rt.base_of(349) as usize - 1)..(rt.end as usize);
+
+    let path = reference(directory.path(), frame::BASES as u32, &[], &[beyond]);
+    let reading = reading(&path, directory.path()).unwrap();
+
+    let protein = reading.observed.protein("RT").unwrap();
+    assert_eq!(protein.read(), 348);
+    for drug in ["3TC", "AZT", "TDF", "EFV", "NVP", "DOR"] {
+        assert_ne!(call(&reading, drug), "Not assessed", "{drug}");
+    }
+    assert!(
+        !reading
+            .notes
+            .iter()
+            .any(|note| matches!(note, Note::GeneBarelyRead { gene, .. } if gene == "RT")),
+        "{:?}",
+        reading.notes
+    );
+
+    // Unread codons are still unread: the gene is assessed, and the report
+    // says what it did not see rather than passing it off as covered.
+    assert!(
+        reading.notes.contains(&Note::CodonsUnread {
+            gene: "RT".to_owned(),
+            read: 348,
+            codons: rt.codons(),
+            depth: DEPTH,
+        }),
+        "{:?}",
+        reading.notes
+    );
+}
+
+#[test]
+fn a_gene_whose_scored_codons_went_unread_is_not_assessed() {
+    let directory = TempDir::new().unwrap();
+
+    // The other direction, and the reason the floor is not simply lower:
+    // 479 of reverse transcriptase's 560 codons is 86% of the gene, which
+    // any share over the whole gene waves through. What the dropout took
+    // is RT 40 to 120, where 21 of the 40 positions HIVDB 9.8 scores
+    // live, leaving 19 against a floor of 32: the drugs that matter were
+    // being scored against under half the rules that could have refuted
+    // them.
+    let rt = gene("RT");
+    let middle = (rt.base_of(40) as usize - 1)..(rt.base_of(121) as usize - 1);
+
+    let path = reference(directory.path(), frame::BASES as u32, &[], &[middle]);
+    let reading = reading(&path, directory.path()).unwrap();
+
+    assert!(reading.observed.protein("RT").is_none());
+    for drug in ["3TC", "AZT", "TDF", "EFV", "NVP"] {
+        assert_eq!(call(&reading, drug), "Not assessed", "{drug}");
+    }
+    assert!(
+        reading.notes.contains(&Note::GeneBarelyRead {
+            gene: "RT".to_owned(),
+            read: 19,
+            scored: 40,
+            needed: 32,
+        }),
+        "{:?}",
+        reading.notes
+    );
 }

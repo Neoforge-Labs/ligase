@@ -417,6 +417,22 @@ fn the_rules_enter_a_cache_key_by_content_rather_than_by_name() {
 }
 
 #[test]
+fn the_engine_that_reads_the_rules_is_in_the_key_too() {
+    // The rules are half of what a `hivdb` step is; the other half is the
+    // engine's own judgements about reading them -- which codons count as
+    // read, how much of a gene has to be, what a mixture satisfies. Those
+    // move between releases, and a key that named only the rules would
+    // serve a result the current engine would not produce. D20: a cache
+    // too cold costs time, one too warm is wrong.
+    let fingerprint = ligase::hivdb::ruleset::fingerprint().unwrap();
+
+    assert!(
+        fingerprint.contains(&format!("ligase {}", env!("CARGO_PKG_VERSION"))),
+        "{fingerprint}"
+    );
+}
+
+#[test]
 fn the_algorithm_is_cited_like_any_other_software() {
     // A methods section names the software that produced a result. An
     // interpretation algorithm is software, and D24 forbids both guessing

@@ -148,12 +148,13 @@ integrase report all five integrase inhibitors as susceptible: a clean clinical
 negative from a gene the run never covered, which is the dangerous direction,
 and again with nothing in the report's shape to give it away.
 
-So a gene read below `gene_coverage` of its codons — four fifths by default —
-is now left out of the reading and reported as not assessed, with a note saying
-how little was read:
+So a gene read below `gene_coverage` of its scored codons — four fifths by
+default, counted over the positions the algorithm's rules name rather than
+over the whole gene — is now left out of the reading and reported as not
+assessed, with a note saying how little was read:
 
 ```console
-noticed   `resistance`: only 92 of IN's 288 codons were read, where this reading required 231, so IN was not assessed rather than scored against what little was seen
+noticed   `resistance`: only 5 of the 26 codons this algorithm scores in IN were read, where this reading required 21, so IN was not assessed rather than scored against what little was seen
           Sequence more of this gene, or lower the share this reading asks for — `gene_coverage=` — if a floor is of more use to you than no answer.
 ```
 

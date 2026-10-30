@@ -20,7 +20,7 @@ pub enum Note {
     SampleIsAFile { sample: String },
     ReadingWithoutCoverage,
     GeneUnread { gene: String, depth: u32 },
-    GeneBarelyRead { gene: String, read: u32, codons: u32, needed: u32 },
+    GeneBarelyRead { gene: String, read: u32, scored: u32, needed: u32 },
     CodonsUnread { gene: String, read: u32, codons: u32, depth: u32 },
     CodonsUnphased { gene: String, unphased: u32, depth: u32 },
 }
@@ -61,6 +61,15 @@ not a note.
 `Note::parse` also returns `None` for a code this version does not know, so
 a store written by a later engine is read as far as it can be rather than
 rejected.
+
+A field that is *renamed* is the other direction, and it is read rather than
+dropped. `gene-barely-read` counted its total over the whole gene up to 0.3.0
+and spelled it `codons`; it now counts over the codons the algorithm scores
+and spells it `scored`
+([D34](/project/decisions/#d34--a-gene-barely-read-is-not-assessed)). `parse`
+accepts either, because a stored note is a record of what *that* run noticed
+and the number it holds is the number that run used — refusing it would lose
+the record rather than correct it.
 
 ## The two producers
 

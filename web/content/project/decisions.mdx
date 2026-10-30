@@ -591,6 +591,17 @@ that is too warm is wrong. The string reads "as shipped" because a methods
 paragraph renders it after "ran with", and a step that named 9.8 must not
 appear to have run with 10.2.
 
+**And the engine that reads them.** The rules are half of what a `hivdb`
+step is; the other half is the engine's own judgements about reading them —
+which codons count as read, how much of a gene has to be
+([D34](#d34--a-gene-barely-read-is-not-assessed)), what a mixture satisfies.
+Those move between releases, and a key naming only the rules would serve an
+interpretation the engine in front of the reader would not produce: exactly
+what the scored-codon floor would have done to every cache holding the
+earlier answer. So the tool version ends `read by ligase <version>`, over-
+conservative in the same direction — a release that touched none of this
+still reruns every `hivdb` step.
+
 ## D29 — An interpretation never invents a susceptible result
 
 An interpretation can be wrong in two directions and they are not equally
@@ -921,11 +932,61 @@ programme is willing to call susceptible on is its own decision, and a
 judgement belongs in a cache key rather than in a constant nobody can see —
 the same reasoning as `mixture` and `depth`.
 
+### The share is of the scored codons, not of the gene
+
+The first form of this counted the share over the gene's own codons, and that
+made the default close to unsatisfiable for the records clinical labs hold.
+Reverse transcriptase is 560 codons. HIVDB 9.8 scores **40** of them, the
+highest at position 348. Four fifths of the gene is 448 codons, so a
+partial-pol genotype that read protease and RT 1–348 — every position any drug
+is scored on, and the standard extent of a clinical genotype — had covered
+62% of the gene, and the whole of RT came back not assessed. The floor was
+refusing readings for not covering codons nothing would ever consult.
+
+| Gene | Codons | Scored by HIVDB 9.8 | Highest scored | Old floor | Floor now |
+|---|---|---|---|---|---|
+| PR | 99 | 25 | 90 | 80 codons | 20 scored |
+| RT | 560 | 40 | 348 | 448 codons | 32 scored |
+| IN | 288 | 26 | 263 | 231 codons | 21 scored |
+| CA | 231 | 8 | 107 | 185 codons | 7 scored |
+
+So the share is counted over the codons the chosen algorithm *scores*: the
+positions some drug's rules name, restricted to the gene's own window. A
+position no rule names cannot change an answer however it was read, so
+reading it is not evidence that the gene was read well enough to score — and
+a position a ruleset names past the end of a gene is left out, because no
+reading could cover it and a floor nothing can clear is not a floor.
+
+**It is not simply a lower floor.** Counting the right codons tightens the
+check where it was loose. A dropout across RT 40–120 leaves 479 of 560 codons
+read — 86% of the gene, which the old floor waved through — and takes 21 of
+the 40 positions the rules score, leaving 19 against a floor of 32: the gene
+was being scored against under half the evidence that could have refuted it.
+That reading is now refused. And
+the failure this decision exists for is unchanged: 32% of integrase is five of
+the twenty-six scored positions against a floor of twenty-one, still not
+assessed.
+
+The note's second count moved with it — the scored codons rather than the
+gene's, written `scored=`. A note stored under the earlier `codons=` is still
+read, with the number that run used: a stored note is a record of what that
+run noticed, and dropping it would lose the record rather than correct it.
+
+**What this does to a cache.** The engine now answers differently for the same
+calls, the same reference, the same parameters and the same rules, and a
+`hivdb` step's tool version named only the rules — so an existing cache would
+have gone on serving the old refusals. The engine's own version is now part of
+that tool version, which is
+[D28](#d28--the-rules-are-vendored-and-enter-a-key-by-content) applied to the
+engine as well as to the rules: a cache too cold costs time, one too warm is
+wrong.
+
 ### The sharper rule, and why it is not here yet
 
-The exact question is not what share of a gene was read but whether the
-positions *this drug's rules* name were read, and if not, whether what was
-missed could change the level. The engine has the floor already; comparing it
+The share is now over the positions the rules name, but it is still a share
+over a *gene*. The exact question is per drug: whether the positions **this
+drug's** rules name were read, and if not, whether what was missed could
+change the level. The engine has the floor already; comparing it
 against the ceiling the unread positions allow would let a drug report
 "indeterminate" rather than a level, with no threshold at all.
 
