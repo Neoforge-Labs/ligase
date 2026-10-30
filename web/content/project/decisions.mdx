@@ -2,6 +2,9 @@
 title: "Decision Records"
 description: "The coordinates dimension records what a step sees, not the on-disk convention. SAM and BAM both present 1-based closed alignment records, so re-encoding between them changes"
 ---
+import { claims } from '../../lib/claims.generated'
+import { diagnostics } from '../../lib/diagnostics.generated'
+
 # Decision Records
 
 ## D1 — Rust core, Python surface
@@ -1221,7 +1224,7 @@ destination from the same parameter, and the engine's planned automatic fixes
 are a path search over those rows. See
 [conversions](/project/architecture/conversions/).
 
-### Inference, and three refusals to guess
+### Inference, and four refusals to guess
 
 The space is the one dimension the engine can usually read without being told.
 Six of the seven spaces it recognises carry a marker — a prefix, an
@@ -1231,7 +1234,7 @@ and the symbol is the fallback. `P04637` reaches `UniProt accession` rather
 than being read as an unusual gene name.
 
 Inference then succeeds only when every identifier in the file resolves to the
-same space, and declines in three cases:
+same space **and that space carries a marker**, and declines in four cases:
 
 - **a file that mixes two spaces** — precisely the corruption the dimension
   exists to catch, where taking the majority would hide it;
@@ -1239,7 +1242,11 @@ same space, and declines in three cases:
   answer would declare a space for a file that names nothing;
 - **a file holding one identifier nothing claims** — `2-Sep` is in no space,
   and a space declared over such a file would be a claim about names the
-  engine could not read.
+  engine could not read;
+- **a file whose identifiers all fit the marker-less shape** — bare gene
+  symbols, which are also the shape of ChEMBL's component synonyms and of
+  most in-house panels, so the file has not stated a space
+  ([D56](#d56--a-shape-with-no-marker-is-not-a-namespace)).
 
 Where it declines, the dimension is unknown with a reason. And unlike
 `release`, `subject` and `source_set`, this axis **is** demanded where two
@@ -2770,3 +2777,494 @@ platforms has two facts to state rather than one sentence about both.
 This is a public API change and it is the clause this milestone would have
 been least honest to skip. A tool whose argument is reproducibility cannot be
 vague about where a result was computed.
+
+## D56 — A shape with no marker is not a namespace
+
+`identifier_namespace` is the one dimension the engine can usually read
+without being told, and
+[D38](#d38--identifier-namespaces-never-coerce) already lists three cases
+where it declines to guess. This is the fourth, and it was measured against
+the published `0.3.0` wheel by a consumer rather than found here.
+
+Six of the seven shapes in the catalogue carry a **marker**: a prefix
+(`ENS`, `CHEMBL`), an underscore (`NM_`), a colon (`HGNC:`), digits
+throughout, or digits in fixed positions at a fixed length. `HGNC symbol`
+carries none. It is an upper-case letter followed by letters, digits and
+hyphens, which is what an approved symbol looks like — and equally what
+ChEMBL's component synonyms, a consortium's internal names and most
+in-house panels look like.
+
+So the file below infers `HGNC symbol` and is not in that space at all:
+
+```
+id	score
+DHFR-TS	0.90
+PPPK-DHPS	0.82
+```
+
+`DHFR-TS` is *P. falciparum*'s bifunctional dihydrofolate
+reductase–thymidylate synthase, named in ChEMBL's component-synonym space.
+`PPPK-DHPS` is the same story. `MT-CYB`, `HLA-A` and `NAT8B-AS1` are real
+HGNC symbols of the same shape, so **no matcher separates them** — this is
+not a pattern that wants improving.
+
+### Why a wrong value here is worse than no value
+
+A wrong guess would be bad enough on one side. The failure is that it is
+made identically on both: two files of symbol-shaped identifiers each
+inferred `HGNC symbol`, the values compared **equal**, and the join went
+ahead. `ligase check` printed `no problems found` and exited 0 for a
+pipeline scoring a ranking against a truth set across two identifier
+spaces — which is the exact defect this dimension was added to catch, in
+its purest form, produced by the engine rather than by the user.
+
+The consumer who measured it put the cost at 0 of 7 entities recovered
+undeclared, against 2 of 7 after an explicit mapping step. Neither number
+was reported by the undeclared pipeline. It simply ran.
+
+### What the engine does instead
+
+`KnownNamespace::infer` answers `Inference::Indistinguishable` wherever
+every identifier fits one shape and that shape carries no marker. The
+dimension is then **unknown with a reason**, `ligase inspect` says so in
+the language it already has for an unknown dimension, and a join of two
+such lists is refused by the demand `required_pair` already makes:
+
+<Diagnostic note="ligase check — nothing ran">{diagnostics.undeclaredSymbols}</Diagnostic>
+
+The six marker-bearing shapes infer exactly as they did. A declaration is
+still recorded and not verified, so `identifier_namespace="HGNC symbol"` is
+accepted on the user's word — which is the whole remedy, and is one
+argument.
+
+### Why not keep the guess and mark it
+
+Two weaker options were considered, both proposed in the report. **Marking
+the value** — printing `HGNC symbol (guessed)` — leaves a value in the
+field, and a value in the field is what `check` compares; the join would
+still pass unless equality were also taught to distinguish a guess from a
+fact, which is two mechanisms where one will do. **Refusing only
+guess-against-guess** keeps equality honest but leaves `inspect` printing a
+space the file never stated, and leaves a guess satisfying a comparison
+against a *declared* value — so a correct declaration on one side would be
+validated by a guess on the other.
+
+Neither is wrong, and both are smaller changes. What decides it is that
+this engine's answer to a question it cannot settle is to say so, and the
+identifiers genuinely do not settle this one. An unknown dimension is a
+state the whole system already handles: it has a reason, `inspect` prints
+it, `check` demands it where it matters, and the remedy is named.
+
+### The cost, which is real
+
+A list of bare gene symbols no longer states its own space, so pipelines
+that joined two such lists without declaring now refuse until one argument
+is added to each load. That is a behaviour change in the direction this
+project always takes it — a refusal before anything runs, with the fix in
+the message — but it is a change that breaks working pipelines, and it is
+the reason [D57](#d57--a-change-that-alters-results-is-named-where-a-pin-is-chosen)
+asks for it to be announced where a consumer choosing a pin will see it
+rather than in a changelog body. It is listed in
+[MIGRATING.md](https://github.com/Neoforge-Labs/ligase/blob/main/MIGRATING.md).
+
+The project's own fixtures felt it: sixteen Python tests and nine Rust
+tests declared a space they had been getting for free, and the four
+generated captures that build a pipeline over a symbol list now declare
+one. That is the migration a consumer performs, performed here first.
+
+## D58 — The engine cites itself, because a gap has to be closable
+
+[D24](#d24--a-citation-is-curated-or-declared-never-guessed) names a tool with
+no reference rather than omitting it, so that a short reference list cannot
+be mistaken for a complete one. `ligase` was one of those tools, and it was
+the one case where the mechanism turned against itself.
+
+A consumer reported it: every `ligase methods` write-up ended
+
+```
+No reference is recorded for ligase. Add one with `@lg.step(cite=...)`, or
+cite it by hand.
+```
+
+even with a reference for Ligase declared on their own step. The uncited
+tool was the `ligase` of `map_ranked_identifiers` — a **built-in
+conversion**, which is a step the engine owns and which takes no decorator.
+There was no `@lg.step` for the advice to be applied to.
+
+### Why that is worse than an omission
+
+`MethodsGap` works because it is unignorable. A gap that **cannot be
+closed** trains a reader to ignore it, and that costs the mechanism for
+every gap that is real. In the reporting consumer's pipeline it was the only
+remaining gap, so the last word of their methods output was a warning about
+something they had already done.
+
+So the rule: **a gap the engine reports must name a remedy the user can
+apply.** Where it cannot, the engine owes the answer itself.
+
+### What it does now
+
+`cite::engine` builds the engine's own reference from the versions the run
+recorded, and `Methods::citations` puts it in the reference list of every
+write-up and never in the uncited list:
+
+```
+Njeri K. Ligase: dimension-checked, reproducible computational biology
+    pipelines (version 0.3.0). https://github.com/Neoforge-Labs/ligase
+```
+
+Three details, each deliberate. It is **not a row in `cite::KNOWN`**,
+because every row there is a constant and this reference has to name the
+version that ran — which a distributed run may have more than one of
+([D55](#d55--a-methods-paragraph-names-every-platform-and-engine-a-run-used)),
+and which the table cannot hold. It carries **no DOI**, because this project
+has none; the repository is what a reader is pointed at, in the form RDKit's
+entry already set for software with no paper, and a DOI-shaped string
+invented to make the row look like its neighbours is the plausible wrongness
+D24 refuses. And it is added **for the run rather than per step**, so two
+steps running the engine do not make two references and a step declaring its
+own does not make the engine's disappear.
+
+### Why it is in every write-up, not only in those with a built-in step
+
+The engine always ran. `Methods::paragraph` opens by naming it and the
+version it was — *"Analyses were run with Ligase 0.3.0 on
+macos-aarch64"* — so a reference list that left it out was missing one of
+the pieces of software the sentence above it credits. A user who was citing
+it by hand can stop.
+
+## D59 — A claim is cited by its output digest, not by its step key
+
+[D45](#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it)
+settled what a claim **binds** to: the step key, because the key is the
+identity of a computation and a step served from the cache therefore backs
+its claim completely. What it did not settle is what a claim is **cited
+by**, and `ligase methods` printed the key — which is the one identifier
+that must not go in a manuscript.
+
+A consumer measured it. One pipeline, one claim, `cite=(...)` added to the
+step and nothing else changed:
+
+```
+"malaria F1 = 0.333 …" rests on `validate`, at key 25c2762d4d8766aa, …
+"malaria F1 = 0.333 …" rests on `validate`, at key b4884fc9df9aa706, …
+```
+
+Nothing reran — the run report says `cached` for both steps, which is D45's
+other half working exactly as promised, since `cite` never joins a cache
+key. The artifact was byte-identical. Both provenance rows survived in the
+store under the two keys, carrying the **same output digest** and the
+**same canonical digest**. So the identifier the paper would have quoted
+stopped resolving for an edit that provably cannot change the number.
+
+### Why the key moves, and why that is correct
+
+The key is a hash of the step's code, its parameters, its input content and
+its tool versions. A citation is part of the step's declaration, so it is
+part of the code that was hashed — and that is the right behaviour for a
+*key*, whose job is to identify a computation exactly. The defect is not
+that the key moved. It is that the key was offered as a citable identifier.
+
+### What is printed instead
+
+The digest of the output's **canonical form**, twelve characters, as the
+rest of the engine already prints a content hash:
+
+```
+"variants were called above 1% allele frequency" rests on `call`, where
+    min_freq = 0.01 as this claim states, output 4a366b6cfeb0, recorded
+    30 October 2026 on macos-aarch64.
+```
+
+The canonical digest rather than the raw bytes', although the report asked
+for the bytes'. The canonical form is what
+[D4](#d4--semantic-hashing) makes "scientifically identical" mean; it is
+what `ligase audit` compares two runs by, and what a bundle's `verify`
+checks a rerun against. It is therefore the digest that still resolves when
+a rerun on another machine writes a different timestamp into a header — and
+a manuscript's identifier wants every bit of that stability.
+
+### Why the key is no longer in the sentence
+
+Printing both was the report's first suggestion and the smaller change. It
+was declined for one reason: a reader who is offered two identifiers will
+sometimes quote the wrong one, and the whole finding here is that one of
+them is unsafe to quote. A write-up that names only the stable identifier
+cannot be misread.
+
+The key is not lost. It is in provenance, in the bundle's `claims.tsv`
+beside the canonical digest, and on `bound.key` for anything that wants to
+look a computation up — which is where an internal identifier belongs.
+
+### The multi-sample sentence changes with it
+
+A claim naming no sample binds to one computation per sample, and the
+sentence listed every key under `Keys:` because naming beats counting
+([D15](#d15--an-error-identifies-its-node-not-just-its-step)). It lists every digest under
+`Outputs:` now, for the same reason and with the same per-sample
+resolution: a reviewer checking one sample needs that sample's identifier,
+and it has to be the one that still means something next year.
+
+## D60 — A one-to-many crossing is declared, and a ranking does not survive one
+
+[D38](#d38--identifier-namespaces-never-coerce) leaves an identifier the
+mapping table sends to several targets **out** of the output and names it,
+on the grounds that emitting a row for each would make the output larger
+than the input without saying so, and choosing one of them would be a guess
+about which the analysis meant. Both halves of that are still true. What it
+assumed is that the ambiguity is a data-quality problem, and for a real
+class of entity it is not.
+
+A consumer put it precisely: *the remedy "decide which target you mean"
+assumes the ambiguity is a data-quality problem. Often it is. But some of
+the time the identifier genuinely denotes more than one thing, and picking
+one is the wrong answer.*
+
+- **Bifunctional enzymes.** *P. falciparum* `DHFR-TS` is a single
+  polypeptide with two catalytic domains, corresponding to human `DHFR` and
+  `TYMS`. `PPPK-DHPS` is the same story. Both targets are correct; these
+  are not curation errors, they are the organism.
+- **Protein complexes** named as a unit, mapping to their subunit genes.
+- **Paralogue families** where a non-human identifier has no one-to-one
+  human orthologue but a defensible set of them.
+
+And "keep the identifier in the space it is already in" does not resolve it
+either, because the reason to cross at all is to join against something in
+the other space: an identifier left unmapped is absent from the join, which
+is the same outcome as dropping it, arrived at deliberately. In the
+reporting pipeline the **top-ranked** entity was exactly this case, so the
+entity the result was most about was the one that could not cross.
+
+### What is added, and why it is declared rather than defaulted
+
+`map_identifiers` takes `ambiguous`, which is `drop` — the behaviour above,
+unchanged — or `fan-out`, which emits a row per target and says so:
+
+```
+noticed   `map_identifiers`: the identifier `NKX2-1` maps to more than one
+          target, and this step asked for a fan-out, so the output holds a
+          row for each
+noticed   `map_identifiers`: 1 identifier fanned out into 2 rows, so the
+          output is 1 entity larger than the input
+```
+
+Declared at the call site, never inferred. The engine cannot tell an untidy
+mapping table from a bifunctional enzyme, and the whole value of the note
+is that it says *you asked for this* rather than *the engine decided which
+biology this was*. It is an ordinary step parameter, so it joins the cache
+key: changing the answer about the biology reruns the step, which it must,
+because the output is different.
+
+Two rules are **not** suspended by a fan-out. A target that two identifiers
+arrive at is still left out, because the output is a set and one entity
+named twice with two sets of attributes is not one — a fanned identifier
+can collide exactly as a one-to-one one can, and the collision pass counts
+fanned targets for that reason. And an identifier the table has no row for
+still does not cross.
+
+### A ranking does not survive it
+
+[D41](#d41--in-a-ranked-list-rank-order-is-the-result) says rank *is* the
+row position; there is nothing else for it to be. One row becoming two
+therefore has no defensible rank, and all three ways of pretending
+otherwise are worse than refusing:
+
+- **tie ranks** invent an order the pipeline never produced;
+- **renumbering** makes rank *n* of the output mean something no
+  computation assigned;
+- **keeping the fanned entity at its rank and pushing the rest down** does
+  both at once.
+
+So `map_ranked_identifiers` has no `ambiguous` argument and goes on
+dropping, and `fan_out_ranked_identifiers` is a step of its own whose
+return type is an **`EntitySet`**. The ranking did not survive the
+crossing, and saying so is more honest than handing back something shaped
+like a ranking.
+
+That it is a separate function rather than an argument is forced as well as
+preferred: a step's output kind is read off its return annotation once,
+when it is decorated, so one function cannot produce both kinds. The same
+constraint split `map_ranked_identifiers` from `map_identifiers` in M12,
+and the function's name is now where the declaration lives.
+
+The practical advice that follows is the one D41 already gives about
+cut-offs, pointed the other way: take a top ten **before** fanning. The top
+ten of a fanned set is not a thing; the fan-out of the top ten is.
+
+## D61 — A claim may name where its number lives
+
+[D45](#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it)
+binds a sentence to a computation, and M13's finding — *a declaration
+nothing can check is a comment* — made the engine check every part of that
+declaration except the sentence itself. One part was never checkable: the
+number. `lg.Claim` could say that `0.333` was stated and that `validate`
+produced something; it could not say that `0.333` was what `validate`
+produced, and the guide said so plainly.
+
+That is the gap that makes published numbers wrong in practice. They go
+wrong not because anyone falsified anything, but because the pipeline was
+rerun after the table was pasted in, or the table was copied from a run
+with different inputs — and nothing in the toolchain was in a position to
+notice.
+
+So a claim may name where its number lives:
+
+```python
+lg.Claim(
+    "malaria F1 = 0.333 against seven curated targets",
+    step="validate",
+    value=0.333,
+    at=lg.cell(column="f1", row=0),
+    tolerance=5e-4,
+)
+```
+
+<RunReport>{claims.verified}</RunReport>
+
+And when the artifact moves and the manuscript does not:
+
+<RunReport>{claims.refuted}</RunReport>
+
+`ligase methods` exits non-zero on that, because a refuted number is not a
+number the write-up stands behind — the same rule `accounted_for` already
+applied to an unbacked claim.
+
+### Four constraints, each a refusal
+
+**Only a declared location.** The engine never goes looking for a number in
+output it was not pointed at, and never parses a format it was not told. One
+location kind exists — a cell of a TSV with a header, by column name and row
+position — and `Located` is an enum so that a second is a variant rather
+than a redesign. A claim that cannot say where its number is stays
+step-only, which is a legitimate state and not an error.
+
+**The tolerance is the consumer's, declared.** A claim to three decimals and
+a claim to machine precision are different claims, and a default would
+invent a precision nobody stated. `at` without `tolerance` is refused where
+it is written, as is `tolerance` without `at`.
+
+**Not a statistics engine.** No recomputation, and no checking that an F1 is
+a well-formed F1. Just: the number you published is the number in the bytes.
+
+**An unreadable location is `unbacked`, not `contradicted`.** A column that
+is not there says nothing about whether the sentence is true, so the
+write-up reports that it could not check rather than that the claim is
+wrong — and names what *was* there, because the columns the output does have
+is what tells a wrong column from a wrong row.
+
+### Why `verified` is a fourth verdict
+
+`bound` says the sentence rests on a computation this write-up accounts for.
+`verified` says the number in the sentence is the number in the bytes. The
+second is strictly stronger, and collapsing them would throw away the whole
+of what a located claim buys — a reader could not tell a claim the engine
+checked from one it merely bound. `is_bound` is true for both, because
+verified is bound and more.
+
+A disagreement reuses `contradicted` rather than adding a `refuted`, because
+the engine already has a word for *something stands behind this claim and
+disagrees with it* and two words for one state is how a vocabulary comes
+apart. What does differ is the **sentence**: for a parameter or a tool
+version the write-up says *one of the two is wrong, and this write-up cannot
+tell you which*, because the claim may be describing a run that happened and
+the pipeline may have been edited since. For a number read out of the
+artifact the claim is bound to, there is nothing left to be uncertain about,
+so it says which.
+
+### Why this belongs in the engine and not in a consumer's tests
+
+A consumer can and should assert this in their own tests. But a test asserts
+against whatever the test can see, and what it cannot see is the provenance
+chain — that the artifact it read is the one the claim is bound to, produced
+by that step, with those inputs, at those tool versions. Ligase is the only
+component holding both halves. It is the same argument that puts `cite` in
+the engine rather than in a consumer's methods script (D24).
+
+### What it cost elsewhere
+
+`Produced` and `Bound` now carry the output's path, which is the only thing
+in a write-up that depends on an artifact still being on disk; everything
+else comes from the record. And `Eq` is gone from `Claim`, `Restated`,
+`ClaimVerdict` and `ClaimCheck`, because a claim can hold an `f64` and
+`f64` has no total equality. Nothing wanted it: these types are compared
+for sameness and never used as a key.
+
+## D57 — A change that alters results is named where a pin is chosen
+
+Two consumer integrations lost a debugging cycle to the same thing, and
+neither was a defect in the behaviour that broke them. One of them put it
+as a process request rather than a bug report, which is how it is recorded
+here.
+
+**`lg.reference()` began requiring `frame=`.** A reference that is not
+whole-genome length is refused without it, which is right on the merits:
+the silent coordinate shift it prevents had invented Intermediate-level PI
+resistance in a consumer's own evaluation, and the error message names the
+exact fix. It broke 4 of 78 tests on `0.2.0` and the identical 4 on
+`0.3.0`.
+
+**A `gene_coverage` default dropped twelve drugs from a well-formed
+report.** A record covering the full p51 reverse transcriptase — every
+position any rule scores — came back with no RT drugs at all, eight codons
+short of a floor computed over the gene's whole length.
+
+Both shipped as minor bumps with the migration documented inside a long
+changelog body. A consumer pinned `ligase-bio>=0.1.0` picks that up on
+their next lock with no signal at all.
+
+### The asymmetry worth fixing
+
+The `frame` change fails at `pipeline.check()`, before anything runs. That
+is ideal: a refusal with the fix in the message costs a consumer an
+afternoon.
+
+The coverage default did the opposite. The run **succeeded**, the report was
+well-formed, and twelve drugs were simply absent — recorded in a note, so
+nothing was concealed, but a consumer who does not promote notes to a
+visible log level ships a clinical resistance report with no NRTI or NNRTI
+calls and no error. (That consumer logged notes at `DEBUG`, which they have
+fixed. The point stands: the engine made it possible.)
+
+> "The run succeeds and the result is different" is the one category a
+> consumer cannot defend against.
+
+So the rule, in three parts.
+
+**1. A result-altering change is named where a pin is chosen.**
+[`MIGRATING.md`](https://github.com/Neoforge-Labs/ligase/blob/main/MIGRATING.md)
+holds every change that can alter results or refuse what used to pass,
+newest first, with what breaks, the symptom and the exact edit. The
+changelog keeps everything; this file keeps only what a consumer must act
+on, which is what makes it short enough to read before upgrading.
+
+**2. The pair is enforced, not intended.** An entry that points at
+`MIGRATING.md` with no section there fails `tests/test_import.py`, and
+again in the release workflow's `version` job — the last thing between a
+tag and two append-only registries. A migration heading for a version the
+changelog does not know fails too, because `MIGRATING.md` is read *from* a
+release and an unreachable heading is no better than a missing one. M13's
+finding applies to process as much as to code: a declaration nothing can
+check is a comment, and "we will remember to write release notes" is
+exactly such a declaration.
+
+**3. Where a result-altering change can refuse, it refuses.** Preferred over
+every form of notice, because a refusal at check time cannot be missed and a
+note can. D56 is the first change made under this rule and it takes the
+loud option: inference stops answering, two undeclared lists are refused at
+`check()`, and the remedy is one argument. The alternative — keep inferring
+and mark the value as a guess — would have been quieter and would have left
+the join passing.
+
+### What this does not promise
+
+Not a major bump per behaviour change. At `0.x` that would spend version
+numbers on a stability nobody has been offered, and the project says plainly
+that it has no outside users yet. What is promised is the **signal**: the
+change is in `MIGRATING.md`, the changelog entry says what breaks in its
+first sentence rather than its fifth, and the engine refuses rather than
+notes wherever it can.
+
+And not a guarantee that every such change is caught. A default that alters
+numbers is sometimes only visible to the person who measured it — both of
+these were. What the rule buys is that once it *is* known, there is one
+place it goes, and a release cannot quietly fail to mention it.

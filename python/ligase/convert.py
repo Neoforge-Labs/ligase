@@ -48,6 +48,28 @@ matches nothing. The table's identifiers are the *source* side of the
 mapping, so they are in the same space as the list; the targets live in an
 attribute column, named by `column=`.
 
+## When an identifier really means two things
+
+`map_identifiers` leaves an identifier the table sends to several targets
+out of the output and names it, because most one-to-many rows are untidy
+curation and choosing one target would be a guess about which the analysis
+meant.
+
+Some of the time the identifier genuinely denotes more than one thing.
+*P. falciparum*'s `DHFR-TS` is a single polypeptide with two catalytic
+domains, answering to human `DHFR` and `TYMS`; `PPPK-DHPS` is the same
+story; a complex named as a unit maps to its subunit genes. For those,
+"decide which target you mean" has no correct answer, and
+`ambiguous="fan-out"` asks for a row at each target instead — declared at
+the call site, so the note says the choice was yours rather than the engine
+guessing which biology it was looking at.
+
+A ranking cannot do this. Rank is the row position
+([D41](https://ligase.neoforgelabs.tech/project/decisions/)), and one row
+becoming two has no defensible rank — so `fan_out_ranked_identifiers`
+returns an `EntitySet`: the ranking did not survive, and saying so is more
+honest than inventing tie ranks.
+
 ## What a conversion is not
 
 It is not a rename. Mapping between identifier spaces is a lookup *with
@@ -72,7 +94,11 @@ from .types import EntitySet, RankedList
 if TYPE_CHECKING:
     from .recipes import Noticed
 
-__all__ = ["map_identifiers", "map_ranked_identifiers"]
+__all__ = [
+    "fan_out_ranked_identifiers",
+    "map_identifiers",
+    "map_ranked_identifiers",
+]
 
 
 @step(tool="ligase", conversion="map_identifiers")
@@ -84,6 +110,7 @@ def map_identifiers(
     to: str,
     id_column: str = "id",
     table_id_column: str = "id",
+    ambiguous: str = "drop",
 ) -> EntitySet:
     """Rewrite a gene list's identifiers through a mapping table.
 
@@ -108,6 +135,14 @@ def map_identifiers(
         id_column: The column of `entities` holding its identifiers.
         table_id_column: The column of `table` holding the source
             identifiers.
+        ambiguous: What becomes of an identifier the table sends to
+            several targets. `"drop"`, the default, leaves it out and names
+            it. `"fan-out"` emits a row for each target, which is what a
+            bifunctional enzyme, a named complex or a paralogue family
+            needs — those genuinely denote more than one entity, and
+            picking one is the wrong answer. Declared at the call site
+            rather than inferred, because the engine cannot tell untidy
+            curation from the organism.
 
     Returns:
         A recipe, typed as the gene list the step produces.
@@ -123,7 +158,10 @@ def map_identifiers(
         one would be a guess about which the analysis meant.
 
         So the output is smaller than the input by exactly the identifiers
-        the notes name.
+        the notes name — unless `ambiguous="fan-out"` was asked for, and
+        then it is *larger* by exactly what the `identifiers-fanned-out`
+        note states. A target two identifiers arrive at is still left out
+        either way, because the output is a set.
     """
 
     def produce(out: Path) -> list[Noticed]:
@@ -139,6 +177,7 @@ def map_identifiers(
             table.file,
             table_id_column,
             column,
+            ambiguous,
             str(out),
         )
 
@@ -187,6 +226,17 @@ def map_ranked_identifiers(
     before mapping, not after.** The top ten of a mapped ranking is the top
     ten of what crossed, which is not the mapping of the top ten.
 
+    ### There is no `ambiguous=` here
+
+    `map_identifiers` takes `ambiguous="fan-out"` for the identifiers that
+    genuinely denote more than one entity. A ranking cannot: rank is the
+    row position (D41), and one row becoming two has no defensible rank —
+    tie ranks would be invented, and renumbering would make the output a
+    ranking of something nobody computed. So an ambiguous identifier is
+    always left out here, and `fan_out_ranked_identifiers` is the step that
+    fans a ranking: it returns an `EntitySet`, because that is what the
+    data has become.
+
     Args:
         entities: The ranking to convert.
         table: The mapping, as an `EntitySet` whose own identifiers are the
@@ -213,6 +263,7 @@ def map_ranked_identifiers(
             table.file,
             table_id_column,
             column,
+            "drop",
             str(out),
         )
         first = _first_surviving_rank(
@@ -221,6 +272,87 @@ def map_ranked_identifiers(
         if first is not None:
             noticed.append(("ranks-renumbered", f"first={first}"))
         return noticed
+
+    return write(produce)
+
+
+@step(tool="ligase", conversion="map_identifiers")
+def fan_out_ranked_identifiers(
+    entities: RankedList,
+    table: EntitySet,
+    *,
+    column: str,
+    to: str,
+    id_column: str = "id",
+    table_id_column: str = "id",
+) -> EntitySet:
+    """Map a ranking's identifiers, fanning the ambiguous ones, as a set.
+
+    The declared way across a one-to-many crossing for data that arrived
+    ranked. `map_ranked_identifiers` leaves an ambiguous identifier out,
+    because rank is the row position (D41) and one row becoming two has no
+    rank; this step emits a row per target and **returns an `EntitySet`**,
+    because a table that has gained rows is no longer the ranking that was
+    computed.
+
+    ### Why the ranking cannot be kept, stated once
+
+    Three ways to keep it were available and all three are worse. Giving
+    the fanned rows **tie ranks** invents an order the pipeline never
+    produced. **Renumbering** them makes rank *n* of the output mean
+    something no computation assigned. Keeping the fanned entity at its
+    **original rank and pushing the rest down** does both at once. Rank is
+    the result for this kind, so a step that cannot preserve it has to say
+    the result is gone rather than hand back something that looks like one.
+
+    The function's name is that declaration: there is no `ambiguous=`
+    argument, because choosing it on a ranking would change the output's
+    *type*, and a step's output kind is read off its return annotation
+    once, when it is decorated.
+
+    ### What to do with the order you had
+
+    Take any cut-off — a top ten, a significance line — on the ranking
+    **before** this step, and fan the members of that cut-off. The top ten
+    of a fanned set is not a thing; the fan-out of the top ten is.
+
+    Args:
+        entities: The ranking whose identifiers are to cross. Its order is
+            read, and is not carried: the output is a set.
+        table: The mapping, as an `EntitySet` whose own identifiers are the
+            *source* side — in the same space as the ranking, so a table of
+            the wrong space is refused before anything runs.
+        column: The column of `table` holding the identifiers to convert
+            *to*.
+        to: The space the output is in, such as `Ensembl gene`. Declared
+            rather than inferred, so what the output is does not depend on
+            which identifiers happened to cross.
+        id_column: The column of `entities` holding its identifiers.
+        table_id_column: The column of `table` holding the source
+            identifiers.
+
+    Returns:
+        A recipe, typed as the gene list the step produces — not a ranking.
+
+    Note:
+        Every identifier that fanned is named, and the totals say how many
+        fanned and into how many rows, so the output being *larger* than
+        the input is a recorded fact. There is no `ranks-renumbered` note,
+        because there are no ranks: that is the whole point of the return
+        type.
+    """
+
+    def produce(out: Path) -> list[Noticed]:
+        """Map with the fan-out asked for, and write a set."""
+        return _core.map_identifiers(
+            entities.file,
+            id_column,
+            table.file,
+            table_id_column,
+            column,
+            "fan-out",
+            str(out),
+        )
 
     return write(produce)
 

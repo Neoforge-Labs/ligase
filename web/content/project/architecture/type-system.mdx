@@ -117,6 +117,64 @@ to every other empty set, so two datasets that declared nothing would *agree*
 on organism. The Python loaders refuse it where it is passed; the core, which
 could raise but chooses not to, records the dimension as unknown with a reason.
 
+## The namespace catalogue, and the shape that cannot speak for itself
+
+`identifier_namespace` is a `Label` like `release` and `subject`, compared
+exactly, and accepted on the user's word wherever it is declared. What makes
+it different is that `dim/namespace.rs` can often read it off the file —
+and the part of that worth documenting is where it stops.
+
+The catalogue is a table of seven entries, each a name, a marker and a
+predicate, ordered most specific first:
+
+```rust
+pub struct KnownNamespace {
+    name: &'static str,
+    marker: Option<&'static str>,
+    claims: fn(&str) -> bool,
+}
+```
+
+The **order** decides which shape claims an identifier, and it is
+load-bearing: `P04637` fits the symbol shape as readily as the accession
+shape, so `UniProt accession` is tried first and `HGNC symbol` is the
+fallback. `KnownNamespace::resolve` returns the first match rather than
+complaining about several.
+
+The **marker** decides something the order cannot. Six entries carry one — a
+prefix, an underscore, a colon, digits throughout, or digits in fixed
+positions at a fixed length — and `HGNC symbol` carries `None`, because an
+upper-case letter followed by letters, digits and hyphens is what an approved
+symbol, a ChEMBL component synonym and an in-house panel all look like. So
+`KnownNamespace::infer` returns three answers rather than an `Option`:
+
+```rust
+pub enum Inference {
+    Settled(&'static KnownNamespace),
+    Unsettled,
+    Indistinguishable(&'static KnownNamespace),
+}
+```
+
+`Unsettled` is the file that mixes two spaces, the file with no rows and the
+file holding a name nothing claims. `Indistinguishable` is the file whose
+identifiers all fit the marker-less shape, and it is a variant rather than a
+fourth way to be unsettled because the **remedy differs**: a bare symbol list
+is perfectly readable and need only declare, where a file holding `2-Sep` must
+be re-exported and would be made permanently wrong by a declaration. The
+reason a user reads is therefore the loader's — `load/named_list.rs` and
+`load/knowledge_graph.rs` each phrase their own, since "the node ids do not
+all match one pattern" is the normal case for a graph of two kinds of entity
+and a fault for a gene list — while the decision of *which* decline it is
+stays in the one place the catalogue lives
+([D56](/project/decisions/#d56--a-shape-with-no-marker-is-not-a-namespace)).
+
+The marker is a field rather than a remark in the module comment precisely
+because `infer` reads it. `namespaces.rs::the_catalogue_says_what_tells_each_shape_from_the_others`
+asserts that exactly one entry carries none and that it is the entry the
+resolution order puts last, so a namespace added without a marker cannot
+quietly become a second thing the engine guesses.
+
 ## Reference identity
 
 ```rust

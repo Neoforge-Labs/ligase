@@ -45,8 +45,16 @@ TRUTH_REORDERED = "id\nPTEN\nTP53\nEGFR\n"
 PIPELINE = '''import ligase as lg
 from pathlib import Path
 
-ranked = lg.ranked_list("results/ranked.tsv", organism="Homo sapiens")
-truth = lg.entity_set("truth/known.tsv", organism="Homo sapiens")
+ranked = lg.ranked_list(
+    "results/ranked.tsv",
+    organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
+)
+truth = lg.entity_set(
+    "truth/known.tsv",
+    organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
+)
 
 
 @lg.step

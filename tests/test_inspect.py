@@ -273,7 +273,11 @@ def test_a_tsv_with_no_inchikey_column_is_still_a_gene_list(
 
     said = capsys.readouterr().out
     assert "EntitySet" in said
-    assert "HGNC symbol" in said
+    # Its space is unknown rather than guessed, because bare symbols carry
+    # no marker (D56) — but it is read as a gene list, which is what this
+    # half of the dispatch asserts.
+    assert "identifier_namespace is unknown" in said
+    assert "indistinguishable by pattern" in said
 
 
 def test_two_compound_tables_standardised_differently_are_refused(

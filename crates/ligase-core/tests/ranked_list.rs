@@ -521,7 +521,12 @@ fn map_identifiers_crosses_for_a_ranked_list_too() {
 
 #[test]
 fn a_ranked_list_carries_what_its_loader_read_and_what_was_declared() {
+    // The space is declared here rather than read off the identifiers:
+    // `ranked_degs.tsv` holds bare symbols, which state no space (D56).
+    // This test is about the four axes a ranking carries, so each is
+    // supplied the way a user would supply it.
     let declared = Declared {
+        identifier_namespace: Some("HGNC symbol".to_owned()),
         subject: Some("breast carcinoma".to_owned()),
         release: Some("HGNC 2026-09".to_owned()),
         ..declared_human()
@@ -550,26 +555,25 @@ fn a_ranked_list_carries_what_its_loader_read_and_what_was_declared() {
 
 #[test]
 fn a_namespace_is_inferred_from_a_ranking_s_own_identifiers() {
-    for (file, expected) in [
-        ("ranked_degs.tsv", "HGNC symbol"),
-        ("ranked_targets_ensembl.tsv", "Ensembl gene"),
-    ] {
-        let loaded = load::ranked_list(&fixture(file), None, &declared_human()).unwrap();
-        let dimensions = loaded.dimensions();
-        assert_eq!(
-            dimensions.render(Dimension::IdentifierNamespace).as_deref(),
-            Some(expected),
-            "{file}"
-        );
-        let source = dimensions
-            .source(Dimension::IdentifierNamespace)
-            .map(Source::describe)
-            .unwrap_or_default();
-        assert!(
-            source.contains("the identifiers' own pattern"),
-            "{file}: {source}"
-        );
-    }
+    // `ranked_degs.tsv` was in this table until M19: bare symbols state no
+    // space (D56), and the ranking inherits that from the loader it shares
+    // with `EntitySet` — which is the point of sharing it.
+    let file = "ranked_targets_ensembl.tsv";
+    let loaded = load::ranked_list(&fixture(file), None, &declared_human()).unwrap();
+    let dimensions = loaded.dimensions();
+    assert_eq!(
+        dimensions.render(Dimension::IdentifierNamespace).as_deref(),
+        Some("Ensembl gene"),
+        "{file}"
+    );
+    let source = dimensions
+        .source(Dimension::IdentifierNamespace)
+        .map(Source::describe)
+        .unwrap_or_default();
+    assert!(
+        source.contains("the identifiers' own pattern"),
+        "{file}: {source}"
+    );
 }
 
 #[test]
@@ -607,16 +611,18 @@ fn the_loader_notices_a_rank_whose_symbol_excel_turned_into_a_date() {
 
 #[test]
 fn a_carriage_return_is_not_part_of_a_ranked_identifier() {
+    // The reason rather than the value, since M19: `TP53` reaches the
+    // symbol shape and declines for want of a marker (D56), where `TP53\r`
+    // would reach no shape at all and decline for being unreadable. Only
+    // one of those two sentences belongs to a file whose returns were
+    // trimmed.
     for file in ["ranked_crlf.tsv", "ranked_cr_only.tsv"] {
         let loaded = load::ranked_list(&fixture(file), None, &declared_human()).unwrap();
-        assert_eq!(
-            loaded
-                .dimensions()
-                .render(Dimension::IdentifierNamespace)
-                .as_deref(),
-            Some("HGNC symbol"),
-            "{file}"
-        );
+        let why = loaded
+            .dimensions()
+            .reason(Dimension::IdentifierNamespace)
+            .unwrap_or_default();
+        assert!(why.contains("bare gene-symbol shapes"), "{file}: {why}");
         assert!(loaded.notes().is_empty(), "{file}");
     }
 }
@@ -631,13 +637,14 @@ fn the_identifier_column_of_a_ranking_can_be_named() {
         &declared_human(),
     )
     .unwrap();
-    assert_eq!(
-        loaded
-            .dimensions()
-            .render(Dimension::IdentifierNamespace)
-            .as_deref(),
-        Some("HGNC symbol")
-    );
+    // The named column was read, so its bare symbols declined for want of
+    // a marker (D56) rather than for being unreadable; a column that was
+    // not found would have errored before any of this.
+    let why = loaded
+        .dimensions()
+        .reason(Dimension::IdentifierNamespace)
+        .unwrap_or_default();
+    assert!(why.contains("bare gene-symbol shapes"), "{why}");
 }
 
 #[test]

@@ -163,7 +163,11 @@ reason to join those two kinds at all, so the namespace is demanded of the
 pair:
 
 ```python
-truth = lg.entity_set("truth/known_drivers.tsv", organism="Homo sapiens")
+truth = lg.entity_set(
+    "truth/known_drivers.tsv",
+    organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
+)
 
 lg.check_step("score", {"kg": graph, "truth": truth})
 ```

@@ -1,7 +1,7 @@
 //! The identifier-namespace axis, and the catalogue inference reads.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use ligase::dim::{Dimension, KnownNamespace};
+use ligase::dim::{Dimension, Inference, KnownNamespace};
 
 #[test]
 fn the_axis_is_appended_so_earlier_reports_keep_their_order() {
@@ -74,28 +74,33 @@ fn a_uniprot_accession_is_not_read_as_a_gene_symbol() {
 #[test]
 fn a_file_whose_identifiers_agree_infers_that_namespace() {
     assert_eq!(
-        KnownNamespace::infer(["ENSG00000141510", "ENSG00000012048"]).map(KnownNamespace::name),
+        KnownNamespace::infer(["ENSG00000141510", "ENSG00000012048"])
+            .settled()
+            .map(KnownNamespace::name),
         Some("Ensembl gene")
     );
 }
 
 #[test]
 fn a_file_that_mixes_two_namespaces_infers_neither() {
-    assert_eq!(KnownNamespace::infer(["TP53", "ENSG00000141510"]), None);
+    assert_eq!(
+        KnownNamespace::infer(["TP53", "ENSG00000141510"]).settled(),
+        None
+    );
 }
 
 #[test]
 fn a_file_with_no_identifiers_infers_nothing() {
     // Every pattern matches all zero identifiers, so a vacuous answer here
     // would declare a namespace for a file that names nothing.
-    assert_eq!(KnownNamespace::infer(Vec::<&str>::new()), None);
+    assert_eq!(KnownNamespace::infer(Vec::<&str>::new()).settled(), None);
 }
 
 #[test]
 fn an_identifier_nothing_claims_stops_inference() {
     // `2-Sep` is what Excel does to SEPT7. Guessing past it would declare a
     // namespace for a file that is partly corrupt.
-    assert_eq!(KnownNamespace::infer(["TP53", "2-Sep"]), None);
+    assert_eq!(KnownNamespace::infer(["TP53", "2-Sep"]).settled(), None);
 }
 
 // --------------------------------- identifiers a biologist actually has --
@@ -147,23 +152,44 @@ fn a_protein_list_never_agrees_with_a_gene_symbol_list() {
     // recognised, a TrEMBL list inferred `HGNC symbol` and joined a symbol
     // list without a word.
     assert_ne!(
-        KnownNamespace::infer(["A0A024R161", "A0A087WUL8"]).map(KnownNamespace::name),
-        KnownNamespace::infer(["TP53", "BRCA1"]).map(KnownNamespace::name)
+        KnownNamespace::infer(["A0A024R161", "A0A087WUL8"])
+            .settled()
+            .map(KnownNamespace::name),
+        KnownNamespace::infer(["TP53", "BRCA1"])
+            .settled()
+            .map(KnownNamespace::name)
     );
     assert_eq!(
-        KnownNamespace::infer(["A0A024R161", "A0A087WUL8"]).map(KnownNamespace::name),
+        KnownNamespace::infer(["A0A024R161", "A0A087WUL8"])
+            .settled()
+            .map(KnownNamespace::name),
         Some("UniProt accession")
     );
 }
 
 #[test]
-fn an_ordinary_human_gene_list_still_infers() {
+fn an_ordinary_human_gene_list_is_claimed_but_not_inferred() {
     // `C9orf72` is in most neurology gene lists and `C1orf43` is a standard
-    // housekeeping gene. A list holding either used to infer nothing, which
-    // sent the user to declare a dimension for a perfectly good file.
+    // housekeeping gene, and the symbol *shape* must keep claiming both:
+    // that is what lets inference say "these are bare symbols" rather than
+    // "these hold a name I cannot read", and the two want different advice.
+    for identifier in ["TP53", "C9orf72", "BRCA1", "C1orf43"] {
+        assert_eq!(
+            KnownNamespace::resolve(identifier).map(KnownNamespace::name),
+            Some("HGNC symbol"),
+            "{identifier}"
+        );
+    }
+
+    // What changed in M19: this list used to *infer* `HGNC symbol`, and the
+    // inference was a guess dressed as a fact. `DHFR-TS` is ChEMBL's name
+    // for a bifunctional enzyme and fits this shape exactly, so a guess of
+    // `HGNC symbol` over a synonym space is both confident and wrong -- and
+    // two such guesses agreeing is how an undeclared cross-space join came
+    // to pass `check` with exit 0 (D56).
     assert_eq!(
-        KnownNamespace::infer(["TP53", "C9orf72", "BRCA1", "C1orf43"]).map(KnownNamespace::name),
-        Some("HGNC symbol")
+        KnownNamespace::infer(["TP53", "C9orf72", "BRCA1", "C1orf43"]).settled(),
+        None
     );
 }
 
@@ -171,7 +197,93 @@ fn an_ordinary_human_gene_list_still_infers() {
 fn a_versioned_ensembl_list_infers() {
     assert_eq!(
         KnownNamespace::infer(["ENSG00000141510.18", "ENSG00000012048.23"])
+            .settled()
             .map(KnownNamespace::name),
         Some("Ensembl gene")
     );
+}
+
+// ------------------- the shape that cannot discriminate, which is D56 --
+
+#[test]
+fn the_catalogue_says_what_tells_each_shape_from_the_others() {
+    // The marker is a field rather than a remark in the module comment,
+    // because `infer` reads it: a shape with no marker cannot tell its own
+    // space from the several that look like it, so inference over one
+    // declines instead of answering. Exactly one entry carries none, and it
+    // is the fallback the resolution order already put last.
+    let unmarked: Vec<&'static str> = KnownNamespace::ALL
+        .iter()
+        .filter(|namespace| !namespace.discriminates())
+        .map(KnownNamespace::name)
+        .collect();
+    assert_eq!(unmarked, ["HGNC symbol"]);
+    assert_eq!(
+        KnownNamespace::ALL.last().map(KnownNamespace::name),
+        Some("HGNC symbol"),
+        "the shape with no marker is the one that must be tried last"
+    );
+}
+
+#[test]
+fn a_list_of_bare_gene_symbols_infers_nothing() {
+    // Measured by a consumer against 0.3.0: `DHFR-TS` and `PPPK-DHPS` are
+    // ChEMBL component synonyms for *P. falciparum* bifunctional enzymes,
+    // and 0.3.0 called them `HGNC symbol` with no hedge. They are not HGNC
+    // symbols. No matcher can separate them from `MT-CYB`, `HLA-A` or
+    // `NAT8B-AS1`, which are, so the honest answer is that the identifiers
+    // do not settle the question.
+    assert_eq!(
+        KnownNamespace::infer(["DHFR-TS", "PPPK-DHPS"]).settled(),
+        None
+    );
+    assert_eq!(KnownNamespace::infer(["TP53", "BRCA1"]).settled(), None);
+}
+
+#[test]
+fn inference_distinguishes_a_shape_it_cannot_discriminate_from_names_it_cannot_read() {
+    // Two declines with two different remedies, so they are two answers
+    // rather than one `None`. Bare symbols want "declare the space"; a file
+    // holding `2-Sep` wants "re-export the column as text", and declaring a
+    // space over that file would make the corruption permanent. The loaders
+    // read this to choose which sentence a user gets.
+    assert!(matches!(
+        KnownNamespace::infer(["DHFR-TS", "PPPK-DHPS"]),
+        Inference::Indistinguishable(shape) if shape.name() == "HGNC symbol"
+    ));
+    assert!(matches!(
+        KnownNamespace::infer(["TP53", "2-Sep"]),
+        Inference::Unsettled
+    ));
+    assert!(matches!(
+        KnownNamespace::infer(["TP53", "ENSG00000141510"]),
+        Inference::Unsettled
+    ));
+    assert!(matches!(
+        KnownNamespace::infer(Vec::<&str>::new()),
+        Inference::Unsettled
+    ));
+}
+
+#[test]
+fn every_marker_bearing_shape_still_infers() {
+    // The convenience is kept wherever it is sound. Each of these spaces is
+    // recognisable by a prefix, an underscore, a colon, or by being digits
+    // throughout, and a list of them states its own space.
+    for (identifiers, expected) in [
+        (["ENSG00000141510", "ENSG00000012048"], "Ensembl gene"),
+        (["P04637", "Q9Y6K9"], "UniProt accession"),
+        (["NM_000546", "NM_007294"], "RefSeq"),
+        (["HGNC:11998", "HGNC:1100"], "HGNC ID"),
+        (["CHEMBL1824", "CHEMBL203"], "ChEMBL target"),
+        (["7157", "672"], "Entrez gene"),
+    ] {
+        assert_eq!(
+            KnownNamespace::infer(identifiers)
+                .settled()
+                .map(KnownNamespace::name),
+            Some(expected),
+            "{identifiers:?}"
+        );
+    }
 }

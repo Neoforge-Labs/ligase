@@ -20,7 +20,11 @@ is `id` unless you say otherwise.
 ```python
 import ligase as lg
 
-mine = lg.entity_set("results/degs.tsv", organism="Homo sapiens")
+mine = lg.entity_set(
+    "results/degs.tsv",
+    organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
+)
 published = lg.entity_set(
     "truth/published_set.tsv",
     organism="Homo sapiens",
@@ -28,22 +32,30 @@ published = lg.entity_set(
 )
 ```
 
-Neither call declares an identifier space, because neither needs to. Ask what
-was loaded:
+One call declares an identifier space and the other does not, and the
+difference is the whole of what the loader can and cannot read. Ask what was
+loaded:
 
 ```python
 >>> mine.dimension("identifier_namespace").value
 'HGNC symbol'
 >>> mine.dimension("identifier_namespace").source
-"from the identifiers' own pattern: results/degs.tsv"
+'declared'
 >>> published.dimension("identifier_namespace").value
 'Ensembl gene'
+>>> published.dimension("identifier_namespace").source
+"from the identifiers' own pattern: truth/published_set.tsv"
 ```
 
-The loader read the space off the identifiers, and says so. It only does this
-when every identifier in the file resolves to one space; see
-[identifier spaces](/concepts/identifiers/) on the three cases where it
-declines and leaves the dimension unknown instead.
+`ENSG00000141510` carries a marker no other space has, so the published set
+states its own space and the loader says where it read it. `TP53` carries
+none: it is the shape of an HGNC symbol, of a ChEMBL component synonym and of
+most in-house panels at once, so a symbol list has to say which it is
+([D56](/project/decisions/#d56--a-shape-with-no-marker-is-not-a-namespace)).
+Leave it off and the dimension is unknown with a reason, which the join then
+refuses rather than guesses past. See
+[identifier spaces](/concepts/identifiers/) on all four cases where inference
+declines.
 
 ## Watch the join be refused
 
@@ -158,7 +170,9 @@ Three kinds of identifier do not cross, and none is dropped in silence:
   one gene. It is left out rather than resolved, because emitting a row for
   each would make the output larger than the input without saying so, and
   choosing one would be a guess about which you meant. Decide, and add a
-  one-to-one row.
+  one-to-one row — or, where the identifier really does denote two things,
+  ask for a fan-out; see [when an identifier means two
+  things](#when-an-identifier-really-means-two-things) below.
 - **A target another of your identifiers also reaches.** Ordinary for a table
   holding both a deprecated symbol and its replacement, when your list holds
   both. Emitting both rows would make the output name one gene twice with two
@@ -181,7 +195,7 @@ the methods paragraph. Nothing about the conversion is invisible later. See
 If the list has been through Excel, some symbols are now dates:
 
 ```python
->>> genes = lg.entity_set("results/degs_from_excel.tsv", organism="Homo sapiens")
+>>> genes = lg.entity_set("results/degs_from_excel.tsv", organism="Homo sapiens")  # undeclared, on purpose
 >>> for note in genes.notes:
 ...     print(note)
 the identifier `2-Sep` is a date, not a name; a spreadsheet does this to SEPT7, MARCH1 and DEC1
@@ -212,6 +226,72 @@ loses more. Converting symbols to Ensembl and back does not return the list
 you started with. Where you have the choice, load the data in the space you
 intend to analyse in, and convert the *smaller* side — a truth set of 380
 genes rather than a count matrix of 60,000.
+</Note>
+
+## When an identifier really means two things
+
+"Decide which target you mean" assumes the ambiguity is a data-quality
+problem. Often it is. Sometimes the identifier genuinely denotes more than
+one entity, and then there is no one-to-one row to add:
+
+- *P. falciparum* `DHFR-TS` is **one polypeptide with two catalytic
+  domains**, answering to human `DHFR` and `TYMS`. `PPPK-DHPS` is the same
+  story. Both targets are right; this is the organism, not a curation error.
+- A **protein complex** named as a unit maps to its subunit genes.
+- A **paralogue family** has no one-to-one human orthologue but a defensible
+  set of them.
+
+`ambiguous="fan-out"` asks for a row at each target:
+
+```python
+in_ensembl = lg.map_identifiers(
+    mine,
+    hgnc_to_ensembl,
+    column="ensembl_gene_id",
+    to="Ensembl gene",
+    ambiguous="fan-out",
+)
+```
+
+```
+the identifier `NKX2-1` maps to more than one target, and this step asked for a fan-out, so the output holds a row for each
+1 identifier fanned out into 2 rows, so the output is 1 entity larger than the input
+```
+
+The size change is on the record, in the one direction nothing else in this
+conversion moves — so anything counting entities before and after will
+disagree, and the second count is the right one for the space the output is
+in.
+
+It is declared at the call site and never inferred, because the engine
+cannot tell an untidy mapping table from a bifunctional enzyme. It is an
+ordinary step parameter, so changing it reruns the step: the output is
+different. And a target two of your identifiers reach is still left out,
+because the output is a set
+([D60](/project/decisions/#d60--a-one-to-many-crossing-is-declared-and-a-ranking-does-not-survive-one)).
+
+### A ranking cannot fan out
+
+Rank is the row position
+([D41](/project/decisions/#d41--in-a-ranked-list-rank-order-is-the-result)),
+and one row becoming two has no rank: tie ranks would invent an order
+nothing produced, and renumbering would make rank *n* mean something no
+computation assigned. So `map_ranked_identifiers` has no `ambiguous`
+argument, and the step that fans a ranking returns an **`EntitySet`**:
+
+```python
+targets = lg.fan_out_ranked_identifiers(
+    ranking,
+    hgnc_to_ensembl,
+    column="ensembl_gene_id",
+    to="Ensembl gene",
+)   # -> EntitySet, because the ranking did not survive
+```
+
+<Note kind="tip" title="Take the cut-off first">
+The top ten of a fanned set is not a thing; the fan-out of the top ten is.
+Take any cut-off — a top *n*, a significance line — on the ranking
+**before** fanning it.
 </Note>
 
 ## Declaring a space of your own

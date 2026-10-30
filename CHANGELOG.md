@@ -7,7 +7,109 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A claim is cited by its output digest rather than by its step key.** The
+  key is the identity of a computation, so it moves when the step's code,
+  parameters, inputs or tool versions move — and adding `cite=` to a step
+  moves it while the artifact stays byte-identical and nothing reruns. A
+  manuscript's identifier therefore stopped resolving for an edit that
+  provably cannot change the number. `ligase methods` prints the digest of
+  the output's canonical form instead, which is what `audit` compares two
+  runs by and what a bundle verifies against; a claim over several samples
+  lists `Outputs:` where it listed `Keys:`. The key is unchanged in
+  provenance, in `claims.tsv` and on `bound.key`. D59.
+
+- **`ligase methods` no longer reports a gap for ligase itself.** `ligase` is
+  the tool of the built-in conversions, and those are steps the engine owns:
+  there is no `@lg.step` for `cite=` to go on, so the advice the gap gave
+  named a place that does not exist, and every write-up ended with a warning
+  nobody could act on. The engine's own reference — naming the version, or
+  versions, the run recorded — is now in the reference list of every
+  write-up, and `ligase` is never in the uncited list. A user citing it by
+  hand can stop. D58.
+
+### Added
+
+- **`MIGRATING.md`, and a check that keeps it honest.** Every change that can
+  alter a pipeline's results or refuse what used to pass is written there,
+  newest first, with what breaks, the symptom and the exact edit. Two
+  consumer integrations lost a debugging cycle to migrations documented only
+  inside a long changelog entry — a consumer pinned `>=0.1.0` picks a minor
+  bump up on their next lock with no signal. A changelog entry that points at
+  `MIGRATING.md` with no section there fails `pytest` and again fails the
+  release workflow's `version` job, because a declaration nothing can check
+  is a comment. D57.
+
+- **A claim may name where its number lives, and the engine reads it.**
+  `lg.Claim` bound a sentence to a computation and could not say whether the
+  number in the sentence was the number that computation produced — which is
+  the gap that makes published numbers wrong in practice, because the
+  pipeline is rerun after the table is pasted into the manuscript and nothing
+  notices.
+
+  `value=`, `at=lg.cell(column=..., row=...)` and `tolerance=` together ask
+  the engine to read that cell and compare. The verdict is `verified` where
+  they agree — `bound` and more — and `contradicted` where they do not, and a
+  contradicted claim makes the write-up not accounted for, so `ligase
+  methods` exits non-zero and CI fails when a manuscript's number stops
+  matching its artifact.
+
+  Four refusals come with it: only a declared location, never a search; one
+  format, a TSV with a header; no defaulted tolerance, because a claim to
+  three decimals and a claim to machine precision are different claims; and
+  an unreadable location is `unbacked` rather than `contradicted`, since a
+  missing column says nothing about whether a sentence is true. A claim with
+  no `at` behaves exactly as before. D61.
+
+  `Eq` is no longer derived on `Claim`, `Restated`, `ClaimVerdict` or
+  `ClaimCheck`: a claim can hold an `f64`. `PartialEq` is unchanged.
+
+- **`map_identifiers` takes `ambiguous="fan-out"`, and a ranking that fans
+  out becomes a set.** An identifier the mapping table sends to several
+  targets was always left out and named, on the grounds that choosing one
+  would be a guess. That is right for an untidy table and wrong for the
+  biology: *P. falciparum* `DHFR-TS` is one polypeptide with two catalytic
+  domains answering to human `DHFR` and `TYMS`, a complex named as a unit
+  maps to its subunits, and a paralogue family has no one-to-one orthologue.
+  "Decide which target you mean" has no correct answer for those.
+
+  `ambiguous="fan-out"` emits a row per target and says how many identifiers
+  fanned and into how many rows, so the output being *larger* than the input
+  is on the record. It is declared at the call site, never inferred, and it
+  joins the cache key. A target two identifiers reach is still left out,
+  because the output is a set.
+
+  A ranking cannot fan out — rank is the row position (D41) — so
+  `map_ranked_identifiers` has no such argument, and the new
+  `lg.fan_out_ranked_identifiers` returns an `EntitySet` instead: the
+  ranking did not survive the crossing, and saying so beats inventing tie
+  ranks. D60.
+
 ### Changed
+
+- **A bare gene-symbol list no longer states its own identifier space.**
+  `identifier_namespace` is inferred from the identifiers' own pattern, and
+  six of the seven shapes the engine recognises carry a marker — a prefix, an
+  underscore, a colon, or digits. `HGNC symbol` carries none: `DHFR-TS` is
+  ChEMBL's name for a *P. falciparum* bifunctional enzyme and `MT-CYB` is an
+  approved HGNC symbol, and no pattern separates them. Through 0.3.0 a list of
+  either inferred `HGNC symbol` with no hedge, and because both sides of a
+  join inferred the same wrong answer, `ligase check` reported no problems and
+  exited 0 for a pipeline joining two different identifier spaces.
+
+  Inference now declines where the agreeing shape carries no marker, and the
+  dimension is unknown with a reason naming why. The six marker-bearing shapes
+  infer as before, and a declaration is still recorded without being checked.
+
+  **This breaks pipelines that joined two symbol lists without declaring**,
+  with a refusal at `check()` before anything runs. Add
+  `identifier_namespace="HGNC symbol"` to each load. See
+  [MIGRATING.md](MIGRATING.md) and D56.
+
+  `KnownNamespace::infer` returns a three-way `Inference` rather than an
+  `Option`, so a Rust caller gets a compile error rather than a changed
+  answer.
 
 - **The gene-coverage floor is counted over the codons the algorithm scores,
   not over the gene.** `gene_coverage` asked what share of a gene's codons a
@@ -1177,7 +1279,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `lg.reference(..., frame=("K03455", 2085))` declares that base 1 of a file
   is base 2085 of K03455, which is what a pol-relative reference is. It is
   declared because no FASTA records it, and a whole genome needs no
-  declaration because its length identifies it.
+  declaration because its length identifies it. Any reference that is not a
+  whole genome is refused without it, which broke two consumer integrations:
+  see [MIGRATING.md](MIGRATING.md). (Noted here after the fact, when
+  MIGRATING.md was written; the release itself carried no such pointer, which
+  is the gap D57 exists to close.)
 - **A gene read too thinly is reported as not assessed**, rather than scored
   against the little that was seen. A `gene_coverage` parameter on
   `lg.hivdb.interpret` says how much of a gene must be read, four fifths by

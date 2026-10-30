@@ -396,12 +396,21 @@ fn a_mapped_list_joins_the_list_it_was_mapped_to() {
 mod common;
 
 use common::fixture;
-use ligase::convert;
+use ligase::convert::{self, Ambiguous};
 use ligase::note::Note;
 use tempfile::TempDir;
 
 /// Map `entities_hgnc.tsv` through the committed table, into a temp file.
 fn mapped(entities: &str, column: &str) -> (TempDir, std::path::PathBuf, Vec<Note>) {
+    mapped_with(entities, column, Ambiguous::Drop)
+}
+
+/// The same, with the caller choosing what an ambiguous identifier does.
+fn mapped_with(
+    entities: &str,
+    column: &str,
+    ambiguous: Ambiguous,
+) -> (TempDir, std::path::PathBuf, Vec<Note>) {
     let directory = TempDir::new().unwrap();
     let out = directory.path().join("mapped.tsv");
     let notes = convert::map_identifiers(
@@ -410,6 +419,7 @@ fn mapped(entities: &str, column: &str) -> (TempDir, std::path::PathBuf, Vec<Not
         &fixture("map_hgnc_to_ensembl.tsv"),
         "id",
         column,
+        ambiguous,
         &out,
     )
     .unwrap();
@@ -488,6 +498,7 @@ fn mapping_a_column_onto_itself_is_refused() {
         &fixture("map_hgnc_to_ensembl.tsv"),
         "id",
         "id",
+        Ambiguous::Drop,
         &directory.path().join("mapped.tsv"),
     )
     .unwrap_err();
@@ -503,6 +514,7 @@ fn a_mapping_table_with_no_such_column_says_which_columns_it_has() {
         &fixture("map_hgnc_to_ensembl.tsv"),
         "id",
         "entrez_id",
+        Ambiguous::Drop,
         &directory.path().join("mapped.tsv"),
     )
     .unwrap_err();
@@ -519,6 +531,7 @@ fn a_list_with_no_identifier_column_is_refused() {
         &fixture("map_hgnc_to_ensembl.tsv"),
         "id",
         "ensembl_gene_id",
+        Ambiguous::Drop,
         &directory.path().join("mapped.tsv"),
     )
     .unwrap_err();
@@ -541,7 +554,9 @@ fn a_mapped_list_is_in_the_space_it_was_mapped_to() {
         .collect();
     assert!(!identifiers.is_empty());
     assert_eq!(
-        KnownNamespace::infer(identifiers).map(KnownNamespace::name),
+        KnownNamespace::infer(identifiers)
+            .settled()
+            .map(KnownNamespace::name),
         Some("Ensembl gene")
     );
 }
@@ -575,6 +590,7 @@ fn two_identifiers_that_arrive_at_one_gene_do_not_quietly_become_one() {
         &fixture("map_many_to_one.tsv"),
         "id",
         "ensembl_gene_id",
+        Ambiguous::Drop,
         &out,
     )
     .unwrap();
@@ -638,6 +654,7 @@ fn naming_what_did_not_cross_is_bounded() {
         &table,
         "id",
         "ensembl_gene_id",
+        Ambiguous::Drop,
         &directory.path().join("mapped.tsv"),
     )
     .unwrap();
@@ -676,4 +693,122 @@ fn a_conversion_cannot_cross_an_axis_for_a_kind_it_does_not_convert() {
         .unwrap();
     let dimensions = graph.dataset(node).unwrap().dimensions();
     assert!(!dimensions.identifier_namespace.is_known());
+}
+
+// --------------------------- a declared fan-out, which is D60 --
+
+#[test]
+fn dropping_an_ambiguous_identifier_is_what_happens_unless_asked_otherwise() {
+    // The default is unchanged, and it is the default on purpose: most
+    // one-to-many rows in a mapping table are curation, not biology, and
+    // picking one target would be a guess about which the analysis meant.
+    let (_kept, out, notes) = mapped_with("entities_hgnc.tsv", "ensembl_gene_id", Ambiguous::Drop);
+    let written = std::fs::read_to_string(&out).unwrap();
+
+    assert!(!written.contains("ENSG00000136352"), "{written}");
+    assert!(!written.contains("ENSG00000268173"), "{written}");
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.code() == "identifier-ambiguous"),
+        "{notes:?}"
+    );
+}
+
+#[test]
+fn a_declared_fan_out_emits_a_row_per_target() {
+    // D60. Some identifiers genuinely denote more than one thing: *P.
+    // falciparum* `DHFR-TS` is one polypeptide with two catalytic domains,
+    // answering to human `DHFR` and `TYMS`, and `PPPK-DHPS` is the same
+    // story. Those are not curation errors, they are the organism, and
+    // "decide which target you mean" has no correct answer for them.
+    let (_kept, out, notes) =
+        mapped_with("entities_hgnc.tsv", "ensembl_gene_id", Ambiguous::FanOut);
+    let written = std::fs::read_to_string(&out).unwrap();
+
+    // NKX2-1 is in two rows of the table, and both targets are now in the
+    // output, each carrying the input row's attributes.
+    assert!(written.contains("ENSG00000136352\t3.1"), "{written}");
+    assert!(written.contains("ENSG00000268173\t3.1"), "{written}");
+    // What crossed one-to-one is untouched, and what the table has no row
+    // for is still left out and named.
+    assert!(written.contains("ENSG00000141510\t2.4"), "{written}");
+    assert!(!written.contains("SEPT7"), "{written}");
+
+    // The identifier that fanned is named, and never as ambiguous: it did
+    // cross, into more rows than it came from.
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.code() == "identifier-fanned-out"
+                && note.to_string().contains("NKX2-1")),
+        "{notes:?}"
+    );
+    assert!(
+        !notes
+            .iter()
+            .any(|note| note.code() == "identifier-ambiguous"),
+        "a fan-out is not a refusal to choose: {notes:?}"
+    );
+}
+
+#[test]
+fn a_fan_out_says_how_many_fanned_and_into_how_many_rows() {
+    // The size change has to be on the record, in the direction nobody
+    // expects: every other way out of this conversion makes the output
+    // *smaller*, and D26's promise is about what a file does not say for
+    // itself either way.
+    let (_kept, _out, notes) =
+        mapped_with("entities_hgnc.tsv", "ensembl_gene_id", Ambiguous::FanOut);
+
+    let total = notes
+        .iter()
+        .find(|note| note.code() == "identifiers-fanned-out")
+        .expect("the total is in the notes");
+    assert_eq!(total.value(), "identifiers=1 rows=2", "{total:?}");
+    assert!(total.to_string().contains("1 identifier"), "{total}");
+    assert!(
+        total.to_string().contains("larger"),
+        "the output grew, and the note says so: {total}"
+    );
+}
+
+#[test]
+fn a_fanned_target_another_identifier_also_reaches_is_still_a_collision() {
+    // Fanning out does not suspend the rule that keeps the output a set.
+    // A target two identifiers arrive at would be one entity named twice
+    // with two sets of attributes, and that is not a set however it was
+    // arrived at (D38).
+    let directory = TempDir::new().unwrap();
+    let table = directory.path().join("table.tsv");
+    std::fs::write(
+        &table,
+        "id\tensembl_gene_id\nNKX2-1\tENSG00000136352\nNKX2-1\tENSG00000268173\n\
+         TP53\tENSG00000136352\n",
+    )
+    .unwrap();
+    let out = directory.path().join("mapped.tsv");
+
+    let notes = convert::map_identifiers(
+        &fixture("entities_hgnc.tsv"),
+        "id",
+        &table,
+        "id",
+        "ensembl_gene_id",
+        Ambiguous::FanOut,
+        &out,
+    )
+    .unwrap();
+    let written = std::fs::read_to_string(&out).unwrap();
+
+    // Both NKX2-1 and TP53 reach ENSG00000136352, so that target is in the
+    // output under neither name; NKX2-1's other target is unaffected.
+    assert!(!written.contains("ENSG00000136352"), "{written}");
+    assert!(written.contains("ENSG00000268173"), "{written}");
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.code() == "identifier-collides"),
+        "{notes:?}"
+    );
 }

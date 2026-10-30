@@ -43,6 +43,7 @@ from .errors import CheckError, StepDefinitionError, build
 from .provenance import (
     BoundTo,
     Bundle,
+    Cell,
     Claim,
     ClaimCheck,
     InputCheck,
@@ -99,9 +100,22 @@ _Task = tuple[
 #: work, which is almost always nothing.
 _Callback = Callable[[str, list[tuple[str, list[str]]]], list[Noticed]]
 
+#: A number a claim states, where it lives and how far off it may be: the
+#: value, the column, the row, the tolerance.
+_Located = tuple[float, str, int, float]
+
 #: One claim as the engine takes it: the sentence, the step, the sample, the
-#: parameter it restates, the tool it restates, the value it gives either.
-_Claim = tuple[str, str, str | None, str | None, str | None, str | None]
+#: parameter it restates, the tool it restates, the value it gives either,
+#: and the number it reads out of the output where it names one.
+_Claim = tuple[
+    str,
+    str,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    _Located | None,
+]
 
 #: One computation a claim rests on: sample, key, canonical hash, when that
 #: computation happened, where.
@@ -1374,14 +1388,20 @@ def _declared(claim: Claim) -> _Claim:
         claim.parameter,
         claim.tool,
         claim.rendered,
+        claim.located,
     )
 
 
 def _checked(check: _ClaimCheck) -> ClaimCheck:
     """One claim as the engine reported it."""
-    (text, step, scope, parameter, tool, value), verdict, reason, recorded, bound = (
-        check
-    )
+    (
+        (text, step, scope, parameter, tool, value, located),
+        verdict,
+        reason,
+        recorded,
+        bound,
+    ) = check
+    at = None if located is None else Cell(column=located[1], row=located[2])
     return ClaimCheck(
         claim=Claim(
             text=text,
@@ -1389,7 +1409,9 @@ def _checked(check: _ClaimCheck) -> ClaimCheck:
             scope=scope,
             parameter=parameter,
             tool=tool,
-            value=value,
+            value=value if located is None else located[0],
+            at=at,
+            tolerance=None if located is None else located[3],
         ),
         verdict=verdict,
         reason=reason or "",

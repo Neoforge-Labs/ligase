@@ -23,7 +23,7 @@ pub use names::{
     Exactly, FoldsAsciiCase, IdentifierNamespace, Label, Matching, NameSet, Organism, Release,
     SourceSet, Subject,
 };
-pub use namespace::KnownNamespace;
+pub use namespace::{Inference, KnownNamespace};
 pub use reference::{Contig, ContigOrder, Frame, ReferenceId, Relation, Verdict, relate};
 pub use representation::{Identity, Representation, Standardisation};
 

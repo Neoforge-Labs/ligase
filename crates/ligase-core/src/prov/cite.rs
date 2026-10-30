@@ -119,6 +119,54 @@ pub const KNOWN: &[Citation] = &[
     },
 ];
 
+/// The name the engine's own work is recorded under as a tool.
+///
+/// A conversion's body is code in this crate rather than an external
+/// program, so `map_identifiers` and its siblings declare `tool="ligase"`
+/// and [`exec::tool_version`](crate::exec::tool_version) answers with this
+/// crate's version instead of probing for a binary.
+pub const ENGINE: &str = "ligase";
+
+/// The engine's own reference, naming the versions a run used.
+///
+/// # Why this is not a row in [`KNOWN`]
+///
+/// Two reasons, and the first is that it would be a wrong row. Every entry
+/// there is a constant, and this reference has to name the version that
+/// ran — which a distributed run may have more than one of (D55) and which
+/// no constant can hold. The second is the DOI: every third-party entry
+/// carries one and this project has none to give, and inventing something
+/// DOI-shaped for it would be exactly the plausible wrongness D24 refuses.
+/// So the repository is what a reader is pointed at, in the form RDKit's
+/// entry already set for software with no paper.
+///
+/// # Why it is given at all, rather than reported as uncited
+///
+/// `ligase` is the tool of the built-in conversions, and those are steps
+/// the engine owns: there is no decorator on them for a user to put `cite=`
+/// on. Naming it as uncited therefore printed a gap with no available
+/// remedy, and the advice — "add one with `@lg.step(cite=...)`" — named a
+/// place that does not exist. A gap that cannot be closed costs more than
+/// the gap itself, because it teaches a reader to skip the ones that can
+/// be (D58).
+///
+/// The engine knows its own name, version and repository, and
+/// [`Methods::paragraph`](super::Methods::paragraph) already opens by
+/// naming the first two. This is the reference for the software that
+/// sentence credits.
+#[must_use]
+pub fn engine(versions: &[String]) -> String {
+    let versions = if versions.is_empty() {
+        crate::version().to_owned()
+    } else {
+        versions.join(", ")
+    };
+    format!(
+        "Njeri K. Ligase: dimension-checked, reproducible computational biology \
+         pipelines (version {versions}). https://github.com/Neoforge-Labs/ligase"
+    )
+}
+
 /// The reference for a tool, if the engine knows one.
 #[must_use]
 pub fn of(tool: &str) -> Option<&'static Citation> {
@@ -196,6 +244,36 @@ mod tests {
                 citation.tool
             );
         }
+    }
+
+    #[test]
+    fn the_engine_is_cited_for_the_version_that_ran() {
+        let reference = engine(&["0.3.0".to_owned()]);
+        assert!(reference.contains("Ligase"), "{reference}");
+        assert!(reference.contains("version 0.3.0"), "{reference}");
+        assert!(
+            reference.contains("https://github.com/Neoforge-Labs/ligase"),
+            "{reference}"
+        );
+        // No DOI, because there is not one. A DOI-shaped string invented to
+        // make this row look like its neighbours is what D24 refuses.
+        assert!(!reference.contains("doi:"), "{reference}");
+    }
+
+    #[test]
+    fn a_run_that_spanned_two_engine_versions_names_both() {
+        // D55's case: a mixed cluster, or one worker on an older wheel. A
+        // reference naming one version of software that ran as two would be
+        // the quiet half-truth that decision exists to refuse.
+        let reference = engine(&["0.3.0".to_owned(), "0.4.0".to_owned()]);
+        assert!(reference.contains("0.3.0"), "{reference}");
+        assert!(reference.contains("0.4.0"), "{reference}");
+    }
+
+    #[test]
+    fn the_engine_falls_back_to_this_build_when_a_run_recorded_nothing() {
+        let reference = engine(&[]);
+        assert!(reference.contains(crate::version()), "{reference}");
     }
 
     #[test]

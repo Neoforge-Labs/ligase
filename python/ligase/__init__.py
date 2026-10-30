@@ -22,7 +22,11 @@ from typing import TYPE_CHECKING, TypeVar
 
 from . import _core, chem, hivdb, remotes
 from .audit import AuditReport, StepAudit
-from .convert import map_identifiers, map_ranked_identifiers
+from .convert import (
+    fan_out_ranked_identifiers,
+    map_identifiers,
+    map_ranked_identifiers,
+)
 from .errors import (
     CheckError,
     ContigNamingError,
@@ -40,6 +44,7 @@ from .graph import Pipeline, Report, Step, StepOutput, handle, step
 from .provenance import (
     BoundTo,
     Bundle,
+    Cell,
     Claim,
     ClaimCheck,
     InputCheck,
@@ -49,6 +54,7 @@ from .provenance import (
     ResultCheck,
     StepMethods,
     Verification,
+    cell,
 )
 from .recipes import Shell, Written, sh, write
 from .run import RunError, RunReport, StepFailure, StepRun
@@ -83,6 +89,7 @@ __all__ = [
     "AuditReport",
     "BoundTo",
     "Bundle",
+    "Cell",
     "CheckError",
     "Claim",
     "ClaimCheck",
@@ -129,10 +136,12 @@ __all__ = [
     "Written",
     "__version__",
     "alignment",
+    "cell",
     "check_step",
     "chem",
     "dimension_errors",
     "entity_set",
+    "fan_out_ranked_identifiers",
     "handle",
     "hivdb",
     "intervals",

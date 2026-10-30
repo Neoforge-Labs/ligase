@@ -49,7 +49,7 @@ use std::path::Path;
 
 use super::graph::GraphReader;
 use super::{Declared, LoadError, open};
-use crate::dim::{Dim, Dimensions, IdentifierNamespace, KnownNamespace, Source};
+use crate::dim::{Dim, Dimensions, IdentifierNamespace, Inference, KnownNamespace, Source};
 use crate::types::{DataKind, Dataset};
 
 /// Why the organism is unknown: a graph does not record it.
@@ -76,6 +76,18 @@ const NO_SOURCES: &str = "neither the graph nor any of its nodes and edges names
 const NOT_INFERRED: &str = "not declared, and the node ids do not all match one namespace's \
                             pattern -- which is ordinary for a graph holding more than one \
                             kind of entity; declare identifier_namespace";
+
+/// Why the namespace is unknown when every node id is a bare symbol.
+///
+/// Separate from [`NOT_INFERRED`] for the same reason a gene list's is
+/// (D56): the ids are readable and all fit one shape, and that shape has no
+/// marker, so the engine has nothing to read the space off. Worth its own
+/// sentence here because a graph whose ids are *all* symbol-shaped is a
+/// graph of one kind of entity, which is the case the sentence above
+/// explicitly calls unusual.
+const INDISTINGUISHABLE: &str = "not declared, and the node ids are bare gene-symbol shapes \
+                                 -- symbols and several synonym spaces are indistinguishable \
+                                 by pattern, so declare identifier_namespace";
 
 /// Load a knowledge graph from JSON.
 ///
@@ -133,16 +145,15 @@ fn namespace(path: &Path, declared: &Declared, graph: &GraphReader) -> Dim<Ident
         return Dim::known(label, Source::Declared);
     }
 
-    KnownNamespace::infer(graph.nodes.iter().map(|node| node.id.as_str())).map_or_else(
-        || Dim::unknown(NOT_INFERRED),
-        |found| {
-            Dim::known(
-                IdentifierNamespace::new(found.name()),
-                Source::Inferred {
-                    path: path.to_path_buf(),
-                    detail: "the node ids' own pattern",
-                },
-            )
-        },
-    )
+    match KnownNamespace::infer(graph.nodes.iter().map(|node| node.id.as_str())) {
+        Inference::Settled(found) => Dim::known(
+            IdentifierNamespace::new(found.name()),
+            Source::Inferred {
+                path: path.to_path_buf(),
+                detail: "the node ids' own pattern",
+            },
+        ),
+        Inference::Indistinguishable(_) => Dim::unknown(INDISTINGUISHABLE),
+        Inference::Unsettled => Dim::unknown(NOT_INFERRED),
+    }
 }

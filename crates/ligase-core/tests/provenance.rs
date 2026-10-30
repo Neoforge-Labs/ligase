@@ -555,6 +555,70 @@ fn a_known_tool_is_cited_and_an_unknown_one_is_named_as_uncited() {
 }
 
 #[test]
+fn the_engine_cites_itself_so_a_built_in_step_raises_no_gap() {
+    // D58's finding, reported by a consumer: `ligase methods`
+    // named `ligase` as uncited, and `ligase` is the tool of the built-in
+    // conversions, which take no decorator. The advice — "add one with
+    // `@lg.step(cite=...)`" — pointed at a step the user cannot reach, so
+    // every write-up ended with a gap nobody could close. A gap that cannot
+    // be closed is what teaches a reader to ignore the gaps that can be.
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with(
+        "copy",
+        "cat {in} > {out}",
+        &[("in", input)],
+        &[],
+        &["ligase"],
+    );
+
+    let report = bench.run(&[node]);
+    let methods = methods_of(&bench, &[node], &report);
+    let (cited, uncited) = methods.citations();
+    let text = methods.text();
+
+    assert!(
+        !uncited.iter().any(|tool| tool == "ligase"),
+        "the engine knows its own name, version and repository: {uncited:?}"
+    );
+    assert!(
+        !text.contains("No reference is recorded"),
+        "nothing is uncited in a run whose only tool is the engine: {text}"
+    );
+    assert!(
+        cited.iter().any(|reference| reference.contains("Ligase")
+            && reference.contains(ligase::version())
+            && reference.contains("github.com/Neoforge-Labs/ligase")),
+        "and the reference names the version that ran: {cited:?}"
+    );
+}
+
+#[test]
+fn the_engines_reference_is_in_every_write_up_because_the_engine_always_ran() {
+    // The paragraph's first sentence has always named Ligase and its
+    // version. A reference list that left it out was a list missing one of
+    // the pieces of software the paragraph above it credits.
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with(
+        "copy",
+        "cat {in} > {out}",
+        &[("in", input)],
+        &[],
+        &["python3"],
+    );
+
+    let report = bench.run(&[node]);
+    let methods = methods_of(&bench, &[node], &report);
+    let (cited, _) = methods.citations();
+
+    assert!(
+        cited.iter().any(|reference| reference.contains("Ligase")),
+        "{cited:?}"
+    );
+}
+
+#[test]
 fn a_step_that_declares_its_own_reference_is_cited_by_it() {
     let mut bench = Bench::new();
     let input = bench.input("in.txt", "one\n");

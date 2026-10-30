@@ -35,8 +35,9 @@
 //! milestone exists to prevent.
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
-use super::claim::{self, Claim, ClaimCheck, ClaimVerdict, Restated, Unbacked};
+use super::claim::{self, Claim, ClaimCheck, ClaimVerdict, Located, Restated, Unbacked};
 use super::{Prov, ProvError, Record, ReferenceRecord, cite, day};
 use crate::canon::Note;
 use crate::exec::{RunReport, Task};
@@ -152,6 +153,13 @@ pub struct Produced {
     pub key: StepKey,
     /// The canonical hash of what it produced.
     pub canonical: ContentHash,
+    /// Where that output is, in the content-addressed store.
+    ///
+    /// Carried so that a claim naming a place in the output can read it
+    /// (D61). It is the only thing in a write-up that depends on an
+    /// artifact still being on disk, which is why nothing else uses it:
+    /// everything above is from the record.
+    pub output: PathBuf,
     /// When the computation happened, which is not when this run was.
     pub recorded_at: i64,
     /// The platform it happened on.
@@ -324,16 +332,33 @@ impl Methods {
     /// The second half is the point: a tool with nothing to cite is named,
     /// so a short reference list cannot be mistaken for a complete one
     /// (D24).
+    ///
+    /// The engine itself is always in the first half and never in the
+    /// second. It ran — the paragraph's opening sentence says so, with its
+    /// version — so a reference list that left it out would be missing one
+    /// of the pieces of software the sentence above it credits. And naming
+    /// it as uncited was worse than an omission: `ligase` is the tool of the
+    /// built-in conversions, which take no decorator, so the gap came with
+    /// advice that pointed nowhere (D58).
     #[must_use]
     pub fn citations(&self) -> (Vec<String>, Vec<String>) {
         let mut cited: BTreeSet<String> = BTreeSet::new();
         let mut uncited: BTreeSet<String> = BTreeSet::new();
+
+        cited.insert(cite::engine(&self.engines));
 
         for group in &self.groups {
             for text in &group.declared {
                 cited.insert(text.clone());
             }
             for (tool, _) in &group.record.tools {
+                // Already cited above, for the whole run rather than per
+                // step: two steps running the engine do not make two
+                // references, and a step that declared its own does not
+                // make the engine's go away.
+                if tool == cite::ENGINE {
+                    continue;
+                }
                 match cite::of(tool) {
                     Some(citation) => {
                         cited.insert(citation.render());
@@ -694,6 +719,7 @@ pub fn methods(
             scope: scope_of(node),
             key: result.key,
             canonical: record.output_canonical,
+            output: result.output.clone(),
             recorded_at: record.recorded_at,
             platform: record.platform.clone(),
         });
@@ -879,7 +905,7 @@ fn claim_sentence(check: &ClaimCheck) -> String {
     let step = &claim.step;
 
     match &check.verdict {
-        ClaimVerdict::Bound => {
+        ClaimVerdict::Bound | ClaimVerdict::Verified { .. } => {
             let mut sentence = format!("\"{}\" rests on `{step}`", claim.text);
             match check.bound.as_slice() {
                 // One computation, so its key belongs in the sentence.
@@ -887,10 +913,10 @@ fn claim_sentence(check: &ClaimCheck) -> String {
                     if let Some(scope) = &only.scope {
                         sentence.push_str(&format!(" ({scope})"));
                     }
-                    sentence.push_str(&restated_clause(claim));
+                    sentence.push_str(&restated_clause(check));
                     sentence.push_str(&format!(
-                        ", at key {}, recorded {} on {}.",
-                        short(&only.key),
+                        ", output {}, recorded {} on {}.",
+                        digest(only.canonical),
                         day(only.recorded_at),
                         only.platform
                     ));
@@ -902,22 +928,38 @@ fn claim_sentence(check: &ClaimCheck) -> String {
                         " on {}",
                         counted(bound.len(), &scopes, Some("sample"))
                     ));
-                    sentence.push_str(&restated_clause(claim));
-                    // Every key, because naming beats counting (D15) and a
-                    // reviewer checking one sample needs that sample's.
-                    let keys: Vec<String> = bound
+                    sentence.push_str(&restated_clause(check));
+                    // Every digest, because naming beats counting (D15) and
+                    // a reviewer checking one sample needs that sample's.
+                    let digests: Vec<String> = bound
                         .iter()
                         .map(|row| match &row.scope {
-                            Some(scope) => format!("{scope} at {}", short(&row.key)),
-                            None => short(&row.key),
+                            Some(scope) => format!("{scope} at {}", digest(row.canonical)),
+                            None => digest(row.canonical),
                         })
                         .collect();
-                    sentence.push_str(&format!(". Keys: {}.", keys.join(", ")));
+                    sentence.push_str(&format!(". Outputs: {}.", digests.join(", ")));
                 }
             }
             sentence
         }
+        // A located claim is the one disagreement this write-up *can*
+        // adjudicate, so it says so. For a parameter or a tool version the
+        // engine knows only that the two differ: the sentence may be
+        // describing a run that happened, and the pipeline may have been
+        // edited since. For a number read out of the artifact the claim is
+        // bound to, there is nothing left to be uncertain about.
         ClaimVerdict::Contradicted { stated, recorded } => {
+            if let Some(Restated::Value { at, tolerance, .. }) = &claim.restates {
+                let Located::Cell { column, row } = at;
+                return format!(
+                    "\"{}\" states {column}{KNIT}={KNIT}{stated}, and `{step}`'s output \
+                     holds {recorded} at column `{column}` row {row} — further from it than \
+                     the {tolerance} this claim allows. The number in the sentence is not \
+                     the number in the bytes.",
+                    claim.text
+                );
+            }
             let (what, held) = match &claim.restates {
                 Some(Restated::Parameter { name, .. }) => (
                     format!("{name}{KNIT}={KNIT}{stated}"),
@@ -926,8 +968,9 @@ fn claim_sentence(check: &ClaimCheck) -> String {
                 Some(Restated::Tool { name, .. }) => {
                     (format!("{name} {stated}"), describe_tool(name, recorded))
                 }
-                // Unreachable: nothing is compared without a restatement.
-                None => (stated.clone(), recorded.clone()),
+                // Unreachable: nothing is compared without a restatement,
+                // and a value is handled above.
+                Some(Restated::Value { .. }) | None => (stated.clone(), recorded.clone()),
             };
             format!(
                 "\"{}\" states {what}, and `{step}` ran with {held}. One of \
@@ -946,13 +989,39 @@ fn claim_sentence(check: &ClaimCheck) -> String {
 }
 
 /// The clause naming the value a claim restates, as the run recorded it.
-fn restated_clause(claim: &Claim) -> String {
+///
+/// Takes the whole check rather than the claim, because one of the three
+/// restatements reports a **reading** rather than a restatement: a verified
+/// claim's clause gives the number that was in the bytes, and that number
+/// is on the verdict.
+fn restated_clause(check: &ClaimCheck) -> String {
+    let claim = &check.claim;
     match &claim.restates {
         Some(Restated::Parameter { name, value }) => {
             format!(", where {name}{KNIT}={KNIT}{value} as this claim states")
         }
         Some(Restated::Tool { name, version }) => {
             format!(", which ran {name} {version} as this claim states")
+        }
+        // Named place, read number, declared tolerance: all three, because
+        // a reader checking this by hand needs to know which cell was
+        // opened, and the tolerance is what makes the agreement a fact
+        // rather than a rounding that happened to land (D61).
+        Some(Restated::Value { at, tolerance, .. }) => {
+            let Located::Cell { column, row } = at;
+            let read = match &check.verdict {
+                ClaimVerdict::Verified { recorded } => format!("{recorded}"),
+                // Unreachable: a located claim that reached this clause was
+                // verified. The stated value rather than a panic.
+                _ => match &claim.restates {
+                    Some(Restated::Value { value, .. }) => format!("{value}"),
+                    _ => String::new(),
+                },
+            };
+            format!(
+                ", whose output gives {column}{KNIT}={KNIT}{read} at row {row}, within the \
+                 {tolerance} this claim allows"
+            )
         }
         None => String::new(),
     }
@@ -1023,6 +1092,20 @@ fn why_of(claim: &Claim, why: &Unbacked) -> String {
                 ),
             }
         }
+        // The claim named a place and there is no number there. The detail
+        // is phrased where it was discovered, by `Located::read`, because
+        // what was there instead -- the columns the output does have, how
+        // many rows it holds, the text that is not a number -- is known
+        // only at the point of reading.
+        //
+        // Not a contradiction: an unreadable location says nothing about
+        // whether the sentence is true, so the write-up reports that it
+        // could not check rather than that the claim is wrong.
+        Unbacked::NoSuchCell { detail } => format!(
+            "`{step}` is in this pipeline and {detail}. Point the claim at a \
+             cell that holds the number, or drop `at` and let the claim be \
+             bound without being verified."
+        ),
     }
 }
 
@@ -1031,13 +1114,14 @@ fn quoted(names: &[String]) -> Vec<String> {
     names.iter().map(|name| format!("`{name}`")).collect()
 }
 
-/// A key as a sentence names one: enough to find it, not the whole 64.
+/// The citable identifier of a result: the digest of its canonical form.
 ///
-/// Sixteen hex characters is 64 bits, which is more than enough to identify
-/// one computation among a pipeline's own and short enough to read aloud.
-/// The whole key is in the bundle's `claims.tsv`.
-fn short(key: &StepKey) -> String {
-    key.to_hex().chars().take(16).collect()
+/// Twelve characters, as `audit` already prints a content hash, and the
+/// **canonical** digest rather than the raw bytes' — that is what `audit`
+/// compares two runs by and what a bundle verifies against, so it is the
+/// one a reader can check on another machine (D4, D59).
+fn digest(hash: ContentHash) -> String {
+    hash.to_hex().chars().take(12).collect()
 }
 
 /// A rendered value with one layer of surrounding quotes removed.

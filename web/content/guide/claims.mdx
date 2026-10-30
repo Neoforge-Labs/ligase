@@ -56,8 +56,29 @@ ligase methods
 <RunReport>{claims.bound}</RunReport>
 
 The claim is **bound**: `call` is a step this pipeline produces, `min_freq`
-is a parameter it takes, and the run held it at `0.01`. The key is the
-computation, and it is the thing a reviewer looks up.
+is a parameter it takes, and the run held it at `0.01`.
+
+The identifier the sentence gives is the **output digest** — the digest of
+the canonical form of what the step produced. That is the one to put in a
+manuscript, and the reason is worth a paragraph of its own.
+
+<Note kind="caution" title="Cite the digest, not the step key">
+A claim rests on a computation, and the **step key** is that computation's
+identity: code, parameters, input content and tool versions
+([D45](/project/decisions/#d45--a-claim-binds-to-the-computation-not-to-the-run-that-fetched-it)).
+So the key moves when any of those move — including under edits that
+provably cannot change the number. Adding `cite=` to the step moves it,
+while the artifact stays byte-identical and nothing reruns.
+
+The **output digest** is what stayed the same across that edit, and it is
+what `ligase audit` compares two runs by and what a bundle verifies
+against. A manuscript written over months survives on the digest and goes
+stale on the key, so the digest is what `ligase methods` prints
+([D59](/project/decisions/#d59--a-claim-is-cited-by-its-output-digest-not-by-its-step-key)).
+
+The key is still recorded — in provenance, in `claims.tsv`, and on
+`bound.key` — because that is where an internal identifier belongs.
+</Note>
 
 ## Then the threshold moves
 
@@ -128,8 +149,8 @@ lg.Claim("three resistance mutations were found in SRR8525904",
          step="resistance", scope="SRR8525904")
 ```
 
-This is still a real binding: the claim carries that sample's key, output
-hash and date, so a reviewer with your bundle can find the computation and
+This is still a real binding: the claim carries that sample's output digest,
+key and date, so a reviewer with your bundle can find the computation and
 rerun it. What it is not is a verification of the number three — the engine
 does not open your report and count. Nothing on this page pretends it does.
 
@@ -200,8 +221,8 @@ write-up names a renamed step is not a pipeline that must refuse to run.
 
 ## Claims in the bundle
 
-`--bundle` writes them as `claims.tsv`, one row per computation, with the
-whole key rather than the sixteen characters a sentence prints:
+`--bundle` writes them as `claims.tsv`, one row per computation, with both
+identifiers in full rather than the twelve characters a sentence prints:
 
 ```bash
 ligase methods --bundle paper/bundle
@@ -217,16 +238,90 @@ An unbacked claim is in that table too, with an empty key, rather than left
 out of it — which is the same promise the methods paragraph makes about a
 step it cannot account for.
 
+## Verifying the number itself
+
+Everything above binds a sentence to a computation. None of it says that
+`0.333` is the number that computation produced — and that is the gap that
+makes published numbers wrong in practice: the pipeline is rerun after the
+table is pasted into the manuscript, and nothing notices.
+
+Tell the claim where its number lives and the engine will read it:
+
+```python
+lg.Claim(
+    "malaria F1 = 0.333 against seven curated targets",
+    step="validate",
+    value=0.333,
+    at=lg.cell(column="f1", row=0),
+    tolerance=5e-4,
+)
+```
+
+<RunReport>{claims.verified}</RunReport>
+
+The verdict is **verified**, which is `bound` and more: the number in the
+sentence is the number in the bytes. The write-up gives the number it read
+and the tolerance it was allowed, so a reader can check the comparison as
+well as the claim.
+
+Rerun the analysis, leave the manuscript alone, and:
+
+<RunReport>{claims.refuted}</RunReport>
+
+`ligase methods` exits non-zero, so CI fails when a manuscript's number
+stops matching its artifact.
+
+### The three parts are one declaration
+
+`value`, `at` and `tolerance` are refused in any incomplete combination,
+where they are written:
+
+```python
+>>> lg.Claim("F1 = 0.333", step="validate", value=0.333, at=lg.cell(column="f1"))
+ValueError: the claim 'F1 = 0.333' names a cell of the output and no
+`tolerance=`. State the precision the paper states: a claim to three
+decimals is `tolerance=5e-4`, and defaulting it would invent a precision
+nobody wrote
+```
+
+The tolerance is yours and is never defaulted — a claim to three decimals
+and a claim to machine precision are different claims. And `at` beside
+`parameter=` or `tool=` is two claims in one, so it is refused too.
+
+<Note kind="note" title="Row 0 is the first row of data">
+`lg.cell(column="f1", row=0)` reads the first row **after** the header. A
+ranking's top row is row 0, which is the row its own rank 1 is.
+</Note>
+
+### What a wrong location does
+
+It reports that it could not check, not that the claim is wrong — and names
+what was there instead:
+
+```text
+"malaria F1 = 0.333" has nothing behind it: `validate` is in this pipeline
+and its output has no column named `f_one`; its columns are precision, f1.
+Point the claim at a cell that holds the number, or drop `at` and let the
+claim be bound without being verified.
+```
+
+A column that is not there says nothing about whether the sentence is true,
+so the verdict is `unbacked` rather than `contradicted`
+([D61](/project/decisions/#d61--a-claim-may-name-where-its-number-lives)).
+
 ## What this does not do
 
-- It does not read a number out of an output file. See the three shapes
-  above.
+- It does not go looking for a number it was not pointed at, and it parses
+  one format: a TSV with a header. A claim that cannot say where its number
+  is stays step-only, which is a legitimate state.
+- It does not recompute anything, or check that an F1 is a well-formed F1.
+  Just: the number you published is the number in the bytes.
 - It does not know your *sentence* has gone stale. It knows the value you
   restated has, which is why `parameter=` and `tool=` are worth giving
   whenever there is one to give.
-- It does not add a verdict to `ligase methods --verify`. A claim names a
-  key, and whether that key's result still reproduces on another machine is
-  what `results.tsv`'s verdict already says.
+- It does not add a verdict to `ligase methods --verify`. A claim names an
+  output digest, and whether that result still reproduces on another machine
+  is what `results.tsv`'s verdict already says.
 
 ## See also
 

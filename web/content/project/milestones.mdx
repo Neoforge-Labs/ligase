@@ -1612,3 +1612,136 @@ spec and an `identifier_namespace` value in a guide example.
 So there is nothing to port, and porting it is not an engine milestone: it
 needs the experiment's own data and code from wherever they live, and it is a
 validation milestone of its own. This entry carries no clause for it.
+
+## M19 — What two consumers found
+
+The first milestone the project did not choose. Two integrations pinned
+`ligase-bio` and reported what they hit: SAWA (`hiv-dr-watch`), using
+`lg.hivdb.interpret` as a second resistance backend, and NeoRx, scoring a
+*P. falciparum* target ranking against a curated truth set. Six issues
+between them, every one measured against the published `0.3.0` wheel rather
+than against the tree.
+
+They are worth taking together because they share a shape. Three were places
+where the engine **answered a question it could not settle**, and the fourth
+was a place where it **reported a gap nobody could close** — which is the
+same fault seen from the other side: in both cases a mechanism built to be
+unignorable was spending its credibility on something it had no business
+asserting.
+
+### The one that mattered most, and was hardest to see
+
+`identifier_namespace` is the dimension that exists to catch a join across
+two identifier spaces. It was inferring `HGNC symbol` for ChEMBL's component
+synonyms — `DHFR-TS`, `PPPK-DHPS` — and because both sides of a join
+inferred the same wrong answer, the values compared **equal** and the join
+went ahead. `ligase check` printed `no problems found` and exited 0 for
+exactly the defect the axis was added for.
+
+The reporter's own framing is the part worth keeping:
+
+> This is the one silent failure I have found in the dimension system.
+> Everywhere else, ligase's answer to "I cannot tell" is to refuse; here it
+> guesses, and the guess is load-bearing.
+
+They offered three remedies and recommended the smallest. The one taken is
+the largest: inference stops answering for the marker-less shape altogether
+([D56](/project/decisions/#d56--a-shape-with-no-marker-is-not-a-namespace)).
+Marking the value as a guess would have left a value in the field, and a
+value in the field is what `check` compares — so the join would still pass
+unless equality were *also* taught to tell a guess from a fact, which is two
+mechanisms where one will do.
+
+It cost more than any other change here: nine Rust tests, sixteen Python
+tests and four generated captures declared a space they had been getting for
+free. That is the migration a consumer performs, performed here first, and
+it is the reason this milestone also produced a release policy.
+
+### The gap that could not be closed
+
+`ligase methods` named `ligase` as uncited. `ligase` is the tool of the
+built-in conversions, and those take no decorator, so the advice — *add one
+with `@lg.step(cite=...)`* — pointed at a step that does not exist. The
+reporter had a Ligase citation on their own step and still got the warning.
+
+> A gap that cannot be closed trains a consumer to ignore it, which costs
+> you the mechanism for the gaps that *are* real.
+
+That is a complete argument and it needed no addition. The engine cites
+itself now
+([D58](/project/decisions/#d58--the-engine-cites-itself-because-a-gap-has-to-be-closable)),
+and the rule it leaves behind is the general one: a gap the engine reports
+must name a remedy the user can apply, and where it cannot, the engine owes
+the answer.
+
+### Two findings about claims, which arrived in the right order
+
+The first was a test the reporter ran because they did not trust the
+identifier: adding `cite=` to a step moved a claim's printed **key** while
+nothing reran and the artifact stayed byte-identical. D45 had settled what a
+claim binds *to* and left what it is cited *by* unexamined, and the write-up
+was printing the one identifier that must not go in a manuscript
+([D59](/project/decisions/#d59--a-claim-is-cited-by-its-output-digest-not-by-its-step-key)).
+Their closing line — *I would have printed the key in a methods section
+without this test* — is the whole value of a consumer.
+
+The second was the feature request that followed from it, and it is the one
+that changes what claims are for. A claim could bind a sentence to a
+computation and could not say that the number in the sentence was the number
+that computation produced. `at=lg.cell(...)` with a declared `value` and
+`tolerance` closes it, and a refuted number exits non-zero
+([D61](/project/decisions/#d61--a-claim-may-name-where-its-number-lives)).
+
+What is worth recording is how tightly the request was scoped by the person
+asking for it: only a declared location, never a search; the tolerance is the
+consumer's and never defaulted; not a statistics engine. Every one of those
+constraints is in the implementation unchanged. A feature request that
+arrives with its own refusals written down is rarer than a good bug report.
+
+### The biology that had no representation
+
+`map_identifiers` dropped an identifier with several targets and explained
+why, well. The gap was that for bifunctional enzymes — *P. falciparum*
+`DHFR-TS` is one polypeptide answering to human `DHFR` and `TYMS` — there is
+no correct one-to-one row to add, so the loud, safe behaviour was also the
+end of the road. In the reporting pipeline the **top-ranked** entity was
+exactly that case.
+
+`ambiguous="fan-out"` is the declared way across, and the ranked half
+answered itself: rank is the row position, so a fanned ranking is not a
+ranking, and `fan_out_ranked_identifiers` returns an `EntitySet`
+([D60](/project/decisions/#d60--a-one-to-many-crossing-is-declared-and-a-ranking-does-not-survive-one)).
+The reporter proposed that demotion themselves, and preferred it to tie
+ranks, which is the same instinct this project's own decisions run on.
+
+### What the milestone changed about releasing
+
+The last issue was not a defect at all. Both consumers hit behaviour changes
+that shipped as minor bumps, documented inside long changelog entries, and
+one of them changed *numbers* while the run succeeded:
+
+> "The run succeeds and the result is different" is the one category a
+> consumer cannot defend against.
+
+So `MIGRATING.md` exists, and the pair between it and the changelog is
+checked in `pytest` and again in the release workflow
+([D57](/project/decisions/#d57--a-change-that-alters-results-is-named-where-a-pin-is-chosen)).
+Writing it down was not the hard part; making it fail when it is not done
+was, and M13's lesson applies to process exactly as it does to code — a
+declaration nothing can check is a comment.
+
+### The lesson worth keeping
+
+Every issue in this milestone was found by someone running the published
+wheel against their own data, and none of them could have been found here.
+The dimension system's one silent failure was in the dimension system's own
+subject matter; the unclosable gap was in the mechanism built to be
+unignorable; the unstable identifier was in the feature whose whole purpose
+is to be quoted in a paper. The project's own tests passed throughout,
+because they tested what the engine was built to do rather than what a
+consumer would do with it.
+
+One reporter also withdrew a part of their own issue after discovering they
+had compared a working tree against a tag, and wrote up the mistake rather
+than deleting it. That is worth as much as the measurements: a bug report
+that corrects itself in public is what makes the rest of it trustworthy.

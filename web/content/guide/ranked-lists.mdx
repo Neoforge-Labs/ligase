@@ -23,7 +23,11 @@ column of identifiers, and as many attribute columns as you like.
 ```python
 import ligase as lg
 
-ranked = lg.ranked_list("results/degs_ranked.tsv", organism="Homo sapiens")
+ranked = lg.ranked_list(
+    "results/degs_ranked.tsv",
+    organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
+)
 ```
 
 The file behind it is an ordinary ranked table:
@@ -46,18 +50,35 @@ ranked = lg.ranked_list(
     "results/degs_ranked.tsv",
     id_column="gene",
     organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
 )
 ```
 
-Everything a gene list carries, a ranking carries. The space its names live in
-is read off the identifiers themselves, where they agree:
+Everything a gene list carries, a ranking carries — including the rule about
+which spaces a file can state for itself. `ENSG` and `CHEMBL` carry markers,
+so a ranking of those reads its own space off the identifiers; bare gene
+symbols carry none and are declared, as above
+([D56](/project/decisions/#d56--a-shape-with-no-marker-is-not-a-namespace)):
 
 ```python
 >>> ranked.dimension("identifier_namespace").value
 'HGNC symbol'
 >>> ranked.dimension("identifier_namespace").source
-"from the identifiers' own pattern: results/degs_ranked.tsv"
+'declared'
+>>> targets = lg.ranked_list("results/targets.tsv", organism="Homo sapiens")
+>>> targets.dimension("identifier_namespace").source
+"from the identifiers' own pattern: results/targets.tsv"
 ```
+
+<Note kind="caution" title="A ranking cannot fan out">
+Where a mapping table sends one identifier to several targets,
+`map_identifiers` can be asked for a row at each — and
+`map_ranked_identifiers` cannot, because rank is the row position and one
+row becoming two has no rank. `lg.fan_out_ranked_identifiers` is the step
+for that, and it returns an **`EntitySet`**: the ranking did not survive
+the crossing. Take any cut-off before fanning, never after
+([D60](/project/decisions/#d60--a-one-to-many-crossing-is-declared-and-a-ranking-does-not-survive-one)).
+</Note>
 
 <Note kind="note">
 A `RankedList` and an [`EntitySet`](/guide/mapping-identifiers/) carry
@@ -72,6 +93,7 @@ canonical form keeps, and nothing else.
 truth = lg.entity_set(
     "truth/known_drivers.tsv",
     organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
     subject="breast carcinoma",
 )
 
@@ -115,11 +137,13 @@ renamed, or moved to another gene.
 ranked = lg.ranked_list(
     "results/degs_ranked.tsv",
     organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
     release="HGNC 2026-09",
 )
 truth = lg.entity_set(
     "truth/known_drivers.tsv",
     organism="Homo sapiens",
+    identifier_namespace="HGNC symbol",
     release="HGNC 2026-03",
 )
 ```
