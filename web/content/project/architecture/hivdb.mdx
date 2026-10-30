@@ -219,6 +219,20 @@ A gene below it is left out, which makes its drugs *not assessed* — the
 same state as a gene the pipeline never supplied. The reading emits
 `Note::GeneBarelyRead`, whose counts are of scored codons.
 
+That it is one verdict for a whole gene is its real limit, and a consumer
+running a per-drug policy measured what the limit costs. An RT 40–120 dropout
+with M184V read — the mutation in covered sequence — keeps four RT rows at
+`gene_coverage=0.0`, a high-level 3TC call among them, each marked with its
+unread positions, while nine susceptible calls are declined; at the 0.8
+default the gene is skipped and the 3TC call goes with it. Their policy is
+asymmetric on purpose: a resistant call rests on a mutation that was read and
+unread positions could only add to it, while a susceptible call leaning on
+unread codons is absence of evidence. A share over a gene cannot say that, so
+`gene_coverage=0.0` plus the per-drug `unread` column is how such a policy is
+expressed here — a supported configuration rather than a workaround for the
+old denominator. Whether a per-drug floor should be the shape of the rule is
+D34's open question, now with a measurement behind it.
+
 A position a ruleset names past the end of a gene is left out of the count:
 no reading could cover it, and a floor nothing can clear is not a floor.
 `hivdb_codons.rs` checks the windows against the rules for the same

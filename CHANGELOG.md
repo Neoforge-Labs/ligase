@@ -24,6 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **`MIGRATING.md` stops telling a per-drug consumer to drop a workaround they
+  still need.** The 0.4.0 gene-coverage entry said `gene_coverage=0.0` should
+  no longer be needed once the floor counted scored codons. For a consumer
+  whose coverage policy is per drug rather than per gene it still is: the
+  floor returns one verdict for a whole gene, and on an RT 40–120 dropout with
+  M184V read the 0.8 default skips the gene and discards a high-level 3TC call
+  that rests on a mutation someone actually read. `gene_coverage=0.0` is
+  documented as a supported configuration, in the migration note, the guide
+  and the architecture page.
+
 - **The guide says what `salt-stripped` alone is for.** Public compound
   collections ship neutral parents, so standardising *to* `inchikey;
   salt-stripped` emits keys that match nothing in the wild. The one-term form

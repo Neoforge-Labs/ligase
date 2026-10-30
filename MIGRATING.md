@@ -234,8 +234,32 @@ be scored.
 
 **The edit.** None, unless you had set `gene_coverage` to work around the
 old denominator. `gene_coverage=0.0` restores the per-drug `unread`
-behaviour exactly, which was the workaround in use; with the floor counted
-over scored codons it should no longer be needed.
+behaviour exactly, which was the workaround in use.
+
+**Except for a per-drug coverage policy, where `gene_coverage=0.0` is still
+the right setting.** This entry first said the workaround should no longer be
+needed, and that is wrong for a consumer who judges coverage per drug from
+the `unread` column rather than per gene. The floor returns one verdict for a
+whole gene, and such a policy is deliberately asymmetric: a *resistant* call
+rests on a mutation someone actually read, and unread positions could only
+add to it, so the call is kept and marked with what was unread; a
+*susceptible* call that leans on unread codons is dropped, because absence of
+evidence is not evidence of susceptibility. A gene-level floor cannot express
+that distinction. Measured on an RT 40–120 dropout with M184V read — the
+mutation is in covered sequence:
+
+```text
+gene_coverage=0.0 -> 4 RT rows kept: 3TC high 60, FTC high 60, ABC low 15,
+                     DDI potential-low 10, each carrying its unread positions;
+                     9 susceptible calls declined and counted.
+gene_coverage=0.8 -> skipped_genes {'RT': 1}, zero RT rows,
+                     the high-level 3TC call gone.
+```
+
+The loss is logged rather than silent, but it is a loss, and it is a true
+positive. So `gene_coverage=0.0` is a **supported configuration** and not a
+deprecated workaround: take the default if you want one verdict per gene, and
+keep `0.0` if your policy is per drug and reads the `unread` column.
 
 **Caches.** A `hivdb` step's tool fingerprint now ends `read by ligase
 <version>`, because this changes what the engine answers for identical
