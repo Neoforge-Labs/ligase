@@ -1745,3 +1745,110 @@ One reporter also withdrew a part of their own issue after discovering they
 had compared a working tree against a tag, and wrote up the mistake rather
 than deleting it. That is worth as much as the measurements: a bug report
 that corrects itself in public is what makes the rest of it trustworthy.
+
+## M20 — The same two consumers, reading the fixes
+
+Six more issues from the two integrations of [M19](#m19--what-two-consumers-found),
+and the shape of this set is different from the last. Three of them are
+about **M19's own changes**: the self-citation that closed an unclosable gap
+turned the remedy the old version had instructed into a duplicate reference;
+the claim digest that stopped moving under `cite=` was labelled as the wrong
+one of a step's two digests; and the migration file that exists so a
+consumer is not surprised told one of them to drop a workaround they still
+need.
+
+That is worth saying plainly: **half of this milestone is the cost of the
+last one.** Not regressions — every M19 change was right and none was
+reverted — but each left an edge its own reasoning had not looked at, and
+the people who found those edges were the people who had asked for the
+change.
+
+### A fix that instructs is a fix with a second half
+
+0.3.0 said `No reference is recorded for ligase. Add one with
+@lg.step(cite=...)`. A consumer did. Then the engine learned to cite itself
+and their write-up carried two entries for one work, and — the part that
+makes it more than untidy — **no spelling of their pipeline was correct on
+both versions**: deleting the line fixed the new build and brought the gap
+back on the pinned one.
+
+The engine recognises its own work now and keeps its own reference
+([D63](/project/decisions/#d63--one-work-is-one-reference-and-the-engine-knows-its-own)).
+The rule it leaves behind is the one the milestone is named for: when a
+message tells a consumer to do something, the version that stops needing it
+owes them the un-doing, and "we documented the remedy" is not that. A
+deduplication nobody has to act on is.
+
+### Two surfaces naming one result
+
+D59 put the stable identifier in a claim's sentence and called it `output`.
+A step has two digests — its bytes, which name the artifact in the store, and
+its canonical form, which is what `audit` compares and what the sentence
+actually printed — and `ligase audit` showed the other one with no label to
+tell them apart. The reporter, who had asked for D59, measured the same
+irreconcilability in a new form and said so tentatively and correctly: the
+canonical digest is the right one to cite; the word in front of it was wrong
+([D64](/project/decisions/#d64--two-commands-naming-one-result-name-it-the-same-way)).
+
+### The vocabulary was coarser than the identifier
+
+The one that is not a follow-up, and the best bug report of the two
+milestones. `salt-stripped` does not pin a charge state; an InChIKey's third
+block does. So two mutually incompatible reference sets both carried the
+honest declaration `inchikey; salt-stripped`, compared **equal**, and gave
+one generated set a novelty of 0% or 50% depending on which was loaded —
+with `ligase check` printing `no problems found` for both.
+
+It is D56 one level down: there two *inferred* values agreed wrongly, here
+two *declared* ones do, and no inference is involved anywhere. The report
+opened by establishing that `lg.chem.standardize` is correct and that they
+had gone looking for a bug in it and not found one, which is what made the
+structural reading unavoidable.
+
+What changed is narrower than the finding. Charge state is checked against
+the keys, because the keys can refute it; salt stripping and tautomer
+normalisation still cannot be checked and are still taken on trust. The rule
+is that a declaration is trusted **only where there is nothing to check it
+against**
+([D65](/project/decisions/#d65--a-declaration-is-refused-where-the-file-itself-refutes-it)),
+which is less of a change to D38 than it sounds: reading one character of a
+string is not chemistry.
+
+### The build that claimed to be a release
+
+`CARGO_PKG_VERSION` is the manifest's number, and the manifest is bumped by
+a release commit, so every commit between releases reported the number of
+the release it followed. That string is the engine's half of a `hivdb` step's
+tool version, so it reached the cache key: *if CI builds from a branch and
+shares a store, two engines collide under one key*. A branch build answering
+differently from the published release, with a provenance record asserting
+the published version
+([D62](/project/decisions/#d62--a-build-that-is-not-a-release-says-so)).
+
+Nothing was wrong in the tree at the moment it was reported — `main` was at
+the release tag — and it would have come back with the next commit and gone
+on coming back. A defect in the *release process* rather than in any commit
+is one this project had no mechanism to notice, because its own tests run on
+whatever build is in front of them.
+
+### And one plain bug
+
+`ligase inspect` refused a molecule table keyed by SMILES — the one shape the
+chemistry surface is specified to consume — and blamed a missing `id` column
+that a molecule table has no reason to have, while `lg.molecule_set` loaded
+the same file happily. A one-line dispatch that had been written for the kind
+of table the milestone was about and never widened to the other.
+
+### The lesson worth keeping
+
+M19's was that a consumer finds what the project cannot. This one is about
+what happens next: a change made for a consumer lands in a world the old
+version's messages have already shaped. Three of these six exist because a
+message told somebody to do something, or named a thing, or promised a
+workaround was over, and the change that followed did not account for having
+said it.
+
+So the question to ask of a fix is not only "is this right" but "what did the
+last version tell people to do, and does this make them wrong?" Each of the
+three had an answer available for the asking, and each cost a consumer a
+cycle because nobody asked.
