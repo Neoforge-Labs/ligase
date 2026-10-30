@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] - 2026-10-30
+
 ### Fixed
 
 - **A claim is cited by its output digest rather than by its step key.** The
@@ -2272,7 +2276,8 @@ functionality yet; the engine's only behaviour is reporting its own version.
   whole rather than to the end of their first block.
 - `tempfile` as a dev-dependency, for writing BAM fixtures during tests.
 
-[Unreleased]: https://github.com/Neoforge-Labs/ligase/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Neoforge-Labs/ligase/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Neoforge-Labs/ligase/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Neoforge-Labs/ligase/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Neoforge-Labs/ligase/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Neoforge-Labs/ligase/releases/tag/v0.1.0

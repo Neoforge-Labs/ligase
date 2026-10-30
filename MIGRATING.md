@@ -20,7 +20,7 @@ docs. `CHANGELOG.md` has all of it.
 **How to read the headings.** A `## <version>` section is everything that
 needed migrating in that release. Versions with no section needed nothing.
 
-## Unreleased
+## 0.4.0
 
 ### A list of bare gene symbols no longer states its own identifier space
 

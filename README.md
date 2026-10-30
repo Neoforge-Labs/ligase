@@ -257,7 +257,7 @@ The Rust engine on its own:
 
 ```toml
 [dependencies]
-ligase = "0.2"
+ligase = "0.4"
 ```
 
 For development:
@@ -269,7 +269,7 @@ pip install -e ".[dev]"
 
 ## Status
 
-**v0.3.0**, and pre-alpha: the API will change, and the project has no
+**v0.4.0**, and pre-alpha: the API will change, and the project has no
 outside users yet.
 
 v0.1 built the foundations — the type system, the graph, the
@@ -284,11 +284,23 @@ behind it so a second machine can finish a pipeline from cache.
 
 [The milestones](https://ligase.neoforgelabs.tech/project/milestones/) record
 what each one had to prove, including the clauses that were met differently
-and why. v0.3 adds claim binding, so a number in a manuscript is checked
+and why. v0.3 added claim binding, so a number in a manuscript is checked
 against the computation behind it; a chemistry extra, with two molecule kinds
 and the standardisation that makes them comparable; and cluster execution, so
 several machines run one pipeline between them through the shared store, with
 no scheduler and no job submission.
+
+v0.4 is the first release the project did not plan. Two integrations pinned
+it, used it on their own data, and reported what they found: the identifier
+dimension was guessing a space it could not read and two guesses were
+agreeing, so a join across two identifier spaces passed; the methods write-up
+was reporting a citation gap nobody could close; and a claim's printed
+identifier moved under edits that could not change the number. A claim can
+now name the cell its number lives in, so a manuscript's number is checked
+against the artifact rather than merely bound to the computation. **The
+identifier change refuses pipelines that used to pass** — see
+[MIGRATING.md](https://github.com/Neoforge-Labs/ligase/blob/main/MIGRATING.md),
+which exists because of this release and is checked by the one after it.
 
 ## Intended use
 
