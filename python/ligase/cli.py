@@ -96,6 +96,22 @@ def _tabular(path: str) -> Dataset:
     which is as strong a marker as a VCF's `##fileformat` and is not a
     guess: nothing but a table of molecules carries that column.
 
+    A table of **structures** is one too. `smiles` is the other identity a
+    molecule table may be named by, it is the shape a generative model
+    emits, and it is the one `lg.chem.standardize` is specified to consume
+    -- standardisation works on structures, and an InChIKey cannot be turned
+    back into one. Asking only for `inchikey` sent that file to the gene-list
+    loader, which refused it for having no `id` column, so the one input the
+    chemistry surface documents was the one `inspect` reported as unreadable.
+
+    `id` wins over `smiles`, which is the one ambiguity in the wider
+    dispatch. A list of entities may carry a structure as an attribute,
+    while a molecule table has no reason to carry an identifier column: its
+    names *are* its identifiers. So a file with both is read as the gene
+    list it most likely is, and a pipeline that means otherwise says so by
+    naming the loader it wants -- which is the same answer this function
+    gives for a ranking.
+
     A **ranking** is never inferred, from either kind. There is nothing in a
     file to say whether its row order is its answer, which was already true
     of `RankedList` before this kind existed. `inspect` therefore reports
@@ -107,7 +123,11 @@ def _tabular(path: str) -> Dataset:
             if line.startswith("#"):
                 continue
             columns = [name.strip() for name in line.rstrip("\r\n").split("\t")]
-            return molecule_set(path) if "inchikey" in columns else entity_set(path)
+            if "inchikey" in columns:
+                return molecule_set(path)
+            if "smiles" in columns and "id" not in columns:
+                return molecule_set(path)
+            return entity_set(path)
     # No header at all. Handed to the gene-list loader so that the error a
     # user sees is a loader's account of the file rather than this
     # function's guess about which loader to blame.

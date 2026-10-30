@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`ligase inspect` reads a molecule table keyed by SMILES.** The `.tsv`
+  dispatch asked for an `inchikey` column and nothing else, so a table of
+  structures — what a generative model emits, and the one shape
+  `lg.chem.standardize` is specified to consume — went to the gene-list
+  loader and came back as `no column named \`id\` to read identifiers from`,
+  blaming a column a molecule table has no reason to have. `lg.molecule_set`
+  had always loaded it. Such a file now inspects as a `MoleculeSet` whose
+  representation is `SMILES, as given`; a table carrying both `id` and
+  `smiles` is still read as an `EntitySet`.
+
 - **`ligase methods` says which digest it is printing, and `ligase audit`
   prints the same one.** A bound claim's sentence ends `canonical
   b78ad78abbb2` where it ended `output b78ad78abbb2` — the digest was always
