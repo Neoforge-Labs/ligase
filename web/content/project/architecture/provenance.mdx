@@ -411,6 +411,18 @@ long list of half-checked citations is worth less than a short list of
 checked ones plus an honest gap. Anything else comes from `cite=` on the
 step, and a tool neither covers is *named as uncited*.
 
+`ligase` is the exception, and it is not in the table. `cite::engine` builds
+its reference from the engine versions the run recorded, `Methods::citations`
+adds it once for the whole run, and the engine is never reported as uncited.
+The table could not hold it: every row there is a constant, this reference
+has to name the version that ran, and a distributed run may have more than
+one ([D55](/project/decisions/#d55--a-methods-paragraph-names-every-platform-and-engine-a-run-used)).
+What forced the change is that `ligase` is the tool of the built-in
+conversions, which take no decorator — so naming it as uncited printed a gap
+whose stated remedy did not exist, and a gap that cannot be closed teaches a
+reader to skip the ones that can be
+([D58](/project/decisions/#d58--the-engine-cites-itself-because-a-gap-has-to-be-closable)).
+
 ## What is not here
 
 **Validation.** Whether the resistance calls agree with the published ones

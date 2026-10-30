@@ -324,16 +324,33 @@ impl Methods {
     /// The second half is the point: a tool with nothing to cite is named,
     /// so a short reference list cannot be mistaken for a complete one
     /// (D24).
+    ///
+    /// The engine itself is always in the first half and never in the
+    /// second. It ran — the paragraph's opening sentence says so, with its
+    /// version — so a reference list that left it out would be missing one
+    /// of the pieces of software the sentence above it credits. And naming
+    /// it as uncited was worse than an omission: `ligase` is the tool of the
+    /// built-in conversions, which take no decorator, so the gap came with
+    /// advice that pointed nowhere (D58).
     #[must_use]
     pub fn citations(&self) -> (Vec<String>, Vec<String>) {
         let mut cited: BTreeSet<String> = BTreeSet::new();
         let mut uncited: BTreeSet<String> = BTreeSet::new();
+
+        cited.insert(cite::engine(&self.engines));
 
         for group in &self.groups {
             for text in &group.declared {
                 cited.insert(text.clone());
             }
             for (tool, _) in &group.record.tools {
+                // Already cited above, for the whole run rather than per
+                // step: two steps running the engine do not make two
+                // references, and a step that declared its own does not
+                // make the engine's go away.
+                if tool == cite::ENGINE {
+                    continue;
+                }
                 match cite::of(tool) {
                     Some(citation) => {
                         cited.insert(citation.render());

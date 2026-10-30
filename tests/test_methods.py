@@ -135,8 +135,26 @@ def test_a_step_can_say_what_to_cite_it_by(tmp_path: Path) -> None:
 
     methods = pipe.methods(cache=tmp_path)
 
-    assert methods.citations == ["Van Rossum G (1995) Python reference manual."]
+    assert "Van Rossum G (1995) Python reference manual." in methods.citations
     assert methods.uncited == []
+
+
+def test_the_engine_is_in_the_reference_list_of_every_write_up(
+    tmp_path: Path,
+) -> None:
+    # The paragraph's first sentence names Ligase and the version that ran,
+    # so the reference list gives that software's reference — and `ligase`,
+    # which is the tool of the built-in conversions, is never reported as a
+    # gap a user cannot close (D58).
+    pipe = lg.Pipeline(cited(reference()))
+
+    methods = pipe.methods(cache=tmp_path)
+
+    assert any(
+        "Ligase" in reference and "github.com/Neoforge-Labs/ligase" in reference
+        for reference in methods.citations
+    ), methods.citations
+    assert "ligase" not in methods.uncited
 
 
 def test_a_tool_with_nothing_to_cite_is_named(tmp_path: Path) -> None:

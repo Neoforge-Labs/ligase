@@ -2870,3 +2870,64 @@ The project's own fixtures felt it: sixteen Python tests and nine Rust
 tests declared a space they had been getting for free, and the four
 generated captures that build a pipeline over a symbol list now declare
 one. That is the migration a consumer performs, performed here first.
+
+## D58 — The engine cites itself, because a gap has to be closable
+
+[D24](#d24--an-uncited-tool-is-named-rather-than-omitted) names a tool with
+no reference rather than omitting it, so that a short reference list cannot
+be mistaken for a complete one. `ligase` was one of those tools, and it was
+the one case where the mechanism turned against itself.
+
+A consumer reported it: every `ligase methods` write-up ended
+
+```
+No reference is recorded for ligase. Add one with `@lg.step(cite=...)`, or
+cite it by hand.
+```
+
+even with a reference for Ligase declared on their own step. The uncited
+tool was the `ligase` of `map_ranked_identifiers` — a **built-in
+conversion**, which is a step the engine owns and which takes no decorator.
+There was no `@lg.step` for the advice to be applied to.
+
+### Why that is worse than an omission
+
+`MethodsGap` works because it is unignorable. A gap that **cannot be
+closed** trains a reader to ignore it, and that costs the mechanism for
+every gap that is real. In the reporting consumer's pipeline it was the only
+remaining gap, so the last word of their methods output was a warning about
+something they had already done.
+
+So the rule: **a gap the engine reports must name a remedy the user can
+apply.** Where it cannot, the engine owes the answer itself.
+
+### What it does now
+
+`cite::engine` builds the engine's own reference from the versions the run
+recorded, and `Methods::citations` puts it in the reference list of every
+write-up and never in the uncited list:
+
+```
+Njeri K. Ligase: dimension-checked, reproducible computational biology
+    pipelines (version 0.3.0). https://github.com/Neoforge-Labs/ligase
+```
+
+Three details, each deliberate. It is **not a row in `cite::KNOWN`**,
+because every row there is a constant and this reference has to name the
+version that ran — which a distributed run may have more than one of
+([D55](#d55--a-methods-paragraph-names-every-platform-and-engine-a-run-used)),
+and which the table cannot hold. It carries **no DOI**, because this project
+has none; the repository is what a reader is pointed at, in the form RDKit's
+entry already set for software with no paper, and a DOI-shaped string
+invented to make the row look like its neighbours is the plausible wrongness
+D24 refuses. And it is added **for the run rather than per step**, so two
+steps running the engine do not make two references and a step declaring its
+own does not make the engine's disappear.
+
+### Why it is in every write-up, not only in those with a built-in step
+
+The engine always ran. `Methods::paragraph` opens by naming it and the
+version it was — *"Analyses were run with Ligase 0.3.0 on
+macos-aarch64"* — so a reference list that left it out was missing one of
+the pieces of software the sentence above it credits. A user who was citing
+it by hand can stop.

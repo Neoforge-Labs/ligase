@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`ligase methods` no longer reports a gap for ligase itself.** `ligase` is
+  the tool of the built-in conversions, and those are steps the engine owns:
+  there is no `@lg.step` for `cite=` to go on, so the advice the gap gave
+  named a place that does not exist, and every write-up ended with a warning
+  nobody could act on. The engine's own reference — naming the version, or
+  versions, the run recorded — is now in the reference list of every
+  write-up, and `ligase` is never in the uncited list. A user citing it by
+  hand can stop. D58.
+
 ### Changed
 
 - **A bare gene-symbol list no longer states its own identifier space.**

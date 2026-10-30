@@ -120,6 +120,22 @@ cite it by hand.
 A citation never joins the cache key. It cannot change a result, so adding
 one to a step does not recompute a cohort.
 
+<Note kind="note" title="Ligase cites itself">
+You do not need to cite Ligase by hand. Its own reference is in the
+reference list of every write-up, naming the version — or versions — the run
+recorded:
+
+```text
+Njeri K. Ligase: dimension-checked, reproducible computational biology
+    pipelines (version 0.3.0). https://github.com/Neoforge-Labs/ligase
+```
+
+Through 0.3.0 `ligase` was instead reported as *uncited*, which was a gap
+nobody could close: the tool belonged to the built-in conversions, and those
+are steps the engine owns and that take no decorator to put `cite=` on
+([D58](/project/decisions/#d58--the-engine-cites-itself-because-a-gap-has-to-be-closable)).
+</Note>
+
 ## The reproducibility bundle
 
 ```console
