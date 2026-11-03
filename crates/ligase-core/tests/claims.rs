@@ -1197,3 +1197,35 @@ fn a_claim_with_no_location_is_bound_without_being_verified() {
 
     assert_eq!(only(&methods).verdict.name(), "bound");
 }
+
+#[test]
+fn a_bound_claim_calls_the_digest_what_it_is() {
+    // #43: D59 put the right identifier in the sentence and labelled it
+    // `output`, which it is not -- the raw output's digest is the artifact's
+    // name in the store, and `audit` prints that one. A reader given
+    // `output b78ad78abbb2` who runs `ligase audit` is shown `98bf0c2be9e1`
+    // and cannot tell whether they are looking at the same result, a
+    // different one, or two kinds of digest.
+    let mut bench = Bench::new();
+    let input = bench.input("in.txt", "one\n");
+    let node = bench.step_with("call", "cat {in} > {out}", &[("in", input)], &[], &[]);
+    let report = bench.run(&[node]);
+    let result = report.result(node).unwrap();
+    let canonical = result.canonical.to_hex();
+    let bytes = result.hash.to_hex();
+
+    let claim = about("one variant was called", "call");
+    let text = bench.methods(&[node], &report, &[claim]).text();
+
+    assert!(
+        text.contains(&format!("canonical {}", &canonical[..12])),
+        "the word in front of a digest says which digest it is: {text}"
+    );
+    assert!(
+        !text.contains(&format!("output {}", &canonical[..12])),
+        "and the canonical digest is not the output's: {text}"
+    );
+    // The raw output's digest is a filename in the store, not a thing a
+    // manuscript quotes, so it stays out of the write-up.
+    assert!(!text.contains(&bytes[..12]), "{text}");
+}

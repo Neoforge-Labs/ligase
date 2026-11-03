@@ -618,7 +618,7 @@ const PROBES: &[(&str, VersionProbe)] = &[(
 pub fn tool_version(tool: &str) -> Result<String, String> {
     match tool {
         "hivdb" => return crate::hivdb::ruleset::fingerprint(),
-        "ligase" => return Ok(format!("ligase {}", env!("CARGO_PKG_VERSION"))),
+        "ligase" => return Ok(format!("ligase {}", crate::build())),
         _ => {}
     }
     debug_assert!(
@@ -1642,7 +1642,7 @@ impl Runner<'_> {
                 references,
                 remotes,
                 tools,
-                engine: crate::version().to_owned(),
+                engine: crate::build().to_owned(),
                 platform: prov::platform(),
                 recorded_at: prov::now(),
                 duration_ms: made.duration_ms,

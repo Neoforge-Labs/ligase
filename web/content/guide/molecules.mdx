@@ -137,9 +137,61 @@ Salt stripping **alone** does not match a neutral set. RDKit's
 | `salt-stripped, charge-neutralised` | `BSYNRYMUTXBXSQ-UHFFFAOYSA-N` |
 
 and plain aspirin is the second. Two files that both say "salts removed" can
-still fail to overlap if only one of them was also neutralised. If you are
-choosing a state for a project, `inchikey; salt-stripped,
-charge-neutralised` is the one that matches a neutral reference set.
+still fail to overlap if only one of them was also neutralised.
+
+**So `salt-stripped` on its own is not a state to standardise *to*.** ChEMBL,
+PubChem and ZINC all hand out neutral parents, so the reference set you
+actually have is almost certainly keyed `-N`, whether or not whoever exported
+it said so — while `lg.chem.standardize(to="inchikey; salt-stripped")` emits
+`-M` for every acid in your own set. The two declarations are honest, they
+compare equal, the join passes, and the overlap is wrong. A consumer measured
+the same generated set scoring 0% novel against one such reference and 50%
+against another, with `ligase check` reporting no problems for both.
+
+If you are choosing a state for a project, `inchikey; salt-stripped,
+charge-neutralised` is the one that matches a neutral reference set. The
+one-term form stays in the vocabulary because files really are in that state
+— a salt-stripped export is a thing you can be handed — and not because it is
+a sensible thing to ask for.
+
+## What the keys can prove, and what they cannot
+
+Charge state is the one part of a representation that is not taken on your
+word, because it is the one part a key records. The third block of an
+InChIKey is its protonation layer, so declaring `charge-neutralised` over
+keys that are not is a claim the file refutes, and it is refused at load:
+
+<Diagnostic note="lg.molecule_set — nothing ran">{diagnostics.chargeStateRefuted}</Diagnostic>
+
+Either the declaration names work the table never had, or it had it and the
+keys were never recomputed; the message says which state these keys are in,
+so the honest declaration is in front of you.
+
+The other direction cannot be proved, only noticed. A salt-stripped table
+whose keys are *all* neutral may be exactly that — a set of compounds with
+nothing to neutralise keys `-N` with nothing applied — or it may have been
+neutralised by a step nobody wrote down. So it is a note rather than a
+refusal:
+
+```python
+library = lg.molecule_set("vendor/catalogue.tsv",
+                          representation="inchikey; salt-stripped")
+library.notes
+```
+
+```
+('`salt-stripped` was declared without `charge-neutralised`, and all 2314 of
+this table\'s InChIKeys are protonation-neutral -- their third block is `N`,
+which is what a charge-neutralised set looks like',)
+```
+
+`ligase inspect` prints the same line under `noticed`. If the table *was*
+neutralised, declaring it is what lets the set join the collections that
+declare it.
+
+Salt stripping and tautomer normalisation leave no trace of this kind in a
+key, which is why they are recorded and not checked
+([D65](/project/decisions/#d65--a-declaration-is-refused-where-the-file-itself-refutes-it)).
 
 ## And the one that costs stereochemistry
 

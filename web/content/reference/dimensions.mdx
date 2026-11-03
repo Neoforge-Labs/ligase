@@ -106,6 +106,15 @@ for, and the failure it catches is
   not equally good identities — across six RDKit releases every InChIKey held
   still while one canonical SMILES moved
   ([D47](/project/decisions/#d47--a-molecules-identity-is-its-standardisation-not-its-structure)).
+- A representation is **recorded rather than verified**, with one exception
+  the keys themselves supply. An InChIKey's third block is its protonation
+  layer, so a table declared `charge-neutralised` whose keys end in anything
+  but `N` is refused at load: the file refutes the claim, and the engine
+  needs no chemistry to see it. The other direction is a note, because a
+  molecule with nothing to neutralise keys `-N` with nothing applied
+  ([D65](/project/decisions/#d65--a-declaration-is-refused-where-the-file-itself-refutes-it)).
+  Salt stripping and tautomer normalisation leave no such trace, which is why
+  they are taken on your word.
 - `stereo-discarded` is an operation that was **applied**, not a setting
   somebody chose. RDKit's tautomer canonicaliser discards stereochemistry at
   an sp3 centre inside a tautomeric system, so a tautomer-normalised set

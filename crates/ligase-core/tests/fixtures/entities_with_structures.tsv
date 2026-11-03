@@ -1,0 +1,3 @@
+id	smiles	log2fc
+CHEMBL25	CC(=O)Oc1ccccc1C(=O)O	2.4
+CHEMBL1201585	C[C@@H](c1ccc(CC(C)C)cc1)C(=O)O	-1.8

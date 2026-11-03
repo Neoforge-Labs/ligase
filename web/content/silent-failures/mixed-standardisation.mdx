@@ -126,6 +126,36 @@ form:
 
 <Diagnostic note="ligase check — nothing ran">{diagnostics.molecularUndeclared}</Diagnostic>
 
+## The version of this that two honest declarations produce
+
+The worst shape of it is not an undeclared file. It is two files that are
+both telling the truth.
+
+`salt-stripped` does not pin a charge state and an InChIKey's final block
+does. So a reference set that was salt-stripped and left anionic, and one
+that was salt-stripped and then neutralised, can both carry the honest
+declaration `inchikey; salt-stripped` — the values compare equal, the join
+goes ahead, and the same generated set scores 0% novel against one of them
+and 50% against the other. A consumer measured exactly that, with `ligase
+check` reporting `no problems found` and exiting 0 for both.
+
+The vocabulary was coarser than the identifier it keys to, which is the same
+defect as an inferred value that compares equal to another inferred value,
+one level down. Two things changed:
+
+- **Charge state is now checked against the keys.** A table declared
+  `charge-neutralised` whose keys end in anything but `N` is refused at load,
+  because that is a claim the file refutes.
+- **`salt-stripped` alone is documented as the trap it is.** Public
+  collections ship neutral parents, so the one-term form produces keys that
+  match nothing in the wild. [Comparing compound
+  sets](/guide/molecules/#the-trap-worth-knowing-before-you-choose-a-state)
+  says so where someone is choosing a state.
+
+What is still not checked is the part no key records: salt stripping and
+tautomer normalisation leave no trace, so those remain recorded on your word
+([D65](/project/decisions/#d65--a-declaration-is-refused-where-the-file-itself-refutes-it)).
+
 ## How it is caught
 
 ```python

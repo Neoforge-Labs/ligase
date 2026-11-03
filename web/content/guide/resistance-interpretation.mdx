@@ -189,6 +189,24 @@ reports its unread positions per drug, and those scores are still floors.
 [D34](/project/decisions/#d34--a-gene-barely-read-is-not-assessed) argues the
 default and the sharper rule it stands in for.
 
+<Note kind="note" title="`gene_coverage=0.0` is a supported setting, not a workaround">
+Turn the floor off if your coverage policy is **per drug** rather than per
+gene. The floor gives one verdict for a whole gene, and a per-drug policy can
+be asymmetric in a way it cannot express: a resistant call rests on a
+mutation that was actually read, and the unread positions could only add to
+it, so the call is worth keeping and marking with what was unread — while a
+susceptible call that leans on unread codons is worth dropping, because
+absence of evidence is not evidence of susceptibility.
+
+A consumer running that policy measured an RT 40–120 dropout with M184V read,
+in covered sequence: at `gene_coverage=0.0` they keep four RT rows, including
+a high-level 3TC call, each carrying its unread positions, and decline nine
+susceptible calls; at the `0.8` default the whole gene is skipped and the 3TC
+call goes with it. `skipped_genes` records the loss, so nothing is concealed
+— but it is a true positive, and the `unread` column is what lets you make
+the finer judgement yourself.
+</Note>
+
 ## Choosing an algorithm
 
 ```python

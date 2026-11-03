@@ -189,6 +189,16 @@ Raised by every loader — `lg.reference`, `lg.alignment`, `lg.variants`,
 `lg.reads`, `lg.intervals`, `lg.entity_set`, `lg.ranked_list`, `lg.samples`
 and `lg.remote` — at the point of loading, so it names the file.
 
+It is also what a molecule table gets when its own keys refute the
+standardisation it claims. `cannot read <file> in the state it says it is in`
+means the table is declared `charge-neutralised` — by an argument, or by the
+representation line in the file — and at least one of its InChIKeys is not:
+the third block of a key is its protonation layer, and `N` is the only value
+it takes for a molecule with no proton added or removed. The message names
+the key, the row and the state those keys *are* in. Nothing else about a
+representation is checked, because nothing else about one leaves a trace in a
+key.
+
 ## RunError
 
 **A step failed while running.** Carries a `report` with the whole run's

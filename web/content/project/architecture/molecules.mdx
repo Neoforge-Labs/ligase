@@ -139,6 +139,44 @@ A declared representation is **recorded, not verified**. That is D38's
 position on a declared namespace, reached by a shorter road: the engine has no
 chemistry, so it could not check the claim if it wanted to.
 
+### Except for charge state, which the keys record
+
+One operation leaves a trace in the identifier, and a consumer found out what
+it costs to ignore that. An InChIKey's third block is the protonation layer —
+`N` for a proton balance of zero, `M`, `L`, `K` for one, two, three protons
+removed, `O`, `P`, `Q` for as many added — so a table declared
+`charge-neutralised` whose keys are not neutral is a claim the file itself
+refutes, and `ChargeState` in `load/molecule_table.rs` refuses it with
+`LoadError::Representation`.
+
+Nothing chemical happens to see this. The rows are already being read to the
+end so that a row the header cannot account for is refused here rather than
+by the canonical form, and the key column is a column of strings whose third
+block is one character. D49 is untouched: no structure is parsed, no ring is
+perceived.
+
+The check is one-sided, and the reason is in `NEUTRAL`'s own comment. A
+molecule's net charge is not always in the protonation layer — a quaternary
+ammonium carries its charge in the InChI's `/q` layer and keys `N`
+regardless — so a neutral block proves nothing, while a non-neutral one is a
+molecule the charge-neutraliser would have neutralised. Hence:
+
+- **`charge-neutralised` declared, a key that is not** → an **error**, naming
+  the key, its row, its block and the state those keys *are* in.
+- **`salt-stripped` declared alone, every key neutral** → a **note**
+  (`keys-look-neutralised`), because a set of compounds with nothing to
+  neutralise looks exactly the same.
+
+Which is the stereo asymmetry below, arrived at from the other side: there,
+the step knows what it did and compares it against what was asked; here, the
+file states what was done and the keys are what disagree
+([D65](/project/decisions/#d65--a-declaration-is-refused-where-the-file-itself-refutes-it)).
+
+`stated` is the one place the precedence between a declaration and the file's
+own line lives, and both the dimension and this check read it — so the state
+that is checked is the state that is reported, which it would not be if each
+had resolved the precedence for itself.
+
 ## The canonical forms
 
 `canon/molecule_set.rs` records rows unordered; `canon/molecule_ranking.rs`
@@ -278,10 +316,18 @@ axis: a false agreement is unrecoverable, and a loud refusal is not.
   prevent. Closing it means deciding whether a per-row source column can be
   read as a set, which is a different question from a graph's per-edge
   provenance and is not answered here.
-- **A declared representation cannot be verified.** The engine has no
-  chemistry, so a wrong declaration on a hand-written table passes. The step
-  checks its own work; nothing checks a user's claim about a table somebody
-  else standardised.
+- **A declared representation is still mostly unverifiable.** Charge state is
+  checked against the keys, above; salt stripping and tautomer normalisation
+  leave no trace in a key, so a wrong declaration about either still passes.
+  The step checks its own work; nothing checks a user's claim about what
+  somebody else's standardiser did.
+- **`standardize` is not checked against this rule before it writes.** If
+  RDKit's `Uncharger` ever leaves a key charged in a run that asked for
+  `charge-neutralised`, the step writes a line the loader will then refuse —
+  which is the right outcome for a false declaration and a poor place to
+  discover it. The uncharger neutralising what the protonation layer records
+  is what makes this latent rather than open, and a self-check inside the
+  step is the honest closing of it.
 - **One state, one toolkit.** `representation` records the operations, not
   which toolkit applied them. Two sets standardised to the same state by
   RDKit and by another toolkit compare **equal**, and the measurement says
