@@ -27,7 +27,7 @@ which organism, which reference build, which coordinate convention, which
 samples in which order — and refuses to connect two steps whose dimensions
 disagree. The refusal happens when the pipeline graph is built, before any
 computation runs, so the failure mode is a diagnostic naming both sides and
-where each was read from, rather than a number nobody checks.
+where each was read from — not a number nobody checks.
 
 Twelve dimensions are defined. Each is inferred from the file wherever the
 format records it and declared once by the user where it does not: a SAM
@@ -66,16 +66,13 @@ wrong answer exactly.
 `Ligase` types the data rather than the steps, and complements those tools
 rather than replacing them: it has no scheduler and no cluster backend. What
 it adds is a check unavailable at the execution layer by construction,
-because it depends on reading headers and sequence rather than on moving
-files. The documentation is organised around the failures themselves, one
-page per symptom, each showing the diagnostic the engine really emits;
-twenty-five are captured from live runs on every build, which fails if the
-engine stops producing the error a page claims.
+because it depends on reading headers and sequence, not on moving files. The documentation is organised around the failures themselves, one
+page per symptom, each showing the diagnostic the engine really emits —
+captured from live runs on every build, which fails if the engine stops
+producing the error a page claims.
 
-Dimensions that formats do not record are the ones that matter most, which is
-why declaration is a first-class path and not a fallback. Neither FASTA nor
-BAM carries a build identifier, so no amount of file inspection can recover
-it: the user states it once, on load, and it propagates through the graph.
+Dimensions that formats do not record are the ones that matter most, which
+is why declaration is a first-class path. Neither FASTA nor BAM carries a build identifier, so no inspection can recover it: the user states it once, on load, and it propagates through the graph.
 A declaration is still not taken on trust, and a declared build that
 disagrees with contig identity is reported against the sequence.
 
@@ -87,27 +84,28 @@ to any of them is a different computation and is not served from the cache.
 Outputs are canonicalised before hashing — records sorted, volatile headers
 such as timestamps stripped — so a tool that writes the same data in a
 different order does not invalidate everything downstream. Random seeds are
-explicit, typed, hashed parameters, and an audit mode runs a step twice to
+explicit, typed, hashed parameters, and an audit mode reruns a step to
 report whether it is reproducible.
 
 `ligase methods` writes a methods paragraph from the recorded run: tool
 versions, parameters, references and citations. It names what it cannot
 account for — a tool with no citation on file is reported as a gap
-rather than omitted from the reference list, on the grounds that a tool
-silently missing from a reference list lets an incomplete methods section
-look complete.
+rather than omitted from the reference list, because a tool silently missing
+from a reference list lets an incomplete methods section look complete.
 
 A `Claim` binds a sentence a manuscript states to the computation behind it.
 The sentence itself is never checked; everything else is — that the step
 exists in this pipeline, that the parameter is one it takes, and that the run
-held it at the stated value — and the result is cited by the step's output
-digest. **A claim is bound to a computation, not verified against an
+held it at the stated value — and the result is cited by the digest of the
+step's **canonical** output, which survives an edit that moves the key
+without changing the bytes. **A claim is bound to a computation, not
+verified against an
 artifact**, unless it is also told where the number lives: given
 `at=lg.cell(column="f1", row=0)` and a stated `tolerance`, `ligase methods`
 reads that cell, compares it, and exits non-zero on a contradiction, so CI
 fails when a manuscript's number stops matching its output. Without a
-location the engine does not go looking, and a location it cannot read is
-reported as unbacked — "I could not check", not "you are wrong".
+location the engine does not go looking, and one it cannot read is reported
+as unbacked — "I could not check", not "you are wrong".
 
 # Validation and intended use
 
@@ -116,9 +114,9 @@ BWA [@li2009bwa], pileup and variant calling with SAMtools and BCFtools
 [@danecek2021], and interpretation by the Stanford HIVdb algorithm
 [@liu2006]. The scoring engine is checked against 3,348 expectations from
 Stanford's own Sierra implementation, all reproduced exactly; end to end on
-public MiSeq data, 81 of 81 drug calls agree at the 15% and 5% ambiguity
+public MiSeq data, 81 of 81 drug calls agree at the 15% and 5%
 thresholds, and the three that differ at 2% are enumerated with their cause
-in a test that fails if one changes shape or a new one appears.
+in a test that fails if one changes or a new one appears.
 
 `Ligase` is research software. Its drug-resistance calls are **not for
 clinical use** — not for diagnosis, not for treatment decisions, and not a
