@@ -151,6 +151,11 @@ def test_a_shortlist_refuses_graphs_built_from_different_sources() -> None:
 SCREEN = "07_a_screen_and_its_seed"
 
 
+def flat(text: str) -> str:
+    """Whitespace collapsed, so prose assertions survive re-wrapping."""
+    return " ".join(text.split())
+
+
 def test_a_screen_refuses_a_representation_mismatch() -> None:
     page = page_of(SCREEN)
     assert (
@@ -165,8 +170,8 @@ def test_a_screen_refuses_a_representation_mismatch() -> None:
         "a `standardize` step; molecules are never re-keyed implicitly."
     ) in page
     # The fix is named on the page and is never called.
-    assert "`lg.chem.standardize`" in page
-    assert "`chem` extra" in page
+    assert "`lg.chem.standardize`" in flat(page)
+    assert "`chem` extra" in flat(page)
 
 
 def test_a_screen_is_reproducible_and_the_undeclared_body_is_deterministic() -> None:
@@ -193,10 +198,10 @@ def test_a_screen_reruns_when_the_seed_changes() -> None:
 
 
 def test_a_screen_checks_before_it_runs() -> None:
-    page = page_of(SCREEN)
+    page = flat(page_of(SCREEN))
     assert "The screen has **2 steps**" in page
     assert "`errors()` found **0 problems**" in page
-    assert "The engine found **1 problem** and ran" in page
+    assert "The engine found **1 problem** and ran nothing." in page
 
 
 def test_a_screen_is_cold_on_every_run() -> None:
@@ -213,8 +218,32 @@ def test_a_screen_page_names_no_temp_path() -> None:
 
 
 def test_a_screen_says_what_its_scoring_step_is_and_is_not() -> None:
-    page = " ".join(page_of(SCREEN).split())
-    assert "**0 of the 2** hits are found in the library by InChIKey" in page
+    page = flat(page_of(SCREEN))
+    assert (
+        "The library names **aspirin, ibuprofen, warfarin, metformin**. The "
+        "hits are **aspirin sodium, metformin hydrochloride**. By name, "
+        "**2 of the 2** hits are compounds the library holds. By InChIKey, "
+        "**0 of the 2** are found in the library."
+    ) in page
     assert "the scoring step here is not docking" in page
     assert "/notebooks/a-cohort-and-what-changed/" in page
-    assert "Had the new seed" not in page
+    assert "/notebooks/what-a-paper-needs/" in page
+
+
+def test_a_screen_treats_no_declaration_as_unknown_and_refuses_it() -> None:
+    """A table with no representation line is not assumed to be `as given`."""
+    page = page_of(SCREEN)
+    assert "dimensions of a table with no declaration: ['organism']" in page
+    assert "its representation: None" in page
+    assert (
+        "UndeclaredDimensionError in step `enrichment`:\n"
+        "  representation is unknown in work/no_representation.tsv (this "
+        "table names its molecules by InChIKey but does not say what "
+        "standardisation produced them, and the keys cannot say -- declare "
+        "representation, or standardise the table)\n"
+        "  `enrichment` needs representation to agree. Declare it where you "
+        "load the data."
+    ) in page
+    assert "the engine found **1 problem** when that table met a declared one" in flat(
+        page
+    )

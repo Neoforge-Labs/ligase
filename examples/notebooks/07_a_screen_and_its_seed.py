@@ -37,7 +37,7 @@ def _():
         .parents[2]
         .joinpath("crates", "ligase-core", "tests", "fixtures")
     )
-    for _name in ("library", "hits_salts"):
+    for _name in ("library", "hits_salts", "no_representation"):
         shutil.copy(_fixtures / f"molecules_{_name}.tsv", work / f"{_name}.tsv")
 
     def shown(text):
@@ -102,11 +102,6 @@ def _(hits_representation, library_representation, mo, work):
         are columns of twenty-seven-character keys, and nothing in the
         columns says which was prepared how. The line above the header is the
         only place that is written down.
-
-        A table with no such line is not assumed to be raw. It is **unknown**,
-        because a ChEMBL download is standardised and a vendor list is not,
-        and guessing the weaker state would be inventing the most dangerous
-        of the possible answers.
         """
     )
     return
@@ -136,34 +131,51 @@ def _(hits, lg, library, shown, work):
 
     # What the join would have found, had it been allowed to run: read the two
     # files and count, rather than say.
-    def _keys(path):
+    def _rows(path):
         rows = path.read_text().splitlines()
-        return [row.split("\t")[0] for row in rows if not row.startswith("#")][1:]
+        return [row.split("\t") for row in rows if not row.startswith("#")][1:]
 
-    _library_keys = set(_keys(work / "library.tsv"))
-    _hit_keys = _keys(work / "hits_salts.tsv")
-    found = sum(key in _library_keys for key in _hit_keys)
-    hit_total = len(_hit_keys)
-    return found, hit_total, refused
+    _library_rows = _rows(work / "library.tsv")
+    _hit_rows = _rows(work / "hits_salts.tsv")
+    _library_keys = {row[0] for row in _library_rows}
+    found = sum(row[0] in _library_keys for row in _hit_rows)
+    hit_total = len(_hit_rows)
+    hit_names = [row[2] for row in _hit_rows]
+    library_names = [row[2] for row in _library_rows]
+    # A hit "is" a library compound by name when its name starts with the
+    # library's: "aspirin sodium" begins with "aspirin".
+    by_name = sum(
+        any(hit.startswith(name) for name in library_names) for hit in hit_names
+    )
+    return (
+        by_name,
+        enrichment,
+        found,
+        hit_names,
+        hit_total,
+        library_names,
+        refused,
+    )
 
 
 @app.cell
-def _(found, hit_total, mo, refused):
+def _(by_name, found, hit_names, hit_total, library_names, mo, refused):
     mo.md(
         f"""
         ## Two sets prepared differently are not joined
 
         The library is salt-stripped and charge-neutralised. The hits are as
-        they came: aspirin as its sodium salt, metformin as its
-        hydrochloride. The engine found **{len(refused)} problem** and ran
+        they came. The engine found **{len(refused)} problem** and ran
         nothing.
 
-        Counting the keys directly, **{found} of the {hit_total}** hits are
-        found in the library by InChIKey. Both substances are in the library
-        by name; the sodium salt and the hydrochloride simply have other
-        keys. Left to run, `enrichment` would have reported that count as its
-        answer, and a low hit rate reads as poor enrichment when it is a
-        measurement of the standardiser.
+        The library names **{", ".join(library_names)}**. The hits are
+        **{", ".join(hit_names)}**. By name, **{by_name} of the {hit_total}**
+        hits are compounds the library holds. By InChIKey, **{found} of the
+        {hit_total}** are found in the library. The names agree and the keys
+        do not, because a sodium salt and a hydrochloride have keys of their
+        own. A join on the keys would have reported {found}, and a low hit
+        rate reads as poor enrichment when it is a measurement of the
+        standardiser.
 
         The engine does not fix this. The fix is
         `lg.chem.standardize`, which writes the state it arrived at onto its
@@ -172,6 +184,41 @@ def _(found, hit_total, mo, refused):
         `chem` extra, and this page does not call it: loading, checking and
         hashing molecule tables all work on a default install, and producing
         a standardised set does not.
+        """
+    )
+    return
+
+
+@app.cell
+def _(enrichment, lg, library, shown, work):
+    no_declaration = lg.molecule_set(
+        str(work / "no_representation.tsv"), organism="Homo sapiens"
+    )
+    print(
+        "dimensions of a table with no declaration:", sorted(no_declaration.dimensions)
+    )
+    print("its representation:", no_declaration.dimensions.get("representation"))
+    unknown = lg.Pipeline(enrichment(library, no_declaration)).errors()
+    print("refusal, an undeclared representation:")
+    print(shown(str(unknown[0])))
+    return (unknown,)
+
+
+@app.cell
+def _(mo, unknown):
+    mo.md(
+        f"""
+        ## No declaration is not "as given"
+
+        A table of InChIKeys with no `#ligase representation:` line loads, and
+        carries no `representation` at all: the dimension is unknown. It is
+        not filled in with the weakest state, and the engine found
+        **{len(unknown)} problem** when that table met a declared one. It
+        names the undeclared dimension and asks for it to be declared where
+        the data is loaded, or for the table to be standardised.
+
+        The refusal is the point. A ChEMBL download is standardised and a
+        vendor list is not, and the keys cannot say which this is.
         """
     )
     return
@@ -261,8 +308,7 @@ def _(again, first, mo, moved, pipeline, problems):
         The screen has **{len(pipeline.steps)} steps**, `rescore` and `top`, and
         `errors()` found **{len(problems)} problems**. `top` accepts what
         `rescore` wrote because `rescore` writes the `representation` line
-        itself, carried over from the library it was given. A ranking
-        without one would have no representation for `top` to check.
+        itself, carried over from the library it was given.
 
         Run 1 said **{first.summary}** Run 2 repeated it and said
         **{again.summary}** The seed is a parameter like any other: it is in
@@ -335,8 +381,9 @@ def _(mo, undeclared):
         face value. Declared, it knows the step was written to be random, so
         it reports the weaker and more honest thing: not that nothing varies,
         but that the seed pins it. The pair is the whole of the difference
-        between a claim and a guess, and it is what lets a methods section say
-        "seeded with 20260101" and have the engine stand behind it.
+        between a claim and a guess, and what a methods section can then say
+        about the seed, and have the engine bind, is the subject of [what a
+        paper needs](/notebooks/what-a-paper-needs/).
         """
     )
     return
