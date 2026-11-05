@@ -173,7 +173,7 @@ if (process.argv.includes('--built')) {
       // write-redirects.mjs leaves a stub at each retired URL. It sends the
       // visitor on at once and is deliberately not a page of the site, so it
       // carries no tag and is not asserted on; the page it lands on is.
-      if (raw.includes('data-redirect-to=')) continue
+      if (/<html[^>]*\bdata-redirect-to="/.test(raw)) continue
       // Next echoes every inline script's text into the RSC flight payload, so
       // each one appears twice in the HTML and in an order that is not the DOM's.
       // Assert against the real document only.
@@ -186,12 +186,17 @@ if (process.argv.includes('--built')) {
       if (!html.includes(`'${gtmId}'`)) { miss.push(`the loader does not pass ${gtmId}`); break }
       if (!html.includes(`ns.html?id=${gtmId}`)) { miss.push('the <noscript> fallback is missing'); break }
       if (html.split('gtm.start').length - 1 !== 1) { miss.push('the container loader appears more than once in the document'); break }
-      for (const signal of ['ad_storage', 'ad_user_data', 'ad_personalization', 'analytics_storage']) {
-        if (!new RegExp(`${signal}:'denied'`).test(html)) { miss.push(`${signal} is not defaulted to denied`); break }
-      }
+      // The signals are asserted against the consent script's own text, not the
+      // whole document: a page whose prose merely quotes ad_storage:'denied'
+      // would otherwise satisfy the check while the default itself was gone.
+      const scripts = html.match(/<script[^>]*>[\s\S]*?<\/script>/g) ?? []
+      const consent = scripts.find((t) => t.includes("'consent','default'")) ?? ''
+      const missing = ['ad_storage', 'ad_user_data', 'ad_personalization', 'analytics_storage'].find(
+        (signal) => !new RegExp(`${signal}:'denied'`).test(consent),
+      )
+      if (missing) { miss.push(`${missing} is not defaulted to denied`); break }
     }
   }
-
 
   const withProse = pages.filter((h) => /<article[\s>][\s\S]*<main[\s>]/.test(h)).length
   if (withProse === 0) miss.push('article main (no page has a <main> inside an <article>)')
@@ -650,6 +655,19 @@ assert(/@media[^{]*max-width[^{]*\{[^]*?\.place\s*\{[^}]*display:\s*none/.test(m
 assert(/masthead\s*\?\s*<Masthead\s*\/>/.test(read('components/Hero.tsx')), 'Hero must draw <Masthead /> only when asked')
 assert(/<Hero\s+masthead\b/.test(read('content/index.mdx')), 'the landing page must pass masthead to Hero')
 assert(/lg-mono[^>]*>◉ WESTLANDS, NAIROBI · MMXXVI</.test(read('app/layout.tsx')), 'the footer must carry the locality line in .lg-mono')
+
+// The route-change bridge. Each of these stands for a way the pageview count
+// goes wrong in a way nobody would notice: a push against an undefined
+// dataLayer throws and loses every later pageview; counting the first path
+// double-counts the landing page, which is most of the traffic; and a path
+// without the trailing slash the export serves splits one page into two rows.
+const analytics = read('components/AnalyticsPageview.tsx')
+assert(/^'use client'/m.test(analytics), 'AnalyticsPageview.tsx must be a client component')
+assert(/window\.dataLayer\s*=\s*window\.dataLayer\s*\|\|\s*\[\]/.test(analytics), 'the route-change push must initialise dataLayer before using it')
+assert(/useRef/.test(analytics), 'the first path is reported by the container, so the bridge needs a ref to skip it')
+assert(/usePathname/.test(analytics), 'the bridge must key off usePathname, which ignores hash and query')
+assert(/endsWith\('\/'\)/.test(analytics), "the reported path must carry the trailing slash the export serves")
+assert(/<AnalyticsPageview\s*\/>/.test(read('app/layout.tsx')), 'layout must render <AnalyticsPageview />')
 
 // Comments that were corrected must stay corrected.
 const tokensHeader = read('app/tokens.css').match(/^\s*\/\*[\s\S]*?\*\//)?.[0] ?? ''

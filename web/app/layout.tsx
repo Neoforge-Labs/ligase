@@ -8,6 +8,7 @@ import { getPageMap } from 'nextra/page-map'
 import 'nextra-theme-docs/style.css'
 import './globals.css'
 import { GoogleTagManager } from '../components/Analytics'
+import { AnalyticsPageview } from '../components/AnalyticsPageview'
 import { Mark } from '../components/Mark'
 
 /*
@@ -165,6 +166,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       </Head>
       <body className="lg-grain">
         <GoogleTagManager />
+        <AnalyticsPageview />
         <script
           type="application/ld+json"
           // `<` is escaped so no string in the block can close the script tag.

@@ -15,8 +15,8 @@
  * agreed to something they were not asked.
  *
  * check-furniture --built reads GTM_ID out of this file's text and asserts that
- * every exported page carries the consent default, then one loader, then the
- * noscript fallback, in that order. A tag that silently stopped shipping is
+ * every exported page carries the consent default before one loader, and that
+ * the noscript fallback is present (its position is not checked). A tag that silently stopped shipping is
  * the failure shape this project exists to refuse, so the build says so rather
  * than the dashboard going quiet. Keep the single quotes in the script bodies:
  * that assertion matches on them.
