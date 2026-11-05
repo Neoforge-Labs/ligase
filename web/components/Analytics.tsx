@@ -35,8 +35,10 @@ const CONSENT_DEFAULT_JS = `window.dataLayer=window.dataLayer||[];function gtag(
 const GTM_LOADER_JS = `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${GTM_ID}');`
 
 /*
- * Production only. A `next dev` session or a local build would otherwise count
- * the author's own reloads as visitors.
+ * Production only, which in practice means: not under `next dev`, where the
+ * author's own reloads would otherwise be counted. `next build` is a
+ * production build, so a local build does carry the tag — which is what lets
+ * check-furniture --built find the real thing in out/.
  */
 export function GoogleTagManager(): ReactNode | null {
   if (process.env.NODE_ENV !== 'production') return null

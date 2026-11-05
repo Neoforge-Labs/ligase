@@ -16,18 +16,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   is requested, because Consent Mode governs only a container that was told
   its defaults first. Nothing on the site grants them. The site is a static
   export on GitHub Pages, so there is no server log anybody can read, and the
-  only questions worth asking about 52,000 words of prose are whether anyone
-  arrives, where they land, and whether they read past that page.
+  questions worth asking about 52,000 words of prose are narrow: how often
+  each page is opened, and what referred the reader there.
 
-  The cost is accepted rather than hidden: with no cookie there is no
-  returning-visitor identity, so a GA4 **users** figure is modelled instead of
-  counted and is not worth interpreting at this traffic level. Sessions,
-  pageviews, page paths and referrers stay real counts, which is what those
-  questions need.
+  The cost is accepted rather than hidden, and it is larger than it looks.
+  Denied `analytics_storage` means no `_ga` cookie and cookieless pings, and a
+  ping carries no client ID — so GA4 cannot tell ten pageviews by ten readers
+  from ten by one. Sessions are stitched out of the client ID, which makes
+  sessions as absent as users; neither is approximate, both are gone.
+  Behavioural modelling does not fill the gap either, because its thresholds
+  need a consented cohort to train on and nothing here ever grants consent.
+  What is real is the count of `page_view` events, the path on each, and the
+  referrer — which is what those questions asked for. "How many" here means
+  pageviews, not people.
 
   Nextra navigates between pages without a document load, so the container's
-  own trigger fires once a visit and every visit would look like a one-page
-  visit. A client component pushes an explicit `page_view` carrying the path
+  own trigger fires once a visit and every page after the landing one would be
+  missing. A client component pushes an explicit `page_view` carrying the path
   on each route change, skipping the landing path the container already
   reported and appending the trailing slash the export serves. A GA4 tag has
   to trigger on that event and nothing else: the container fires
