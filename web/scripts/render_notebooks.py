@@ -69,6 +69,11 @@ ORDER: tuple[tuple[str, str, str], ...] = (
         "A cohort, and what changed",
         "Caching, early cutoff, and coordinates that do not meet.",
     ),
+    (
+        "06_from_a_graph_to_a_shortlist",
+        "From a graph to a shortlist",
+        "Identifier spaces, a collision, and why a ranking is not a set.",
+    ),
 )
 
 BLOB = "https://github.com/Neoforge-Labs/ligase/blob/main/examples"
