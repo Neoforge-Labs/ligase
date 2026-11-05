@@ -64,6 +64,11 @@ ORDER: tuple[tuple[str, str, str], ...] = (
         "Resistance, and why the rules are hashed",
         "Vendored algorithms, and content hashing over version labels.",
     ),
+    (
+        "05_a_cohort_and_what_changed",
+        "A cohort, and what changed",
+        "Caching, early cutoff, and coordinates that do not meet.",
+    ),
 )
 
 BLOB = "https://github.com/Neoforge-Labs/ligase/blob/main/examples"
