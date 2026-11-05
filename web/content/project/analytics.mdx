@@ -10,30 +10,46 @@ One Google Tag Manager container, `GTM-KBSX44GX`, and nothing else. It is the
 only third party this site talks to.
 
 `web/app/layout.tsx` renders `<GoogleTagManager />` as the first child of
-`<body>`, and it emits three things, in this order:
+`<body>`, and it emits two things, in this order:
 
 ```text
 1. an inline script setting Consent Mode defaults   all four signals denied
 2. the canonical container loader                   gtm.js
-3. a <noscript> iframe                              ns.html
 ```
 
-All three come from `web/components/Analytics.tsx`, which returns nothing at
-all unless `NODE_ENV` is `production`. So a `next dev` session carries no tag
-and the reloads of whoever is writing a page are never counted. A local
+Both come from `web/components/Analytics.tsx`, which returns nothing at all
+unless `NODE_ENV` is `production`. So a `next dev` session carries no tag and
+the reloads of whoever is writing a page are never counted. A local
 `npm run build` is a production build and does carry it, which is what lets
 the gate below read the real thing out of `out/`.
 
+The canonical snippet has a third part, a `<noscript>` iframe to `ns.html`, and
+this site deliberately does not emit it. Its purpose is to count a visitor with
+JavaScript off, and it cannot: GA4's tags are JavaScript and do not fire inside
+that iframe, so with GA4 as the only intended tag that visitor goes uncounted
+either way. What it would add is a request to Google made before the consent
+default — itself JavaScript — has run, which makes it the one request on the
+site Consent Mode could not govern. On a site that defaults every signal to
+denied, that is the wrong trade for no measurement.
+
 The container is empty of tags. It loads, it holds a data layer, and it
 collects nothing until a GA4 property and its tags are created inside the Tag
-Manager UI — which is account work, not repository work. What follows is
-therefore how the page side is wired, not a description of numbers anyone is
-reading.
+Manager UI — which is account work, not repository work.
+
+Collecting nothing is not the same as contacting nobody. Fetching `gtm.js` is
+itself a request to Google, and it discloses the reader's IP address, user
+agent and page URL — on every pageview, today, with an empty container.
+Consent Mode governs whether *tags* may use storage, not whether the container
+is fetched, so what the defaults below buy is no cookie and no storage-backed
+identity. Not no contact.
+
+What follows is therefore how the page side is wired, not a description of
+numbers anyone is reading.
 
 ## Why it exists
 
-This site is 52,000 words written for a specific and small audience, and the
-questions worth asking about it are narrow: how often each page is opened,
+This site is some 170,000 words written for a specific and small audience, and
+the questions worth asking about it are narrow: how often each page is opened,
 and what referred the reader there. Nothing in the repository can answer
 either. A static export on GitHub Pages leaves no server log anybody can see.
 
@@ -88,6 +104,13 @@ What remains is real, and it is what the questions above asked for:
 | the page path carried on each | sessions, and returning visitors |
 | the referrer that brought it | any one reader's journey through the site |
 
+The referrer is real except on one set of paths. The stubs `write-redirects.mjs`
+leaves at the retired MkDocs URLs carry no tag and move the visitor on with
+`location.replace()`, so by the time the real page loads `document.referrer` is
+the stub's own same-origin URL. A reader who arrives through an old bookmark
+therefore loses their acquisition source, and GA4 reads the visit as a
+self-referral rather than as coming from wherever they actually clicked.
+
 So "how many" on this site means pageviews, not people, and a number GA4
 labels **users** or **sessions** is to be read as neither. That is an
 acceptable trade for counting page reads, and would not be one in an
@@ -126,19 +149,41 @@ Three details in it are each a way the count goes quietly wrong:
 
 - `usePathname()` excludes the hash and the query. Reading `location.href`
   instead would turn every "On this page" click into a pageview.
-- The first path is skipped, with a ref seeded `useRef(true)`. The container
-  already reports the landing page when it loads, and the landing page is
-  typically most of the traffic, so reporting it again would double the
-  largest number on the dashboard.
+- The first path is skipped, with a ref seeded `useRef(true)`. The GA4
+  configuration tag sends its own `page_view` when it initialises, which covers
+  the landing path, and the landing path is typically most of the traffic, so
+  reporting it again here would double the largest number on the dashboard.
 - The path carries the trailing slash the export serves, which
-  `trailingSlash: true` in `next.config.mjs` puts there. Reported without it,
-  one page would appear as two rows, one from the container and one from the
-  bridge.
+  `trailingSlash: true` in `next.config.mjs` puts there, so the pushed value
+  agrees with the URL the browser is actually on. Without it, anything reading
+  `page_path` would file one page under two rows.
 
 It is a separate file from `Analytics.tsx` because `'use client'` is
 module-scoped in the App Router. Putting it there would make
 `GoogleTagManager` a client component as well, and would turn `GTM_ID` into a
 client reference for anything on the server that imports it.
+
+### Which tag reports the landing page
+
+Two tags will share the pageview count between them, and each covers exactly
+what the other does not:
+
+- The **GA4 configuration tag** (the Google tag) sends a `page_view` of its own
+  when it initialises — `send_page_view`, which is on by default. That is the
+  landing path, and it is the *only* thing that reports the landing path.
+- The **GA4 event tag** sends a `page_view` for the custom event this bridge
+  pushes. That is every navigation after the landing one, and nothing else.
+
+The configuration tag's automatic pageview must therefore stay enabled.
+Switching it off is a tempting move: with two tags able to produce a
+`page_view`, and double-counting the hazard the next section is about, giving
+the event one source looks like the tidy thing to do. It would instead delete
+every landing pageview from the property. The bridge deliberately skips the
+first path, so nothing else would report it, and no error would appear
+anywhere: the largest number on the dashboard would simply stop existing.
+
+The rule in the next section is about the **event** tag only. It does not mean
+the configuration tag should stop sending its initial pageview.
 
 ### Trigger on `page_view`, and nothing else
 
@@ -164,10 +209,22 @@ an account, out of reach of every gate here. Pushing an event that means one
 thing, and triggering on that, is what keeps the decision where it can be
 checked.
 
-Read `page_path` off that event, which is why it is pushed. The effect can run
-before the new document title has been committed, so a tag reading
-`document.title` instead can attribute the new path's pageview to the previous
-page's name.
+The `page_path` on that event is belt and braces, not the mechanism. GA4's
+built-in **Page path** dimension is derived from `page_location`, which the GA4
+tag reads from `document.location` when it fires — and on a soft navigation the
+browser's URL has already changed by the time the effect runs, so the built-in
+dimension is right without being told anything. `page_path` is also a Universal
+Analytics parameter name that GA4 has no built-in use for: mapped onto the tag
+as a bare event parameter it is collected and then appears in no report at all
+unless somebody registers it as a custom dimension. So the thing to do with it
+is nothing. It makes the event legible in Preview mode and it is what the
+checker asserts the trailing slash on; the number in the report comes from
+`page_location`, which is already correct.
+
+What is worth being careful about is the page *title*, not the path. The effect
+can run before the new document title has been committed, so a tag reading
+`document.title` can attribute the new path's pageview to the previous page's
+name.
 
 ## What the build refuses
 
@@ -179,22 +236,26 @@ later when a dashboard looks thin.
 `npm run check` — runs over the exported HTML and fails if, on any page of
 the site: the consent default is missing, the container loader is missing, the
 loader appears more than once, the loader does not carry the ID read out of
-`Analytics.tsx`, the `<noscript>` fallback is gone, or the consent default
-does not come before the loader. The redirect stubs `write-redirects.mjs`
-leaves at retired URLs are not pages of the site and are skipped; the page
-each one sends a visitor to is checked. The four signals are matched against
-the
-consent script's own text rather than against the whole document, so a page
-that merely quotes `analytics_storage:'denied'` in prose — this one — cannot
-satisfy the check on the real default's behalf.
+`Analytics.tsx`, or the consent default does not come before the loader. The
+redirect stubs `write-redirects.mjs` leaves at retired URLs are not pages of
+the site and are skipped; the page each one sends a visitor to is checked. The
+four signals are matched against the consent script's own text rather than
+against the whole document, so a page that merely quotes
+`analytics_storage:'denied'` in prose — this one — cannot satisfy the check on
+the real default's behalf.
 
 Its source pass asserts the bridge's shape for the same reason: that
 `AnalyticsPageview.tsx` is a client component, that it initialises
-`window.dataLayer` before pushing to it, that the skip ref is seeded, that it
-keys off `usePathname()`, that it appends the trailing slash, and that the
-layout renders it. Those assertions read the file with its comments stripped,
-because the comments describe each of those decisions and would otherwise
-satisfy the check on the code's behalf.
+`window.dataLayer` before pushing to it — before, not merely somewhere in the
+file — that the skip ref is seeded and tested before the push, that it keys off
+`usePathname()`, that the effect still depends on `[pathname]`, that it appends
+the trailing slash, and that the layout renders it. The dependency array earns
+its own assertion because `web/` has no eslint configured at all, so
+`react-hooks/exhaustive-deps` would never notice `[pathname]` becoming `[]` —
+an edit that type-checks, builds, runs, and reports nothing.
+Those assertions read the file with its comments stripped, because the comments
+describe each of those decisions and would otherwise satisfy the check on the
+code's behalf.
 
 <Note kind="note">
 Both passes check that the tag ships and that the bridge is shaped correctly.

@@ -1,22 +1,29 @@
 /*
  * Google Tag Manager, and the one place the site talks to a third party.
  *
- * Two inline scripts and a <noscript> fallback, rendered as the first thing in
- * <body>. The order is the point. Consent Mode only governs a container that
- * was told its defaults before it started, so the consent default has to run
- * to completion before the loader is even requested; a container that loads
- * first reads no defaults and treats every visitor as having agreed. Both
- * scripts are inline and synchronous for that reason, and neither goes through
- * next/script, whose strategies are free to reorder them.
+ * Two inline scripts, rendered as the first thing in <body>. The order is the
+ * point. Consent Mode only governs a container that was told its defaults
+ * before it started, so the consent default has to run to completion before
+ * the loader is even requested; a container that loads first reads no defaults
+ * and treats every visitor as having agreed. Both scripts are inline and
+ * synchronous for that reason, and neither goes through next/script, whose
+ * strategies are free to reorder them.
  *
  * All four signals default to denied. Nothing on this site grants them: there
  * is no banner, so until one exists the container collects only what Consent
  * Mode permits without consent, and a visitor is never counted as having
  * agreed to something they were not asked.
  *
+ * There is deliberately no <noscript> iframe. The canonical snippet carries one
+ * to count a visitor with JavaScript off, but it cannot do that here: GA4 tags
+ * are JavaScript and do not fire inside ns.html, and GA4 is the only tag this
+ * container is meant to hold, so that visitor goes uncounted either way. What
+ * the iframe would add is a third-party request made before the consent default
+ * — itself JavaScript — has run, on a site whose whole posture is deny by
+ * default. Removing it loses no measurement that was ever achievable.
+ *
  * check-furniture --built reads GTM_ID out of this file's text and asserts that
- * every exported page carries the consent default before one loader, and that
- * the noscript fallback is present (its position is not checked). A tag that
+ * every exported page carries the consent default before one loader. A tag that
  * silently stopped shipping is the failure shape this project exists to refuse,
  * so the build says so rather than the dashboard going quiet. Keep the single
  * quotes in the script bodies: that assertion matches on them.
@@ -40,20 +47,12 @@ const GTM_LOADER_JS = `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start'
  * production build, so a local build does carry the tag — which is what lets
  * check-furniture --built find the real thing in out/.
  */
-export function GoogleTagManager(): ReactNode | null {
+export function GoogleTagManager(): ReactNode {
   if (process.env.NODE_ENV !== 'production') return null
   return (
     <>
       <script dangerouslySetInnerHTML={{ __html: CONSENT_DEFAULT_JS }} />
       <script dangerouslySetInnerHTML={{ __html: GTM_LOADER_JS }} />
-      <noscript>
-        <iframe
-          src={`https://www.googletagmanager.com/ns.html?id=${GTM_ID}`}
-          height="0"
-          width="0"
-          style={{ display: 'none', visibility: 'hidden' }}
-        />
-      </noscript>
     </>
   )
 }

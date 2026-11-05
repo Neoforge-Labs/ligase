@@ -16,8 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   is requested, because Consent Mode governs only a container that was told
   its defaults first. Nothing on the site grants them. The site is a static
   export on GitHub Pages, so there is no server log anybody can read, and the
-  questions worth asking about 52,000 words of prose are narrow: how often
-  each page is opened, and what referred the reader there.
+  questions worth asking about some 170,000 words of prose are narrow: how
+  often each page is opened, and what referred the reader there.
 
   The cost is accepted rather than hidden, and it is larger than it looks.
   Denied `analytics_storage` means no `_ga` cookie and cookieless pings, and a
@@ -28,20 +28,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   need a consented cohort to train on and nothing here ever grants consent.
   What is real is the count of `page_view` events, the path on each, and the
   referrer — which is what those questions asked for. "How many" here means
-  pageviews, not people.
+  pageviews, not people. Collecting nothing is also not contacting nobody:
+  fetching `gtm.js` discloses the reader's IP address, user agent and page URL
+  to Google on every pageview already, with an empty container, because
+  Consent Mode governs whether tags may use storage and not whether the
+  container is fetched.
 
   Nextra navigates between pages without a document load, so the container's
   own trigger fires once a visit and every page after the landing one would be
-  missing. A client component pushes an explicit `page_view` carrying the path
-  on each route change, skipping the landing path the container already
-  reported and appending the trailing slash the export serves. A GA4 tag has
-  to trigger on that event and nothing else: the container fires
+  missing from the counts. A client component pushes an explicit `page_view`
+  carrying the path on each route change, skipping the landing path — which
+  the GA4 configuration tag reports itself when it initialises, and which
+  nothing else will report, so that tag's automatic pageview has to stay
+  enabled — and appending the trailing slash the export serves. The GA4 *event*
+  tag has to trigger on the pushed event and nothing else: the container fires
   `gtm.historyChange-v2` of its own accord, on table-of-contents clicks as
   well as on navigations, so a History Change trigger alongside it would
   double-count every in-site navigation. `check-furniture --built` fails the
-  build if the consent default, the loader or the `<noscript>` fallback stops
-  shipping, or if the default stops coming first, because analytics that
+  build if the consent default or the loader stops shipping, or if the default
+  stops coming first, and its source pass fails if the bridge loses its
+  `[pathname]` dependency, its `dataLayer` initialisation or its first-path
+  skip — `web/` has no eslint, so nothing else would notice. Analytics that
   quietly stopped reporting is the failure shape this project refuses.
+
+  The canonical snippet's `<noscript>` iframe is deliberately not emitted. It
+  exists to count a visitor with JavaScript off and cannot: GA4's tags are
+  JavaScript and never fire inside `ns.html`, so with GA4 as the only intended
+  tag that visitor is uncounted either way, while the iframe would be the one
+  request on the site made before the consent default — itself JavaScript —
+  could govern it.
 
   The container holds no tags yet. Creating the GA4 property and the two tags
   is account work rather than repository work, so the page side is wired and
