@@ -62,15 +62,20 @@ def _(mo):
 
 @app.cell
 def _(json, random, work):
-    # Thirty genes and ninety edges from a fixed seed, so the page is the same
-    # on every build. Ensembl IDs are the graph's node names.
+    # Thirty genes and ninety edges, so the page is the same on every build.
+    # Which genes are joined is index arithmetic, not a random draw: the
+    # standard library does not promise `random.sample` picks the same genes
+    # on every Python version. Scores come from a seeded stream, which it does.
+    # Ensembl IDs are the graph's node names.
     _rng = random.Random(6)
     ensembl = [f"ENSG{10000 + 137 * i:011d}" for i in range(30)]
     symbols = [f"GENE{i:02d}" for i in range(30)]
 
     edge_rows = []
-    for _ in range(90):
-        _a, _b = _rng.sample(ensembl, 2)
+    for _i in range(90):
+        _from = _i % 30
+        # An offset of 1 to 29, so an edge never joins a gene to itself.
+        _a, _b = ensembl[_from], ensembl[(_from + 1 + (_i * 7) % 29) % 30]
         edge_rows.append((_a, _b, round(_rng.uniform(0.1, 0.99), 2)))
 
     # The two best-connected genes are the two that will collide below, so the
@@ -101,6 +106,8 @@ def _(json, random, work):
 
     graph_path = work / "targets.json"
     graph_path.write_text(graph_json(["open-targets", "disgenet"]), encoding="utf-8")
+    graph_narrow_path = work / "targets_one_source.json"
+    graph_narrow_path.write_text(graph_json(["open-targets"]), encoding="utf-8")
     graph_reordered_path = work / "targets_reordered.json"
     graph_reordered_path.write_text(
         graph_json(["disgenet", "open-targets"]), encoding="utf-8"
@@ -114,8 +121,9 @@ def _(json, random, work):
         encoding="utf-8",
     )
 
-    # A DEG ranking in HGNC symbols: twenty of the thirty, best first.
-    _degs = _rng.sample(symbols, 20)
+    # A DEG ranking in HGNC symbols: twenty of the thirty, best first. A
+    # stride of 7 is coprime with 30, so the twenty are distinct.
+    _degs = [f"GENE{(7 * i) % 30:02d}" for i in range(20)]
     degs_path = work / "degs.tsv"
     degs_path.write_text(
         "id\tscore\n" + "".join(f"{s}\t{20 - i}\n" for i, s in enumerate(_degs)),
@@ -125,6 +133,7 @@ def _(json, random, work):
     return (
         collided,
         degs_path,
+        graph_narrow_path,
         graph_path,
         graph_reordered_path,
         map_path,
@@ -132,7 +141,7 @@ def _(json, random, work):
 
 
 @app.cell
-def _(degs_path, graph_path, graph_reordered_path, lg, map_path):
+def _(degs_path, graph_narrow_path, graph_path, graph_reordered_path, lg, map_path):
     graph = lg.knowledge_graph(
         str(graph_path),
         organism="Homo sapiens",
@@ -142,6 +151,13 @@ def _(degs_path, graph_path, graph_reordered_path, lg, map_path):
     )
     graph_reordered = lg.knowledge_graph(
         str(graph_reordered_path),
+        organism="Homo sapiens",
+        identifier_namespace="Ensembl gene",
+        subject="target discovery",
+        release="demo 1",
+    )
+    graph_narrow = lg.knowledge_graph(
+        str(graph_narrow_path),
         organism="Homo sapiens",
         identifier_namespace="Ensembl gene",
         subject="target discovery",
@@ -160,7 +176,7 @@ def _(degs_path, graph_path, graph_reordered_path, lg, map_path):
     )
     sources = graph.dimensions["source_set"].value
     sources_reordered = graph_reordered.dimensions["source_set"].value
-    return degs, graph, mapping, sources, sources_reordered
+    return degs, graph, graph_narrow, mapping, sources, sources_reordered
 
 
 @app.cell
@@ -178,9 +194,46 @@ def _(mo, sources, sources_reordered):
         The same edges with their sources listed the other way round,
         `disgenet` before `open-targets`, give **{sources_reordered}**,
         the identical value. The order was never information: the source set
-        is a set, so the graphs are the same graph. (A real difference in
-        sources is a different graph, and the engine would refuse to score one
-        against the other.)
+        is a set, so the graphs are the same graph. A real difference in
+        sources is a different graph, and the next cell hands the engine one.
+        """
+    )
+    return
+
+
+@app.cell
+def _(graph, graph_narrow, lg, pathlib, shown):
+    @lg.step
+    def overlap(a: lg.KnowledgeGraph, b: lg.KnowledgeGraph) -> lg.EntitySet:
+        """The nodes two graphs share."""
+        import json
+
+        def produce(out: pathlib.Path) -> None:
+            def nodes(g):
+                doc = json.loads(pathlib.Path(g.file).read_text())
+                return {node["id"] for node in doc["nodes"]}
+
+            both = sorted(nodes(a) & nodes(b))
+            out.write_text("id\n" + "".join(f"{node}\n" for node in both))
+
+        return lg.write(produce)
+
+    # The same genes and edges; one graph was built from `open-targets` alone.
+    different = lg.Pipeline(overlap(graph, graph_narrow)).errors()
+    print("refusal, source sets:")
+    print(shown(str(different[0])))
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        """
+        The second graph has the same genes and the same edges, built from
+        `open-targets` alone. Comparing it with the first is refused before
+        anything runs, for the reason the loader read the sources at all: the
+        difference between two such graphs is a difference in evidence, and a
+        comparison that reported it would present it as biology.
         """
     )
     return

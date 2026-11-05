@@ -85,11 +85,11 @@ def test_a_shortlist_maps_and_reports_the_collision() -> None:
     # The two best-connected genes share a symbol, so both are dropped, named,
     # and the ranks below them are renumbered.
     assert (
-        "the identifier `ENSG00000012055` maps to a target another "
+        "the identifier `ENSG00000010685` maps to a target another "
         "identifier also maps to, so it is not in the output"
     ) in page
     assert (
-        "the identifier `ENSG00000011096` maps to a target another "
+        "the identifier `ENSG00000010137` maps to a target another "
         "identifier also maps to, so it is not in the output"
     ) in page
     assert (
@@ -133,3 +133,16 @@ def test_a_shortlist_is_cold_on_every_run() -> None:
     """A second run of the notebook must still report a cold first run."""
     for _ in range(2):
         assert "run 1, a cold cache: 3 steps: 3 ran." in page_of(SHORTLIST)
+
+
+def test_a_shortlist_refuses_graphs_built_from_different_sources() -> None:
+    page = page_of(SHORTLIST)
+    assert (
+        "DimensionError in step `overlap`:\n"
+        "  a.source_set = open-targets and disgenet (from the sources named "
+        "on its nodes and edges: work/targets.json)\n"
+        "  b.source_set = open-targets (from the sources named on its nodes "
+        "and edges: work/targets_one_source.json)\n"
+        "  a also lists disgenet.\n"
+        "  These must match. Was a source added or removed upstream?"
+    ) in page
