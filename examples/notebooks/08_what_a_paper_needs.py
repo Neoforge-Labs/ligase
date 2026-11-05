@@ -101,7 +101,7 @@ def _(json, work):
     # A DEG ranking in HGNC symbols: eight of the twelve, best first. A stride
     # of 5 is coprime with 12, so the eight are distinct.
     _degs = [f"GENE{(5 * i) % 12:02d}" for i in range(8)]
-    (work / "degs.tsv").write_text(
+    _degs_file = (work / "degs.tsv").write_text(
         "id\tscore\n" + "".join(f"{s}\t{8 - i}\n" for i, s in enumerate(_degs)),
         encoding="utf-8",
     )
@@ -256,8 +256,8 @@ def _(bound, check, claim, mo, rows):
         is {abs(float(rows[1][1]) - claim.value):.4f}, inside
         {claim.tolerance}. A tolerance states how much precision the
         sentence claims. The claim written without one is in the printed
-        lines above, with the engine's own words, because a default would
-        invent a precision nobody stated.
+        lines at the end of this page, with the engine's own words, because
+        a default would invent a precision nobody stated.
 
         The engine read the cell and compared. The verdict is
         **{check.verdict}**, the write-up is accounted for:
@@ -270,21 +270,28 @@ def _(bound, check, claim, mo, rows):
 
 @app.cell
 def _(bound, mo, shown):
-    print("the methods, as the engine writes them:")
-    print(shown(bound.text))
     print("tools:", bound.tools)
     print("citations:", bound.citations)
     print("uncited:", bound.uncited)
+    # Indented to the f-string's own margin, so the text stays inside the
+    # fenced block once `mo.md` dedents the cell.
+    _text = shown(bound.text).strip().replace("\n", "\n        ")
     mo.md(
         f"""
         ## The methods paragraph
 
-        Above is `Methods.text` whole, as the engine wrote it, first line
-        included. That line names the Ligase version and the platform the
-        results were produced on, and the claim at the end carries the date
-        it was recorded. This page is rebuilt on whichever machine builds it,
-        and these lines say which. A methods section records the machine that
-        did the work, so they are left as the engine wrote them.
+        `Methods.text`, whole, as the engine wrote it:
+
+        ```text
+        {_text}
+        ```
+
+        Its first line, included. That line names the Ligase version and
+        the platform the results were produced on, and the claim at the end
+        carries the date it was recorded. This page is rebuilt on whichever
+        machine builds it, and these lines say which. A methods section
+        records the machine that did the work, so they are left as the
+        engine wrote them.
 
         The record names **{len(bound.tools)} tool**,
         **{", ".join(name for name, _ in bound.tools)}**, and the reference
@@ -333,8 +340,7 @@ def _(bound, cache, claim, lg, mo, output, rows):
         write-up is accounted for: **{broken.accounted_for}**. The good
         pipeline above says **{bound.accounted_for}**.
 
-        This is what makes a claim enforceable. `accounted_for` is a plain
-        boolean, and an `assert` on it, the check a CI job would make,
+        `accounted_for` is a plain boolean, and a gate that asserts it
         {gate} here. The engine disagreed with the sentence before any
         reviewer read it.
         """
@@ -348,16 +354,19 @@ def _(cache, claim, lg, mo, output, work):
         bundle=str(work / "bundle"), cache=cache
     )
     bundle = _recorded.bundle
-    print("bundle written, files relative to its root:")
-    print("\n".join("  " + name for name in sorted(bundle.files)))
+    _listing = "\n        ".join(sorted(bundle.files))
     mo.md(
         f"""
         ## A bundle
 
         `methods(bundle=...)` wrote **{len(bundle.files)} files** and
-        accounts for **{bundle.steps} steps** and **{bundle.gaps} gaps**. The
-        list above is what a reviewer receives, every path relative to the
-        bundle's root.
+        accounts for **{bundle.steps} steps** and **{bundle.gaps} gaps**.
+        This is what a reviewer receives, every path relative to the
+        bundle's root:
+
+        ```text
+        {_listing}
+        ```
         """
     )
     return (bundle,)

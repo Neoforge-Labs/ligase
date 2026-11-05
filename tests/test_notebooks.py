@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -300,21 +301,10 @@ def test_a_paper_refuses_an_unbacked_claim() -> None:
 def test_a_paper_writes_a_bundle_and_verifies_it() -> None:
     page = page_of(PAPER)
     assert (
-        "bundle written, files relative to its root:\n"
-        "  METHODS.md\n"
-        "  README.md\n"
-        "  claims.tsv\n"
-        "  commands.tsv\n"
-        "  environment.tsv\n"
-        "  inputs.tsv\n"
-        "  notes.tsv\n"
-        "  references.tsv\n"
-        "  remotes.tsv\n"
-        "  results.tsv\n"
-        "  steps/map_ranked_identifiers.py\n"
-        "  steps/score.py\n"
-        "  steps/shortlist.py\n"
-    ) in page
+        "```text METHODS.md README.md claims.tsv commands.tsv environment.tsv "
+        "inputs.tsv notes.tsv references.tsv remotes.tsv results.tsv "
+        "steps/map_ranked_identifiers.py steps/score.py steps/shortlist.py ```"
+    ) in flat(page)
     assert "verification: 3 results: 3 identical.\n" in page
     assert "reproduced: True\n" in page
     assert (
@@ -338,4 +328,22 @@ def test_a_paper_page_names_no_temp_path_or_duration() -> None:
     page = page_of(PAPER)
     assert "/var/folders" not in page
     assert "/tmp" not in page
+    assert tempfile.gettempdir() not in page
     assert "duration" not in page
+
+
+def test_a_paper_has_no_stray_cell_output() -> None:
+    """A cell whose last line is a call renders its return value as a block."""
+    outputs, _ = run_notebook(PAPER)
+    for output in outputs:
+        assert output is None or hasattr(output, "_repr_markdown_"), repr(output)
+
+
+def test_a_paper_shows_its_methods_inline_and_counts_its_tools() -> None:
+    page = page_of(PAPER)
+    prose = flat(page)
+    assert "```text Analyses were run with Ligase" in prose
+    assert " References Njeri K. Ligase: " in prose
+    assert "The record names **1 tool**, **ligase**" in prose
+    assert "the reference list holds **1 citation**" in prose
+    assert "reports **0** here" in prose
