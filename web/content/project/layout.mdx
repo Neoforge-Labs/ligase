@@ -104,6 +104,12 @@ packaging/          the Bioconda recipe
 data/               fetched test data. Gitignored, never committed.
 ```
 
+`web/` is also the only directory here that talks to a third party at
+runtime: it loads a tag manager container.
+[Analytics](/project/analytics/) is the account of what that measures, what
+defaulting consent to denied gives up, and what the build refuses to let
+break.
+
 Test data is downloaded, not committed, and pinned by checksum. See
 [installation](/project/building/#test-data).
 

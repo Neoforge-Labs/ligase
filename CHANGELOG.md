@@ -7,7 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **The documentation site is measured, and the measurement defaults to
+  denied.** One Google Tag Manager container loads on the deployed site — the
+  only third party it talks to — with all four Consent Mode signals defaulted
+  to `denied` by an inline script that runs to completion before the container
+  is requested, because Consent Mode governs only a container that was told
+  its defaults first. Nothing on the site grants them. The site is a static
+  export on GitHub Pages, so there is no server log anybody can read, and the
+  only questions worth asking about 52,000 words of prose are whether anyone
+  arrives, where they land, and whether they read past that page.
+
+  The cost is accepted rather than hidden: with no cookie there is no
+  returning-visitor identity, so a GA4 **users** figure is modelled instead of
+  counted and is not worth interpreting at this traffic level. Sessions,
+  pageviews, page paths and referrers stay real counts, which is what those
+  questions need.
+
+  Nextra navigates between pages without a document load, so the container's
+  own trigger fires once a visit and every visit would look like a one-page
+  visit. A client component pushes an explicit `page_view` carrying the path
+  on each route change, skipping the landing path the container already
+  reported and appending the trailing slash the export serves. A GA4 tag has
+  to trigger on that event and nothing else: the container fires
+  `gtm.historyChange-v2` of its own accord, on table-of-contents clicks as
+  well as on navigations, so a History Change trigger alongside it would
+  double-count every in-site navigation. `check-furniture --built` fails the
+  build if the consent default, the loader or the `<noscript>` fallback stops
+  shipping, or if the default stops coming first, because analytics that
+  quietly stopped reporting is the failure shape this project refuses.
+
+  The container holds no tags yet. Creating the GA4 property and the two tags
+  is account work rather than repository work, so the page side is wired and
+  nothing is collected until that is done.
+  [Analytics](https://ligase.neoforgelabs.tech/project/analytics/) is the full
+  account.
 
 ## [0.4.0] - 2026-10-30
 

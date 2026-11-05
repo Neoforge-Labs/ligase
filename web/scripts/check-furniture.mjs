@@ -661,13 +661,20 @@ assert(/lg-mono[^>]*>◉ WESTLANDS, NAIROBI · MMXXVI</.test(read('app/layout.ts
 // dataLayer throws and loses every later pageview; counting the first path
 // double-counts the landing page, which is most of the traffic; and a path
 // without the trailing slash the export serves splits one page into two rows.
-const analytics = read('components/AnalyticsPageview.tsx')
+//
+// Read with the comments stripped, and match the calls rather than the names.
+// The file's header explains every one of these decisions in prose, so a check
+// against the raw text passes on the comment that describes the code even after
+// the code is gone -- a gate that cannot fail, which is the shape this project
+// refuses. The imports survive stripping, hence usePathname() and useRef(true)
+// rather than the bare identifiers.
+const analytics = stripComments(read('components/AnalyticsPageview.tsx'))
 assert(/^'use client'/m.test(analytics), 'AnalyticsPageview.tsx must be a client component')
 assert(/window\.dataLayer\s*=\s*window\.dataLayer\s*\|\|\s*\[\]/.test(analytics), 'the route-change push must initialise dataLayer before using it')
-assert(/useRef/.test(analytics), 'the first path is reported by the container, so the bridge needs a ref to skip it')
-assert(/usePathname/.test(analytics), 'the bridge must key off usePathname, which ignores hash and query')
+assert(/useRef\(true\)/.test(analytics), 'the first path is reported by the container, so the bridge needs a ref seeded true to skip it')
+assert(/usePathname\(\)/.test(analytics), 'the bridge must key off usePathname, which ignores hash and query')
 assert(/endsWith\('\/'\)/.test(analytics), "the reported path must carry the trailing slash the export serves")
-assert(/<AnalyticsPageview\s*\/>/.test(read('app/layout.tsx')), 'layout must render <AnalyticsPageview />')
+assert(/<AnalyticsPageview\s*\/>/.test(stripComments(read('app/layout.tsx'))), 'layout must render <AnalyticsPageview />')
 
 // Comments that were corrected must stay corrected.
 const tokensHeader = read('app/tokens.css').match(/^\s*\/\*[\s\S]*?\*\//)?.[0] ?? ''

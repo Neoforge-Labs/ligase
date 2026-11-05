@@ -23,7 +23,9 @@
  *   - The first path is skipped. The container reports the landing page itself
  *     when it loads, and the landing page is most of the traffic, so reporting
  *     it again would double the largest number on the dashboard. The ref is
- *     seeded true and flipped on the first run of the effect.
+ *     seeded true and flipped on the first run of the effect. (React
+ *     StrictMode runs the effect twice on mount, so `next dev` does push the
+ *     landing path; dev loads no container, so nothing is counted.)
  *   - The path is reported with the trailing slash the export serves
  *     (trailingSlash: true). Reported without it, one page would appear as two
  *     rows, one from the container and one from this bridge.
