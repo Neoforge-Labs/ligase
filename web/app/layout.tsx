@@ -19,8 +19,8 @@ import { Mark } from '../components/Mark'
  *   Geist Mono    code, and every word the engine says
  *
  * The serif body is the deliberate break from the previous site. This is
- * 52,000 words of technical prose written for people who read papers, and a
- * serif at a 72-character measure is how that is normally set.
+ * technical prose at length, written for people who read papers, and a serif
+ * at a 72-character measure is how that is normally set.
  */
 const sourceSerif = Source_Serif_4({
   subsets: ['latin'],

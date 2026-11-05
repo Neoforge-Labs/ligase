@@ -16,8 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   is requested, because Consent Mode governs only a container that was told
   its defaults first. Nothing on the site grants them. The site is a static
   export on GitHub Pages, so there is no server log anybody can read, and the
-  questions worth asking about some 170,000 words of prose are narrow: how
-  often each page is opened, and what referred the reader there.
+  questions worth asking about a site of this size are narrow: how often each
+  page is opened, and what referred the reader there.
 
   The cost is accepted rather than hidden, and it is larger than it looks.
   Denied `analytics_storage` means no `_ga` cookie and cookieless pings, and a
@@ -1448,8 +1448,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   address as its canonical rather than Next's internal `/_not-found`, which
   would have leaked into public HTML.
 - **The docs print, now that they are dark.** A dark default makes a printed
-  page a block of ink unless the stylesheet intervenes, and about 52,000
-  words of prose are the kind of thing people print. A print stylesheet puts
+  page a block of ink unless the stylesheet intervenes, and long-form prose is
+  the kind of thing people print. A print stylesheet puts
   every colour token on white, rules and tokens included, pins the signal
   colours to ink (a printer drops backgrounds, and a pale-on-dark
   `Diagnostic` would print as pale on white; the words that carry the

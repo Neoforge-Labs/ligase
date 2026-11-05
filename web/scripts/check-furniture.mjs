@@ -12,7 +12,7 @@
  *   - the grain and aurora must switch off under prefers-reduced-motion,
  *     inside the existing block rather than a second one;
  *   - a print stylesheet must force ink on paper, because the site defaults
- *     to near-black and 52,000 words of prose get printed;
+ *     to near-black and long-form prose gets printed;
  *   - the section counter must restart on every page and must only ever be
  *     incremented by an h2 inside article main, so a generated page with
  *     no h2 (or one that starts at h3) never shows a stray or zero count;
