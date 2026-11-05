@@ -70,11 +70,12 @@ The pipeline, verified by spike:
 @lg.step(coordinates="0-based half-open")
 def depth(aln: lg.Alignment, regions: lg.Intervals) -> lg.Intervals: ...
 
+
 @lg.step
 def merge(a: lg.Intervals, b: lg.Intervals, c: lg.Intervals) -> lg.Intervals: ...
 ```
 
-Inputs, generated into a temp directory: a 2-contig FASTA (`chr1` 400 bp, `chr2` 300 bp) from `random.Random(11)`; a GFF with two genes per contig; one SAM per sample for `sample_a`, `sample_b`, `sample_c`, each with 30 reads from `random.Random(100 + i)`. **The `@SQ` `M5` must be `hashlib.md5(sequence.encode()).hexdigest()` of that contig's sequence** or the reference check fails. Regions are GFF, not BED, because GFF is 1-based closed as SAM is.
+Inputs, generated into a temp directory: a 2-contig FASTA (contigs `1` 400 bp and `2` 300 bp, bare names on purpose: the chr-prefix refusal depends on the main data being unprefixed) from `random.Random(11)`; a GFF with two genes per contig; one SAM per sample for `sample_a`, `sample_b`, `sample_c`, each with 30 reads from `random.Random(100 + i)`. **The `@SQ` `M5` must be `hashlib.md5(sequence.encode()).hexdigest()` of that contig's sequence** or the reference check fails. Regions are GFF, not BED, because GFF is 1-based closed as SAM is.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -149,7 +150,7 @@ Expected: exit 0.
 
 Add to `ORDER` in `web/scripts/render_notebooks.py`, after the `04` entry:
 
-```python
+```text
 (
     "05_a_cohort_and_what_changed",
     "A cohort, and what changed",
@@ -184,8 +185,12 @@ The mapping call, whose signature is fixed:
 
 ```python
 lg.map_ranked_identifiers(
-    ranking, table, column="symbol", to="HGNC symbol",
-    id_column="id", table_id_column="id",
+    ranking,
+    table,
+    column="symbol",
+    to="HGNC symbol",
+    id_column="id",
+    table_id_column="id",
 )  # -> RankedList
 ```
 
@@ -240,7 +245,7 @@ Then tighten: replace the loose assertions with the exact `summary` strings the 
 
 Add to `ORDER`:
 
-```python
+```text
 (
     "06_from_a_graph_to_a_shortlist",
     "From a graph to a shortlist",
@@ -278,6 +283,7 @@ Steps:
 ```python
 @lg.step(stochastic=True, seed="seed")
 def dock(library: lg.MoleculeSet, *, seed: int) -> lg.MoleculeRanking: ...
+
 
 @lg.step
 def top(ranking: lg.MoleculeRanking, *, k: int) -> lg.MoleculeSet: ...
@@ -328,7 +334,7 @@ Expected: PASS. Then tighten the assertions to the exact verdict strings and sum
 
 Add to `ORDER`:
 
-```python
+```text
 (
     "07_a_screen_and_its_seed",
     "A screen, and its seed",
@@ -421,7 +427,7 @@ Expected: PASS. Then tighten to the exact strings produced, as in Task 2 Step 4 
 
 Add to `ORDER`:
 
-```python
+```text
 (
     "08_what_a_paper_needs",
     "What a paper needs",
@@ -466,6 +472,7 @@ and `WEB = ROOT / "web"`.
 def test_every_notebook_renders():
     """Review Focus 4: cell count must equal output count for all eight."""
     from render_notebooks import ORDER, NOTEBOOKS, cell_sources, run
+
     for stem, _, _ in ORDER:
         sources = cell_sources(NOTEBOOKS / f"{stem}.py")
         outputs, _ = run(NOTEBOOKS / f"{stem}.py")
@@ -496,6 +503,7 @@ def test_rendering_writes_nothing_into_the_repo():
 def test_index_lists_every_notebook():
     """Review Focus 5: npm run orphans fails on a page nothing links to."""
     from render_notebooks import ORDER, slug
+
     index = (WEB / "content/notebooks/index.mdx").read_text()
     for stem, _, _ in ORDER:
         assert f"/notebooks/{slug(stem)}/" in index
