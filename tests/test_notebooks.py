@@ -67,6 +67,9 @@ def test_a_cohort_shows_cache_then_cutoff_then_propagation() -> None:
     assert "4 steps: 4 from cache." in page
     assert "4 steps: 1 ran, 2 from cache, 1 skipped." in page
     assert "4 steps: 2 ran, 2 from cache." in page
+    assert (
+        "[('depth', 'ran'), ('depth', 'cached'), ('depth', 'cached'), ('merge', 'ran')]"
+    ) in page
 
 
 def test_a_cohort_refuses_the_bed() -> None:
@@ -349,6 +352,18 @@ def test_a_paper_shows_its_methods_inline_and_counts_its_tools() -> None:
     prose = flat(page)
     assert "```text Analyses were run with Ligase" in prose
     assert " References Njeri K. Ligase: " in prose
+    # The machine-independent body of the paragraph: the step sentences. The
+    # middle one also names the engine version, so only its stable ends are
+    # pinned.
+    assert "`score` ran on one input, by a function in the pipeline itself." in prose
+    assert "`map_ranked_identifiers` ran on one input with ligase " in prose
+    assert (
+        "by a function in the pipeline itself, with column = 'symbol', "
+        "to = 'HGNC symbol', id_column = 'id' and table_id_column = 'id'."
+    ) in prose
+    assert (
+        "`shortlist` ran on one input, by a function in the pipeline itself." in prose
+    )
     assert "The record names **1 tool**, **ligase**" in prose
     assert "the reference list holds **1 citation**" in prose
     assert "reports **0** here" in prose
@@ -370,15 +385,15 @@ def test_no_notebook_returns_a_bare_number_or_flag_from_a_cell() -> None:
 
 
 def test_the_pipeline_notebooks_show_prose_or_nothing_from_a_cell() -> None:
-    """06-08 build their pages from `mo.md` alone; anything else is a stray.
+    """05-08 build their pages from `print` and `mo.md` alone; a value is a stray.
 
-    01-05 deliberately end some cells on a value, which the renderer shows as
-    a `text` block under the code that made it. These three do not, so a
+    01-04 deliberately end some cells on a value, which the renderer shows as
+    a `text` block under the code that made it. These four do not, so a
     block there is always a mistake.
     """
     order = renderer().ORDER
 
-    for stem, _, _ in order[5:]:
+    for stem, _, _ in order[4:]:
         outputs, _ = run_notebook(stem)
         for output in outputs:
             assert output is None or hasattr(output, "_repr_markdown_"), (

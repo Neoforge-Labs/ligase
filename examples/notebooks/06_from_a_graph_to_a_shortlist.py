@@ -368,7 +368,7 @@ def _(mo, second):
         That is deliberate. In a ranking the row order *is* the result: a
         table sorted best-first and the same table sorted worst-first answer
         different questions, so Ligase hashes the order in. Only the one step
-        that reads the ranking reran. `score` and the mapping read neither
+        that reads the ranking reran. `score` and the mapping neither read
         the DEG file, so they were reused.
         """
     )

@@ -346,6 +346,10 @@ Two consequences the builder should accept rather than work around:
   machines. The determinism requirement still binds everywhere else: no temp
   paths, no durations, no timestamps, and hashes that hold build to build.
 
+- `Methods.text` also carries a **recorded date**, alongside the version and
+  platform, so `what-a-paper-needs.mdx` changes every calendar day. Any future
+  byte-stability check over the generated pages must exempt that fence.
+
 Everything else in `08` was verified to render clean, relative and path-free:
 `Bundle.files` is a relative list, and `Verification` reports hashes and
 `reproduced`.

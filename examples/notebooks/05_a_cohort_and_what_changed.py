@@ -112,7 +112,6 @@ def _(hashlib, random, work):
             "\n".join(sam_lines(_i, _sample)) + "\n", encoding="utf-8"
         )
 
-    sample_names
     return fasta, genes, regions_gff, sam_paths, sample_names
 
 
@@ -186,7 +185,7 @@ def _(contig_names, mo, problems, sample_names, steps):
 
         The cohort is `{", ".join(sample_names)}`. The graph has
         **{len(steps)} steps** — three `depth` nodes and one `merge` — and
-        `check()` found **{len(problems)} problems**, before any of them ran.
+        `errors()` found **{len(problems)} problems**, before any of them ran.
         The reference and every alignment name the same contigs:
         `{", ".join(contig_names)}`.
 
@@ -304,6 +303,7 @@ def _(cache, genes, pipeline, run3, sam_paths):
 
     run4 = pipeline.run(cache=cache)
     print("run 4, one read moved out of every region:", run4.summary)
+    print([(s.step, s.outcome) for s in run4.steps])
     return (run4,)
 
 

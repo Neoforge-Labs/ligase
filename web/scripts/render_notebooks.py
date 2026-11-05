@@ -344,7 +344,8 @@ cannot import the thing it documents.
 
 ## The full pipeline
 
-The notebooks are deliberately small. For the reference pipeline end to end —
+The first four notebooks are deliberately small, and 5 to 8 run their
+pipelines on generated or fixture inputs. For the reference pipeline end to end —
 reads, alignment, variant calls, resistance — see
 [`examples/hiv-resistance/pipeline.py`]({DEMO}/pipeline.py)
 and [running a pipeline](/guide/running-a-pipeline/).

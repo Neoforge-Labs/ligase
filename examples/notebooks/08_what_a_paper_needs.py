@@ -101,6 +101,8 @@ def _(json, work):
     # A DEG ranking in HGNC symbols: eight of the twelve, best first. A stride
     # of 5 is coprime with 12, so the eight are distinct.
     _degs = [f"GENE{(5 * i) % 12:02d}" for i in range(8)]
+    # Bound to a name on purpose: a bare write_text() would end the cell on a
+    # call and put its character count on the page as a stray output.
     _degs_file = (work / "degs.tsv").write_text(
         "id\tscore\n" + "".join(f"{s}\t{8 - i}\n" for i, s in enumerate(_degs)),
         encoding="utf-8",
