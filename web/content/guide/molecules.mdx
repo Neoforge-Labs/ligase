@@ -63,6 +63,9 @@ line is the only part worth reading:
 
 <Diagnostic note="ligase check — nothing ran">{diagnostics.molecularTautomers}</Diagnostic>
 
+[A screen, and its seed](/notebooks/a-screen-and-its-seed/) runs the same
+refusal in a pipeline, then scores and cuts a library into a ranking.
+
 ## Where a file says nothing
 
 A downloaded table of InChIKeys usually carries no representation line,
@@ -233,9 +236,6 @@ a ranking's row order is part of what it means, so reordering it changes its
 hash and reruns everything below it, where reordering a set changes nothing.
 For a screen that is the right way round — the order decides which compounds
 get bought.
-[A screen, and its seed](/notebooks/a-screen-and-its-seed/) refuses a
-representation mismatch before anything runs, then scores and cuts a library
-into a ranking.
 
 Scoring a ranking against a library is the commonest join of the two kinds,
 and `representation` is demanded of it in either direction.

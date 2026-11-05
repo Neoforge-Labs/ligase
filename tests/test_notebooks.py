@@ -16,6 +16,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 NOTEBOOKS = ROOT / "examples/notebooks"
@@ -395,15 +397,28 @@ def test_every_notebook_renders() -> None:
 
 
 def test_no_temp_paths_on_any_page() -> None:
-    """`scrub()` only rewrites the repo root."""
-    for page in (WEB / "content/notebooks").glob("*.mdx"):
-        text = page.read_text()
-        assert "/var/folders" not in text, page.name
-        assert "/tmp/" not in text, page.name
+    """`scrub()` only rewrites the repo root.
+
+    Pages are rendered in memory: the output directory is untracked, so
+    reading it would assert nothing on a fresh clone.
+    """
+    r = renderer()
+    for stem, title, blurb in r.ORDER:
+        page = r.render(stem, title, blurb)
+        assert page.strip(), stem
+        for leak in ("/var/folders", "/tmp/", tempfile.gettempdir()):
+            assert leak not in page, (stem, leak)
 
 
-def test_rendering_writes_nothing_into_the_repo() -> None:
-    """A missed `cache=` lands in `./.ligase/`."""
+def test_rendering_writes_nothing_into_the_repo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missed `cache=` lands in `./.ligase/`.
+
+    `main()` also rewrites the untracked `web/content/notebooks`, and it
+    changes directory; `monkeypatch.chdir` puts the latter back.
+    """
+    monkeypatch.chdir(ROOT)
 
     def entries() -> set[Path]:
         root = ROOT / ".ligase"
