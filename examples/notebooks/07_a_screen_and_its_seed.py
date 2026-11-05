@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["marimo", "ligase-bio"]
 # ///
-"""Dock a library, cut the top of the ranking, and audit what the seed is worth."""
+"""Rescore a library with a seed, cut the top, and audit what the seed is worth."""
 
 import marimo
 
@@ -55,17 +55,22 @@ def _(mo):
         """
         # 7 — A screen, and its seed
 
-        A virtual screen docks a library of compounds against a target, ranks
-        them, and buys the top of the list. Two things in that path fail
-        without a sound. The first is **what a compound's name means**: the
-        same substance has a different InChIKey depending on what was done to
-        it before the key was computed. The second is **the dice**: docking
-        draws on a random seed, and a result nobody can regenerate is not
-        quite a result.
+        A virtual screen scores a library of compounds, ranks them, and buys
+        the top of the list. Two things in that path fail without a sound. The
+        first is **what a compound's name means**: the same substance has a
+        different InChIKey depending on what was done to it before the key was
+        computed. The second is **the dice**: scoring tools draw on a random
+        seed, and a result nobody can regenerate is not quite a result.
 
-        This notebook declares the first, refuses a set that disagrees about
-        it, and then runs a seeded screen: cached, rerun when the seed
-        moves, and audited for what a seed is worth.
+        This notebook reads the first off the files, refuses a set that
+        disagrees about it, and then runs a seeded step: cached, rerun when
+        the seed moves, and audited for what a seed is worth.
+
+        There is no docking engine in the docs build, and no RDKit, so the
+        scoring step here is not docking. It perturbs each compound's measured
+        activity with a draw from the seed. The subject of this page is the
+        seed, not the scoring function, and a step that did less than it
+        claimed would be a lie on a page about not lying.
         """
     )
     return
@@ -108,7 +113,7 @@ def _(hits_representation, library_representation, mo, work):
 
 
 @app.cell
-def _(hits, lg, library, shown):
+def _(hits, lg, library, shown, work):
     @lg.step
     def enrichment(library: lg.MoleculeSet, hits: lg.MoleculeSet) -> lg.MoleculeSet:
         """The compounds both tables name."""
@@ -128,11 +133,22 @@ def _(hits, lg, library, shown):
     refused = lg.Pipeline(enrichment(library, hits)).errors()
     print("refusal, representations:")
     print(shown(str(refused[0])))
-    return (refused,)
+
+    # What the join would have found, had it been allowed to run: read the two
+    # files and count, rather than say.
+    def _keys(path):
+        rows = path.read_text().splitlines()
+        return [row.split("\t")[0] for row in rows if not row.startswith("#")][1:]
+
+    _library_keys = set(_keys(work / "library.tsv"))
+    _hit_keys = _keys(work / "hits_salts.tsv")
+    found = sum(key in _library_keys for key in _hit_keys)
+    hit_total = len(_hit_keys)
+    return found, hit_total, refused
 
 
 @app.cell
-def _(mo, refused):
+def _(found, hit_total, mo, refused):
     mo.md(
         f"""
         ## Two sets prepared differently are not joined
@@ -142,10 +158,12 @@ def _(mo, refused):
         hydrochloride. The engine found **{len(refused)} problem** and ran
         nothing.
 
-        Without the check, `enrichment` would run, find that aspirin's key
-        in one table is not aspirin's key in the other, and report a hit
-        rate that is small and not zero. That reads as poor enrichment. It is
-        a measurement of the standardiser.
+        Counting the keys directly, **{found} of the {hit_total}** hits are
+        found in the library by InChIKey. Both substances are in the library
+        by name; the sodium salt and the hydrochloride simply have other
+        keys. Left to run, `enrichment` would have reported that count as its
+        answer, and a low hit rate reads as poor enrichment when it is a
+        measurement of the standardiser.
 
         The engine does not fix this. The fix is
         `lg.chem.standardize`, which writes the state it arrived at onto its
@@ -162,7 +180,7 @@ def _(mo, refused):
 @app.cell
 def _(lg, library, pathlib):
     def draw(table, out, seed):
-        """Score every compound, with a jitter drawn from the seed."""
+        """Score every compound: its measured activity, plus a draw from the seed."""
         import math
         import random
 
@@ -187,8 +205,8 @@ def _(lg, library, pathlib):
         out.write_text("\n".join(lines) + "\n")
 
     @lg.step(stochastic=True, seed="seed")
-    def dock(library: lg.MoleculeSet, *, seed: int) -> lg.MoleculeRanking:
-        """Rank the library, reproducibly, from its seed."""
+    def rescore(library: lg.MoleculeSet, *, seed: int) -> lg.MoleculeRanking:
+        """Perturb each compound's measured activity with a seeded draw."""
         return lg.write(lambda out: draw(library, out, seed))
 
     @lg.step
@@ -206,9 +224,9 @@ def _(lg, library, pathlib):
         return lg.write(produce)
 
     def screen(seed):
-        return lg.Pipeline(top(dock(library, seed=seed), k=2))
+        return lg.Pipeline(top(rescore(library, seed=seed), k=2))
 
-    return draw, dock, screen, top
+    return draw, rescore, screen, top
 
 
 @app.cell
@@ -240,21 +258,21 @@ def _(again, first, mo, moved, pipeline, problems):
         f"""
         ## The same declared seed is the same run
 
-        The screen has **{len(pipeline.steps)} steps**, `dock` and `top`, and
-        `errors()` found **{len(problems)} problems**. The step that
-        `top` reads is checked too: `dock` writes the `representation` line
-        itself, carried over from the library it was given, and without it the
-        ranking would have no representation and `top` would refuse it.
+        The screen has **{len(pipeline.steps)} steps**, `rescore` and `top`, and
+        `errors()` found **{len(problems)} problems**. `top` accepts what
+        `rescore` wrote because `rescore` writes the `representation` line
+        itself, carried over from the library it was given. A ranking
+        without one would have no representation for `top` to check.
 
         Run 1 said **{first.summary}** Run 2 repeated it and said
         **{again.summary}** The seed is a parameter like any other: it is in
         the step's cache key, so the same seed finds the same entry.
 
         Run 3 changed the seed and said **{moved.summary}** A different seed
-        is a different run, so `dock` ran again. `top` reads the whole
-        ranking `dock` wrote, so a ranking that moved reran it too. Had the
-        new seed written the same ranking, early cutoff would have reused
-        `top` and said so.
+        is a different run, so `rescore` ran again, and `top`, which
+        reads the ranking it wrote, ran with it. Where an unchanged output
+        stops the steps below it from rerunning is shown with a real report in
+        [a cohort, and what changed](/notebooks/a-cohort-and-what-changed/).
         """
     )
     return
@@ -262,7 +280,7 @@ def _(again, first, mo, moved, pipeline, problems):
 
 @app.cell
 def _(cache, pipeline):
-    audit = pipeline.audit("dock", cache=cache)
+    audit = pipeline.audit("rescore", cache=cache)
     print("audit, a declared seed:")
     print(audit.text)
     return (audit,)
@@ -274,7 +292,7 @@ def _(audit, mo):
         f"""
         ## A seeded step is reproducible, not deterministic
 
-        `ligase audit` runs a step twice and compares. The verdict for `dock`
+        `ligase audit` runs a step twice and compares. The verdict for `rescore`
         is **{audit.verdict}**.
 
         It is not **deterministic**, though the two runs wrote the same bytes,
@@ -293,13 +311,13 @@ def _(audit, mo):
 def _(cache, draw, lg, library, shown):
     def undeclared_screen():
         @lg.step
-        def dock(library: lg.MoleculeSet, *, seed: int) -> lg.MoleculeRanking:
+        def rescore(library: lg.MoleculeSet, *, seed: int) -> lg.MoleculeRanking:
             """The same work, with nothing said about where its randomness is."""
             return lg.write(lambda out: draw(library, out, seed))
 
-        return lg.Pipeline(dock(library, seed=20260101))
+        return lg.Pipeline(rescore(library, seed=20260101))
 
-    undeclared = undeclared_screen().audit("dock", cache=cache / "undeclared")
+    undeclared = undeclared_screen().audit("rescore", cache=cache / "undeclared")
     print("audit, the same body with nothing declared:")
     print(shown(undeclared.text))
     return (undeclared,)

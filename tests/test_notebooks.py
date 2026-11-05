@@ -173,13 +173,13 @@ def test_a_screen_is_reproducible_and_the_undeclared_body_is_deterministic() -> 
     """D40: a declared, seeded step is never `deterministic`; its twin is."""
     page = page_of(SCREEN)
     declared, undeclared = page.split("audit, the same body with nothing declared:")
-    assert "reproducible     `dock`" in declared
-    assert "deterministic    `dock`" not in declared
+    assert "reproducible     `rescore`" in declared
+    assert "deterministic    `rescore`" not in declared
     assert (
         "    because `seed` was held at 20260101, not because the step cannot wobble"
     ) in declared
     assert "1 step: 1 reproducible." in declared
-    assert "deterministic    `dock`" in undeclared
+    assert "deterministic    `rescore`" in undeclared
     assert "1 step: 1 deterministic." in undeclared
     assert "because `seed`" not in undeclared
 
@@ -189,7 +189,7 @@ def test_a_screen_reruns_when_the_seed_changes() -> None:
     assert "run 1, a cold cache: 2 steps: 2 ran." in page
     assert "run 2, the same seed: 2 steps: 2 from cache." in page
     assert "run 3, the seed changed: 2 steps: 2 ran." in page
-    assert "[('dock', 'ran'), ('top', 'ran')]" in page
+    assert "[('rescore', 'ran'), ('top', 'ran')]" in page
 
 
 def test_a_screen_checks_before_it_runs() -> None:
@@ -210,3 +210,11 @@ def test_a_screen_page_names_no_temp_path() -> None:
     assert "/var/folders" not in page
     assert "/tmp" not in page
     assert "duration" not in page
+
+
+def test_a_screen_says_what_its_scoring_step_is_and_is_not() -> None:
+    page = " ".join(page_of(SCREEN).split())
+    assert "**0 of the 2** hits are found in the library by InChIKey" in page
+    assert "the scoring step here is not docking" in page
+    assert "/notebooks/a-cohort-and-what-changed/" in page
+    assert "Had the new seed" not in page
