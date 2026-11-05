@@ -1,5 +1,5 @@
 {% set name = "ligase-bio" %}
-{% set version = "0.1.0" %}
+{% set version = "0.4.0" %}
 
 package:
   name: {{ name|lower }}
@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/ligase_bio-{{ version }}.tar.gz
-  sha256: 83a7b4ae63107d6fbdcea59fc13e7faa4346b7c63a63bfe34cb267a6345101b5
+  sha256: 7d75be04a40c83144356cd31e4df0f76ad1ea54fb216a4a04d32c2bfbd2daa1b
 
 build:
   number: 0
@@ -15,6 +15,12 @@ build:
   # one build serves every later Python. The package declares requires-python
   # >=3.11.
   skip: true  # [py<311]
+  # Pinned to the minor, not the major: this is pre-1.0 and a minor release
+  # can refuse a pipeline the one before it accepted, which is what
+  # MIGRATING.md exists to record. A downstream package built against 0.4
+  # should not be assumed to work against 0.5.
+  run_exports:
+    - {{ pin_subpackage(name|lower, max_pin="x.x") }}
   script:
     - cargo-bundle-licenses --format yaml --output THIRDPARTY.yml
     - {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
@@ -24,8 +30,10 @@ build:
 requirements:
   build:
     # SQLite is compiled from bundled C source, so a C compiler is needed as
-    # well as the Rust toolchain.
+    # well as the Rust toolchain -- and a compiler in the build section
+    # requires the matching stdlib alongside it.
     - {{ compiler('c') }}
+    - {{ stdlib('c') }}
     - {{ compiler('rust') }}
     - cargo-bundle-licenses
   host:

@@ -253,6 +253,25 @@ pub enum Note {
         /// The key two or more structures arrived at.
         inchikey: String,
     },
+    /// `salt-stripped` was declared without `charge-neutralised`, and every
+    /// InChIKey in the table is protonation-neutral.
+    ///
+    /// The *suspicious* half of an asymmetric check, and a note for the
+    /// reason [`Self::StereoNotDiscarded`] is one: the keys cannot settle
+    /// it. A molecule with nothing to neutralise keys `-N` with nothing
+    /// applied, so an all-`-N` salt-stripped table may be exactly what it
+    /// says. It may equally have been neutralised by a step nobody
+    /// declared, which is the common shape -- ChEMBL, PubChem and ZINC all
+    /// hand out neutral parents -- and then the set will refuse joins with
+    /// the sets that do declare it.
+    ///
+    /// The other direction is an error, because the keys *can* settle it:
+    /// `charge-neutralised` declared over a key ending in anything but `N`
+    /// is a declaration the file itself refutes.
+    KeysLookNeutralised {
+        /// How many keys were read, all of them neutral.
+        keys: u32,
+    },
     /// `stereo-discarded` was declared and no molecule lost any.
     ///
     /// The *safe* half of an asymmetric check, which is why it is a note and
@@ -389,6 +408,7 @@ impl Note {
             Self::MoleculeDidNotStandardise { .. } => "molecule-did-not-standardise",
             Self::MoleculesDidNotStandardise { .. } => "molecules-did-not-standardise",
             Self::MoleculeNotUnique { .. } => "molecule-not-unique",
+            Self::KeysLookNeutralised { .. } => "keys-look-neutralised",
             Self::StereoNotDiscarded => "stereo-not-discarded",
             Self::RanksRenumbered { .. } => "ranks-renumbered",
         }
@@ -450,6 +470,7 @@ impl Note {
             Self::MoleculeDidNotStandardise { molecule } => molecule.clone(),
             Self::MoleculesDidNotStandardise { count } => format!("count={count}"),
             Self::MoleculeNotUnique { inchikey } => inchikey.clone(),
+            Self::KeysLookNeutralised { keys } => format!("keys={keys}"),
             Self::StereoNotDiscarded => String::new(),
             Self::RanksRenumbered { first } => format!("first={first}"),
         }
@@ -520,6 +541,9 @@ impl Note {
             }),
             "molecule-not-unique" => Some(Self::MoleculeNotUnique {
                 inchikey: value.to_owned(),
+            }),
+            "keys-look-neutralised" => Some(Self::KeysLookNeutralised {
+                keys: counted(value, "keys")?,
             }),
             "stereo-not-discarded" => Some(Self::StereoNotDiscarded),
             "identifier-fanned-out" => Some(Self::IdentifierFannedOut {
@@ -653,6 +677,11 @@ impl Note {
             Self::MoleculeNotUnique { .. } => {
                 "Decide which row this analysis is about and drop the others from the input, \
                  or read the table as a ranking, whose rows are not a set."
+            }
+            Self::KeysLookNeutralised { .. } => {
+                "Check how this table was prepared. If it was charge-neutralised, declare \
+                 `charge-neutralised` as well: that is the state the public collections \
+                 ship, and declaring it is what lets this set join them."
             }
             Self::StereoNotDiscarded => {
                 "Drop `stereo-discarded` from the state you asked for, so this set still \
@@ -789,6 +818,16 @@ impl Note {
                  together -- a salt and its parent are two structures and one substance -- so \
                  this is the standardiser telling you what it merged rather than a fault in \
                  the input."
+            }
+            Self::KeysLookNeutralised { .. } => {
+                "Salt-stripping alone leaves an acid deprotonated -- a salt-stripped aspirin \
+                 is `BSYNRYMUTXBXSQ-UHFFFAOYSA-M` where neutral aspirin is `-N` -- so a \
+                 salt-stripped set of drug-like compounds usually holds some charged keys. \
+                 All of them neutral is what a charge-neutralised set looks like, and a set \
+                 that is in that state without declaring it refuses joins with the sets that \
+                 declare it. The keys cannot prove it either way, since a molecule with \
+                 nothing to neutralise keys `-N` with nothing applied, which is why this is a \
+                 note and the opposite case is an error."
             }
             Self::StereoNotDiscarded => {
                 "The state this set declares is stricter than what was done to it, so it will \
@@ -938,6 +977,12 @@ impl fmt::Display for Note {
                 f,
                 "two or more structures standardise to `{inchikey}`, so this table names one \
                  substance more than once"
+            ),
+            Self::KeysLookNeutralised { keys } => write!(
+                f,
+                "`salt-stripped` was declared without `charge-neutralised`, and all {keys} of \
+                 this table's InChIKeys are protonation-neutral -- their third block is `N`, \
+                 which is what a charge-neutralised set looks like"
             ),
             Self::StereoNotDiscarded => f.write_str(
                 "`stereo-discarded` was declared, and no molecule in this set lost any \

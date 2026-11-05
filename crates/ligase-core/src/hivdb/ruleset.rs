@@ -101,7 +101,7 @@ pub fn fingerprint() -> Result<String, String> {
     Ok(format!(
         "HIVdb rules as shipped: {}; read by ligase {}",
         parts.join("; "),
-        env!("CARGO_PKG_VERSION")
+        crate::build()
     ))
 }
 

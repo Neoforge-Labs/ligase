@@ -20,6 +20,130 @@ docs. `CHANGELOG.md` has all of it.
 **How to read the headings.** A `## <version>` section is everything that
 needed migrating in that release. Versions with no section needed nothing.
 
+## Unreleased
+
+### A molecule table declared `charge-neutralised` must have neutral keys
+
+**What breaks.** `lg.molecule_set`, `lg.molecule_ranking` and `ligase
+inspect` now refuse a table whose representation says `charge-neutralised`
+— by argument or by its own `#ligase representation:` line — when any of its
+InChIKeys ends in something other than `N`. This is a refusal that did not
+used to happen, at load, before anything runs.
+
+**Why.** An InChIKey's third block is its protonation layer, so such a table
+contains the evidence against its own declaration. Until now nothing checked
+it, and the cost was measured by a consumer: two reference sets differing
+only in charge state both declared `inchikey; salt-stripped`, compared equal,
+and gave the same generated set a novelty of 0% or 50% depending on which one
+was loaded, with `ligase check` reporting no problems for either.
+
+**The symptom.**
+
+```
+LoadError: cannot read reference.tsv in the state it says it is in:
+representation is declared `inchikey; salt-stripped, charge-neutralised`, and
+the key in row 1 is not charge-neutralised: `BSYNRYMUTXBXSQ-UHFFFAOYSA-M`
+ends `M`, and an InChIKey's third block is its protonation layer [...]
+```
+
+**The edit.** Whichever of the two is wrong. If the keys are right and the
+declaration overstates what was done, declare the state the message names:
+
+```diff
+-reference = lg.molecule_set("reference.tsv",
+-                            representation="inchikey; salt-stripped, charge-neutralised")
++reference = lg.molecule_set("reference.tsv",
++                            representation="inchikey; salt-stripped")
+```
+
+If the declaration is right, the keys were computed before the table was
+neutralised and have to be recomputed from the structures
+(`lg.chem.standardize(table, to="inchikey; salt-stripped,
+charge-neutralised")`).
+
+**Also new, and not a refusal.** A table declaring `salt-stripped` without
+`charge-neutralised` whose keys are *all* neutral now carries a
+`keys-look-neutralised` note. Nothing fails; it is what the keys can support
+in that direction, since a compound with nothing to neutralise keys `-N` with
+nothing applied. If such a table was neutralised, declaring it is what lets
+it join the public collections, which ship neutral parents.
+
+
+### `ligase methods` labels a claim's digest `canonical`, not `output`
+
+**What breaks.** Nothing runs differently, and the digest itself is
+unchanged. A bound claim's sentence ends `canonical b78ad78abbb2` where it
+ended `output b78ad78abbb2`, and a claim over several samples lists
+`Canonical digests:` where it listed `Outputs:`. A script matching the old
+words in `ligase methods` output needs the new ones; nothing reading
+`claims.tsv`, `bound.canonical` or the bundle is affected.
+
+**Why.** The digest was always the canonical form's. `output` read as the
+digest of the output's *bytes* — which is a different string, is the
+artifact's filename in the store, and is what `ligase audit` prints — so a
+reader handed one identifier by `methods` and shown the other by `audit`
+could not tell whether the two commands were describing the same result.
+
+**The edit.** None, unless you grep the write-up. `ligase audit` also prints
+a `canonical form` line now for a step whose two runs wrote the same bytes,
+so the two commands can be reconciled by eye.
+
+
+### A hand-added Ligase reference is dropped in favour of the engine's
+
+**What breaks.** Nothing runs differently. What changes is a write-up: a
+pipeline that cites Ligase itself through `@lg.step(cite=...)` — which
+0.3.0's own message asked for — now shows one Ligase reference rather than
+two, and the one shown is the engine's own wording, naming the build that
+ran.
+
+**Why.** D58 made the engine cite itself, which turned the remedy 0.3.0
+instructed into a duplicate reference, and a duplicated entry in a submitted
+methods section is what a copy-editor sends back. Removing the hand-added
+line fixed the newer build and brought the unclosable gap back on 0.3.0, so
+there was no spelling of a pipeline that was correct on both.
+
+**The edit.** None required: a reference pointing at
+`github.com/Neoforge-Labs/ligase` is recognised and dropped, so a `cite=`
+written for 0.3.0 keeps working and stops duplicating. You can delete the
+hand-added entry whenever your floor is past 0.4.0; if you format references
+to a journal's house style, note that it is the engine's wording that
+survives. A reference to anything else is untouched, a sibling repository
+such as `.../ligase-bio` included.
+
+
+### A source build no longer shares cache keys with the release it followed
+
+**What breaks.** Nothing on a released wheel. A build from a checkout —
+`maturin develop`, a CI build from a branch, an editable install — now
+reports `0.4.0+13.g0c5980e`, or `0.4.0+dirty` from a modified tree, where it
+reported `0.4.0`. That string is part of a `hivdb` step's tool version, so
+**every `hivdb` step reruns once** on such a build, and a source build and
+the published release no longer hit each other's cache entries. A methods
+paragraph and a rule fingerprint from a source build carry the marker too.
+
+**Why.** The manifest's number is bumped by a release commit, so a build of
+any commit after a release claimed that release's number. One consumer
+measured a build of `550a70f` reporting `read by ligase 0.3.0` while
+answering differently from the published 0.3.0, because that commit carries
+the scored-codon floor and the published 0.3.0 does not: *if CI builds from
+a branch and shares a store, two engines collide under one key*. A wrong
+answer with a provenance record asserting the version that did not produce
+it is the failure the cache exists to prevent.
+
+**The edit.** None, and nothing to undo: this is the intended key change.
+Two notes for a shared store — a store shared between a release wheel and a
+branch build now holds both engines' answers separately, which is the point,
+and it will grow by one entry per `hivdb` step per build; and if you build
+from an sdist or a tarball with no `.git`, set `LIGASE_GIT_DESCRIBE` at build
+time (for example `LIGASE_GIT_DESCRIBE=v0.4.0-13-g0c5980e`) or the build
+falls back to claiming the manifest's release.
+
+**Scripts.** `lg.__version__` and `ligase::version()` still answer `0.4.0`:
+the release number is what a wheel publishes and what `ligase-bio>=0.4.0`
+resolves against. What a build is, as software that ran, is
+`ligase::build()`.
+
 ## 0.4.0
 
 ### A list of bare gene symbols no longer states its own identifier space
@@ -110,8 +234,32 @@ be scored.
 
 **The edit.** None, unless you had set `gene_coverage` to work around the
 old denominator. `gene_coverage=0.0` restores the per-drug `unread`
-behaviour exactly, which was the workaround in use; with the floor counted
-over scored codons it should no longer be needed.
+behaviour exactly, which was the workaround in use.
+
+**Except for a per-drug coverage policy, where `gene_coverage=0.0` is still
+the right setting.** This entry first said the workaround should no longer be
+needed, and that is wrong for a consumer who judges coverage per drug from
+the `unread` column rather than per gene. The floor returns one verdict for a
+whole gene, and such a policy is deliberately asymmetric: a *resistant* call
+rests on a mutation someone actually read, and unread positions could only
+add to it, so the call is kept and marked with what was unread; a
+*susceptible* call that leans on unread codons is dropped, because absence of
+evidence is not evidence of susceptibility. A gene-level floor cannot express
+that distinction. Measured on an RT 40–120 dropout with M184V read — the
+mutation is in covered sequence:
+
+```text
+gene_coverage=0.0 -> 4 RT rows kept: 3TC high 60, FTC high 60, ABC low 15,
+                     DDI potential-low 10, each carrying its unread positions;
+                     9 susceptible calls declined and counted.
+gene_coverage=0.8 -> skipped_genes {'RT': 1}, zero RT rows,
+                     the high-level 3TC call gone.
+```
+
+The loss is logged rather than silent, but it is a loss, and it is a true
+positive. So `gene_coverage=0.0` is a **supported configuration** and not a
+deprecated workaround: take the default if you want one verdict per gene, and
+keep `0.0` if your policy is per drug and reads the `unread` column.
 
 **Caches.** A `hivdb` step's tool fingerprint now ends `read by ligase
 <version>`, because this changes what the engine answers for identical

@@ -115,6 +115,46 @@ jobs:
             exit 1
           fi
 
+  # The showcase notebooks, which need the `docs` extra.
+  #
+  # Same shape and same reason as the `chem` job above. marimo is in `docs`
+  # rather than `dev` because it is what authors and runs the examples, and a
+  # genomics install has no use for it -- so with marimo absent every test in
+  # tests/test_notebooks.py skips, by design.
+  #
+  # Skipping everywhere would mean the notebooks' assertions ran on nobody's
+  # machine but the author's. The docs build already proves the notebooks
+  # *execute*: `render_notebooks.py` fails the build on an exception. What it
+  # cannot prove is that each page still shows what its prose claims, which is
+  # what this file's exact-string assertions are for -- a regression in
+  # semantic hashing, early cutoff, collision reporting, D40 or D41 flips a
+  # named assertion here rather than changing a page quietly.
+  #
+  # One platform and one Python, because what is under test is the engine's
+  # output rather than the runner's.
+  notebooks:
+    name: notebooks (marimo extra)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: pip install -e ".[dev,docs]"
+        run: pip install -e ".[dev,docs]"
+      - name: pytest (the notebook tests must run, not skip)
+        # As in the `chem` job: a silent skip here would look exactly like a
+        # pass, and would put us back to these pages being checked on one
+        # machine in the world.
+        run: |
+          pytest -q tests/test_notebooks.py | tee notebooks.txt
+          if grep -qE '[0-9]+ skipped' notebooks.txt; then
+            echo "::error::a notebook test skipped in the job that installs marimo"
+            exit 1
+          fi
+
   # The HIV-1 reference demo, with the real tools over the real reads.
   #
   # CLAUDE.md makes this pipeline the project's validation spine -- "every

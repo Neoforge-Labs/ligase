@@ -217,6 +217,18 @@ pub enum LoadError {
         /// What is wrong and what to do, phrased for a user.
         detail: String,
     },
+    /// A molecule table's own keys refute the standardisation it claims.
+    ///
+    /// Its own variant rather than a [`Self::Format`], on [`Self::Frame`]'s
+    /// grounds: the file parsed, and the fix is not a different file but a
+    /// declaration that matches the keys -- or a table standardised the way
+    /// the declaration says.
+    Representation {
+        /// The file in question.
+        path: PathBuf,
+        /// What the keys say and what to do, phrased for a user.
+        detail: String,
+    },
     /// The file was read but did not parse as the expected format.
     Format {
         /// The file in question.
@@ -241,6 +253,13 @@ impl LoadError {
         }
     }
 
+    pub(crate) fn representation(path: &Path, detail: impl Into<String>) -> Self {
+        Self::Representation {
+            path: path.to_path_buf(),
+            detail: detail.into(),
+        }
+    }
+
     pub(crate) fn frame(path: &Path, detail: impl Into<String>) -> Self {
         Self::Frame {
             path: path.to_path_buf(),
@@ -259,6 +278,13 @@ impl fmt::Display for LoadError {
             Self::Frame { path, detail } => {
                 write!(f, "cannot interpret against {}: {detail}", path.display())
             }
+            Self::Representation { path, detail } => {
+                write!(
+                    f,
+                    "cannot read {} in the state it says it is in: {detail}",
+                    path.display()
+                )
+            }
             Self::Pairing { detail } => {
                 write!(f, "cannot group reads into samples: {detail}")
             }
@@ -270,7 +296,10 @@ impl Error for LoadError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
-            Self::Format { .. } | Self::Frame { .. } | Self::Pairing { .. } => None,
+            Self::Format { .. }
+            | Self::Frame { .. }
+            | Self::Representation { .. }
+            | Self::Pairing { .. } => None,
         }
     }
 }

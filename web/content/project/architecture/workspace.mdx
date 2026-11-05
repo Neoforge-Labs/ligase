@@ -40,6 +40,38 @@ The second test is the one that matters. It would still pass if
 first, which reads the manifest. Together they fail if the Python package
 reports a version the engine was not built from.
 
+### The release, and the build
+
+One number is not enough, because the manifest's number is bumped by a
+*release commit*. For every commit between one release and the next, a
+source build reads the number of the release it followed — and that string
+is not only printed. It is the engine's half of a `hivdb` step's tool
+version, so it reaches the cache key, and a branch build that answers
+differently from the published release shared a key with it.
+
+So there are two questions and two answers:
+
+| | Answers | Used by |
+|---|---|---|
+| `ligase::version()` | `0.4.0` | wheel metadata, `lg.__version__`, a dependency floor |
+| `ligase::build()` | `0.4.0+13.g0c5980e` | the rule fingerprint, `tool="ligase"`, the provenance record, the self-citation |
+
+`build.rs` asks `git describe --tags --always --dirty=.dirty` and passes the
+raw answer through as `LIGASE_GIT_DESCRIBE`; `build_version` in the library
+composes it, and is a pure function so that every case — at the tag, past
+the tag, dirty, no tag in reach, no repository at all — is tested without a
+repository to arrange. The marker is a local version part, after a single
+`+`, so the string stays a version a methods paragraph can print.
+
+Three things it cannot know, and they are in `build.rs` rather than only
+here: a build from an sdist or from crates.io has no repository to ask and
+falls back to the manifest version (`LIGASE_GIT_DESCRIBE` is how a packager
+says otherwise); Cargo reruns a build script only when a file it was told to
+watch changes, so a marker can sit a commit behind until the crate is
+rebuilt for another reason; and this is a description of the *source*, not a
+hash of the binary, so two builds of one commit with different features
+report the same string.
+
 ## The build
 
 `maturin` is the PEP 517 backend. The relevant configuration:

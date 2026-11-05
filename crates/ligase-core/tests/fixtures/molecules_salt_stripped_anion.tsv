@@ -1,0 +1,4 @@
+#ligase representation: inchikey; salt-stripped
+inchikey	smiles	score
+BSYNRYMUTXBXSQ-UHFFFAOYSA-M	CC(=O)Oc1ccccc1C(=O)[O-]	0.91
+SNICXCGAKADSCV-JTQLQIEISA-N	CN1CCC[C@H]1c1cccnc1	0.84

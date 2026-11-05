@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use Ligase in research, please cite it as below."
+title: "Ligase: dimension checking for computational biology pipelines"
+abstract: >-
+  Ligase gives biological datasets the dimensions of what is inside them --
+  which organism, which reference build, which coordinate convention, which
+  samples in which order -- and refuses to connect two steps whose dimensions
+  disagree, at graph-build time, before any computation runs.
+type: software
+authors:
+  - given-names: Kelyn Paul
+    family-names: Njeri
+    orcid: "https://orcid.org/0009-0000-1068-4512"
+    affiliation: "NeoForge Labs, Independent Research"
+    email: kelyn.njeri@gmail.com
+repository-code: "https://github.com/Neoforge-Labs/ligase"
+url: "https://ligase.neoforgelabs.tech"
+version: 0.4.0
+date-released: "2026-10-30"
+license:
+  - MIT
+  - Apache-2.0
+keywords:
+  - computational biology
+  - bioinformatics
+  - reproducibility
+  - provenance
+  - type systems
+  - workflow
+  - Rust
+  - Python

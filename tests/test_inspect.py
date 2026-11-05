@@ -298,3 +298,39 @@ def test_two_compound_tables_standardised_differently_are_refused(
     said = capsys.readouterr().out
     assert "representation" in said
     assert "Were the two sets standardised differently?" in said
+
+
+def test_a_tsv_keyed_by_smiles_is_read_as_a_molecule_table(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # #41: the dispatch asked for an `inchikey` column and nothing else, so
+    # a table of structures -- the one shape `lg.chem.standardize` is
+    # specified to consume, since an InChIKey cannot be turned back into a
+    # structure -- went to the gene-list loader, which refused it for having
+    # no `id` column. `lg.molecule_set` loaded the same file happily, so
+    # `inspect` was reporting as unreadable a file the engine reads.
+    code = main(["inspect", fixture("molecules_smiles_only.tsv")])
+    assert code == 0
+
+    said = capsys.readouterr().out
+    assert "MoleculeSet" in said
+    # And the interesting answer, which the loader already had: the
+    # structures are the names, so the state is observed rather than
+    # missing.
+    assert "SMILES, as given" in said
+    assert "could not be read" not in said
+
+
+def test_a_table_with_identifiers_is_a_gene_list_even_with_structures_in_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The ambiguity the wider dispatch creates, pinned: a gene list may
+    # carry a structure as an attribute, and `id` is what says the names are
+    # identifiers rather than structures. A molecule table has no reason to
+    # have one.
+    code = main(["inspect", fixture("entities_with_structures.tsv")])
+    assert code == 0
+
+    said = capsys.readouterr().out
+    assert "EntitySet" in said
+    assert "MoleculeSet" not in said

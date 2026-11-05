@@ -167,6 +167,33 @@ table exists for it alone and nothing else depends on it. An unrecognised
 extension is a file that could not be read, and the message names the
 extensions that are known rather than only the one that is not.
 
+### Except for `.tsv`, where the header chooses
+
+Three kinds share that suffix, so `_tabular` reads the header row:
+
+| Header has | Read as |
+|---|---|
+| `inchikey` | `MoleculeSet` |
+| `smiles`, and no `id` | `MoleculeSet` |
+| anything else | `EntitySet` |
+
+`inchikey` is as strong a marker as a VCF's `##fileformat`: nothing but a
+table of molecules carries that column. `smiles` was missing from this table
+until a consumer reported what that cost — a table of structures is what a
+generative model emits and the one shape `lg.chem.standardize` is specified
+to consume, since an InChIKey cannot be turned back into a structure, so the
+one documented input of the chemistry surface was handed to the gene-list
+loader and refused for having no `id` column. `lg.molecule_set` had loaded
+the same file all along, which made `inspect` the only surface that called it
+unreadable.
+
+`id` wins over `smiles` because the ambiguity runs one way only: a list of
+entities may carry a structure as an attribute, while a molecule table has
+no reason to carry an identifier column — its names *are* its identifiers.
+A ranking is still never inferred from either shape, for the reason in
+[D41](/project/decisions/#d41--in-a-ranked-list-rank-order-is-the-result): nothing in a
+file says whether its row order is the answer.
+
 ## No flags, and no pairing
 
 `inspect` takes no declaration flags. A dimension a file cannot record comes
