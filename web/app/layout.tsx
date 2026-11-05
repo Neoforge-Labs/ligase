@@ -7,6 +7,7 @@ import { Head } from 'nextra/components'
 import { getPageMap } from 'nextra/page-map'
 import 'nextra-theme-docs/style.css'
 import './globals.css'
+import { GoogleTagManager } from '../components/Analytics'
 import { Mark } from '../components/Mark'
 
 /*
@@ -163,6 +164,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <meta name="theme-color" content="#0a0a0b" />
       </Head>
       <body className="lg-grain">
+        <GoogleTagManager />
         <script
           type="application/ld+json"
           // `<` is escaped so no string in the block can close the script tag.

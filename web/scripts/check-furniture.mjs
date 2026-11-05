@@ -159,6 +159,40 @@ if (process.argv.includes('--built')) {
     }
   }
 
+  // Analytics. The container is the only third-party script on the site, and
+  // analytics that quietly stopped reporting is the failure shape this project
+  // exists to refuse — so the build asserts the tag shipped, in one piece and
+  // in the right order, rather than trusting that it did.
+  let gtmId = ''
+  try {
+    gtmId = /GTM_ID\s*=\s*'([^']+)'/.exec(readFileSync(join(root, 'components/Analytics.tsx'), 'utf8'))?.[1] ?? ''
+  } catch {}
+  if (!gtmId) miss.push('components/Analytics.tsx does not declare GTM_ID')
+  else {
+    for (const raw of pages) {
+      // write-redirects.mjs leaves a stub at each retired URL. It sends the
+      // visitor on at once and is deliberately not a page of the site, so it
+      // carries no tag and is not asserted on; the page it lands on is.
+      if (raw.includes('data-redirect-to=')) continue
+      // Next echoes every inline script's text into the RSC flight payload, so
+      // each one appears twice in the HTML and in an order that is not the DOM's.
+      // Assert against the real document only.
+      const html = raw.replace(/<script[^>]*>self\.__next_f\.push\([\s\S]*?<\/script>/g, '')
+      const consentAt = html.indexOf("'consent','default'")
+      const loaderAt = html.indexOf('gtm.start')
+      if (consentAt === -1) { miss.push('no consent default in the built HTML'); break }
+      if (loaderAt === -1) { miss.push(`no ${gtmId} loader in the built HTML`); break }
+      if (consentAt > loaderAt) { miss.push('the consent default must come before the container loader'); break }
+      if (!html.includes(`'${gtmId}'`)) { miss.push(`the loader does not pass ${gtmId}`); break }
+      if (!html.includes(`ns.html?id=${gtmId}`)) { miss.push('the <noscript> fallback is missing'); break }
+      if (html.split('gtm.start').length - 1 !== 1) { miss.push('the container loader appears more than once in the document'); break }
+      for (const signal of ['ad_storage', 'ad_user_data', 'ad_personalization', 'analytics_storage']) {
+        if (!new RegExp(`${signal}:'denied'`).test(html)) { miss.push(`${signal} is not defaulted to denied`); break }
+      }
+    }
+  }
+
+
   const withProse = pages.filter((h) => /<article[\s>][\s\S]*<main[\s>]/.test(h)).length
   if (withProse === 0) miss.push('article main (no page has a <main> inside an <article>)')
   if (miss.length) {
