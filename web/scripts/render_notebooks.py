@@ -79,6 +79,11 @@ ORDER: tuple[tuple[str, str, str], ...] = (
         "A screen, and its seed",
         "What a name in a molecule table means, and what a seed is worth.",
     ),
+    (
+        "08_what_a_paper_needs",
+        "What a paper needs",
+        "A claim bound to a number, and a bundle that reproduces it.",
+    ),
 )
 
 BLOB = "https://github.com/Neoforge-Labs/ligase/blob/main/examples"

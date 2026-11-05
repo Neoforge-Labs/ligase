@@ -247,3 +247,95 @@ def test_a_screen_treats_no_declaration_as_unknown_and_refuses_it() -> None:
     assert "the engine found **1 problem** when that table met a declared one" in flat(
         page
     )
+
+
+PAPER = "08_what_a_paper_needs"
+
+
+def test_a_paper_binds_its_claims() -> None:
+    page = page_of(PAPER)
+    # Matched loosely: the tail of this line names the machine that built it.
+    assert "Analyses were run with Ligase" in page
+    assert "verdict: verified\naccounted for: True\n" in page
+    assert "summary: 3 steps, all accounted for. 1 claim, all bound." in page
+    prose = flat(page)
+    assert (
+        "rests on `shortlist`, whose output gives score = 3.6159 at row 0, "
+        "within the 0.005 this claim allows"
+    ) in prose
+    assert "tools: [('ligase', 'ligase " in page
+    assert "uncited: []" in page
+    assert (
+        "The verdict is **verified**, the write-up is accounted for: **True**"
+    ) in prose
+
+
+def test_a_paper_states_what_its_tolerance_is_for() -> None:
+    prose = flat(page_of(PAPER))
+    assert "The step wrote **3.6159**, and the paper prints **3.62**." in prose
+    assert "the difference is 0.0041, inside 0.005" in prose
+    assert (
+        "the same claim with no tolerance: the claim \"The top candidate's "
+        'summed edge score is 3.62." names a cell of the output and no '
+        "`tolerance=`."
+    ) in prose
+
+
+def test_a_paper_refuses_an_unbacked_claim() -> None:
+    page = page_of(PAPER)
+    assert (
+        "verdict: contradicted\n"
+        "the run recorded: 3.6159\n"
+        "accounted for: False\n"
+        "summary: 3 steps, all accounted for. 1 claim: 0 bound, 1 not.\n"
+        "an `assert methods.accounted_for` gate: failed\n"
+    ) in page
+    assert (
+        "`methods()` put **1 claim** in `unbacked`, with the verdict "
+        "**contradicted**, and the write-up is accounted for: **False**. "
+        "The good pipeline above says **True**."
+    ) in flat(page)
+
+
+def test_a_paper_writes_a_bundle_and_verifies_it() -> None:
+    page = page_of(PAPER)
+    assert (
+        "bundle written, files relative to its root:\n"
+        "  METHODS.md\n"
+        "  README.md\n"
+        "  claims.tsv\n"
+        "  commands.tsv\n"
+        "  environment.tsv\n"
+        "  inputs.tsv\n"
+        "  notes.tsv\n"
+        "  references.tsv\n"
+        "  remotes.tsv\n"
+        "  results.tsv\n"
+        "  steps/map_ranked_identifiers.py\n"
+        "  steps/score.py\n"
+        "  steps/shortlist.py\n"
+    ) in page
+    assert "verification: 3 results: 3 identical.\n" in page
+    assert "reproduced: True\n" in page
+    assert (
+        "results: [('score', 'identical', True), "
+        "('map_ranked_identifiers', 'identical', True), "
+        "('shortlist', 'identical', True)]"
+    ) in page
+    prose = flat(page)
+    assert "wrote **13 files** and accounts for **3 steps**" in prose
+    assert "Of the 3 results, **3** have the canonical hash" in prose
+
+
+def test_a_paper_runs_its_pipeline_and_links_its_neighbour() -> None:
+    page = page_of(PAPER)
+    assert "run: 3 steps: 3 ran." in page
+    assert "GENE10\t3.6159" in page
+    assert "/notebooks/from-a-graph-to-a-shortlist/" in page
+
+
+def test_a_paper_page_names_no_temp_path_or_duration() -> None:
+    page = page_of(PAPER)
+    assert "/var/folders" not in page
+    assert "/tmp" not in page
+    assert "duration" not in page
