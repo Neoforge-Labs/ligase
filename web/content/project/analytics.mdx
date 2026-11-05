@@ -38,10 +38,13 @@ Manager UI — which is account work, not repository work.
 
 Collecting nothing is not the same as contacting nobody. Fetching `gtm.js` is
 itself a request to Google, and it discloses the reader's IP address, user
-agent and page URL — on every pageview, today, with an empty container.
-Consent Mode governs whether *tags* may use storage, not whether the container
-is fetched, so what the defaults below buy is no cookie and no storage-backed
-identity. Not no contact.
+agent and this site's origin — on every document load, today, with an empty
+container. The request URL carries the container ID and nothing else, and no
+`Referrer-Policy` is set, so the browser default sends the origin rather than
+the path: Google learns that somebody loaded this site, not which page they
+opened. Consent Mode governs whether *tags* may use storage, not whether the
+container is fetched, so what the defaults below buy is no cookie and no
+storage-backed identity. Not no contact.
 
 What follows is therefore how the page side is wired, not a description of
 numbers anyone is reading.
@@ -50,9 +53,9 @@ numbers anyone is reading.
 
 This site is more prose than anybody reads in one sitting, written for a
 specific and small audience, and the questions worth asking about it are
-narrow: how often each page is opened,
-and what referred the reader there. Nothing in the repository can answer
-either. A static export on GitHub Pages leaves no server log anybody can see.
+narrow: how often each page is opened, and what referred the reader there.
+Nothing in the repository can answer either. A static export on GitHub Pages
+leaves no server log anybody can see.
 
 Those questions are about pages, not people. That is partly a choice and
 partly a consequence: the consent defaults below rule out the per-reader
@@ -109,8 +112,9 @@ The referrer is real except on one set of paths. The stubs `write-redirects.mjs`
 leaves at the retired MkDocs URLs carry no tag and move the visitor on with
 `location.replace()`, so by the time the real page loads `document.referrer` is
 the stub's own same-origin URL. A reader who arrives through an old bookmark
-therefore loses their acquisition source, and GA4 reads the visit as a
-self-referral rather than as coming from wherever they actually clicked.
+therefore loses their acquisition source: GA4 ignores a referrer on its own
+hostname, so the visit surfaces as `(direct)` / `(none)` rather than as coming
+from wherever they actually clicked.
 
 So "how many" on this site means pageviews, not people, and a number GA4
 labels **users** or **sessions** is to be read as neither. That is an
@@ -253,10 +257,9 @@ file — that the skip ref is seeded and tested before the push, that it keys of
 the trailing slash, and that the layout renders it. The dependency array earns
 its own assertion because `web/` has no eslint configured at all, so
 `react-hooks/exhaustive-deps` would never notice `[pathname]` becoming `[]` —
-an edit that type-checks, builds, runs, and reports nothing.
-Those assertions read the file with its comments stripped, because the comments
-describe each of those decisions and would otherwise satisfy the check on the
-code's behalf.
+an edit that type-checks, builds, runs, and reports nothing. Those assertions
+read the file with its comments stripped, because the comments describe each of
+those decisions and would otherwise satisfy the check on the code's behalf.
 
 <Note kind="note">
 Both passes check that the tag ships and that the bridge is shaped correctly.

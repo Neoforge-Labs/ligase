@@ -169,8 +169,10 @@ if (process.argv.includes('--built')) {
     gtmId = /GTM_ID\s*=\s*'([^']+)'/.exec(readFileSync(join(root, 'components/Analytics.tsx'), 'utf8'))?.[1] ?? ''
   } catch (err) {
     // An unreadable file and a file with no GTM_ID both leave gtmId empty, and
-    // they are different faults. Say which one happened.
-    gtmReadError = err.message
+    // they are different faults. Say which one happened. String(err) rather
+    // than err.message: readFileSync always throws an Error, but a message
+    // reading "undefined" would be a worse failure than the one it reports.
+    gtmReadError = String(err)
   }
   if (gtmReadError) miss.push(`components/Analytics.tsx could not be read: ${gtmReadError}`)
   else if (!gtmId) miss.push('components/Analytics.tsx does not declare GTM_ID')
@@ -710,8 +712,14 @@ assert(
 )
 // Order, not just presence. Both of these are the same failure shape as a
 // missing line, and a presence check cannot see either.
-const initAt = analytics.indexOf('window.dataLayer =')
-const pushAt = analytics.indexOf('.push(')
+//
+// Matched as patterns, with the same \s* the presence assertion above allows:
+// on a literal `window.dataLayer =` a reformat to `window.dataLayer=…` would
+// fail with "must be initialised before the push", which is a wrong diagnosis
+// of a formatting change. A message should only ever be produced by the fault
+// it names.
+const initAt = analytics.search(/window\.dataLayer\s*=/)
+const pushAt = analytics.search(/\.push\(/)
 const skipAt = analytics.indexOf('first.current')
 assert(
   initAt !== -1 && pushAt !== -1 && initAt < pushAt,

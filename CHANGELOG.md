@@ -29,10 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   What is real is the count of `page_view` events, the path on each, and the
   referrer — which is what those questions asked for. "How many" here means
   pageviews, not people. Collecting nothing is also not contacting nobody:
-  fetching `gtm.js` discloses the reader's IP address, user agent and page URL
-  to Google on every pageview already, with an empty container, because
-  Consent Mode governs whether tags may use storage and not whether the
-  container is fetched.
+  fetching `gtm.js` discloses the reader's IP address, user agent and this
+  site's origin to Google on every document load already, with an empty
+  container, because Consent Mode governs whether tags may use storage and not
+  whether the container is fetched. The request URL carries the container ID
+  and nothing else, and no `Referrer-Policy` is set, so the browser default
+  sends the origin and not the path.
 
   Nextra navigates between pages without a document load, so the container's
   own trigger fires once a visit and every page after the landing one would be
@@ -1449,15 +1451,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   would have leaked into public HTML.
 - **The docs print, now that they are dark.** A dark default makes a printed
   page a block of ink unless the stylesheet intervenes, and long-form prose is
-  the kind of thing people print. A print stylesheet puts
-  every colour token on white, rules and tokens included, pins the signal
-  colours to ink (a printer drops backgrounds, and a pale-on-dark
-  `Diagnostic` would print as pale on white; the words that carry the
-  meaning are in the text, not the colour), hides the sidebar, contents list,
-  grain and aurora, and takes syntax tokens from the light theme whichever
-  theme the reader was in. It hides the grain's pseudo-element and not the
-  grain itself: the grain is mounted on `body`, and hiding it would print
-  every page blank, which an earlier draft did and the checker now forbids.
+  the kind of thing people print. A print stylesheet puts every colour token on
+  white, rules and tokens included, pins the signal colours to ink (a printer
+  drops backgrounds, and a pale-on-dark `Diagnostic` would print as pale on
+  white; the words that carry the meaning are in the text, not the colour),
+  hides the sidebar, contents list, grain and aurora, and takes syntax tokens
+  from the light theme whichever theme the reader was in. It hides the grain's
+  pseudo-element and not the grain itself: the grain is mounted on `body`, and
+  hiding it would print every page blank, which an earlier draft did and the
+  checker now forbids.
 - **Code blocks use the high-contrast GitHub themes.** The pair chosen for
   the old violet palette, `github-light` and `github-dark-default`, was
   measured against the surfaces a block is actually drawn on (the stylesheet
