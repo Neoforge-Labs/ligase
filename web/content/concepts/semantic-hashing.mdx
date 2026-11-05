@@ -68,7 +68,9 @@ skipped   `resistance` for SRR8525904, SRR8525908, SRR8525920, SRR8525942
 `align` reran, and it had to: a thread count is a parameter of the step, and
 nothing can know in advance that `-t 8` will not change an answer. What the
 engine *can* know, once the step has rerun, is whether the answer changed —
-and it did not, so the eight steps below it had nothing to do.
+and it did not, so the eight steps below it had nothing to do. The
+[cohort notebook](/notebooks/a-cohort-and-what-changed/) shows the same
+cutoff on a small pipeline that needs no aligner, with the report from each run.
 
 ## The canonical form belongs to the type, not to the step
 

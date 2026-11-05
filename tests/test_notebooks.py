@@ -7,15 +7,25 @@ way `web/scripts/render_notebooks.py` does and read what it produced.
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import io
+import sys
 import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import ModuleType
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 NOTEBOOKS = ROOT / "examples/notebooks"
+
+sys.path.insert(0, str(ROOT / "web/scripts"))
+
+
+def renderer() -> ModuleType:
+    """The docs build's renderer, which lives outside any package."""
+    return importlib.import_module("render_notebooks")
 
 
 def run_notebook(stem: str) -> tuple[list[object], str]:
@@ -332,13 +342,6 @@ def test_a_paper_page_names_no_temp_path_or_duration() -> None:
     assert "duration" not in page
 
 
-def test_a_paper_has_no_stray_cell_output() -> None:
-    """A cell whose last line is a call renders its return value as a block."""
-    outputs, _ = run_notebook(PAPER)
-    for output in outputs:
-        assert output is None or hasattr(output, "_repr_markdown_"), repr(output)
-
-
 def test_a_paper_shows_its_methods_inline_and_counts_its_tools() -> None:
     page = page_of(PAPER)
     prose = flat(page)
@@ -347,3 +350,78 @@ def test_a_paper_shows_its_methods_inline_and_counts_its_tools() -> None:
     assert "The record names **1 tool**, **ligase**" in prose
     assert "the reference list holds **1 citation**" in prose
     assert "reports **0** here" in prose
+
+
+def test_no_notebook_returns_a_bare_number_or_flag_from_a_cell() -> None:
+    """A cell whose last line is a call renders its return value as a block.
+
+    `Path.write_text` returns a character count, and a cell ending in it put a
+    bare `81` on a page. The source gives no sign of it, so every notebook is
+    held to the rule that no cell returns a bare int or bool.
+    """
+    order = renderer().ORDER
+
+    for stem, _, _ in order:
+        outputs, _ = run_notebook(stem)
+        for output in outputs:
+            assert not isinstance(output, int | bool), (stem, repr(output))
+
+
+def test_the_pipeline_notebooks_show_prose_or_nothing_from_a_cell() -> None:
+    """06-08 build their pages from `mo.md` alone; anything else is a stray.
+
+    01-05 deliberately end some cells on a value, which the renderer shows as
+    a `text` block under the code that made it. These three do not, so a
+    block there is always a mistake.
+    """
+    order = renderer().ORDER
+
+    for stem, _, _ in order[5:]:
+        outputs, _ = run_notebook(stem)
+        for output in outputs:
+            assert output is None or hasattr(output, "_repr_markdown_"), (
+                stem,
+                repr(output),
+            )
+
+
+def test_every_notebook_renders() -> None:
+    """Each cell of every notebook has exactly one output to render."""
+    r = renderer()
+    for stem, _, _ in r.ORDER:
+        path = NOTEBOOKS / f"{stem}.py"
+        outputs, _ = r.run(path)
+        assert len(r.cell_sources(path)) == len(outputs), stem
+
+
+def test_no_temp_paths_on_any_page() -> None:
+    """`scrub()` only rewrites the repo root."""
+    for page in (WEB / "content/notebooks").glob("*.mdx"):
+        text = page.read_text()
+        assert "/var/folders" not in text, page.name
+        assert "/tmp/" not in text, page.name
+
+
+def test_rendering_writes_nothing_into_the_repo() -> None:
+    """A missed `cache=` lands in `./.ligase/`."""
+
+    def entries() -> set[Path]:
+        root = ROOT / ".ligase"
+        return set(root.rglob("*")) if root.exists() else set()
+
+    before = entries()
+    renderer().main()
+    assert entries() == before
+
+
+def test_index_lists_every_notebook_and_counts_them_right() -> None:
+    """The index page is the only way in; an orphan page fails the site check."""
+    r = renderer()
+    page = r.index()
+    for stem, _, _ in r.ORDER:
+        assert f"/notebooks/{r.slug(stem)}/" in page, stem
+    text = flat(page)
+    assert "Eight" in text
+    for stale in ("Four marimo", "first three", "The fourth"):
+        assert stale not in text, stale
+    assert "no data, no aligner" in text

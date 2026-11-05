@@ -279,21 +279,29 @@ def index() -> str:
     )
     return f"""---
 title: "About the notebooks"
-description: "Four marimo notebooks, executed on every docs build."
+description: "Eight marimo notebooks, executed on every docs build."
 ---
 
 # About the notebooks
 
 <Lede>
-Four [marimo](https://marimo.io) notebooks, easiest first. They are ordinary
-Python files, so they run as notebooks or as scripts, and they are **executed
-on every docs build** — if the API drifts from what an example claims, the
-build fails rather than the page misleading you.
+Eight [marimo](https://marimo.io) notebooks, in two groups. The first four
+make one point each. The last four run a complete pipeline and show what it
+does when something changes. They are ordinary Python files, so they run as
+notebooks or as scripts, and they are **executed on every docs build** — if the
+API drifts from what an example claims, the build fails rather than the page
+misleading you.
 </Lede>
 
 | | Notebook | What it shows |
 |---|---|---|
 {rows}
+
+Notebooks 1 to 4 each make a single point: what a dataset knows, an error
+raised before any compute, a graph that has not run, and why the resistance
+rules are hashed. Notebooks 5 to 8 are whole pipelines: a cohort that is cached
+and cut off early, a graph reduced to a shortlist, a molecule screen with a
+seed, and the claims and bundle a paper needs.
 
 Every value on those pages was computed by the engine during the build.
 Nothing is transcribed.
@@ -311,10 +319,11 @@ Or without marimo at all, since a marimo notebook is importable Python:
 python examples/notebooks/{ORDER[0][0]}.py
 ```
 
-The first three need **no data and no aligner** — they use the tiny fixtures
-committed with the test suite, so they work on a fresh clone. The fourth runs
-the real interpretation if the HIV-1 demo data is present, and explains itself
-if it is not:
+Notebooks 1 to 3 and 5 to 8 need **no data, no aligner and no optional
+extras**: they generate their inputs or copy the tiny fixtures committed with
+the test suite, so they work on a fresh clone. Notebook 4 runs the real
+interpretation if the HIV-1 demo data is present, and explains itself if it is
+not:
 
 ```bash
 python scripts/fetch_demo_data.py --project PRJNA1218827

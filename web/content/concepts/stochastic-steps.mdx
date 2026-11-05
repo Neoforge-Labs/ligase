@@ -114,6 +114,8 @@ Nothing clever happens to it. A seed is a plain `int` parameter, so it is
 hashed into the [cache key](/concepts/caching/) like `min_freq` or a thread
 count, which means two seeds are two keys and two results. Change the seed
 and the step reruns; change it back and it hits the cache.
+[A screen, and its seed](/notebooks/a-screen-and-its-seed/) shows both
+outcomes on a scoring step that draws on a seed.
 
 This is why `seed=` names a parameter rather than taking a value. The engine
 is not given a seed to manage; it is told which of the step's own parameters

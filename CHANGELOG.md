@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Four notebooks that run whole pipelines in the docs build**, numbered 5 to
+  8 in the notebooks section. They need no data, no aligner and no optional
+  extras, and every figure on their pages comes from the run. *A cohort, and
+  what changed* runs a four-step pipeline cold, warm, after a change that
+  stops at early cutoff and after one that propagates, and refuses a
+  coordinate system that does not meet. *From a graph to a shortlist* crosses
+  identifier spaces, reports the two genes that collide on a symbol, and
+  shows a ranking rerunning when reordered where a set does not. *A screen,
+  and its seed* refuses a molecule table of the wrong representation before
+  anything runs and shows what a declared seed is worth. *What a paper needs*
+  binds a claim to a number, writes a bundle and verifies it. The notebooks'
+  index describes the eight in two groups and is linked from the guide and
+  concept pages whose claims they demonstrate.
+
 ### Fixed
 
 - **A molecule table's charge state is checked against its own keys.**
