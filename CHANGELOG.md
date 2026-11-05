@@ -60,9 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   request on the site made before the consent default — itself JavaScript —
   could govern it.
 
-  The container holds no tags yet. Creating the GA4 property and the two tags
-  is account work rather than repository work, so the page side is wired and
-  nothing is collected until that is done.
+  What the container holds is account work rather than repository work, and no
+  gate here can read it: that is the one half of this feature the build cannot
+  check, so the page documents the container side as the settings it must have
+  rather than as settings anybody has confirmed.
   [Analytics](https://ligase.neoforgelabs.tech/project/analytics/) is the full
   account.
 

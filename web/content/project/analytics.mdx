@@ -32,22 +32,29 @@ default — itself JavaScript — has run, which makes it the one request on the
 site Consent Mode could not govern. On a site that defaults every signal to
 denied, that is the wrong trade for no measurement.
 
-The container is empty of tags. It loads, it holds a data layer, and it
-collects nothing until a GA4 property and its tags are created inside the Tag
-Manager UI — which is account work, not repository work.
+What the container *does* with all this is account work, not repository work,
+and nothing here can see it: no gate in this repository can read which tags a
+container holds, which is the one half of this feature the build cannot check.
+A GA4 tag is configured in it. Which trigger fires that tag, and whether it
+sends an initial pageview of its own, are settled in the Tag Manager UI and
+have to be read there — the two sections on triggers below say what those
+settings must be, and which of them fails silently when it is wrong.
 
-Collecting nothing is not the same as contacting nobody. Fetching `gtm.js` is
-itself a request to Google, and it discloses the reader's IP address, user
-agent and this site's origin — on every document load, today, with an empty
-container. The request URL carries the container ID and nothing else, and no
+Loading the container is not the same as collecting with it, and neither is
+the same as contacting nobody. Fetching `gtm.js` is itself a request to
+Google, and it discloses the reader's IP address, user agent and this site's
+origin — on every document load, whatever the container holds and before any
+consent signal can bear on it. The request URL carries the container ID and nothing else, and no
 `Referrer-Policy` is set, so the browser default sends the origin rather than
 the path: Google learns that somebody loaded this site, not which page they
 opened. Consent Mode governs whether *tags* may use storage, not whether the
 container is fetched, so what the defaults below buy is no cookie and no
 storage-backed identity. Not no contact.
 
-What follows is therefore how the page side is wired, not a description of
-numbers anyone is reading.
+What follows is therefore the page side: the part that lives in this
+repository and that the build can hold to account. The container side is
+described only as the settings it must have, because this repository cannot
+verify it.
 
 ## Why it exists
 
@@ -230,6 +237,27 @@ What is worth being careful about is the page *title*, not the path. The effect
 can run before the new document title has been committed, so a tag reading
 `document.title` can attribute the new path's pageview to the previous page's
 name.
+
+### Keep your own clicks out of it
+
+The tag ships only in a production build, which keeps `next dev` clean, but
+`next build` *is* a production build — so a local export served over
+`python3 -m http.server` carries the real container and fires real hits at it.
+That is exactly how the bridge was verified, and it is what anybody following
+this page will do. Those hits land on paths that look entirely legitimate
+(`/start/quickstart/` is a real page) from a hostname nobody reads the site on,
+which makes them the worst sort of wrong number: plausible.
+
+So exclude them at the account, not here. A trigger exception on hostname, or
+GA4's own internal-traffic filter, costs one setting and survives everybody who
+verifies after you. A procedure this page recommends should not quietly corrupt
+the property it is teaching you to read.
+
+<Note kind="caution">
+  A local verification run before that filter exists is already in the data,
+  and nothing in this repository can tell you so. The container side is the
+  half the build cannot check.
+</Note>
 
 ## What the build refuses
 
