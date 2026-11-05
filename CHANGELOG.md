@@ -9,6 +9,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **The documentation site is measured, and the measurement defaults to
+  denied.** One Google Tag Manager container loads on the deployed site — the
+  only third party it talks to — with all four Consent Mode signals defaulted
+  to `denied` by an inline script that runs to completion before the container
+  is requested, because Consent Mode governs only a container that was told
+  its defaults first. Nothing on the site grants them. The site is a static
+  export on GitHub Pages, so there is no server log anybody can read, and the
+  questions worth asking about a site of this size are narrow: how often each
+  page is opened, and what referred the reader there.
+
+  The cost is accepted rather than hidden, and it is larger than it looks.
+  Denied `analytics_storage` means no `_ga` cookie and cookieless pings, and a
+  ping carries no client ID — so GA4 cannot tell ten pageviews by ten readers
+  from ten by one. Sessions are stitched out of the client ID, which makes
+  sessions as absent as users; neither is approximate, both are gone.
+  Behavioural modelling does not fill the gap either, because its thresholds
+  need a consented cohort to train on and nothing here ever grants consent.
+  What is real is the count of `page_view` events, the path on each, and the
+  referrer — which is what those questions asked for. "How many" here means
+  pageviews, not people. Collecting nothing is also not contacting nobody:
+  fetching `gtm.js` discloses the reader's IP address, user agent and this
+  site's origin to Google on every document load already, with an empty
+  container, because Consent Mode governs whether tags may use storage and not
+  whether the container is fetched. The request URL carries the container ID
+  and nothing else, and no `Referrer-Policy` is set, so the browser default
+  sends the origin and not the path.
+
+  Nextra navigates between pages without a document load, so the container's
+  own trigger fires once a visit and every page after the landing one would be
+  missing from the counts. A client component pushes an explicit `page_view`
+  carrying the path on each route change, skipping the landing path — which
+  the GA4 configuration tag reports itself when it initialises, and which
+  nothing else will report, so that tag's automatic pageview has to stay
+  enabled — and appending the trailing slash the export serves. The GA4 *event*
+  tag has to trigger on the pushed event and nothing else: the container fires
+  `gtm.historyChange-v2` of its own accord, on table-of-contents clicks as
+  well as on navigations, so a History Change trigger alongside it would
+  double-count every in-site navigation. `check-furniture --built` fails the
+  build if the consent default or the loader stops shipping, or if the default
+  stops coming first, and its source pass fails if the bridge loses its
+  `[pathname]` dependency, its `dataLayer` initialisation or its first-path
+  skip — `web/` has no eslint, so nothing else would notice. Analytics that
+  quietly stopped reporting is the failure shape this project refuses.
+
+  The canonical snippet's `<noscript>` iframe is deliberately not emitted. It
+  exists to count a visitor with JavaScript off and cannot: GA4's tags are
+  JavaScript and never fire inside `ns.html`, so with GA4 as the only intended
+  tag that visitor is uncounted either way, while the iframe would be the one
+  request on the site made before the consent default — itself JavaScript —
+  could govern it.
+
+  What the container holds is account work rather than repository work, and no
+  gate here can read it: that is the one half of this feature the build cannot
+  check, so the page documents the container side as the settings it must have
+  rather than as settings anybody has confirmed.
+  [Analytics](https://ligase.neoforgelabs.tech/project/analytics/) is the full
+  account.
+
 - **Four notebooks that run whole pipelines in the docs build**, numbered 5 to
   8, needing no data, no aligner and no optional extras: a cohort through
   caching and early cutoff, a graph reduced to a shortlist across identifier
@@ -1476,16 +1534,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   address as its canonical rather than Next's internal `/_not-found`, which
   would have leaked into public HTML.
 - **The docs print, now that they are dark.** A dark default makes a printed
-  page a block of ink unless the stylesheet intervenes, and about 52,000
-  words of prose are the kind of thing people print. A print stylesheet puts
-  every colour token on white, rules and tokens included, pins the signal
-  colours to ink (a printer drops backgrounds, and a pale-on-dark
-  `Diagnostic` would print as pale on white; the words that carry the
-  meaning are in the text, not the colour), hides the sidebar, contents list,
-  grain and aurora, and takes syntax tokens from the light theme whichever
-  theme the reader was in. It hides the grain's pseudo-element and not the
-  grain itself: the grain is mounted on `body`, and hiding it would print
-  every page blank, which an earlier draft did and the checker now forbids.
+  page a block of ink unless the stylesheet intervenes, and long-form prose is
+  the kind of thing people print. A print stylesheet puts every colour token on
+  white, rules and tokens included, pins the signal colours to ink (a printer
+  drops backgrounds, and a pale-on-dark `Diagnostic` would print as pale on
+  white; the words that carry the meaning are in the text, not the colour),
+  hides the sidebar, contents list, grain and aurora, and takes syntax tokens
+  from the light theme whichever theme the reader was in. It hides the grain's
+  pseudo-element and not the grain itself: the grain is mounted on `body`, and
+  hiding it would print every page blank, which an earlier draft did and the
+  checker now forbids.
 - **Code blocks use the high-contrast GitHub themes.** The pair chosen for
   the old violet palette, `github-light` and `github-dark-default`, was
   measured against the surfaces a block is actually drawn on (the stylesheet

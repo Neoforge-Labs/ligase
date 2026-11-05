@@ -3,7 +3,7 @@
  *
  * The ground is near-black and the ink is cream, taken from Neoforge Labs so
  * the docs read as part of the same house. Cream is kept as the light theme
- * because this is 52,000 words of long-form reading, and because people
+ * because this is a site built for long-form reading, and because people
  * print it: the print stylesheet at the foot of this file forces black ink on
  * white paper whatever theme the reader is in. Every colour here is a token
  * from tokens.css; the only values this file sets itself are the aurora,
@@ -50,9 +50,9 @@ body {
 /* ===================================================================
    Prose
    -------------------------------------------------------------------
-   Serif body at a 72ch measure. The content is 52,000 words of careful
-   technical prose written for scientists; it deserves to be set like
-   prose rather than like UI copy.
+   Serif body at a 72ch measure. The content is careful technical prose
+   written for scientists, at length; it deserves to be set like prose
+   rather than like UI copy.
    =================================================================== */
 
 article main :is(p, li, dd, blockquote, td, th) {

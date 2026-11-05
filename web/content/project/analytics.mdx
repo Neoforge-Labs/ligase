@@ -1,0 +1,303 @@
+---
+title: "Analytics"
+description: "The site loads one Google Tag Manager container, with every consent signal defaulting to denied. What that measures, what it gives up, and what the build checks."
+---
+# Analytics
+
+## What it is
+
+One Google Tag Manager container, `GTM-KBSX44GX`, and nothing else. It is the
+only third party this site talks to.
+
+`web/app/layout.tsx` renders `<GoogleTagManager />` as the first child of
+`<body>`, and it emits two things, in this order:
+
+```text
+1. an inline script setting Consent Mode defaults   all four signals denied
+2. the canonical container loader                   gtm.js
+```
+
+Both come from `web/components/Analytics.tsx`, which returns nothing at all
+unless `NODE_ENV` is `production`. So a `next dev` session carries no tag and
+the reloads of whoever is writing a page are never counted. A local
+`npm run build` is a production build and does carry it, which is what lets
+the gate below read the real thing out of `out/`.
+
+The canonical snippet has a third part, a `<noscript>` iframe to `ns.html`, and
+this site deliberately does not emit it. Its purpose is to count a visitor with
+JavaScript off, and it cannot: GA4's tags are JavaScript and do not fire inside
+that iframe, so with GA4 as the only intended tag that visitor goes uncounted
+either way. What it would add is a request to Google made before the consent
+default — itself JavaScript — has run, which makes it the one request on the
+site Consent Mode could not govern. On a site that defaults every signal to
+denied, that is the wrong trade for no measurement.
+
+What the container *does* with all this is account work, not repository work,
+and nothing here can see it: no gate in this repository can read which tags a
+container holds, which is the one half of this feature the build cannot check.
+A GA4 tag is configured in it. Which trigger fires that tag, and whether it
+sends an initial pageview of its own, are settled in the Tag Manager UI and
+have to be read there — the two sections on triggers below say what those
+settings must be, and which of them fails silently when it is wrong.
+
+Loading the container is not the same as collecting with it, and neither is
+the same as contacting nobody. Fetching `gtm.js` is itself a request to
+Google, and it discloses the reader's IP address, user agent and this site's
+origin — on every document load, whatever the container holds and before any
+consent signal can bear on it. The request URL carries the container ID and nothing else, and no
+`Referrer-Policy` is set, so the browser default sends the origin rather than
+the path: Google learns that somebody loaded this site, not which page they
+opened. Consent Mode governs whether *tags* may use storage, not whether the
+container is fetched, so what the defaults below buy is no cookie and no
+storage-backed identity. Not no contact.
+
+What follows is therefore the page side: the part that lives in this
+repository and that the build can hold to account. The container side is
+described only as the settings it must have, because this repository cannot
+verify it.
+
+## Why it exists
+
+This site is more prose than anybody reads in one sitting, written for a
+specific and small audience, and the questions worth asking about it are
+narrow: how often each page is opened, and what referred the reader there.
+Nothing in the repository can answer either. A static export on GitHub Pages
+leaves no server log anybody can see.
+
+Those questions are about pages, not people. That is partly a choice and
+partly a consequence: the consent defaults below rule out the per-reader
+questions entirely, so they are not asked here.
+
+It is Tag Manager rather than a GA4 snippet because the questions that come
+after those two — scroll depth, outbound clicks to the repository — are
+configuration inside a container, and each would otherwise be another commit
+to this tree.
+
+## Why the consent defaults run first
+
+Consent Mode governs only a container that was told its defaults *before* it
+started. A container that loads first reads no defaults and treats every
+visitor as having agreed to everything.
+
+So the defaults are an inline, synchronous script that runs to completion
+before the loader is even requested. Neither script goes through
+`next/script`, whose strategies are free to reorder them, and neither is
+deferred. The order is the whole of the mechanism; an optimisation that
+reversed it would leave the site measuring people who were never asked.
+
+## What denied-by-default costs
+
+All four signals — `ad_storage`, `ad_user_data`, `ad_personalization`,
+`analytics_storage` — default to `denied`, and nothing on this site grants
+them. There is no banner: nothing here asks for consent, so there is nothing
+to put in one, and the figures a banner would buy back are not the ones the
+questions above need.
+
+The cost is larger than it first looks, and worth stating plainly. With
+`analytics_storage` denied GA4 writes no `_ga` cookie and sends cookieless
+pings instead. A ping carries no client ID, so GA4 cannot tell whether ten
+pageviews came from ten readers or from one. Sessions are stitched together
+out of the client ID, which means **sessions are no more reliable here than
+users are** — both are absent rather than approximate.
+
+Behavioural modelling does not fill that gap on this site. Google's
+thresholds for it need a consented cohort to train on: on the order of a
+thousand events a day with consent denied for a week, *and* a thousand users
+a day with consent granted over seven of the previous twenty-eight. Nothing
+here ever grants consent, and the traffic is nowhere near that order, so what
+is left is an unmodelled gap rather than a modelled estimate.
+
+What remains is real, and it is what the questions above asked for:
+
+| Real, from the pings | Not answerable |
+|---|---|
+| counts of `page_view` events | unique visitors |
+| the page path carried on each | sessions, and returning visitors |
+| the referrer that brought it | any one reader's journey through the site |
+
+The referrer is real except on one set of paths. The stubs `write-redirects.mjs`
+leaves at the retired MkDocs URLs carry no tag and move the visitor on with
+`location.replace()`, so by the time the real page loads `document.referrer` is
+the stub's own same-origin URL. A reader who arrives through an old bookmark
+therefore loses their acquisition source: GA4 ignores a referrer on its own
+hostname, so the visit surfaces as `(direct)` / `(none)` rather than as coming
+from wherever they actually clicked.
+
+So "how many" on this site means pageviews, not people, and a number GA4
+labels **users** or **sessions** is to be read as neither. That is an
+acceptable trade for counting page reads, and would not be one in an
+ad-funded setting where the identity is the product.
+
+## Why the container ID is in source
+
+`GTM_ID` is a constant in `Analytics.tsx`, not an environment variable or a
+build secret.
+
+It is a public identifier: it ships in the HTML of every page, so moving it
+into the environment hides it from nobody. There is one site, deployed to one
+origin, so there is no second value to configure. And an unset variable at
+build time produces a container that silently never loads — exactly the shape
+of failure this project exists to refuse, traded for secrecy that was never
+available.
+
+Keeping it in the file is also what lets `check-furniture --built` read the
+expected ID out of the source and look for it in the export.
+
+## Soft navigations need a bridge
+
+Nextra moves between pages without a document load. The container's All Pages
+trigger therefore fires once per document load, however many pages are opened
+after the landing one, so every page but the first would be missing from the
+counts altogether — a silent undercount of exactly the thing being counted.
+
+`web/components/AnalyticsPageview.tsx` closes that. It is a client component
+that watches `usePathname()` and pushes an explicit event on each change:
+
+```js
+{ event: 'page_view', page_path: '/concepts/types-and-dimensions/' }
+```
+
+Three details in it are each a way the count goes quietly wrong:
+
+- `usePathname()` excludes the hash and the query. Reading `location.href`
+  instead would turn every "On this page" click into a pageview.
+- The first path is skipped, with a ref seeded `useRef(true)`. The GA4
+  configuration tag sends its own `page_view` when it initialises, which covers
+  the landing path, and the landing path is typically most of the traffic, so
+  reporting it again here would double the largest number on the dashboard.
+- The path carries the trailing slash the export serves, which
+  `trailingSlash: true` in `next.config.mjs` puts there, so the pushed value
+  agrees with the URL the browser is actually on. Without it, anything reading
+  `page_path` would file one page under two rows.
+
+It is a separate file from `Analytics.tsx` because `'use client'` is
+module-scoped in the App Router. Putting it there would make
+`GoogleTagManager` a client component as well, and would turn `GTM_ID` into a
+client reference for anything on the server that imports it.
+
+### Which tag reports the landing page
+
+Two tags will share the pageview count between them, and each covers exactly
+what the other does not:
+
+- The **GA4 configuration tag** (the Google tag) sends a `page_view` of its own
+  when it initialises — `send_page_view`, which is on by default. That is the
+  landing path, and it is the *only* thing that reports the landing path.
+- The **GA4 event tag** sends a `page_view` for the custom event this bridge
+  pushes. That is every navigation after the landing one, and nothing else.
+
+The configuration tag's automatic pageview must therefore stay enabled.
+Switching it off is a tempting move: with two tags able to produce a
+`page_view`, and double-counting the hazard the next section is about, giving
+the event one source looks like the tidy thing to do. It would instead delete
+every landing pageview from the property. The bridge deliberately skips the
+first path, so nothing else would report it, and no error would appear
+anywhere: the largest number on the dashboard would simply stop existing.
+
+The rule in the next section is about the **event** tag only. It does not mean
+the configuration tag should stop sending its initial pageview.
+
+### Trigger on `page_view`, and nothing else
+
+This is the part that is easy to get wrong later, and getting it wrong
+inflates every number on the dashboard rather than breaking anything.
+
+The container fires `gtm.historyChange-v2` of its own accord — on soft
+navigations, and also on table-of-contents hash changes, which are not
+navigations at all. A GA4 tag configured on History Change *as well as* on the
+explicit `page_view` would count every in-site navigation twice and count
+every "On this page" click as a pageview.
+
+GA4's own Enhanced Measurement is a second and independent source of the same
+double-count: with "page changes based on browser history events" on, GA4
+fires a pageview on each history change by itself, with no trigger of one's
+own involved. It should be off.
+
+So the GA4 event tag, when it is created, must trigger on the custom
+`page_view` this site pushes and on nothing else. The built-in trigger fires
+on changes that are not a page being opened, and nothing in this repository
+controls how the container is configured: any filtering of it would live in
+an account, out of reach of every gate here. Pushing an event that means one
+thing, and triggering on that, is what keeps the decision where it can be
+checked.
+
+The `page_path` on that event is belt and braces, not the mechanism. GA4's
+built-in **Page path** dimension is derived from `page_location`, which the GA4
+tag reads from `document.location` when it fires — and on a soft navigation the
+browser's URL has already changed by the time the effect runs, so the built-in
+dimension is right without being told anything. `page_path` is also a Universal
+Analytics parameter name that GA4 has no built-in use for: mapped onto the tag
+as a bare event parameter it is collected and then appears in no report at all
+unless somebody registers it as a custom dimension. So the thing to do with it
+is nothing. It makes the event legible in Preview mode and it is what the
+checker asserts the trailing slash on; the number in the report comes from
+`page_location`, which is already correct.
+
+What is worth being careful about is the page *title*, not the path. The effect
+can run before the new document title has been committed, so a tag reading
+`document.title` can attribute the new path's pageview to the previous page's
+name.
+
+### Keep your own clicks out of it
+
+The tag ships only in a production build, which keeps `next dev` clean, but
+`next build` *is* a production build — so a local export served over
+`python3 -m http.server` carries the real container and fires real hits at it.
+That is exactly how the bridge was verified, and it is what anybody following
+this page will do. Those hits land on paths that look entirely legitimate
+(`/start/quickstart/` is a real page) from a hostname nobody reads the site on,
+which makes them the worst sort of wrong number: plausible.
+
+So exclude them at the account, not here. A trigger exception on hostname, or
+GA4's own internal-traffic filter, costs one setting and survives everybody who
+verifies after you. A procedure this page recommends should not quietly corrupt
+the property it is teaching you to read.
+
+<Note kind="caution">
+  A local verification run before that filter exists is already in the data,
+  and nothing in this repository can tell you so. The container side is the
+  half the build cannot check.
+</Note>
+
+## What the build refuses
+
+Analytics that quietly stopped reporting is the failure shape this project
+exists to refuse, so it is a build gate rather than something noticed weeks
+later when a dashboard looks thin.
+
+`web/scripts/check-furniture.mjs --built` — `npm run selectors`, and part of
+`npm run check` — runs over the exported HTML and fails if, on any page of
+the site: the consent default is missing, the container loader is missing, the
+loader appears more than once, the loader does not carry the ID read out of
+`Analytics.tsx`, or the consent default does not come before the loader. The
+redirect stubs `write-redirects.mjs` leaves at retired URLs are not pages of
+the site and are skipped; the page each one sends a visitor to is checked. The
+four signals are matched against the consent script's own text rather than
+against the whole document, so a page that merely quotes
+`analytics_storage:'denied'` in prose — this one — cannot satisfy the check on
+the real default's behalf.
+
+Its source pass asserts the bridge's shape for the same reason: that
+`AnalyticsPageview.tsx` is a client component, that it initialises
+`window.dataLayer` before pushing to it — before, not merely somewhere in the
+file — that the skip ref is seeded and tested before the push, that it keys off
+`usePathname()`, that the effect still depends on `[pathname]`, that it appends
+the trailing slash, and that the layout renders it. The dependency array earns
+its own assertion because `web/` has no eslint configured at all, so
+`react-hooks/exhaustive-deps` would never notice `[pathname]` becoming `[]` —
+an edit that type-checks, builds, runs, and reports nothing. Those assertions
+read the file with its comments stripped, because the comments describe each of
+those decisions and would otherwise satisfy the check on the code's behalf.
+
+<Note kind="note">
+Both passes check that the tag ships and that the bridge is shaped correctly.
+Neither can check that the container has a working tag inside it, or that the
+numbers mean anything. That part is in a Google account, and nothing in this
+repository can see it.
+</Note>
+
+## Related
+
+- [Project layout](/project/layout/) — where `web/` sits in the tree
+- [Visual identity](/project/architecture/identity/) — the site's other gates
+- [Building Ligase](/project/building/) — running the site locally

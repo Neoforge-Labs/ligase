@@ -12,7 +12,7 @@
  *   - the grain and aurora must switch off under prefers-reduced-motion,
  *     inside the existing block rather than a second one;
  *   - a print stylesheet must force ink on paper, because the site defaults
- *     to near-black and 52,000 words of prose get printed;
+ *     to near-black and long-form prose gets printed;
  *   - the section counter must restart on every page and must only ever be
  *     incremented by an h2 inside article main, so a generated page with
  *     no h2 (or one that starts at h3) never shows a stray or zero count;
@@ -156,6 +156,61 @@ if (process.argv.includes('--built')) {
     if (/media=/.test(first) || !new RegExp(`content="${darkPaper}"`, 'i').test(first)) {
       miss.push(`first theme-color is ${first}; it must be unconditional and ${darkPaper}, the default theme's paper`)
       break
+    }
+  }
+
+  // Analytics. The container is the only third-party script on the site, and
+  // analytics that quietly stopped reporting is the failure shape this project
+  // exists to refuse — so the build asserts the tag shipped, in one piece and
+  // in the right order, rather than trusting that it did.
+  let gtmId = ''
+  let gtmReadError = ''
+  try {
+    gtmId = /GTM_ID\s*=\s*'([^']+)'/.exec(readFileSync(join(root, 'components/Analytics.tsx'), 'utf8'))?.[1] ?? ''
+  } catch (err) {
+    // An unreadable file and a file with no GTM_ID both leave gtmId empty, and
+    // they are different faults. Say which one happened. String(err) rather
+    // than err.message: readFileSync always throws an Error, but a message
+    // reading "undefined" would be a worse failure than the one it reports.
+    gtmReadError = String(err)
+  }
+  if (gtmReadError) miss.push(`components/Analytics.tsx could not be read: ${gtmReadError}`)
+  else if (!gtmId) miss.push('components/Analytics.tsx does not declare GTM_ID')
+  else {
+    for (const raw of pages) {
+      // write-redirects.mjs leaves a stub at each retired URL. It sends the
+      // visitor on at once and is deliberately not a page of the site, so it
+      // carries no tag and is not asserted on; the page it lands on is.
+      if (/<html[^>]*\bdata-redirect-to="/.test(raw)) continue
+      // Next echoes every inline script's text into the RSC flight payload, so
+      // each one appears twice in the HTML and in an order that is not the DOM's.
+      // Assert against the real document only.
+      //
+      // This is a coupling to a Next internal: the strip targets the
+      // `self.__next_f.push(` wrapper Next currently emits the flight payload
+      // in. A Next upgrade that renames or restructures that wrapper would make
+      // the strip miss, leaving both copies of the loader in `html` and failing
+      // the duplicate-loader check below on a document that is in fact correct.
+      // That is a loud, specific failure rather than a silent pass, which is the
+      // right way round — but the fix then is to update this pattern, not the
+      // component.
+      const html = raw.replace(/<script[^>]*>self\.__next_f\.push\([\s\S]*?<\/script>/g, '')
+      const consentAt = html.indexOf("'consent','default'")
+      const loaderAt = html.indexOf('gtm.start')
+      if (consentAt === -1) { miss.push('no consent default in the built HTML'); break }
+      if (loaderAt === -1) { miss.push(`no ${gtmId} loader in the built HTML`); break }
+      if (consentAt > loaderAt) { miss.push('the consent default must come before the container loader'); break }
+      if (!html.includes(`'${gtmId}'`)) { miss.push(`the loader does not pass ${gtmId}`); break }
+      if (html.split('gtm.start').length - 1 !== 1) { miss.push('the container loader appears more than once in the document'); break }
+      // The signals are asserted against the consent script's own text, not the
+      // whole document: a page whose prose merely quotes ad_storage:'denied'
+      // would otherwise satisfy the check while the default itself was gone.
+      const scripts = html.match(/<script[^>]*>[\s\S]*?<\/script>/g) ?? []
+      const consent = scripts.find((t) => t.includes("'consent','default'")) ?? ''
+      const missing = ['ad_storage', 'ad_user_data', 'ad_personalization', 'analytics_storage'].find(
+        (signal) => !new RegExp(`${signal}:'denied'`).test(consent),
+      )
+      if (missing) { miss.push(`${missing} is not defaulted to denied`); break }
     }
   }
 
@@ -616,6 +671,64 @@ assert(/@media[^{]*max-width[^{]*\{[^]*?\.place\s*\{[^}]*display:\s*none/.test(m
 assert(/masthead\s*\?\s*<Masthead\s*\/>/.test(read('components/Hero.tsx')), 'Hero must draw <Masthead /> only when asked')
 assert(/<Hero\s+masthead\b/.test(read('content/index.mdx')), 'the landing page must pass masthead to Hero')
 assert(/lg-mono[^>]*>◉ WESTLANDS, NAIROBI · MMXXVI</.test(read('app/layout.tsx')), 'the footer must carry the locality line in .lg-mono')
+
+// The route-change bridge. Each of these stands for a way the pageview count
+// goes wrong in a way nobody would notice: a push against an undefined
+// dataLayer throws and loses every later pageview; counting the first path
+// double-counts the landing page, typically most of the traffic; a path without
+// the trailing slash the export serves disagrees with the URL the browser is
+// on, splitting one page into two rows for anything that reads it; and an
+// effect that no longer depends on the path stops reporting soft navigations
+// without reporting anything else either.
+//
+// Read with the comments stripped, and match the calls rather than the names.
+// The file's header explains every one of these decisions in prose, so a check
+// against the raw text passes on the comment that describes the code even after
+// the code is gone -- a gate that cannot fail, which is the shape this project
+// refuses. The imports survive stripping, hence usePathname() and useRef(true)
+// rather than the bare identifiers.
+//
+// There is no eslint in web/ (no config, and next.config.mjs sets
+// eslint.ignoreDuringBuilds), so react-hooks/exhaustive-deps will never see any
+// of this. These assertions are the only thing standing between the bridge and
+// a one-character edit that silences it.
+const analytics = stripComments(read('components/AnalyticsPageview.tsx'))
+// Position needs no checking: SWC errors the build when a 'use client'
+// directive follows another expression, so the compiler already enforces that
+// it comes first. This regex only has to notice the directive being deleted.
+assert(/^'use client'/m.test(analytics), 'AnalyticsPageview.tsx must be a client component')
+assert(/window\.dataLayer\s*=\s*window\.dataLayer\s*\|\|\s*\[\]/.test(analytics), 'the route-change push must initialise dataLayer before using it')
+assert(/useRef\(true\)/.test(analytics), 'the first path is reported by the GA4 configuration tag, so the bridge needs a ref seeded true to skip it')
+assert(/usePathname\(\)/.test(analytics), 'the bridge must key off usePathname, which ignores hash and query')
+assert(/endsWith\('\/'\)/.test(analytics), "the reported path must carry the trailing slash the export serves")
+assert(/<AnalyticsPageview\s*\/>/.test(stripComments(read('app/layout.tsx'))), 'layout must render <AnalyticsPageview />')
+// The dependency array. `}, [])` type-checks, builds and runs: the effect
+// fires once on mount, the ref swallows that one run, and every soft-navigation
+// pageview is gone with nothing anywhere saying so. The six assertions above
+// all still pass on it.
+assert(
+  /\}, \[pathname\]\)/.test(analytics),
+  'the effect must depend on [pathname]; with an empty array it runs once, the skip ref eats that run, and no pageview is ever pushed',
+)
+// Order, not just presence. Both of these are the same failure shape as a
+// missing line, and a presence check cannot see either.
+//
+// Matched as patterns, with the same \s* the presence assertion above allows:
+// on a literal `window.dataLayer =` a reformat to `window.dataLayer=…` would
+// fail with "must be initialised before the push", which is a wrong diagnosis
+// of a formatting change. A message should only ever be produced by the fault
+// it names.
+const initAt = analytics.search(/window\.dataLayer\s*=/)
+const pushAt = analytics.search(/\.push\(/)
+const skipAt = analytics.indexOf('first.current')
+assert(
+  initAt !== -1 && pushAt !== -1 && initAt < pushAt,
+  'dataLayer must be initialised before the push, not after it: a push against an undefined array throws and loses every later pageview',
+)
+assert(
+  skipAt !== -1 && pushAt !== -1 && skipAt < pushAt,
+  'the first-path skip must be tested before the push, not after it, or the landing path is counted twice',
+)
 
 // Comments that were corrected must stay corrected.
 const tokensHeader = read('app/tokens.css').match(/^\s*\/\*[\s\S]*?\*\//)?.[0] ?? ''
