@@ -75,6 +75,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The validation pages report the agreement the validation run
+  establishes.** `project/validation.mdx` put 72 of 81 drug calls in
+  agreement at the 2% threshold and `project/in-use/hiv-1-resistance.mdx`
+  opened with a tile saying the same, with "9 differ, each explained" beneath
+  it — while the prose on both pages, and `KNOWN_AT_TWO_PERCENT` in
+  `tests/test_validation.py`, said three. 81 - 3 = 78. The figures were the
+  ones from before codons were read from the reads spanning them (D31), when
+  nine differed and 72 was true, and they overstated the remaining
+  disagreement by a factor of three. Both now read 78, and three tests derive
+  the figures on both pages from `COMPARED` and the recorded discrepancies
+  rather than trusting a transcription: the concordance table, the summary
+  tiles and the prose count all fail when the fixture moves underneath them.
+  A number in `.mdx` has no run record behind it, and the gate that protects
+  the fixture protected nothing beside it.
+
 - **A molecule table's charge state is checked against its own keys.**
   `salt-stripped` does not pin a charge state and an InChIKey's third block
   does, so two mutually incompatible reference sets could both carry the

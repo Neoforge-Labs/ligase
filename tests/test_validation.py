@@ -68,6 +68,14 @@ EXPECTED = (
     / "expected.tsv"
 )
 
+#: The pages that report this comparison to a reader. Their figures are
+#: transcribed rather than generated, so they are asserted here: a number
+#: in `.mdx` has no run record behind it and nothing else notices when the
+#: code moves underneath it.
+CONTENT = REPO_ROOT / "web" / "content" / "project"
+PAGE = CONTENT / "validation.mdx"
+IN_USE = CONTENT / "in-use" / "hiv-1-resistance.mdx"
+
 #: The project whose samples have published resistance calls.
 PROJECT = "PRJNA1218827"
 
@@ -86,6 +94,10 @@ RUNS = {
 
 #: The published thresholds, and the `mixture` that corresponds to each.
 THRESHOLDS = {"Amb15": 0.15, "Amb5": 0.05, "Amb2": 0.02}
+
+#: Twenty-seven drugs on each of the three clinical samples. Named because
+#: the page beside this test quotes it, and the two must not drift.
+COMPARED = 81
 
 #: The algorithm the published results were produced with. Pinned, because
 #: a newer algorithm is *expected* to disagree with a 2025 answer, and that
@@ -220,7 +232,7 @@ def test_the_calls_match_the_published_ones(
                     f"vs published {want[0]}/{want[1]} [{want[2]}]"
                 )
 
-    assert checked == 81, f"{checked} calls compared, not 81"
+    assert checked == COMPARED, f"{checked} calls compared, not {COMPARED}"
     assert not wrong, f"{len(wrong)} of {checked} disagree:\n  " + "\n  ".join(wrong)
 
 
@@ -331,3 +343,103 @@ def test_a_sample_with_coverage_is_assessed_on_every_drug(
     assert len(sample_four) == 27
     assert all(score != "" for score, _, _ in sample_four.values())
     assert sample_four["LEN"][:2] == ("160", "5")
+
+
+#: Small numbers as the prose writes them.
+WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+
+
+def concordance() -> dict[str, tuple[int, int]]:
+    """The page's concordance table, as threshold to (compared, agreeing)."""
+    table = {}
+    for line in PAGE.read_text().splitlines():
+        row = re.fullmatch(r"\|\s*(\d+)%\s*\|([^|]+)\|([^|]+)\|", line.strip())
+        if row is None:
+            continue
+        threshold, compared, agreeing = row.groups()
+        table[f"{threshold}%"] = (
+            int(re.sub(r"\D", "", compared)),
+            int(re.sub(r"\D", "", agreeing)),
+        )
+    return table
+
+
+def test_the_page_reports_the_agreement_this_test_establishes() -> None:
+    """The concordance table against the fixture it describes.
+
+    `KNOWN_AT_TWO_PERCENT` has a test that fails when a discrepancy
+    changes shape, and that gate is what stops "discrepancies explained"
+    decaying into "discrepancies tolerated" -- but it protects the fixture
+    and not the figure transcribed beside it on the page. The table once
+    read 72 of 81 agreeing at 2% while the fixture held three
+    discrepancies and the prose two paragraphs below said three, which
+    left a reader unable to tell which was authoritative (#47).
+
+    So the figures are derived here from the same two facts the rest of
+    this module asserts: how many calls are compared, and how many
+    discrepancies are recorded with a cause.
+    """
+    agreeing = COMPARED - len(KNOWN_AT_TWO_PERCENT)
+
+    assert concordance() == {
+        "15%": (COMPARED, COMPARED),
+        "5%": (COMPARED, COMPARED),
+        "2%": (COMPARED, agreeing),
+    }, (
+        f"{PAGE.name} disagrees with this module: {COMPARED} calls per "
+        f"threshold, exact at 15% and 5%, and {agreeing} agreeing at 2% "
+        f"because {len(KNOWN_AT_TWO_PERCENT)} discrepancies are recorded"
+    )
+
+
+@pytest.mark.parametrize("page", [PAGE, IN_USE], ids=lambda page: page.name)
+def test_the_page_counts_the_discrepancies_it_explains(page: Path) -> None:
+    """The prose figure, and the total it is a fraction of.
+
+    The sentence that opens "What disagrees" states both, in words rather
+    than in a table, and both come from this module: one discrepancy per
+    entry in `KNOWN_AT_TWO_PERCENT`, out of the calls compared at each of
+    the three thresholds.
+    """
+    sentence = re.search(r"(\w+) of the (\d+) drug calls differ", page.read_text())
+    assert sentence is not None, f"{page.name} no longer states the figure"
+
+    count, total = sentence.groups()
+    assert WORDS[count.lower()] == len(KNOWN_AT_TWO_PERCENT), count
+    assert int(total) == COMPARED * len(THRESHOLDS), total
+
+
+def tiles() -> dict[str, tuple[str, str]]:
+    """The summary tiles, as threshold to (value, note)."""
+    found = re.findall(
+        r'<Stat value="([^"]+)" label="Drug calls agreeing at (\d+%)" note="([^"]+)"',
+        IN_USE.read_text(),
+    )
+    return {threshold: (value, note) for value, threshold, note in found}
+
+
+def test_the_stat_tiles_report_the_agreement_this_test_establishes() -> None:
+    """The same figures again, as the tiles at the top of a page.
+
+    `in-use/hiv-1-resistance.mdx` opens with them, and a tile is the
+    figure a reader takes away without reading the page. Its 2% tile read
+    "72 / 81" and "9 differ, each explained" -- the agreement from before
+    codons were read from the reads spanning them (D31), when nine
+    differed and 81 - 9 = 72 was true. The prose below it said three.
+    That is where the 72 in `validation.mdx` came from, so both pages are
+    derived from this module now (#47).
+    """
+    agreeing = COMPARED - len(KNOWN_AT_TWO_PERCENT)
+    reported = tiles()
+
+    assert set(reported) == {"15%", "5%", "2%"}, reported
+    assert reported["15%"][0] == f"{COMPARED} / {COMPARED}", reported["15%"]
+    assert reported["5%"][0] == f"{COMPARED} / {COMPARED}", reported["5%"]
+    assert reported["2%"][0] == f"{agreeing} / {COMPARED}", (
+        f"{IN_USE.name} claims {reported['2%'][0]} agreeing at 2%, where "
+        f"{len(KNOWN_AT_TWO_PERCENT)} discrepancies are recorded here"
+    )
+    assert reported["2%"][1].startswith(f"{len(KNOWN_AT_TWO_PERCENT)} differ"), (
+        f'{IN_USE.name} notes "{reported["2%"][1]}" where '
+        f"{len(KNOWN_AT_TWO_PERCENT)} are recorded here"
+    )
