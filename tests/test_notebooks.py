@@ -146,3 +146,67 @@ def test_a_shortlist_refuses_graphs_built_from_different_sources() -> None:
         "  a also lists disgenet.\n"
         "  These must match. Was a source added or removed upstream?"
     ) in page
+
+
+SCREEN = "07_a_screen_and_its_seed"
+
+
+def test_a_screen_refuses_a_representation_mismatch() -> None:
+    page = page_of(SCREEN)
+    assert (
+        "DimensionError in step `enrichment`:\n"
+        "  library.representation = InChIKey, salt-stripped and "
+        "charge-neutralised (from the representation line the standardiser "
+        "wrote: work/library.tsv)\n"
+        "  hits.representation = InChIKey, as given (from the representation "
+        "line the standardiser wrote: work/hits_salts.tsv)\n"
+        "  library also lists salt-stripped and charge-neutralised.\n"
+        "  These must match. Were the two sets standardised differently? Add "
+        "a `standardize` step; molecules are never re-keyed implicitly."
+    ) in page
+    # The fix is named on the page and is never called.
+    assert "`lg.chem.standardize`" in page
+    assert "`chem` extra" in page
+
+
+def test_a_screen_is_reproducible_and_the_undeclared_body_is_deterministic() -> None:
+    """D40: a declared, seeded step is never `deterministic`; its twin is."""
+    page = page_of(SCREEN)
+    declared, undeclared = page.split("audit, the same body with nothing declared:")
+    assert "reproducible     `dock`" in declared
+    assert "deterministic    `dock`" not in declared
+    assert (
+        "    because `seed` was held at 20260101, not because the step cannot wobble"
+    ) in declared
+    assert "1 step: 1 reproducible." in declared
+    assert "deterministic    `dock`" in undeclared
+    assert "1 step: 1 deterministic." in undeclared
+    assert "because `seed`" not in undeclared
+
+
+def test_a_screen_reruns_when_the_seed_changes() -> None:
+    page = page_of(SCREEN)
+    assert "run 1, a cold cache: 2 steps: 2 ran." in page
+    assert "run 2, the same seed: 2 steps: 2 from cache." in page
+    assert "run 3, the seed changed: 2 steps: 2 ran." in page
+    assert "[('dock', 'ran'), ('top', 'ran')]" in page
+
+
+def test_a_screen_checks_before_it_runs() -> None:
+    page = page_of(SCREEN)
+    assert "The screen has **2 steps**" in page
+    assert "`errors()` found **0 problems**" in page
+    assert "The engine found **1 problem** and ran" in page
+
+
+def test_a_screen_is_cold_on_every_run() -> None:
+    """A second run of the notebook must still report a cold first run."""
+    for _ in range(2):
+        assert "run 1, a cold cache: 2 steps: 2 ran." in page_of(SCREEN)
+
+
+def test_a_screen_page_names_no_temp_path() -> None:
+    page = page_of(SCREEN)
+    assert "/var/folders" not in page
+    assert "/tmp" not in page
+    assert "duration" not in page

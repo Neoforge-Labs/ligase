@@ -74,6 +74,11 @@ ORDER: tuple[tuple[str, str, str], ...] = (
         "From a graph to a shortlist",
         "Identifier spaces, a collision, and why a ranking is not a set.",
     ),
+    (
+        "07_a_screen_and_its_seed",
+        "A screen, and its seed",
+        "What a name in a molecule table means, and what a seed is worth.",
+    ),
 )
 
 BLOB = "https://github.com/Neoforge-Labs/ligase/blob/main/examples"
