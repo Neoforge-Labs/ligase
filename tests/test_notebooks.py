@@ -18,6 +18,20 @@ from types import ModuleType
 
 import pytest
 
+# Every notebook here is a marimo notebook, and marimo lives in the `docs`
+# extra rather than in `dev`: it is what authors and runs the examples, and a
+# genomics install has no use for it. So the matrix jobs, which install
+# `.[dev]`, cannot execute a single one of these — exactly as the chemistry
+# tests cannot run without RDKit. Skipping is the honest outcome there.
+#
+# Skipping everywhere would mean these assertions ran on nobody's machine but
+# the author's, so ci.yml has a `notebooks (marimo extra)` job that installs
+# the extra, runs this file, and fails if anything in it skips.
+marimo = pytest.importorskip(
+    "marimo",
+    reason="the notebooks need marimo: pip install 'ligase-bio[docs]'",
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 NOTEBOOKS = ROOT / "examples/notebooks"
