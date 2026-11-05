@@ -64,6 +64,26 @@ ORDER: tuple[tuple[str, str, str], ...] = (
         "Resistance, and why the rules are hashed",
         "Vendored algorithms, and content hashing over version labels.",
     ),
+    (
+        "05_a_cohort_and_what_changed",
+        "A cohort, and what changed",
+        "Caching, early cutoff, and coordinates that do not meet.",
+    ),
+    (
+        "06_from_a_graph_to_a_shortlist",
+        "From a graph to a shortlist",
+        "Identifier spaces, a collision, and why a ranking is not a set.",
+    ),
+    (
+        "07_a_screen_and_its_seed",
+        "A screen, and its seed",
+        "What a name in a molecule table means, and what a seed is worth.",
+    ),
+    (
+        "08_what_a_paper_needs",
+        "What a paper needs",
+        "A claim bound to a number, and a bundle that reproduces it.",
+    ),
 )
 
 BLOB = "https://github.com/Neoforge-Labs/ligase/blob/main/examples"
@@ -259,21 +279,29 @@ def index() -> str:
     )
     return f"""---
 title: "About the notebooks"
-description: "Four marimo notebooks, executed on every docs build."
+description: "Eight marimo notebooks, executed on every docs build."
 ---
 
 # About the notebooks
 
 <Lede>
-Four [marimo](https://marimo.io) notebooks, easiest first. They are ordinary
-Python files, so they run as notebooks or as scripts, and they are **executed
-on every docs build** — if the API drifts from what an example claims, the
-build fails rather than the page misleading you.
+Eight [marimo](https://marimo.io) notebooks, in two groups. The first four
+make one point each. The last four run a complete pipeline and show what it
+does when something changes. They are ordinary Python files, so they run as
+notebooks or as scripts, and they are **executed on every docs build** — if the
+API drifts from what an example claims, the build fails rather than the page
+misleading you.
 </Lede>
 
 | | Notebook | What it shows |
 |---|---|---|
 {rows}
+
+Notebooks 1 to 4 each make a single point: what a dataset knows, an error
+raised before any compute, a graph that has not run, and why the resistance
+rules are hashed. Notebooks 5 to 8 are whole pipelines: a cohort that is cached
+and cut off early, a graph reduced to a shortlist, a molecule screen with a
+seed, and the claims and bundle a paper needs.
 
 Every value on those pages was computed by the engine during the build.
 Nothing is transcribed.
@@ -291,10 +319,11 @@ Or without marimo at all, since a marimo notebook is importable Python:
 python examples/notebooks/{ORDER[0][0]}.py
 ```
 
-The first three need **no data and no aligner** — they use the tiny fixtures
-committed with the test suite, so they work on a fresh clone. The fourth runs
-the real interpretation if the HIV-1 demo data is present, and explains itself
-if it is not:
+Notebooks 1 to 3 and 5 to 8 need **no data, no aligner and no optional
+extras**: they generate their inputs or copy the tiny fixtures committed with
+the test suite, so they work on a fresh clone. Notebook 4 runs the real
+interpretation if the HIV-1 demo data is present, and explains itself if it is
+not:
 
 ```bash
 python scripts/fetch_demo_data.py --project PRJNA1218827
@@ -315,7 +344,8 @@ cannot import the thing it documents.
 
 ## The full pipeline
 
-The notebooks are deliberately small. For the reference pipeline end to end —
+The first four notebooks are deliberately small, and 5 to 8 run their
+pipelines on generated or fixture inputs. For the reference pipeline end to end —
 reads, alignment, variant calls, resistance — see
 [`examples/hiv-resistance/pipeline.py`]({DEMO}/pipeline.py)
 and [running a pipeline](/guide/running-a-pipeline/).

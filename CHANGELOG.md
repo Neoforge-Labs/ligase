@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Four notebooks that run whole pipelines in the docs build**, numbered 5 to
+  8, needing no data, no aligner and no optional extras: a cohort through
+  caching and early cutoff, a graph reduced to a shortlist across identifier
+  spaces, a molecule screen and what its seed is worth, and the claims and
+  bundle a paper needs. Every figure on their pages comes from the run.
+
 ### Fixed
 
 - **A molecule table's charge state is checked against its own keys.**
