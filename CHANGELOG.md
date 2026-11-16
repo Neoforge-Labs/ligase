@@ -75,6 +75,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The analytics page names the container the site actually loads.** It
+  opened with `GTM-KBSX44GX` throughout while `web/components/Analytics.tsx`
+  has shipped `GTM-NV6SCC4L` since 7 November 2026. The prose and the source
+  disagreed and no gate could say so: `check-furniture --built` reads
+  `GTM_ID` out of `Analytics.tsx` and looks for that ID in the export, so a
+  page naming a different container satisfies every assertion in the tree.
+  The page now also records what the swap cost — the GA4 tags stayed behind
+  in the old container, leaving the property at zero for six days while the
+  loader shipped, the consent default ran in the right order and every check
+  passed — and states that changing `GTM_ID` is a change to a live account as
+  much as to this tree.
+
+  Two container settings Tag Manager creates on its own when a Google tag is
+  added are documented for the first time, because both arrive switched on.
+  *Allow user-provided data capabilities*, which scans pages for email
+  addresses, phone numbers, names and addresses, is off: a site that denies
+  all four consent signals and has no forms has nothing to give it. *Page
+  views on browser history change*, under automatic event detection, is off
+  as well — it is the container-side twin of the Enhanced Measurement setting
+  the page already warned about, a separate switch producing the same
+  double-count of every soft navigation, so both have to be found. Scrolls,
+  outbound clicks, form interactions, video and file downloads are left on.
+
 - **The validation pages report the agreement the validation run
   establishes.** `project/validation.mdx` put 72 of 81 drug calls in
   agreement at the 2% threshold and `project/in-use/hiv-1-resistance.mdx`
