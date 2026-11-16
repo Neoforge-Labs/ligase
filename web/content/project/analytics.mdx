@@ -6,7 +6,7 @@ description: "The site loads one Google Tag Manager container, with every consen
 
 ## What it is
 
-One Google Tag Manager container, `GTM-KBSX44GX`, and nothing else. It is the
+One Google Tag Manager container, `GTM-NV6SCC4L`, and nothing else. It is the
 only third party this site talks to.
 
 `web/app/layout.tsx` renders `<GoogleTagManager />` as the first child of
@@ -35,10 +35,23 @@ denied, that is the wrong trade for no measurement.
 What the container *does* with all this is account work, not repository work,
 and nothing here can see it: no gate in this repository can read which tags a
 container holds, which is the one half of this feature the build cannot check.
-A GA4 tag is configured in it. Which trigger fires that tag, and whether it
+It holds two GA4 tags, both pointing at the property `G-DFZD74HZVL`: a Google
+tag on *Initialization - All Pages*, and an event tag on a custom-event trigger
+matching `page_view`. Which trigger fires which tag, and whether the first
 sends an initial pageview of its own, are settled in the Tag Manager UI and
 have to be read there — the two sections on triggers below say what those
 settings must be, and which of them fails silently when it is wrong.
+
+That the ID above is the only thing tying the two halves together is not a
+detail. Changing it points the site at a different container, and an empty
+container is indistinguishable from a working one on every signal this
+repository can see: the loader still ships, `check-furniture --built` still
+finds the ID it read out of `Analytics.tsx`, every page still carries the
+consent default in the right order, and the property simply stays at zero.
+It has already happened once here — the container was swapped on 7 November
+2026 and the GA4 tags stayed behind in the old one — and nothing said so.
+Changing `GTM_ID` is therefore a change to a live account as much as to this
+tree, and the account side has to be moved in the same breath.
 
 Loading the container is not the same as collecting with it, and neither is
 the same as contacting nobody. Fetching `gtm.js` is itself a request to
@@ -213,13 +226,12 @@ double-count: with "page changes based on browser history events" on, GA4
 fires a pageview on each history change by itself, with no trigger of one's
 own involved. It should be off.
 
-So the GA4 event tag, when it is created, must trigger on the custom
-`page_view` this site pushes and on nothing else. The built-in trigger fires
-on changes that are not a page being opened, and nothing in this repository
-controls how the container is configured: any filtering of it would live in
-an account, out of reach of every gate here. Pushing an event that means one
-thing, and triggering on that, is what keeps the decision where it can be
-checked.
+So the GA4 event tag triggers on the custom `page_view` this site pushes and
+on nothing else. The built-in trigger fires on changes that are not a page
+being opened, and nothing in this repository controls how the container is
+configured: any filtering of it would live in an account, out of reach of
+every gate here. Pushing an event that means one thing, and triggering on
+that, is what keeps the decision where it can be checked.
 
 The `page_path` on that event is belt and braces, not the mechanism. GA4's
 built-in **Page path** dimension is derived from `page_location`, which the GA4
@@ -237,6 +249,36 @@ What is worth being careful about is the page *title*, not the path. The effect
 can run before the new document title has been committed, so a tag reading
 `document.title` can attribute the new path's pageview to the previous page's
 name.
+
+### What the container switches on by itself
+
+Adding the Google tag does not add only the Google tag. Tag Manager creates two
+container settings alongside it, both already on, and neither is mentioned
+anywhere in the flow that creates them.
+
+**Allow user-provided data capabilities** inspects the page for strings that
+look like email addresses, phone numbers, names and addresses, hashes them and
+makes them available to the accounts the tag is linked to. It is off here. A
+site that defaults all four consent signals to denied, asks only how often each
+page is opened, and has no forms to fill in has nothing to offer that feature
+and nowhere to send it; leaving it on would collect a class of data this page
+spends its first half explaining the absence of.
+
+**Manage automatic event detection** is six switches. *Page views on browser
+history change* is Tag Manager's own version of the double-count the previous
+section is about — the container-side twin of GA4's Enhanced Measurement
+setting, and a separate switch from it, so both have to be found and both have
+to be off. It is off. The other five — scrolls, outbound clicks, form
+interactions, video engagement, file downloads — are left on: scroll depth and
+outbound clicks to the repository are two of the questions this container
+exists to answer, and the remaining three are inert on a site with no forms, no
+video and nothing to download. They do mean the property carries events beyond
+`page_view`; what the table above says about users and sessions is unchanged by
+them, because consent is still denied and there is still no client ID.
+
+Both defaults are worth restating as a habit rather than a fact: they arrived
+switched on without being asked for, and the next feature added to this
+container may arrive the same way.
 
 ### Keep your own clicks out of it
 
