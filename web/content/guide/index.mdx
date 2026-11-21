@@ -1,0 +1,90 @@
+---
+title: "Guides"
+description: "One task at a time, each with a runnable example: inspecting files, building and running a pipeline, declaring dimensions, crossing identifier spaces, fetching pinned inputs, auditing reproducibility and writing up a methods section."
+---
+
+# Guides
+
+<Lede>
+One task per page, each with an example you can run. The order below is roughly
+the order a pipeline gets built in, but the pages do not depend on each other —
+go to the one that matches what you are doing.
+</Lede>
+
+If you have not installed Ligase yet, [start here](/start/) — about five
+minutes, with no aligner needed.
+
+## Before there is a pipeline
+
+- [Inspecting files you have](/guide/inspecting-files/) — what Ligase makes of
+  a file, where it read each dimension from, and whether two files agree. No
+  pipeline, nothing executed, nothing cached.
+- [Declaring dimensions](/guide/declaring-dimensions/) — declare what a file
+  cannot say about itself, check what was inferred and from where, and read the
+  errors when two inputs disagree.
+
+## Building and running one
+
+- [Building a pipeline](/guide/building-a-pipeline/) — write steps, connect
+  them, fan out over samples, and have the graph type-checked before any of it
+  runs.
+- [Steps you do not have to write](/guide/steps/) — the four curated steps that
+  ship with the package: two aligners, a sort and a caller.
+- [Running a pipeline](/guide/running-a-pipeline/) — say how each step produces
+  its output, run it in parallel, read the report, and find the files
+  afterwards.
+- [Fetching your inputs](/guide/remotes/) — declare where the data comes from,
+  pin it by digest, and have it verified before any step runs.
+- [Recording a live query](/guide/recorded-queries/) — ask an API once, then
+  replay every later run from the record, with no network and no API key.
+
+## Scaling it out
+
+- [Pointing a lab at a bucket](/guide/remote-store/) — set `LIGASE_STORE` and
+  the machine next to yours stops recomputing what you have already computed.
+- [Running on a cluster](/guide/cluster-execution/) — the Slurm array recipe,
+  what to set `--lease` to, and the three mistakes worth knowing about.
+
+## Comparing things that look comparable
+
+Each of these is a join that succeeds and means nothing until the dimension is
+right.
+
+- [Crossing identifier spaces](/guide/mapping-identifiers/) — including what to
+  do about the identifiers that do not cross.
+- [Comparing ranked lists](/guide/ranked-lists/) — why reordering the rows
+  changes the result when rank is the output.
+- [Comparing knowledge graphs](/guide/knowledge-graphs/) — watch two
+  assemblies that disagree refuse to join before anything runs.
+- [Comparing compound sets](/guide/molecules/) — standardise one set so the
+  join is honest rather than merely permitted.
+
+## Checking that it repeats
+
+- [Checking that a step repeats](/guide/semantic-hashing/) — why an unchanged
+  result can have changed bytes, and what `ligase audit` tells you.
+- [Declaring a stochastic step](/guide/stochastic-steps/) — how the engine
+  refuses a sampling step that forgot its seed.
+- [Fixing a noticed line](/guide/notes/) — your run succeeded and printed
+  `noticed`. What that means and why it is not an error.
+
+## Answering for it
+
+- [Writing up a pipeline](/guide/provenance/) — generate the methods paragraph,
+  package a reproducibility bundle, verify one on another machine.
+- [Binding a number you published](/guide/claims/) — declare the numbers your
+  paper states, and let `ligase methods` tell you which of them the pipeline
+  still stands behind.
+
+## The worked domain example
+
+- [Interpreting resistance](/guide/resistance-interpretation/) — HIV-1 variant
+  calls to a drug-by-drug report, and choosing the mixture threshold
+  deliberately.
+
+<Note kind="note" title="Why a task and not an API tour">
+The [API reference](/reference/api/) is generated from the package's docstrings
+and lists everything. These pages are the opposite: a small number of things
+you actually do, in an order that works, with the reasoning left in
+[concepts](/concepts/).
+</Note>

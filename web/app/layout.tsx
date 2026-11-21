@@ -68,6 +68,24 @@ export const metadata: Metadata = {
   // Relative, so each page resolves it against metadataBase and its own path
   // and declares itself, with the trailing slash the export serves.
   alternates: { canonical: './' },
+  /*
+   * Search Console and Bing Webmaster Tools, when a token is set in the
+   * environment at build time. No token is committed, and an unset variable
+   * emits no tag at all rather than an empty one.
+   *
+   * Verifying the domain by DNS TXT record is the better route and needs none
+   * of this: it covers the whole domain rather than one origin, survives a
+   * redeploy, and works for both engines. This hook is for the case where the
+   * DNS is not yours to edit. See project/discoverability.mdx.
+   */
+  verification: {
+    ...(process.env.LIGASE_GOOGLE_SITE_VERIFICATION
+      ? { google: process.env.LIGASE_GOOGLE_SITE_VERIFICATION }
+      : {}),
+    ...(process.env.LIGASE_BING_SITE_VERIFICATION
+      ? { other: { 'msvalidate.01': process.env.LIGASE_BING_SITE_VERIFICATION } }
+      : {}),
+  },
   openGraph: {
     type: 'website',
     siteName: 'Ligase',
@@ -113,7 +131,24 @@ const jsonLd = {
   operatingSystem: 'Linux, macOS, Windows',
   programmingLanguage: ['Rust', 'Python'],
   softwareVersion: '0.4.0',
-  sameAs: 'https://github.com/Neoforge-Labs/ligase',
+  /*
+   * The name collides with DNA ligase, the enzyme, which has a century of
+   * literature and will win every ambiguous query. These are the identifiers
+   * that say which Ligase this is: the two registries that actually hold the
+   * package, plus the repository. A search engine or an agent resolving the
+   * name has somewhere to land that is not an enzyme.
+   *
+   * Every URL here is a page that exists — check-assets.mjs is not a link
+   * checker for off-site URLs, so they were verified by hand when added, and
+   * a registry entry that is withdrawn must come out of this list.
+   */
+  alternateName: ['ligase-bio', 'ligase (crates.io)'],
+  sameAs: [
+    'https://github.com/Neoforge-Labs/ligase',
+    'https://pypi.org/project/ligase-bio/',
+    'https://crates.io/crates/ligase',
+  ],
+  installUrl: 'https://pypi.org/project/ligase-bio/',
   license: ['https://spdx.org/licenses/MIT.html', 'https://spdx.org/licenses/Apache-2.0.html'],
   author: { '@type': 'Person', name: 'Kelyn Njeri' },
 }

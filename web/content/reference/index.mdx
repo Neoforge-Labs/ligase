@@ -1,0 +1,55 @@
+---
+title: "Reference"
+description: "The four things you look up rather than read: every CLI command and flag, every error with its cause, the dimension catalogue, and the Python API. Three of the four are generated from the package itself."
+---
+
+# Reference
+
+<Lede>
+Four reference works, organised by what you are holding when you need them: a
+command you are typing, an error you are staring at, a dimension you are
+declaring, or a function you are calling.
+</Lede>
+
+Three of the four are generated from the package on every docs build rather
+than written by hand, which is the only way a reference stays true. The build
+fails if a command loses its help text, or if a public name has no docstring.
+
+## Command line
+
+Every `ligase` command and every flag, read out of the argparse parser itself.
+If a flag exists, it is on that page; if it is on that page, it exists.
+
+[Command line →](/reference/cli/)
+
+## Errors
+
+Every error the engine raises, what causes it, and what to do about it —
+organised by what you saw rather than by class name, because an exception name
+is not what you have when a run stops.
+
+[Errors →](/reference/errors/)
+
+## Dimension catalogue
+
+Which dimensions each biological type carries, which of them are read out of
+the file, and which you have to declare once because no file format records
+them. This is the table to check before declaring anything by hand.
+
+[Dimension catalogue →](/reference/dimensions/)
+
+## API
+
+The Python surface, generated from the package's own docstrings. Every exported
+name is documented and placed in a group, because the generator fails the build
+otherwise.
+
+[API →](/reference/api/)
+
+## Not reference, but near it
+
+- [The guides](/guide/) are the same material in task order, with runnable
+  examples — the reference assumes you know which thing you want.
+- [Concepts](/concepts/) is why the API has the shape it does.
+- The Rust engine's own API lives on [docs.rs](https://docs.rs/ligase), not
+  here; this section documents the Python surface.

@@ -1,0 +1,47 @@
+---
+title: "Steps you do not have to write"
+description: "Four steps that ship with Ligase — minimap2, BWA-MEM, samtools sort and bcftools mpileup/call — each with its dimensions declared, its tool version hashed and its parameters typed."
+---
+
+# Steps you do not have to write
+
+<Lede>
+Four tool wrappers that ship with the package, in `ligase.steps`. You can write
+your own — the guides show how — but these four are already declared, already
+hashed and already tested against the reference pipeline.
+</Lede>
+
+A curated step is not a convenience wrapper. Each one declares what it consumes
+and produces, which parameters change the answer, and what external tool version
+it ran, so that the engine can type-check it before anything runs and key the
+cache on it afterwards. What that entrance exam excludes, and why, is in
+[what a curated step is](/concepts/step-library/).
+
+## Alignment
+
+Two aligners, which can never share a cache entry with each other — swapping
+aligners changes the answer, so it changes the key.
+
+- [Aligning with minimap2](/guide/steps/minimap2/) — short reads to a
+  reference, coordinate-sorted and read-grouped, with the sample declared
+  because nothing in a FASTQ can declare it.
+- [Aligning with BWA-MEM](/guide/steps/bwa/) — the other aligner, including the
+  index it builds and throws away.
+
+## Preparing an alignment
+
+- [Sorting an alignment](/guide/steps/samtools/) — coordinate order for an
+  alignment that came from somewhere else, and why it never costs you the
+  pipeline below it.
+
+## Calling variants
+
+- [Calling what the reads show](/guide/steps/bcftools/) — allele depths rather
+  than a consensus caller, with the threshold exposed as a typed parameter
+  because it changes the answer.
+
+## Writing your own
+
+A step is a decorated, type-annotated Python function. Start with
+[building a pipeline](/guide/building-a-pipeline/) for the shape, and
+[declaring a stochastic step](/guide/stochastic-steps/) if the tool samples.

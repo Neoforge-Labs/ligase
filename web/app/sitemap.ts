@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next'
 import type { PageMapItem } from 'nextra'
 import { getPageMap } from 'nextra/page-map'
+import { lastmodFor } from '../lib/lastmod'
 
 /*
  * The sitemap is read off the same page map the sidebar is built from, so a
@@ -34,7 +35,17 @@ function routesOf(items: readonly PageMapItem[]): string[] {
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const routes = [...new Set(routesOf(await getPageMap()))].sort()
-  return routes.map((route) => ({
-    url: `${ORIGIN}${route === '/' ? '' : route}/`,
-  }))
+  /*
+   * `lastModified` is the commit date of the page's own MDX, from git, and is
+   * omitted for a page that has none — see lib/lastmod.ts for why that is the
+   * build time's job to stay out of. A crawler that trusts lastmod revisits
+   * what moved; one that is told everything moved on every deploy stops
+   * trusting it.
+   */
+  const changed = lastmodFor(routes)
+  return routes.map((route) => {
+    const url = `${ORIGIN}${route === '/' ? '' : route}/`
+    const when = changed.get(route)
+    return when ? { url, lastModified: when } : { url }
+  })
 }

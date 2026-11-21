@@ -7,6 +7,7 @@ import type { MetaRecord } from 'nextra'
  * is built this way, and what has been checked.
  */
 const meta: MetaRecord = {
+  index: 'About this project',
   building: 'Building Ligase',
   layout: 'Project layout',
   architecture: 'Architecture',

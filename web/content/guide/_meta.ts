@@ -48,6 +48,7 @@ import type { MetaRecord } from 'nextra'
  * what the declaration changes is what that page's audit is allowed to say.
  */
 const meta: MetaRecord = {
+  index: 'Every guide',
   'inspecting-files': 'Inspecting files you have',
   'building-a-pipeline': 'Building a pipeline',
   steps: { title: 'Steps you do not have to write' },
