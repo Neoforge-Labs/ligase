@@ -71,7 +71,15 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: 'Ligase',
-    url: 'https://ligase.neoforgelabs.tech',
+    // Relative, for the same reason `alternates.canonical` is: Next resolves
+    // it against metadataBase and the page's own path, so each page declares
+    // its own address with the trailing slash the export serves. A literal
+    // origin here is one value for the whole site, and it made all 110 pages
+    // claim the front page — every shared link previewed as the homepage, and
+    // a crawler that reads og:url in preference to rel=canonical saw a
+    // hundred pages collapse into one. scripts/check-seo.mjs now fails if
+    // og:url stops naming the page it is on.
+    url: './',
     // Rendered at build time by app/opengraph-image.png/route.tsx.
     images: [
       {

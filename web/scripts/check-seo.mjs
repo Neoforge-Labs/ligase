@@ -10,7 +10,8 @@
  *   2. robots.txt names each AI crawler with its own stanza and an explicit
  *      Allow, and points at the sitemap. An unnamed crawler is at the mercy
  *      of whatever default it assumes.
- *   3. Every page carries a canonical link, and it points at that page.
+ *   3. Every page carries a canonical link and an og:url, and both point at
+ *      that page rather than at the site. No two pages share a <title>.
  *   4. The structured data is a SoftwareApplication that implies no
  *      adoption. The project has no outside users (CLAUDE.md), so there are
  *      no ratings, reviews, counts of interactions or downloads. Its
@@ -134,17 +135,55 @@ assert(
   'robots.txt does not point at the sitemap',
 )
 
-// 3. canonicals ---------------------------------------------------------
+// 3. canonicals, og:url, and one title each ----------------------------
 const canonicalOf = (html) =>
   html.match(/<link[^>]+rel="canonical"[^>]*>/)?.[0].match(/href="([^"]+)"/)?.[1]
+const ogUrlOf = (html) =>
+  html.match(/<meta[^>]+property="og:url"[^>]*>/)?.[0].match(/content="([^"]+)"/)?.[1]
+const titleOf = (html) => html.match(/<title>([^<]*)<\/title>/)?.[1]
+
+/*
+ * og:url is checked as strictly as the canonical because it is the address a
+ * page claims everywhere rel=canonical is not read: link previews, and the
+ * crawlers that take og:url as the page's identity. Declaring it once in the
+ * root layout as a literal origin typechecks, deploys, passes every other
+ * check here, and quietly tells all 110 pages to call themselves the
+ * homepage. Only comparing it against the page it sits on catches that.
+ */
+const titles = new Map()
 for (const page of exportedPages()) {
   const html = readFileSync(outPathFor(page), 'utf8')
   const canonical = canonicalOf(html)
   assert(canonical !== undefined, `${page} has no canonical link`)
-  // A redirect stub canonicalises to its target by design.
-  if (canonical !== undefined && !isRedirectStub(html)) {
+  // A redirect stub canonicalises to its target by design, carries no
+  // OpenGraph tags, and shares its title with every other stub.
+  if (isRedirectStub(html)) continue
+  if (canonical !== undefined) {
     assert(canonical === page, `${page} declares canonical ${canonical}, expected itself`)
   }
+
+  const ogUrl = ogUrlOf(html)
+  assert(ogUrl !== undefined, `${page} has no og:url`)
+  if (ogUrl !== undefined) {
+    assert(ogUrl === page, `${page} declares og:url ${ogUrl}, expected itself`)
+  }
+
+  const title = titleOf(html)
+  assert(title !== undefined && title.trim() !== '', `${page} has no <title>`)
+  if (title) titles.set(title, [...(titles.get(title) ?? []), page])
+}
+
+/*
+ * A title shared by two pages leaves a search engine to pick which of them
+ * to show for it, and it picks one. The pages that collided were a concept
+ * and the API group of the same name, which are the two a reader is most
+ * likely to want told apart.
+ */
+for (const [title, pages] of titles) {
+  assert(
+    pages.length === 1,
+    `${pages.length} pages share the title "${title}" (${pages.join(', ')})`,
+  )
 }
 
 // 4. structured data ----------------------------------------------------
@@ -407,7 +446,8 @@ if (failures.length > 0) {
   process.exit(1)
 }
 console.log(
-  `OK: ${urls.length} sitemap URLs all exported, every exported page listed and canonical, ` +
+  `OK: ${urls.length} sitemap URLs all exported, every exported page listed, canonical, ` +
+    `og:url'd to itself and uniquely titled, ` +
     `AI crawlers named, structured data claims no adoption, llms.txt lists every page, ` +
     `${mds.length} markdown pages are free of JSX, prose claims no adoption.`,
 )

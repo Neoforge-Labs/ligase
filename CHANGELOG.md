@@ -75,6 +75,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Every page on the docs site told crawlers it was the homepage.** The root
+  layout declared `openGraph.url` as the literal origin, so all 110 exported
+  pages carried `og:url` of `https://ligase.neoforgelabs.tech/`. `rel=canonical`
+  was right on every one of them, which is why nine checks and a link crawl
+  passed and nothing looked wrong: the defect lived entirely in the address a
+  page claims where `rel=canonical` is not what gets read. Every docs link
+  pasted into Slack, LinkedIn or a mail client previewed as the front page
+  rather than the page sent, and a crawler that takes `og:url` as a page's
+  identity — several of the AI crawlers `robots.txt` goes out of its way to
+  name — saw one URL where there are a hundred and nine. `og:url` is now
+  relative, resolved against `metadataBase` and the route like the canonical
+  beside it, and `app/not-found.tsx` overrides it to `/404/` for the same
+  reason it already overrode the canonical, because the route Next renders
+  there is the internal `/_not-found`.
+
+- **Two pages shared a title with two others.** `reference/api/resistance/`
+  and `concepts/resistance-interpretation/` were both
+  `Resistance interpretation — Ligase`, and `reference/api/errors/` and
+  `reference/errors/` were both `Errors — Ligase`. A duplicate `<title>`
+  leaves a search engine to choose which of the pair it shows for the phrase,
+  and it chooses one; the collisions were between a concept and the API group
+  of the same name, which are the two a reader most needs told apart.
+  `generate_api.py` now writes the document title as `API: <group>`. The
+  sidebar label and the `h1` are unchanged — the label comes from the
+  generated `_meta.ts`, not the frontmatter.
+
+  `scripts/check-seo.mjs` grew the two assertions that would have caught
+  both: `og:url` is compared against the page it sits on, exactly as the
+  canonical already was, and no two exported pages may share a `<title>`.
+  Redirect stubs are exempt from both, since they carry no OpenGraph tags and
+  deliberately share one title.
+
 - **The analytics page names the container the site actually loads.** It
   opened with `GTM-KBSX44GX` throughout while `web/components/Analytics.tsx`
   has shipped `GTM-NV6SCC4L` since 7 November 2026. The prose and the source
