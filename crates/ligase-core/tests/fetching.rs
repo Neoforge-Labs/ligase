@@ -104,6 +104,26 @@ fn nothing_is_retried_on_a_four_hundred() {
 }
 
 #[test]
+fn a_four_oh_four_is_not_dressed_up_as_exhaustion() {
+    let server = MockServer::start();
+    server.replies("/gone", vec![Reply::status(404)]);
+    let dir = tempfile::tempdir().unwrap();
+
+    let error = Network::new(quick())
+        .fetch(&Request::get(&server.url("/gone")), &staging(&dir, "x"))
+        .unwrap_err();
+
+    // The object is gone, and saying "gave up after six attempts" about one
+    // attempt would send someone looking for a flake that is not there.
+    assert!(
+        matches!(error, FetchError::Status { status: 404, .. }),
+        "{error}"
+    );
+    let message = error.to_string();
+    assert!(!message.contains("gave up"), "{message}");
+}
+
+#[test]
 fn a_five_hundred_is_retried_and_a_later_success_is_taken() {
     let server = MockServer::start();
     server.replies(
@@ -148,8 +168,106 @@ fn a_server_that_never_recovers_fails_after_the_attempts_are_spent() {
         .fetch(&Request::get(&server.url("/down")), &staging(&dir, "x"))
         .unwrap_err();
 
-    assert!(matches!(error, FetchError::Status { .. }));
+    assert!(matches!(error, FetchError::Exhausted { .. }), "{error}");
     assert_eq!(server.hits("/down"), 3, "three attempts, then the error");
+}
+
+#[test]
+fn a_forbidden_is_retried_and_a_later_success_is_taken() {
+    // ENA's answer to an automated client it has had enough of for the
+    // moment is a 403, on a different file each time. Treating it as final
+    // made the demo's CI job fail for a reason that had nothing to do with
+    // the code under test.
+    let server = MockServer::start();
+    server.replies(
+        "/SRR32217715_2.fastq.gz",
+        vec![
+            Reply::status(403),
+            Reply::status(403),
+            Reply::ok(b"@read\nACGT\n+\nIIII\n"),
+        ],
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let into = staging(&dir, "reads");
+
+    let fetched = Network::new(quick())
+        .fetch(&Request::get(&server.url("/SRR32217715_2.fastq.gz")), &into)
+        .unwrap();
+
+    assert_eq!(fetched.status, 200);
+    assert_eq!(server.hits("/SRR32217715_2.fastq.gz"), 3);
+    assert_eq!(fs::read(&into).unwrap(), b"@read\nACGT\n+\nIIII\n".to_vec());
+}
+
+#[test]
+fn a_refusal_that_never_lets_up_says_how_many_times_it_was_asked() {
+    let server = MockServer::start();
+    server.replies("/busy", vec![Reply::status(403)]);
+    let dir = tempfile::tempdir().unwrap();
+
+    let error = Network::new(quick())
+        .fetch(&Request::get(&server.url("/busy")), &staging(&dir, "x"))
+        .unwrap_err();
+
+    // The two facts worth having in a CI log: how hard it tried, and what
+    // it was told the last time. One of them tells you it is a flake; the
+    // other tells you which flake.
+    let message = error.to_string();
+    assert!(matches!(error, FetchError::Exhausted { .. }), "{message}");
+    assert!(message.contains('3'), "{message}");
+    assert!(message.contains("403"), "{message}");
+    assert!(message.contains(&server.url("/busy")), "{message}");
+}
+
+#[test]
+fn the_last_failure_is_still_reachable_underneath_the_exhaustion() {
+    let server = MockServer::start();
+    server.replies("/busy", vec![Reply::status(429)]);
+    let dir = tempfile::tempdir().unwrap();
+
+    let error = Network::new(quick())
+        .fetch(&Request::get(&server.url("/busy")), &staging(&dir, "x"))
+        .unwrap_err();
+
+    // Wrapping the last failure must not hide it from a caller that wants
+    // to branch on the status rather than read a sentence.
+    assert_eq!(error.status(), Some(429), "{error}");
+    let FetchError::Exhausted { last, .. } = &error else {
+        panic!("{error}");
+    };
+    assert!(matches!(**last, FetchError::Status { status: 429, .. }));
+}
+
+#[test]
+fn the_total_wait_is_bounded_however_many_attempts_are_allowed() {
+    let server = MockServer::start();
+    server.replies("/busy", vec![Reply::status(503)]);
+    let dir = tempfile::tempdir().unwrap();
+
+    let started = std::time::Instant::now();
+    let error = Network::new(Policy {
+        attempts: 20,
+        backoff: Duration::from_millis(40),
+        max_total_wait: Duration::from_millis(60),
+        ..Policy::default()
+    })
+    .fetch(&Request::get(&server.url("/busy")), &staging(&dir, "x"))
+    .unwrap_err();
+
+    // Twenty attempts doubling from 40ms would be hours. The time budget is
+    // the bound that makes a genuinely dead URL still fail while someone is
+    // watching, so it has to be the one that bites first.
+    assert!(matches!(error, FetchError::Exhausted { .. }), "{error}");
+    let waited = started.elapsed();
+    assert!(
+        waited < Duration::from_secs(5),
+        "the time budget did not bite: waited {waited:?}"
+    );
+    assert!(
+        server.hits("/busy") < 20,
+        "gave up on attempts rather than on time: {} hits",
+        server.hits("/busy")
+    );
 }
 
 // ------------------------------------------------------------ redirects --
@@ -186,7 +304,9 @@ fn a_redirect_loop_is_refused_rather_than_followed_forever() {
     assert!(
         matches!(
             error,
-            FetchError::Unreachable { .. } | FetchError::Status { .. }
+            FetchError::Unreachable { .. }
+                | FetchError::Status { .. }
+                | FetchError::Exhausted { .. }
         ),
         "a loop must end in an error rather than a hang: {error}"
     );

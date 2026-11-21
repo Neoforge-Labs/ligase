@@ -75,6 +75,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A fetch survives being refused by a rate-limited archive.** The HIV-1
+  demo's CI job had been failing with a 403 from `ftp.sra.ebi.ac.uk` on a
+  different pinned run each time — `SRR32217714` one run, `SRR32217715` the
+  next — which is the signature of a rate limit or a flaky edge rather than
+  an object that has been removed. The transport retried a 429 and a 5xx but
+  took a 403 as final, so the demo could not fetch inputs that were there
+  all along, and the job failed for a reason that had nothing to do with the
+  code under test.
+
+  A 403 now joins 408, 429 and the 5xx range in the retried set, each wait
+  jittered so that runners refused together do not come back together. A 404
+  is still retried zero times: an object that is gone will not arrive on the
+  sixth ask, and retrying one spends a budget the next real request needs.
+  Retrying is bounded by attempts (now six) and by how long the waiting
+  between them may add up to (two minutes), whichever comes first, so a
+  refusal that never lets up still fails while someone is watching. The
+  second bound governs the sleeping rather than the asking: an attempt that
+  hangs is bounded by the per-attempt timeout, which stays generous because
+  a pinned SRA run is legitimately gigabytes. The failure it ends with says how
+  many times the URL was asked and what it answered the last time, and keeps
+  the underlying failure reachable through `source()` and a new
+  `FetchError::status()`; a request that was never retried is still reported
+  as itself. No pinned accession, digest or version moved — the demo's
+  scientific inputs are what they were.
+
 - **The analytics page names the container the site actually loads.** It
   opened with `GTM-KBSX44GX` throughout while `web/components/Analytics.tsx`
   has shipped `GTM-NV6SCC4L` since 7 November 2026. The prose and the source

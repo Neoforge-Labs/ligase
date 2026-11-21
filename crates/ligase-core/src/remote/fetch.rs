@@ -10,9 +10,16 @@
 //! It is dull on purpose. Its whole job is restraint:
 //!
 //! - **Never retry something that will not change.** A 404 is retried zero
-//!   times; a 503 or a 429 is retried with backoff. Retrying a 4xx wastes
-//!   time, and against a rate-limited archive it spends a budget the next
-//!   real request needs.
+//!   times; a 503, a 429 or a 403 is retried with backoff and jitter.
+//!   Retrying something final wastes time, and against a rate-limited
+//!   archive it spends a budget the next real request needs.
+//! - **Never retry forever.** Two bounds, not one: a number of attempts,
+//!   and how long the waiting between them may add up to. The second exists
+//!   because attempts alone cannot stop a doubling backoff from turning a
+//!   refusal that never lets up into an hour of silence. It bounds the
+//!   sleeping and not the asking — an attempt that hangs is bounded by
+//!   [`Policy::timeout`] instead, which stays generous because a fetch that
+//!   is still arriving is not a fetch to abandon.
 //! - **Never follow a redirect forever**, and record *which* URL answered —
 //!   the locator is what the user asked for, the final URL is what replied,
 //!   and provenance wants both because they are different facts.
@@ -54,8 +61,16 @@ pub struct Policy {
     /// How many times to ask, counting the first. Only a failure that could
     /// plausibly differ next time is retried.
     pub attempts: u32,
-    /// How long to wait after a failed attempt, doubling each time.
+    /// How long to wait after a failed attempt, doubling each time and
+    /// jittered so that a fleet of runners refused together does not come
+    /// back together.
     pub backoff: Duration,
+    /// How long all the waiting between attempts may add up to.
+    ///
+    /// The second bound, and the one that does the work: attempts alone
+    /// cannot stop a doubling backoff from turning a dead URL into an hour
+    /// of silence. Whichever bound is reached first ends the fetch.
+    pub max_total_wait: Duration,
     /// How long the whole operation may take, redirects and body included.
     pub timeout: Duration,
     /// How many redirects to follow before giving up.
@@ -71,8 +86,13 @@ pub struct Policy {
 impl Default for Policy {
     fn default() -> Self {
         Self {
-            attempts: 3,
-            backoff: Duration::from_millis(500),
+            // Six and a second: ENA refuses an automated client for tens of
+            // seconds at a time, so three attempts half a second apart
+            // reliably spent themselves inside one refusal and reported it
+            // as though the object were gone.
+            attempts: 6,
+            backoff: Duration::from_secs(1),
+            max_total_wait: Duration::from_secs(120),
             timeout: Duration::from_secs(600),
             max_redirects: 5,
             max_bytes: 64 * 1024 * 1024 * 1024,
@@ -125,6 +145,22 @@ pub enum FetchError {
         /// The underlying failure.
         source: io::Error,
     },
+    /// Every attempt was spent, and the last one still failed.
+    ///
+    /// Carries the failure that ended it, because *what* kept failing is
+    /// the actionable half: an archive that rate-limits under a 403 is a
+    /// different thing to go and look at than a connection that never
+    /// opened. Only a failure that was actually retried arrives wrapped
+    /// this way -- a 404 is reported as itself, so that "gave up after six
+    /// attempts" is never said about one attempt.
+    Exhausted {
+        /// What was asked for.
+        url: String,
+        /// How many times it was asked.
+        attempts: u32,
+        /// The failure the last attempt ended with.
+        last: Box<FetchError>,
+    },
     /// The request asks for a method this transport cannot issue.
     ///
     /// A method is part of a record's identity, so a `POST` is hashable
@@ -152,6 +188,22 @@ impl fmt::Display for FetchError {
                 f,
                 "{url} is larger than the {limit} bytes this fetch allows"
             ),
+            Self::Exhausted {
+                url,
+                attempts,
+                last,
+            } => {
+                let times = if *attempts == 1 {
+                    "attempt"
+                } else {
+                    "attempts"
+                };
+                write!(f, "gave up on {url} after {attempts} {times}; the last ")?;
+                match last.status() {
+                    Some(status) => write!(f, "answered {status}"),
+                    None => write!(f, "failed: {last}"),
+                }
+            }
             Self::Io { path, source } => write!(f, "{}: {source}", path.display()),
             Self::Unsendable { url, method } => write!(
                 f,
@@ -168,6 +220,7 @@ impl std::error::Error for FetchError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
+            Self::Exhausted { last, .. } => Some(last.as_ref()),
             _ => None,
         }
     }
@@ -178,12 +231,41 @@ impl FetchError {
     ///
     /// A connection that dropped and a server that is overloaded might; a
     /// 404 will not, and neither will a response that is too big.
+    ///
+    /// A 403 is in the retryable set, which looks wrong until you watch
+    /// ENA: it answers a client it has had enough of for the moment with a
+    /// 403 rather than a 429, on a different file each time. A file that is
+    /// really not yours stays a 403 through every attempt and is reported
+    /// with its status, so the cost of being wrong about one is the wait --
+    /// whereas the cost of treating a rate limit as final was a demo that
+    /// could not fetch its own pinned inputs.
     #[must_use]
     pub const fn worth_retrying(&self) -> bool {
         match self {
             Self::Unreachable { .. } => true,
-            Self::Status { status, .. } => *status == 429 || *status >= 500,
-            Self::TooLarge { .. } | Self::Io { .. } | Self::Unsendable { .. } => false,
+            Self::Status { status, .. } => matches!(*status, 403 | 408 | 429) || *status >= 500,
+            // Already spent; the bounds are the bounds.
+            Self::Exhausted { .. }
+            | Self::TooLarge { .. }
+            | Self::Io { .. }
+            | Self::Unsendable { .. } => false,
+        }
+    }
+
+    /// The status a server answered with, where one did.
+    ///
+    /// Sees through an [`Self::Exhausted`] to the failure underneath, so a
+    /// caller that wants to branch on the status does not have to know
+    /// whether the fetch was retried on its way to failing.
+    #[must_use]
+    pub fn status(&self) -> Option<u16> {
+        match self {
+            Self::Status { status, .. } => Some(*status),
+            Self::Exhausted { last, .. } => last.status(),
+            Self::Unreachable { .. }
+            | Self::TooLarge { .. }
+            | Self::Io { .. }
+            | Self::Unsendable { .. } => None,
         }
     }
 }
@@ -306,18 +388,42 @@ impl Transport for Network {
                 method: request.method,
             });
         }
+        let attempts = self.policy.attempts.max(1);
         let mut waited = self.policy.backoff;
-        for attempt in 1..=self.policy.attempts.max(1) {
+        let mut spent = Duration::ZERO;
+        for attempt in 1..=attempts {
             match self.attempt(request, into) {
                 Ok(fetched) => return Ok(fetched),
                 Err(error) => {
                     // Whatever happened, nothing half-written is left where
                     // something whole is expected.
                     let _ = fs::remove_file(into);
-                    if attempt == self.policy.attempts || !error.worth_retrying() {
+                    if !error.worth_retrying() {
+                        // Reported as itself: a 404 wrapped in "gave up
+                        // after six attempts" would send someone looking
+                        // for a flake that is not there.
                         return Err(error);
                     }
-                    std::thread::sleep(waited);
+                    let remaining = self.policy.max_total_wait.saturating_sub(spent);
+                    if attempt == attempts || remaining.is_zero() {
+                        // Wrapped only once a retry has actually been
+                        // spent. A policy of one attempt did not give up on
+                        // anything, and saying so would make a single
+                        // refused request read like a flake that was
+                        // chased.
+                        return Err(if attempt > 1 {
+                            FetchError::Exhausted {
+                                url: url.to_owned(),
+                                attempts: attempt,
+                                last: Box::new(error),
+                            }
+                        } else {
+                            error
+                        });
+                    }
+                    let pause = jittered(waited).min(remaining);
+                    std::thread::sleep(pause);
+                    spent = spent.saturating_add(pause);
                     waited = waited.saturating_mul(2);
                 }
             }
@@ -355,6 +461,31 @@ impl Transport for Offline {
     }
 }
 
+/// A wait with up to as much again added.
+///
+/// Jitter rather than a bare doubling because the clients that get refused
+/// together are the ones that asked together: a CI matrix refused by ENA in
+/// the same second and backing off in lockstep arrives back in the same
+/// second and is refused again. Spreading the returns over a band is what
+/// turns a synchronised retry into independent ones.
+///
+/// The entropy is `RandomState`, seeded per instance by the standard
+/// library from the operating system. Enough to decorrelate two processes
+/// on two runners, and no dependency to take on for a number whose only job
+/// is to differ from the next one.
+fn jittered(base: Duration) -> Duration {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher as _, Hasher as _};
+
+    let span = base.as_nanos();
+    if span == 0 {
+        return base;
+    }
+    let noise = u128::from(RandomState::new().build_hasher().finish());
+    let extra = u64::try_from(noise % span).unwrap_or(u64::MAX);
+    base.saturating_add(Duration::from_nanos(extra))
+}
+
 /// Copy at most `cap` bytes from a reader to a path, reporting how many
 /// landed.
 ///
@@ -382,4 +513,26 @@ fn stream(from: &mut impl Read, into: &Path, cap: u64) -> io::Result<u64> {
     }
     file.flush()?;
     Ok(written)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_wait_stays_in_its_band_and_does_not_repeat_itself() {
+        let base = Duration::from_millis(80);
+        let waits: std::collections::HashSet<Duration> = (0..16).map(|_| jittered(base)).collect();
+
+        assert!(waits.len() > 1, "every wait came out identical: {waits:?}");
+        assert!(
+            waits.iter().all(|wait| *wait >= base && *wait < base * 2),
+            "jitter left the band it was supposed to stay in: {waits:?}"
+        );
+    }
+
+    #[test]
+    fn a_zero_wait_is_left_alone_rather_than_divided_by() {
+        assert_eq!(jittered(Duration::ZERO), Duration::ZERO);
+    }
 }
