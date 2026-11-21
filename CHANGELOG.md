@@ -107,6 +107,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Redirect stubs are exempt from both, since they carry no OpenGraph tags and
   deliberately share one title.
 
+- **Neither published package linked its own documentation.** `pyproject.toml`
+  listed only the repository and the changelog, so pypi.org — one of the very
+  few high-authority pages that will ever point at the docs site — linked
+  past it to GitHub, and `Cargo.toml` declared no `homepage` at all, so the
+  crates.io page did the same. PyPI's project page now carries `Homepage` and
+  `Documentation`, and the crate carries `homepage`. `documentation` is left
+  unset on the crate on purpose: crates.io defaults it to docs.rs, which is
+  where a reader after the Rust API should land. Both take effect at the next
+  release, not before.
+
 - **The analytics page names the container the site actually loads.** It
   opened with `GTM-KBSX44GX` throughout while `web/components/Analytics.tsx`
   has shipped `GTM-NV6SCC4L` since 7 November 2026. The prose and the source
