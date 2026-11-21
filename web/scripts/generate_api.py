@@ -739,7 +739,14 @@ def main() -> int:
     for group in GROUPS:
         lines = [
             "---",
-            f'title: "{group.title}"',
+            # The document title, not the navigation label: `_meta.ts` below
+            # carries the label, so prefixing here leaves the sidebar and the
+            # h1 reading as they did. Unprefixed, two of these collided with
+            # the prose pages of the same name ("Resistance interpretation"
+            # with the concept, "Errors" with the error catalogue), and a
+            # duplicate <title> leaves a search engine to choose which of the
+            # two it shows. check-seo.mjs now fails on any such collision.
+            f'title: "API: {group.title}"',
             f'description: "Ligase API reference: {group.title.lower()}."',
             "---",
             "",

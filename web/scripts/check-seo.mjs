@@ -10,11 +10,16 @@
  *   2. robots.txt names each AI crawler with its own stanza and an explicit
  *      Allow, and points at the sitemap. An unnamed crawler is at the mercy
  *      of whatever default it assumes.
- *   3. Every page carries a canonical link, and it points at that page.
+ *   3. Every page carries a canonical link and an og:url, and both point at
+ *      that page rather than at the site. No two pages share a <title>.
  *   4. The structured data is a SoftwareApplication that implies no
- *      adoption. The project has no outside users (CLAUDE.md), so there are
- *      no ratings, reviews, counts of interactions or downloads. Its
- *      version is Cargo.toml's, not a copy that goes stale.
+ *      adoption, names the registries that hold the package, and every page
+ *      but the front page and the 404 carries a BreadcrumbList whose every
+ *      crumb is a page the sitemap lists. The project has no outside users
+ *      (CLAUDE.md), so there are no ratings, reviews, counts of interactions
+ *      or downloads. Its version is Cargo.toml's, not a copy that goes stale.
+ *      Every section that holds pages is itself a page that links them, and
+ *      the sitemap's dates are commit dates rather than the build's.
  *   5. The prose is published for models: llms.txt follows the convention and
  *      lists every page, llms-full.txt carries the real text, and every page
  *      has a markdown variant with no JSX, no MDX import and no component tag.
@@ -134,17 +139,55 @@ assert(
   'robots.txt does not point at the sitemap',
 )
 
-// 3. canonicals ---------------------------------------------------------
+// 3. canonicals, og:url, and one title each ----------------------------
 const canonicalOf = (html) =>
   html.match(/<link[^>]+rel="canonical"[^>]*>/)?.[0].match(/href="([^"]+)"/)?.[1]
+const ogUrlOf = (html) =>
+  html.match(/<meta[^>]+property="og:url"[^>]*>/)?.[0].match(/content="([^"]+)"/)?.[1]
+const titleOf = (html) => html.match(/<title>([^<]*)<\/title>/)?.[1]
+
+/*
+ * og:url is checked as strictly as the canonical because it is the address a
+ * page claims everywhere rel=canonical is not read: link previews, and the
+ * crawlers that take og:url as the page's identity. Declaring it once in the
+ * root layout as a literal origin typechecks, deploys, passes every other
+ * check here, and quietly tells all 110 pages to call themselves the
+ * homepage. Only comparing it against the page it sits on catches that.
+ */
+const titles = new Map()
 for (const page of exportedPages()) {
   const html = readFileSync(outPathFor(page), 'utf8')
   const canonical = canonicalOf(html)
   assert(canonical !== undefined, `${page} has no canonical link`)
-  // A redirect stub canonicalises to its target by design.
-  if (canonical !== undefined && !isRedirectStub(html)) {
+  // A redirect stub canonicalises to its target by design, carries no
+  // OpenGraph tags, and shares its title with every other stub.
+  if (isRedirectStub(html)) continue
+  if (canonical !== undefined) {
     assert(canonical === page, `${page} declares canonical ${canonical}, expected itself`)
   }
+
+  const ogUrl = ogUrlOf(html)
+  assert(ogUrl !== undefined, `${page} has no og:url`)
+  if (ogUrl !== undefined) {
+    assert(ogUrl === page, `${page} declares og:url ${ogUrl}, expected itself`)
+  }
+
+  const title = titleOf(html)
+  assert(title !== undefined && title.trim() !== '', `${page} has no <title>`)
+  if (title) titles.set(title, [...(titles.get(title) ?? []), page])
+}
+
+/*
+ * A title shared by two pages leaves a search engine to pick which of them
+ * to show for it, and it picks one. The pages that collided were a concept
+ * and the API group of the same name, which are the two a reader is most
+ * likely to want told apart.
+ */
+for (const [title, pages] of titles) {
+  assert(
+    pages.length === 1,
+    `${pages.length} pages share the title "${title}" (${pages.join(', ')})`,
+  )
 }
 
 // 4. structured data ----------------------------------------------------
@@ -158,7 +201,28 @@ assert(blocks.length === 1, `index.html carries ${blocks.length} JSON-LD blocks,
 const ld = blocks[0] ?? {}
 assert(ld['@type'] === 'SoftwareApplication', 'JSON-LD is not a SoftwareApplication')
 assert(ld.name === 'Ligase', 'JSON-LD name is not Ligase')
-assert(ld.sameAs === 'https://github.com/Neoforge-Labs/ligase', 'JSON-LD repository (sameAs) is wrong')
+/*
+ * `sameAs` is the entity's identity, not just a repository link. The name
+ * collides with DNA ligase, so the two registries that hold the package are
+ * listed beside the repository: they are what lets a search engine or an
+ * agent resolve "Ligase" to this software rather than to an enzyme. Each must
+ * be present and each must be a real page — a withdrawn registry entry has to
+ * come out of the layout, not be left pointing at a 404.
+ */
+const IDENTITY = [
+  'https://github.com/Neoforge-Labs/ligase',
+  'https://pypi.org/project/ligase-bio/',
+  'https://crates.io/crates/ligase',
+]
+const sameAs = Array.isArray(ld.sameAs) ? ld.sameAs : [ld.sameAs]
+for (const url of IDENTITY) {
+  assert(sameAs.includes(url), `JSON-LD sameAs does not list ${url}`)
+}
+assert(
+  String(ld.alternateName ?? '').includes('ligase-bio') ||
+    (Array.isArray(ld.alternateName) && ld.alternateName.includes('ligase-bio')),
+  'JSON-LD has no alternateName naming the PyPI distribution (ligase-bio)',
+)
 assert(ld.author?.name === 'Kelyn Njeri', 'JSON-LD author is not Kelyn Njeri')
 assert(
   ld.softwareVersion === workspaceVersion(),
@@ -205,6 +269,137 @@ for (const key of ADOPTION) {
 const prose = String(ld.description ?? '')
 for (const word of ['production-ready', 'production ready', 'trusted', 'popular', 'widely used']) {
   assert(!prose.toLowerCase().includes(word), `JSON-LD description claims "${word}"`)
+}
+
+/*
+ * Breadcrumbs. The theme draws a visible trail above every page, and this is
+ * the markup for it, so it has to be a trail that can actually be walked:
+ * positions 1..n in order, the first crumb the site root, the last the page
+ * itself, and every crumb a page the sitemap lists. That last one is the
+ * assertion that matters. Seven of the site's sections are folders with no
+ * index.mdx, and a crumb pointing at one would hand a crawler a link to a
+ * 404 dressed up as navigation -- the one way this markup can do harm.
+ * components/Breadcrumbs.tsx leaves those sections out for that reason, and
+ * this fails if it ever stops.
+ */
+for (const page of exportedPages()) {
+  const html = readFileSync(outPathFor(page), 'utf8')
+  if (isRedirectStub(html)) continue
+
+  const found = jsonLdBlocks(html)
+  const apps = found.filter((b) => b?.['@type'] === 'SoftwareApplication')
+  assert(apps.length === 1, `${page} carries ${apps.length} SoftwareApplication blocks, expected 1`)
+  const trails = found.filter((b) => b?.['@type'] === 'BreadcrumbList')
+
+  // The front page is the root of every trail, and the 404 is noindex.
+  if (page === `${ORIGIN}/` || NOINDEX_ALLOWED.has(page)) {
+    assert(trails.length === 0, `${page} carries a breadcrumb, and it is not a page in a trail`)
+    continue
+  }
+
+  assert(trails.length === 1, `${page} carries ${trails.length} BreadcrumbList blocks, expected 1`)
+  const crumbs = trails[0]?.itemListElement ?? []
+  assert(crumbs.length >= 2, `${page} has a breadcrumb of ${crumbs.length} crumb(s)`)
+  crumbs.forEach((crumb, i) => {
+    assert(crumb?.position === i + 1, `${page}: crumb ${i + 1} declares position ${crumb?.position}`)
+    assert(
+      typeof crumb?.name === 'string' && crumb.name.trim() !== '',
+      `${page}: crumb ${i + 1} has no name`,
+    )
+    assert(
+      typeof crumb?.item === 'string' && listed.has(crumb.item),
+      `${page}: crumb ${i + 1} points at ${crumb?.item}, which the sitemap does not list`,
+    )
+  })
+  assert(
+    crumbs[0]?.item === `${ORIGIN}/`,
+    `${page}: the trail starts at ${crumbs[0]?.item}, expected the site root`,
+  )
+  assert(
+    crumbs.at(-1)?.item === page,
+    `${page}: the trail ends at ${crumbs.at(-1)?.item}, expected the page itself`,
+  )
+}
+
+// 4b. every section has a hub, and the hub links its section -----------
+/*
+ * A section that is only a folder is a hole in the site. The sidebar expands
+ * it, so a reader never notices, but a crawler following links finds no page
+ * at /concepts/ and the section has no address of its own to rank: the pages
+ * inside it compete alone for a category query that none of them answers.
+ * Seven sections were in that state, which is also why their breadcrumbs were
+ * two crumbs deep — a trail cannot point at an address that is not a page.
+ *
+ * So: every directory that holds pages is itself a page, and that page links
+ * to each page directly inside it.
+ *
+ * The check reads the hub's markdown variant, not its HTML. The HTML carries
+ * the sidebar, which links every page on the site, so an HTML check would pass
+ * on a hub whose body is empty. The .md is the page body and nothing else.
+ *
+ * The front page is exempt: it is a designed landing page, not a hub, and its
+ * children are the sections themselves.
+ */
+const childrenOf = new Map() // section route -> [child page routes]
+for (const u of urls) {
+  const path = new URL(u).pathname
+  if (path === '/') continue
+  const parent = path.replace(/[^/]+\/$/, '')
+  if (!childrenOf.has(parent)) childrenOf.set(parent, [])
+  childrenOf.get(parent).push(path)
+}
+for (const [section, children] of childrenOf) {
+  if (section === '/') continue // the front page is not a hub
+  const hub = `${ORIGIN}${section}`
+  assert(
+    listed.has(hub),
+    `${children.length} pages live under ${section} but it is not a page (add ${section.slice(1)}index.mdx and an "index" key to its _meta.ts)`,
+  )
+  const md = join(OUT, section, 'index.md')
+  if (!listed.has(hub) || !existsSync(md)) continue
+  const body = readFileSync(md, 'utf8')
+  for (const child of children) {
+    assert(
+      body.includes(`${ORIGIN}${child}`),
+      `${section} is a hub but its body does not link ${child}`,
+    )
+  }
+}
+
+// 4c. sitemap dates are real ---------------------------------------------
+/*
+ * `lastmod` is worth having only if it is true. The failure mode is emitting
+ * the build time: every page then claims to have changed on every deploy, a
+ * crawler that checked twice learns the value means nothing, and it stops
+ * reading it — which is worse than never having sent one. So a date must parse,
+ * must not be in the future, and the set of dates across the site must not be
+ * a single value. lib/lastmod.ts reads them from git, and omits the date for a
+ * page whose source is generated rather than committed.
+ */
+const stamps = [...sitemap.matchAll(/<lastmod>([^<]+)<\/lastmod>/g)].map((m) => m[1])
+/*
+ * Most pages must carry one. The way this breaks is not a wrong date but no
+ * date at all: lib/lastmod.ts matches git's paths against the page's source
+ * path, and when the two stop lining up every lookup misses and the map comes
+ * back empty — which is valid XML and says nothing, so nothing else notices.
+ * Half is the floor because the generated sections (the API pages, the CLI
+ * reference, the notebooks) are gitignored and have no commit of their own.
+ */
+assert(
+  stamps.length * 2 >= urls.length,
+  `only ${stamps.length} of ${urls.length} sitemap URLs carry a lastmod — git paths and page paths have probably stopped matching in lib/lastmod.ts`,
+)
+{
+  const now = Date.now()
+  for (const stamp of stamps) {
+    const when = new Date(stamp)
+    assert(!Number.isNaN(when.getTime()), `sitemap has an unparseable lastmod: ${stamp}`)
+    assert(when.getTime() <= now + 86_400_000, `sitemap dates a page in the future: ${stamp}`)
+  }
+  assert(
+    new Set(stamps).size > 1,
+    `all ${stamps.length} sitemap lastmod values are identical (${stamps[0]}) — that is a build timestamp, not a change date`,
+  )
 }
 
 // 5. machine-readable prose ---------------------------------------------
@@ -407,7 +602,8 @@ if (failures.length > 0) {
   process.exit(1)
 }
 console.log(
-  `OK: ${urls.length} sitemap URLs all exported, every exported page listed and canonical, ` +
+  `OK: ${urls.length} sitemap URLs all exported, every exported page listed, canonical, ` +
+    `og:url'd to itself, uniquely titled and in a walkable breadcrumb, ` +
     `AI crawlers named, structured data claims no adoption, llms.txt lists every page, ` +
     `${mds.length} markdown pages are free of JSX, prose claims no adoption.`,
 )

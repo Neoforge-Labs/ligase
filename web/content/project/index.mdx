@@ -1,0 +1,61 @@
+---
+title: "About this project"
+description: "Written about Ligase rather than for someone using it: how to build it, how it is laid out, the design decisions and their records, the milestones, what the validation compared, and how it is released."
+---
+
+# About this project
+
+<Lede>
+This section is **written about Ligase rather than for someone using it.**
+Internals, decisions, milestones, validation, releasing and the site's own
+machinery all live here, and nothing a user needs does. If you are trying to
+get something running, [start here](/start/) instead.
+</Lede>
+
+Ligase is a Rust engine with a Python surface, built by Kelyn Njeri at NeoForge
+Labs. It is pre-alpha, dual-licensed MIT or Apache-2.0, and has no outside
+users — which the [in use](/project/in-use/) page says at more length rather
+than less.
+
+## Working on it
+
+- [Building Ligase](/project/building/) — building from source, running the
+  nine-check gate, fetching the demo data, and rebuilding after a Rust change.
+- [Project layout](/project/layout/) — one repository, three layers: the Rust
+  engine, a thin binding crate, and the Python package. One `pip install` gets
+  all three.
+- [Architecture](/project/architecture/) — how each component is actually
+  built, one page per component, with the trade-offs recorded.
+
+## Why it is the way it is
+
+- [Design decisions](/project/decisions/) — the numbered decision records.
+  Where a page elsewhere says "because D35", this is D35.
+- [Golden example](/project/golden-example/) — the target user experience that
+  the internals have to serve. Names may evolve; the shape is fixed.
+- [Milestones](/project/milestones/) — one milestone per session, with
+  acceptance tests, and the list of what is deliberately out of scope.
+
+## Whether it works
+
+- [Validation](/project/validation/) — what the resistance calls were compared
+  against, what agreed, and what did not. Including the discrepancy that is a
+  genuine sensitivity limit and is described as one.
+- [In use](/project/in-use/) — the two pieces of work that have actually been
+  run with it, and the sibling project evaluating it. No logos and no adoption
+  figures, because there are none.
+
+## Shipping it
+
+- [Releasing](/project/releasing/) — two packages from one tag: the engine as
+  the `ligase` crate on crates.io, and the Python package as `ligase-bio` on
+  PyPI.
+
+## The site itself
+
+- [Analytics](/project/analytics/) — one Google Tag Manager container with
+  every consent signal defaulting to denied: what that measures, and what it
+  gives up.
+- [Discoverability](/project/discoverability/) — what the site tells a crawler
+  and what it publishes for language models, what the build gate checks, and
+  what no gate here can check.

@@ -1,0 +1,298 @@
+---
+title: "Discoverability"
+description: "What the site tells a crawler and a language model: robots, the sitemap and its dates, the address each page claims, the breadcrumb, the section hubs, the identifiers that say which Ligase this is, and the prose published for models. How the domain is verified with Google and Bing, and why that record goes on the apex rather than the docs host. What the gate checks, and what no gate here can."
+---
+# Discoverability
+
+## What it is
+
+A static export on GitHub Pages, which means there is no server to answer a
+crawler and every signal has to be a file in `out/`. There are eight, and
+`npm run seo` is the gate over all of them.
+
+```text
+robots.txt        app/robots.ts         who may crawl, and where the sitemap is
+sitemap.xml       app/sitemap.ts        every page, with the date it changed
+rel=canonical     app/layout.tsx        the address a page claims
+og:url            app/layout.tsx        the same address, for everything else
+BreadcrumbList    components/Breadcrumbs.tsx   where the page sits
+SoftwareApplication  app/layout.tsx     which Ligase this is
+section hubs      content/*/index.mdx   a page at every address a crumb names
+llms.txt          scripts/generate-llms.mjs    the prose, for models
+```
+
+Nothing in that list is written by hand except the hubs. `robots.ts` and
+`sitemap.ts` are Next file conventions, both declared `force-static` because an
+export has no server to run them per request; the sitemap is read off the same
+page map the sidebar is built from, so a page in the navigation cannot be
+missing from it.
+
+## The address a page claims
+
+Two tags say where a page lives, and they are read by different things.
+`rel=canonical` is what a search engine consolidates on. `og:url` is what
+everything else uses — link previews in chat and mail clients, and the
+crawlers that take it as the page's identity.
+
+Both are declared once, in the root layout, as the relative `'./'`. Next
+resolves that against `metadataBase` and the route being rendered, so each
+page states its own address with the trailing slash the export serves.
+
+<Note kind="caution" title="Why this is not a literal URL">
+`openGraph.url` was once the literal origin. It typechecked, deployed, and
+passed every other check here, while telling all 110 pages that they were the
+front page. `rel=canonical` was right on all of them, so nothing looked
+wrong: every docs link pasted into a chat previewed as the homepage, and a
+crawler reading `og:url` in preference to the canonical saw one URL where
+there are 109. The check now compares `og:url` against the page it sits on.
+</Note>
+
+`app/not-found.tsx` overrides both. The route Next renders there is its
+internal `/_not-found`, which would otherwise leak into public HTML; the
+export serves that page at `/404/`, so that is what it declares. Next replaces
+a parent's `openGraph` rather than merging into it, so the 404 respells the
+`siteName`, `type` and image rather than dropping them.
+
+## When a page last changed
+
+Each sitemap entry carries the commit date of the page's own MDX, read from
+git by `lib/lastmod.ts` in one `git log` pass. A crawler that trusts `lastmod`
+revisits what moved and leaves the rest alone, which is the only reason to
+send one.
+
+The way to make it worthless is to emit the build time: every page then claims
+to have changed on every deploy, that is false for all but the few that did,
+and a crawler which checks twice learns the value means nothing. So a page
+whose source is generated rather than committed — the API reference, the CLI
+reference, the notebooks — carries **no date at all** rather than an invented
+one. Twenty-one of the pages are in that position, and the gate fails if fewer
+than half the sitemap carries a date, because the way this breaks in practice
+is not a wrong date but an empty map that is still valid XML.
+
+A date is only taken for a source file git still **tracks**. The log alone is
+not enough: `git log --name-only` names a path as it was at each commit, so a
+file that was committed once and has since been ignored still has a newest
+entry, and that entry is usually the commit that deleted it. The generated API
+and CLI pages are in exactly that position, and the first version of this gave
+ten of them a date from the day their old committed copies were removed.
+
+<Note kind="note" title="Needs full history">
+`.github/workflows/web.yml` checks out with `fetch-depth: 0`. A shallow clone
+has one commit, so every page would date to the checkout — which is the build
+timestamp wearing a disguise. Built from a tarball with no git at all, every
+page simply has no date and the sitemap is still valid.
+</Note>
+
+## Every section is a page
+
+Seven of the site's eleven sections used to be folders with no `index.mdx`:
+
+```text
+concepts/    guide/    guide/steps/    start/
+reference/   project/  project/architecture/
+```
+
+The sidebar expanded them, so a reader never noticed. A crawler following
+links found no page at `/concepts/`, the section had no address of its own to
+rank for a category query, and the breadcrumb could not name it — Google
+requires `item` on every element of a `BreadcrumbList` except the last, so a
+section with no page was left out of the trail rather than pointed at an
+address that 404s. Most pages were two crumbs deep as a result.
+
+Each of those seven now has a hub: a page that says what the section is for,
+in what order to read it, and links every page inside it. The trails are the
+depth the tree actually is:
+
+```text
+/concepts/caching/             Ligase > Concepts > Running, and not running
+/guide/steps/minimap2/         Ligase > Guides > Steps you do not have to write > Aligning with minimap2
+/project/architecture/cache/   Ligase > Project > Architecture > Cache
+```
+
+The gate now holds this open: every directory that contains pages must itself
+be a page, and that page's body must link each page directly inside it. It
+reads the **markdown variant** rather than the HTML, because the HTML carries
+the sidebar — which links the whole site, and would pass a hub whose body was
+empty.
+
+The front page is exempt. It is a designed landing page rather than a hub, and
+its children are the sections themselves.
+
+## Which Ligase this is
+
+The name collides with DNA ligase, the enzyme, which has a century of
+literature behind it and wins every ambiguous query. Nothing in a docs site
+changes that, but the `SoftwareApplication` block can at least say which thing
+this is, by naming the identifiers that resolve to it:
+
+```text
+sameAs           github.com/Neoforge-Labs/ligase
+                 pypi.org/project/ligase-bio/
+                 crates.io/crates/ligase
+alternateName    ligase-bio
+installUrl       pypi.org/project/ligase-bio/
+```
+
+Two registries and a repository, each of which is a page that exists. The gate
+asserts all three are listed; a withdrawn registry entry has to come out of
+the layout rather than be left pointing at a 404. `alternateName` carries
+`ligase-bio` because that is the distribution name on PyPI while the import is
+`ligase`, and a reader or an agent that has only one of the two names needs the
+other.
+
+Nothing in that block implies adoption. The project has no outside users, so
+there are no ratings, reviews, download counts or `offers`, and
+`scripts/check-seo.mjs` fails on any of them at any depth.
+
+## Telling a search engine it exists
+
+An unverified site is crawled on whatever schedule a crawler decides, and
+nobody here can see what it decided. Verification is what opens that up, and it
+is the one signal that cannot be committed: the token belongs to an account.
+These steps need account access and DNS access, so no workflow and no
+assistant can do them. They are done once.
+
+### Why the record goes on the domain and not the docs host
+
+`ligase.neoforgelabs.tech` is a `CNAME` to `neoforge-labs.github.io`, which is
+how a GitHub Pages custom subdomain is pointed. A name that holds a `CNAME`
+holds no other record, so the docs host cannot carry a verification `TXT` of
+its own — a `TXT` query there answers with the alias instead:
+
+```console
+$ dig +short ligase.neoforgelabs.tech TXT
+neoforge-labs.github.io.
+```
+
+The apex, `neoforgelabs.tech`, carries address records instead, so it can
+hold one. Verify
+**the domain, as a Domain property**, rather than the docs URL as a
+URL-prefix property: a domain property covers every subdomain and both
+protocols at once, so the docs host is covered without a property of its own,
+and a future `api.` or `blog.` is covered before it exists. Google's
+verification wizard will offer `CNAME` instead of `TXT` for a host that is
+itself aliased, which is the other reason this is done at the apex, where the
+simpler record works.
+
+<Note kind="tip" title="Check before generating a token">
+The apex already answers a `TXT` query with a `google-site-verification=`
+record. If that belongs to the account doing this, and it was a Domain
+property, Search Console already shows the site as verified and there is
+nothing to add — skip to submitting the sitemap. A second token does no harm,
+but an unused one left in DNS tells nobody anything.
+</Note>
+
+### Google Search Console
+
+1. At [Search Console](https://search.google.com/search-console), add a
+   property, choose **Domain**, and enter `neoforgelabs.tech` — the bare
+   domain, with no scheme and not the docs subdomain.
+2. Add the `TXT` record it gives you at the apex, with the host left empty or
+   `@`, **alongside** the records already there rather than in place of them.
+   DNS answers can be cached for as long as their TTL, so a verification that
+   fails immediately is worth retrying rather than re-doing.
+3. Submit the sitemap: **Sitemaps** →
+   `https://ligase.neoforgelabs.tech/sitemap.xml`. `robots.txt` already names
+   it, which is what an unverified crawler goes on; submitting it is how you
+   get the report back — how many of its URLs were read, and which were
+   refused and why.
+4. Leave the record in place afterwards. Removing it un-verifies the property,
+   and the data goes with it.
+
+### Bing Webmaster Tools
+
+Bing will import a site, its verification and its sitemaps from a verified
+Search Console property, which is the reason to do Google first. The cost is a
+standing dependency: it keeps the ownership in step by syncing with that
+Google account, so revoking its access means importing again or verifying
+another way.
+
+Verifying Bing directly is the alternative, and it offers an XML file at the
+site root, a `<meta>` tag, or a DNS record, with the exact value shown in the
+console. The meta tag is the one this site has code for.
+
+### When the DNS is not available
+
+`app/layout.tsx` reads two environment variables at build time and emits a
+meta tag for each one that is set:
+
+```text
+LIGASE_GOOGLE_SITE_VERIFICATION   google-site-verification
+LIGASE_BING_SITE_VERIFICATION     msvalidate.01
+```
+
+An unset variable emits no tag rather than an empty one, and no token is
+committed. Neither is set in CI today: wiring one up means adding it to the
+`env:` of the `Check` step in `.github/workflows/web.yml`, read from a
+repository **variable** rather than a secret — a verification token is public
+in the HTML of every page it is on, and storing it as a secret would only
+hide it from the person maintaining it.
+
+A meta tag verifies the one origin it is served on and lasts as long as the
+build keeps emitting it, which is the trade against the DNS record above.
+
+## Published for models
+
+`llms.txt` follows the convention: a summary, then every page as a link to a
+markdown variant, in sections mirroring the nav. `llms-full.txt` carries the
+text itself, and an `index.md` sits beside every page. `robots.txt` names
+`GPTBot`, `ClaudeBot`, `PerplexityBot`, `Google-Extended` and `CCBot` in
+stanzas of their own with an explicit `Allow`, because the `*` rule would
+admit them but an unnamed crawler is left to whatever default it assumes.
+
+The conversion to markdown is not a tag-stripper: it keeps the text a
+component stands for, including diagnostics whose text is not in the MDX at
+all but referenced from the captured engine output.
+
+What that is for: a model asked about Ligase can fetch one file and have the
+whole site in prose, or fetch one page's `index.md` and have that page with no
+chrome to parse. The two facts most easily got wrong — that the distribution
+is `ligase-bio` while the import is `ligase`, and that every example on the
+quickstart is captured from a real run — are stated on the pages a retrieval
+would land on rather than only in a heading.
+
+## What the gate checks
+
+`npm run seo` runs `scripts/check-seo.mjs` over `out/` after a build and fails
+on any of:
+
+- a sitemap URL with no page, or a page missing from the sitemap, in either
+  direction; the 404 is the only page allowed to be `noindex`
+- a crawler in the list above that is unnamed, or named and not allowed
+- a page whose `rel=canonical` or `og:url` is not its own address
+- two pages sharing a `<title>`
+- a directory of pages that is not itself a page, or a hub whose body does not
+  link a page inside it
+- a breadcrumb crumb pointing at anything the sitemap does not list, a trail
+  not starting at the site root or not ending at the page, or positions out of
+  order
+- a `lastmod` that does not parse or is in the future, every `lastmod` being
+  the same value, or fewer than half the pages carrying one
+- structured data implying adoption — ratings, reviews, download or
+  interaction counts — a missing registry in `sameAs`, or a `softwareVersion`
+  that is not `Cargo.toml`'s
+- `llms.txt` missing a page, or a markdown variant with JSX left in it
+
+The page count is deliberately not asserted anywhere: the page map is the
+source of truth, and a hardcoded number rots the day someone adds a page.
+
+## What no gate here can check
+
+**Whether anything is indexed.** No gate can see a search engine's index, and
+nothing in the repository records a verification token, so if a Search Console
+or Bing Webmaster property exists it was verified some other way and this
+repository does not know. Everything above is a signal prepared for a crawler
+that has to be told the site is there.
+
+**Whether anything links in.** A crawler reaches a page by following a link,
+and the number of pages pointing here from elsewhere is not a fact this
+repository holds. `pyproject.toml` and `Cargo.toml` name the site now, so the
+PyPI and crates.io pages link it from the next release onward — which is two
+links, and two is the honest number.
+
+**Whether a model recommends it.** The files above make the facts retrievable
+and hard to get wrong. What they cannot do is put Ligase in a model's weights
+or in the set of packages it reaches for by habit; that follows from the
+package being used and written about, not from markup. A page that claimed
+otherwise would fail the honesty rule in `CLAUDE.md`, and the gate that
+enforces it.

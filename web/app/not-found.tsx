@@ -2,15 +2,33 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 
 /*
- * The layout's canonical is './', resolved against the route being rendered.
- * For the 404 that route is Next's internal /_not-found, which would leak
- * into public HTML. The export serves this page at /404/ (and as 404.html), so
- * that is the address it declares. It stays noindex, so it is never a search
- * result and never in the sitemap; the canonical only has to be true.
+ * The layout's canonical and og:url are both './', resolved against the route
+ * being rendered. For the 404 that route is Next's internal /_not-found,
+ * which would leak into public HTML. The export serves this page at /404/
+ * (and as 404.html), so that is the address it declares, in both places. It
+ * stays noindex, so it is never a search result and never in the sitemap;
+ * the two addresses only have to be true.
+ *
+ * Next replaces the parent's `openGraph` rather than merging into it, so the
+ * siteName, type and image the layout declares are spelled out again here.
+ * Writing only `url` would silently drop them.
  */
 export const metadata: Metadata = {
   title: 'Page not found',
   alternates: { canonical: '/404/' },
+  openGraph: {
+    type: 'website',
+    siteName: 'Ligase',
+    url: '/404/',
+    images: [
+      {
+        url: '/opengraph-image.png',
+        width: 1200,
+        height: 630,
+        alt: 'Ligase: type-safe, reproducible computational biology pipelines',
+      },
+    ],
+  },
 }
 
 /*

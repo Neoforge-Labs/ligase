@@ -13,6 +13,7 @@ import type { MetaRecord } from 'nextra'
  * dressed.
  */
 const meta: MetaRecord = {
+  index: 'How Ligase is built',
   workspace: 'Workspace',
   'type-system': 'Type system',
   inspect: 'Inspect',

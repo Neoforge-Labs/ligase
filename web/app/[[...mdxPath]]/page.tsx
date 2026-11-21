@@ -1,4 +1,5 @@
 import { generateStaticParamsFor, importPage } from 'nextra/pages'
+import { Breadcrumbs } from '../../components/Breadcrumbs'
 import { useMDXComponents as getMDXComponents } from '../../mdx-components'
 
 export const generateStaticParams = generateStaticParamsFor('mdxPath')
@@ -18,8 +19,15 @@ export default async function Page(props: Props) {
   const result = await importPage(params.mdxPath)
   const { default: MDXContent, toc, metadata, sourceCode } = result
   return (
-    <Wrapper toc={toc} metadata={metadata} sourceCode={sourceCode}>
-      <MDXContent {...props} params={params} />
-    </Wrapper>
+    <>
+      {/*
+        Beside the article rather than inside it: the trail describes the
+        page, and the theme's visible breadcrumb is the thing it marks up.
+      */}
+      <Breadcrumbs mdxPath={params.mdxPath} />
+      <Wrapper toc={toc} metadata={metadata} sourceCode={sourceCode}>
+        <MDXContent {...props} params={params} />
+      </Wrapper>
+    </>
   )
 }

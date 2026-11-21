@@ -7,6 +7,7 @@ import type { MetaRecord } from 'nextra'
  * is built this way, and what has been checked.
  */
 const meta: MetaRecord = {
+  index: 'About this project',
   building: 'Building Ligase',
   layout: 'Project layout',
   architecture: 'Architecture',
@@ -17,6 +18,7 @@ const meta: MetaRecord = {
   'in-use': 'In use',
   releasing: 'Releasing',
   analytics: 'Analytics',
+  discoverability: 'Discoverability',
 }
 
 export default meta
