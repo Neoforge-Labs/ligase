@@ -1,6 +1,6 @@
 ---
 title: "Discoverability"
-description: "What the site tells a crawler and a language model: robots, the sitemap and its dates, the address each page claims, the breadcrumb, the section hubs, the identifiers that say which Ligase this is, and the prose published for models. What the gate checks, and what no gate here can."
+description: "What the site tells a crawler and a language model: robots, the sitemap and its dates, the address each page claims, the breadcrumb, the section hubs, the identifiers that say which Ligase this is, and the prose published for models. How the domain is verified with Google and Bing, and why that record goes on the apex rather than the docs host. What the gate checks, and what no gate here can."
 ---
 # Discoverability
 
@@ -149,23 +149,87 @@ there are no ratings, reviews, download counts or `offers`, and
 An unverified site is crawled on whatever schedule a crawler decides, and
 nobody here can see what it decided. Verification is what opens that up, and it
 is the one signal that cannot be committed: the token belongs to an account.
+These steps need account access and DNS access, so no workflow and no
+assistant can do them. They are done once.
 
-Verifying the **domain by DNS TXT record** is the better route and needs none
-of this code: it covers every origin on the domain, survives a redeploy, and
-works for Google and Bing alike. The site's DNS is the project's own, so that
-is the recommended path.
+### Why the record goes on the domain and not the docs host
 
-For the case where the DNS is not available, `app/layout.tsx` reads two
-environment variables at build time and emits a meta tag for each one that is
-set:
+`ligase.neoforgelabs.tech` is a `CNAME` to `neoforge-labs.github.io`, which is
+how a GitHub Pages custom subdomain is pointed. A name that holds a `CNAME`
+holds no other record, so the docs host cannot carry a verification `TXT` of
+its own — a `TXT` query there answers with the alias instead:
+
+```console
+$ dig +short ligase.neoforgelabs.tech TXT
+neoforge-labs.github.io.
+```
+
+The apex, `neoforgelabs.tech`, carries address records instead, so it can
+hold one. Verify
+**the domain, as a Domain property**, rather than the docs URL as a
+URL-prefix property: a domain property covers every subdomain and both
+protocols at once, so the docs host is covered without a property of its own,
+and a future `api.` or `blog.` is covered before it exists. Google's
+verification wizard will offer `CNAME` instead of `TXT` for a host that is
+itself aliased, which is the other reason this is done at the apex, where the
+simpler record works.
+
+<Note kind="tip" title="Check before generating a token">
+The apex already answers a `TXT` query with a `google-site-verification=`
+record. If that belongs to the account doing this, and it was a Domain
+property, Search Console already shows the site as verified and there is
+nothing to add — skip to submitting the sitemap. A second token does no harm,
+but an unused one left in DNS tells nobody anything.
+</Note>
+
+### Google Search Console
+
+1. At [Search Console](https://search.google.com/search-console), add a
+   property, choose **Domain**, and enter `neoforgelabs.tech` — the bare
+   domain, with no scheme and not the docs subdomain.
+2. Add the `TXT` record it gives you at the apex, with the host left empty or
+   `@`, **alongside** the records already there rather than in place of them.
+   DNS answers can be cached for as long as their TTL, so a verification that
+   fails immediately is worth retrying rather than re-doing.
+3. Submit the sitemap: **Sitemaps** →
+   `https://ligase.neoforgelabs.tech/sitemap.xml`. `robots.txt` already names
+   it, which is what an unverified crawler goes on; submitting it is how you
+   get the report back — how many of its URLs were read, and which were
+   refused and why.
+4. Leave the record in place afterwards. Removing it un-verifies the property,
+   and the data goes with it.
+
+### Bing Webmaster Tools
+
+Bing will import a site, its verification and its sitemaps from a verified
+Search Console property, which is the reason to do Google first. The cost is a
+standing dependency: it keeps the ownership in step by syncing with that
+Google account, so revoking its access means importing again or verifying
+another way.
+
+Verifying Bing directly is the alternative, and it offers an XML file at the
+site root, a `<meta>` tag, or a DNS record, with the exact value shown in the
+console. The meta tag is the one this site has code for.
+
+### When the DNS is not available
+
+`app/layout.tsx` reads two environment variables at build time and emits a
+meta tag for each one that is set:
 
 ```text
 LIGASE_GOOGLE_SITE_VERIFICATION   google-site-verification
 LIGASE_BING_SITE_VERIFICATION     msvalidate.01
 ```
 
-An unset variable emits no tag rather than an empty one. No token is committed,
-and neither variable is set in CI today.
+An unset variable emits no tag rather than an empty one, and no token is
+committed. Neither is set in CI today: wiring one up means adding it to the
+`env:` of the `Check` step in `.github/workflows/web.yml`, read from a
+repository **variable** rather than a secret — a verification token is public
+in the HTML of every page it is on, and storing it as a secret would only
+hide it from the person maintaining it.
+
+A meta tag verifies the one origin it is served on and lasts as long as the
+build keeps emitting it, which is the trade against the DNS record above.
 
 ## Published for models
 

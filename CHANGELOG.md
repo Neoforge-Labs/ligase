@@ -41,9 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   first version of this dated ten of them to the day their old copies were
   deleted. 96 of 117 pages carry a date, across 42 distinct values. The gate
   fails on a date that does not parse, a date in the future, every date being
-  identical, or fewer than half the pages carrying one — that last because the way this breaks in practice is not a
-  wrong date but an empty map that is still valid XML, which is exactly what
-  the first version of it produced.
+  identical, or fewer than half the pages carrying one — that last because the
+  way this breaks in practice is not a wrong date but an empty map that is
+  still valid XML, which is exactly what the first version of it produced.
 
 - **The structured data says which Ligase this is.** The name collides with
   DNA ligase, the enzyme, which has a century of literature behind it and wins
@@ -60,9 +60,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   reads `LIGASE_GOOGLE_SITE_VERIFICATION` and `LIGASE_BING_SITE_VERIFICATION`
   at build time and emits a meta tag for each one that is set; an unset
   variable emits no tag rather than an empty one. No token is committed and
-  neither variable is set in CI. Verifying the domain by DNS TXT record is the
-  better route and needs none of this, which `project/discoverability.mdx`
-  says plainly.
+  neither variable is set in CI. Verifying the domain in DNS is the better
+  route and needs none of this, so `project/discoverability.mdx` now carries
+  the steps for it: the docs host is a `CNAME` to GitHub Pages and can
+  therefore hold no `TXT` record of its own, so the record goes at the apex,
+  verified as a Domain property — which covers every subdomain, including the
+  ones that do not exist yet. It also says what Bing's import from Search
+  Console costs, and that a verification token belongs in a repository
+  variable rather than a secret, being public in the HTML of every page it is
+  on.
 
 - **Every page on the docs site says where it sits.** The theme already drew a
   visible breadcrumb above each page; `web/components/Breadcrumbs.tsx` now
