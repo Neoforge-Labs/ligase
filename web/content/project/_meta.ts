@@ -17,6 +17,7 @@ const meta: MetaRecord = {
   'in-use': 'In use',
   releasing: 'Releasing',
   analytics: 'Analytics',
+  discoverability: 'Discoverability',
 }
 
 export default meta

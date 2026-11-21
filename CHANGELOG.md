@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Every page on the docs site says where it sits.** The theme already drew a
+  visible breadcrumb above each page; `web/components/Breadcrumbs.tsx` now
+  marks that trail up as a `BreadcrumbList`, beside the `SoftwareApplication`
+  the layout declares, on every page but the front page and the 404. It is
+  read off the same page map as the sidebar and the sitemap, so a page cannot
+  be in the navigation and absent from its own trail.
+
+  It invents no URLs, and that is the whole of the design. Seven of the
+  site's eleven sections — `concepts/`, `guide/`, `guide/steps/`, `start/`,
+  `reference/`, `project/` and `project/architecture/` — are folders with no
+  `index.mdx`, so the visible trail shows their names as plain text and there
+  is nothing to link them to. Google requires `item` on every element of a
+  `BreadcrumbList` except the last, so a section with no page is left out of
+  the trail rather than pointed at an address that 404s. Most pages therefore
+  carry two crumbs; the four sections that do have an `index.mdx`
+  (`silent-failures/`, `notebooks/`, `reference/api/`, `project/in-use/`)
+  appear in the trails beneath them. Giving any other section an `index.mdx`
+  deepens its trail with no change to the component.
+
+  `check-seo.mjs` gates it: one `BreadcrumbList` per page, positions in
+  order, the trail starting at the site root and ending at the page, and
+  every crumb a page the sitemap lists — which is the assertion that matters,
+  since a crumb pointing at a section with no page would hand a crawler a
+  link to a 404 dressed up as navigation.
+
+- **`project/discoverability.mdx`.** What the site tells a crawler, in one
+  place: `robots.txt`, the sitemap, the address each page claims in
+  `rel=canonical` and `og:url`, the breadcrumb and the sections it has to skip,
+  the prose published for models, everything `npm run seo` fails on — and the
+  three things no gate in this repository can check, which are whether
+  anything is indexed, whether anything links in, and what the seven missing
+  section landing pages would be worth.
+
 - **The documentation site is measured, and the measurement defaults to
   denied.** One Google Tag Manager container loads on the deployed site — the
   only third party it talks to — with all four Consent Mode signals defaulted

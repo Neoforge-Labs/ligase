@@ -13,7 +13,8 @@
  *   3. Every page carries a canonical link and an og:url, and both point at
  *      that page rather than at the site. No two pages share a <title>.
  *   4. The structured data is a SoftwareApplication that implies no
- *      adoption. The project has no outside users (CLAUDE.md), so there are
+ *      adoption, and every page but the front page and the 404 carries a
+ *      BreadcrumbList whose every crumb is a page the sitemap lists. The project has no outside users (CLAUDE.md), so there are
  *      no ratings, reviews, counts of interactions or downloads. Its
  *      version is Cargo.toml's, not a copy that goes stale.
  *   5. The prose is published for models: llms.txt follows the convention and
@@ -246,6 +247,56 @@ for (const word of ['production-ready', 'production ready', 'trusted', 'popular'
   assert(!prose.toLowerCase().includes(word), `JSON-LD description claims "${word}"`)
 }
 
+/*
+ * Breadcrumbs. The theme draws a visible trail above every page, and this is
+ * the markup for it, so it has to be a trail that can actually be walked:
+ * positions 1..n in order, the first crumb the site root, the last the page
+ * itself, and every crumb a page the sitemap lists. That last one is the
+ * assertion that matters. Seven of the site's sections are folders with no
+ * index.mdx, and a crumb pointing at one would hand a crawler a link to a
+ * 404 dressed up as navigation -- the one way this markup can do harm.
+ * components/Breadcrumbs.tsx leaves those sections out for that reason, and
+ * this fails if it ever stops.
+ */
+for (const page of exportedPages()) {
+  const html = readFileSync(outPathFor(page), 'utf8')
+  if (isRedirectStub(html)) continue
+
+  const found = jsonLdBlocks(html)
+  const apps = found.filter((b) => b?.['@type'] === 'SoftwareApplication')
+  assert(apps.length === 1, `${page} carries ${apps.length} SoftwareApplication blocks, expected 1`)
+  const trails = found.filter((b) => b?.['@type'] === 'BreadcrumbList')
+
+  // The front page is the root of every trail, and the 404 is noindex.
+  if (page === `${ORIGIN}/` || NOINDEX_ALLOWED.has(page)) {
+    assert(trails.length === 0, `${page} carries a breadcrumb, and it is not a page in a trail`)
+    continue
+  }
+
+  assert(trails.length === 1, `${page} carries ${trails.length} BreadcrumbList blocks, expected 1`)
+  const crumbs = trails[0]?.itemListElement ?? []
+  assert(crumbs.length >= 2, `${page} has a breadcrumb of ${crumbs.length} crumb(s)`)
+  crumbs.forEach((crumb, i) => {
+    assert(crumb?.position === i + 1, `${page}: crumb ${i + 1} declares position ${crumb?.position}`)
+    assert(
+      typeof crumb?.name === 'string' && crumb.name.trim() !== '',
+      `${page}: crumb ${i + 1} has no name`,
+    )
+    assert(
+      typeof crumb?.item === 'string' && listed.has(crumb.item),
+      `${page}: crumb ${i + 1} points at ${crumb?.item}, which the sitemap does not list`,
+    )
+  })
+  assert(
+    crumbs[0]?.item === `${ORIGIN}/`,
+    `${page}: the trail starts at ${crumbs[0]?.item}, expected the site root`,
+  )
+  assert(
+    crumbs.at(-1)?.item === page,
+    `${page}: the trail ends at ${crumbs.at(-1)?.item}, expected the page itself`,
+  )
+}
+
 // 5. machine-readable prose ---------------------------------------------
 const llms = read('llms.txt')
 assert(/^# Ligase\n/.test(llms), 'llms.txt must open with "# Ligase"')
@@ -447,7 +498,7 @@ if (failures.length > 0) {
 }
 console.log(
   `OK: ${urls.length} sitemap URLs all exported, every exported page listed, canonical, ` +
-    `og:url'd to itself and uniquely titled, ` +
+    `og:url'd to itself, uniquely titled and in a walkable breadcrumb, ` +
     `AI crawlers named, structured data claims no adoption, llms.txt lists every page, ` +
     `${mds.length} markdown pages are free of JSX, prose claims no adoption.`,
 )

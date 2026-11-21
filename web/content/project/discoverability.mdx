@@ -1,0 +1,133 @@
+---
+title: "Discoverability"
+description: "What the site tells a crawler: robots, the sitemap, the address each page claims, its breadcrumb, and the prose published for models. What the gate checks, and what no gate here can."
+---
+# Discoverability
+
+## What it is
+
+A static export on GitHub Pages, which means there is no server to answer a
+crawler and every signal has to be a file in `out/`. There are six, and
+`npm run seo` is the gate over all of them.
+
+```text
+robots.txt        app/robots.ts         who may crawl, and where the sitemap is
+sitemap.xml       app/sitemap.ts        every page, read off the page map
+rel=canonical     app/layout.tsx        the address a page claims
+og:url            app/layout.tsx        the same address, for everything else
+BreadcrumbList    components/Breadcrumbs.tsx   where the page sits
+llms.txt          scripts/generate-llms.mjs    the prose, for models
+```
+
+Nothing in that list is written by hand. `robots.ts` and `sitemap.ts` are Next
+file conventions, both declared `force-static` because an export has no server
+to run them per request; the sitemap is read off the same page map the sidebar
+is built from, so a page in the navigation cannot be missing from it.
+
+## The address a page claims
+
+Two tags say where a page lives, and they are read by different things.
+`rel=canonical` is what a search engine consolidates on. `og:url` is what
+everything else uses — link previews in chat and mail clients, and the
+crawlers that take it as the page's identity.
+
+Both are declared once, in the root layout, as the relative `'./'`. Next
+resolves that against `metadataBase` and the route being rendered, so each
+page states its own address with the trailing slash the export serves.
+
+<Note kind="caution" title="Why this is not a literal URL">
+`openGraph.url` was once the literal origin. It typechecked, deployed, and
+passed every other check here, while telling all 110 pages that they were the
+front page. `rel=canonical` was right on all of them, so nothing looked
+wrong: every docs link pasted into a chat previewed as the homepage, and a
+crawler reading `og:url` in preference to the canonical saw one URL where
+there are 109. The check now compares `og:url` against the page it sits on.
+</Note>
+
+`app/not-found.tsx` overrides both. The route Next renders there is its
+internal `/_not-found`, which would otherwise leak into public HTML; the
+export serves that page at `/404/`, so that is what it declares. Next replaces
+a parent's `openGraph` rather than merging into it, so the 404 respells the
+`siteName`, `type` and image rather than dropping them.
+
+## Breadcrumbs
+
+The theme draws a visible trail above every page. `components/Breadcrumbs.tsx`
+marks that trail up as a `BreadcrumbList`, beside the `SoftwareApplication`
+the layout declares, on every page except the front page and the 404.
+
+It does not invent URLs, and that is the whole of its design. Seven of the
+site's eleven sections are folders with no `index.mdx`:
+
+```text
+concepts/    guide/    guide/steps/    start/
+reference/   project/  project/architecture/
+```
+
+The visible trail shows their names as plain text, because there is no page to
+link to. Google requires `item` on every element of a `BreadcrumbList` except
+the last, so a section with no page is **left out of the trail** rather than
+pointed at an address that 404s. For most pages that leaves two crumbs:
+
+```text
+/concepts/caching/              Ligase > Running, and not running
+/silent-failures/contig-naming/ Ligase > Silent failures > My BED file intersects nothing
+```
+
+The second is deeper because `silent-failures/` has an `index.mdx`, as do
+`notebooks/`, `reference/api/` and `project/in-use/`. Give any other section
+one and its crumb starts appearing with no change to the component — the trail
+is read off the page map, not a list kept here.
+
+## Published for models
+
+`llms.txt` follows the convention: a summary, then every page as a link to a
+markdown variant, in sections mirroring the nav. `llms-full.txt` carries the
+text itself, and an `index.md` sits beside every page. `robots.txt` names
+`GPTBot`, `ClaudeBot`, `PerplexityBot`, `Google-Extended` and `CCBot` in
+stanzas of their own with an explicit `Allow`, because the `*` rule would
+admit them but an unnamed crawler is left to whatever default it assumes.
+
+The conversion to markdown is not a tag-stripper: it keeps the text a
+component stands for, including diagnostics whose text is not in the MDX at
+all but referenced from the captured engine output.
+
+## What the gate checks
+
+`npm run seo` runs `scripts/check-seo.mjs` over `out/` after a build and fails
+on any of:
+
+- a sitemap URL with no page, or a page missing from the sitemap, in either
+  direction; the 404 is the only page allowed to be `noindex`
+- a crawler in the list above that is unnamed, or named and not allowed
+- a page whose `rel=canonical` or `og:url` is not its own address
+- two pages sharing a `<title>`
+- a breadcrumb crumb pointing at anything the sitemap does not list, a trail
+  not starting at the site root or not ending at the page, or positions out of
+  order
+- structured data implying adoption — ratings, reviews, download or
+  interaction counts — or a `softwareVersion` that is not `Cargo.toml`'s
+- `llms.txt` missing a page, or a markdown variant with JSX left in it
+
+The page count is deliberately not asserted anywhere: the page map is the
+source of truth, and a hardcoded number rots the day someone adds a page.
+
+## What no gate here can check
+
+Three things, all of them outside the repository.
+
+**Whether anything is indexed.** No gate can see a search engine's index. The
+site carries no verification token for one either, in a meta tag or a file, so
+if a Search Console property exists it was verified some other way and nothing
+here records it.
+
+**Whether anything links in.** A crawler reaches a page by following a link,
+and the number of pages pointing at this site from elsewhere is not a fact
+this repository holds. `pyproject.toml` and `Cargo.toml` at least name the
+site now, so the PyPI and crates.io pages link it from the next release
+onward.
+
+**What the sections would be worth.** The seven without an `index.mdx` are the
+gap most visible from here: a reader who clicks a section heading gets
+nothing, the breadcrumb trail stays two crumbs deep, and the pages inside are
+reachable only from the sidebar.
