@@ -8,6 +8,7 @@ import type { MetaRecord } from 'nextra'
  * the part a reader already knows.
  */
 const meta: MetaRecord = {
+  index: 'The four curated steps',
   minimap2: 'Aligning with minimap2',
   bwa: 'Aligning with BWA-MEM',
   samtools: 'Sorting an alignment',

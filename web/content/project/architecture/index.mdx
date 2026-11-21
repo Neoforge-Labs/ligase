@@ -1,0 +1,86 @@
+---
+title: "How Ligase is built"
+description: "One page per component of the engine: the type system, the graph, execution, the cache, the store, canonicalisation, conversions, provenance, notes, the cluster lease protocol and the resistance interpreter — with the trade-offs recorded."
+---
+
+# How Ligase is built
+
+<Lede>
+One page per component, each describing how it is put together, which design
+decisions it rests on, and what those cost. These are internals: where a page
+here has a user-facing counterpart in [concepts](/concepts/), it says so and
+links to it.
+</Lede>
+
+Almost none of this is reachable from Python. The correctness-critical
+logic — deciding whether two files mean the same thing, whether two dimensions
+agree, whether a step may be skipped — lives in Rust with no `pyo3` in the
+module, and is exposed through the binding crate as a narrow surface.
+
+## The scaffold
+
+- [Workspace](/project/architecture/workspace/) — how the scaffold is wired,
+  and what each choice costs.
+- [Step library](/project/architecture/step-library/) — how
+  `python/ligase/steps` is put together, the registry that makes its entrance
+  exam checkable, and the one missing feature behind both of its exclusions.
+
+## Checking before computing
+
+- [Type system](/project/architecture/type-system/) — how dimension checking is
+  built, and why this way.
+- [Graph](/project/architecture/graph/) — how a pipeline is built from
+  signatures, how dimensions travel through it, and why requirements come from
+  the graph rather than from a table.
+- [Inspect](/project/architecture/inspect/) — one code path with two sections, a
+  renderer shared with `check`, the three dimension states, and why the exit
+  codes are what they are.
+- [Conversions](/project/architecture/conversions/) — the conversion registry:
+  what an entry declares, and how propagation crosses a single axis.
+
+## Running
+
+- [Execution](/project/architecture/execution/) — how a checked graph becomes
+  parallel work, and why Python is not in the loop.
+- [Cache](/project/architecture/cache/) — how `.ligase/` is laid out and how a
+  key is composed.
+- [Store](/project/architecture/store/) — the blob tier: one trait, a
+  filesystem backend, an object-store backend behind a feature flag, and what a
+  shared store is actually as trustworthy as.
+- [Cluster execution](/project/architecture/cluster/) — the lease protocol, and
+  the three bugs that writing its tests found.
+- [Audit](/project/architecture/audit/) — how a step is run twice, how the
+  three verdicts are decided, and why a declared stochastic step can never
+  reach the first of them.
+
+## Deciding what a result is
+
+- [Canonicalisation](/project/architecture/canonicalisation/) — one module per
+  format, plus the digest they all build.
+- [Knowledge graphs](/project/architecture/knowledge-graphs/) — how the kind is
+  read, how `source_set` got its own value type, and the three things that
+  milestone deliberately does not do.
+- [Molecules](/project/architecture/molecules/) — the InChIKey measurement the
+  design rests on, and why the chemistry toolkit is optional and how that is
+  proved rather than claimed.
+- [Remote inputs](/project/architecture/remotes/) — how a locator becomes
+  bytes, where the digest is checked, and how a recorded query is replayed.
+
+## Answering for a result
+
+- [Provenance](/project/architecture/provenance/) — reached from Python as
+  `pipe.methods()` and `ligase methods`.
+- [Notes](/project/architecture/notes/) — a finding about a step's output that
+  never changes a hash and never fails a run, carried into the report, the
+  provenance, a bundle and the methods section.
+
+## Interpreting
+
+- [Resistance interpretation, internally](/project/architecture/hivdb/) — three
+  layers, none of which knows about Python.
+
+## The things you can see
+
+- [Visual identity](/project/architecture/identity/) — how the mark is drawn,
+  what each colour means to the engine, and the six places the site departs
+  from the brand or from `CLAUDE.md`, with the reason for each.

@@ -28,6 +28,12 @@ dynamic = ["version"]
 ligase = "ligase.cli:main"
 
 [project.urls]
+# PyPI renders these as the project page's sidebar. Homepage and
+# Documentation are listed because pypi.org is one of the few high-authority
+# pages that will ever link to the docs site, and a project page that links
+# only to GitHub spends that for nothing.
+Homepage = "https://ligase.neoforgelabs.tech/"
+Documentation = "https://ligase.neoforgelabs.tech/"
 Repository = "https://github.com/Neoforge-Labs/ligase"
 Changelog = "https://github.com/Neoforge-Labs/ligase/blob/main/CHANGELOG.md"
 

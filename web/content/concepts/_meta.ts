@@ -31,6 +31,7 @@ import type { MetaRecord } from 'nextra'
  * the reader has met.
  */
 const meta: MetaRecord = {
+  index: 'Why it works this way',
   'types-and-dimensions': 'Types and dimensions',
   pipelines: 'Pipelines and the graph',
   caching: 'Running, and not running',

@@ -9,6 +9,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Every section of the docs site is a page.** `concepts/`, `guide/`,
+  `guide/steps/`, `start/`, `reference/`, `project/` and
+  `project/architecture/` were folders with no `index.mdx`. The sidebar
+  expanded them, so a reader never noticed; a crawler following links found no
+  page at `/concepts/`, the section had no address of its own to rank for a
+  category query, and the breadcrumb could not name it. Each now has a hub
+  that says what the section is for, in what order to read it, and links every
+  page inside it — which also takes the trails to the depth the tree actually
+  is, four crumbs under `guide/steps/` and `project/architecture/`.
+
+  `check-seo.mjs` holds it open: every directory that contains pages must
+  itself be a page, and that page's body must link each page directly inside
+  it. It reads the markdown variant rather than the HTML, because the HTML
+  carries the sidebar — which links the whole site and would pass a hub whose
+  body was empty. The front page is exempt, being a landing page rather than a
+  hub.
+
+- **The sitemap says when each page last changed.** `web/lib/lastmod.ts` reads
+  the commit date of each page's own MDX in one `git log` pass, and the
+  sitemap carries it as `lastmod`. A crawler that trusts the value revisits
+  what moved and leaves the rest alone, which is the only reason to send one.
+
+  A page whose source is generated rather than committed — the API reference,
+  the CLI reference, the notebooks — carries no date rather than an invented
+  one, because the way to make `lastmod` worthless is to emit the build time:
+  every page then claims to have changed on every deploy, which is false for
+  all but the few that did. A date is also only taken for a file git still
+  tracks, because `git log --name-only` names a path as it was at each commit:
+  the generated pages were committed once before they were ignored, and the
+  first version of this dated ten of them to the day their old copies were
+  deleted. 96 of 117 pages carry a date, across 42 distinct values. The gate
+  fails on a date that does not parse, a date in the future, every date being
+  identical, or fewer than half the pages carrying one — that last because the
+  way this breaks in practice is not a wrong date but an empty map that is
+  still valid XML, which is exactly what the first version of it produced.
+
+- **The structured data says which Ligase this is.** The name collides with
+  DNA ligase, the enzyme, which has a century of literature behind it and wins
+  every ambiguous query. The `SoftwareApplication` block now names the
+  identifiers that resolve to the package instead — `sameAs` listing the
+  repository, `pypi.org/project/ligase-bio/` and `crates.io/crates/ligase`,
+  `alternateName` carrying `ligase-bio` because that is the distribution name
+  while the import is `ligase`, and `installUrl`. The gate asserts all three
+  registry URLs are present, so a withdrawn entry has to come out of the
+  layout rather than be left pointing at a 404. Nothing added here implies
+  adoption, and the existing check still fails on anything that would.
+
+- **A place to put a search-engine verification token.** `app/layout.tsx`
+  reads `LIGASE_GOOGLE_SITE_VERIFICATION` and `LIGASE_BING_SITE_VERIFICATION`
+  at build time and emits a meta tag for each one that is set; an unset
+  variable emits no tag rather than an empty one. No token is committed and
+  neither variable is set in CI. Verifying the domain in DNS is the better
+  route and needs none of this, so `project/discoverability.mdx` now carries
+  the steps for it: the docs host is a `CNAME` to GitHub Pages and can
+  therefore hold no `TXT` record of its own, so the record goes at the apex,
+  verified as a Domain property — which covers every subdomain, including the
+  ones that do not exist yet. It also says what Bing's import from Search
+  Console costs, and that a verification token belongs in a repository
+  variable rather than a secret, being public in the HTML of every page it is
+  on.
+
+- **Every page on the docs site says where it sits.** The theme already drew a
+  visible breadcrumb above each page; `web/components/Breadcrumbs.tsx` now
+  marks that trail up as a `BreadcrumbList`, beside the `SoftwareApplication`
+  the layout declares, on every page but the front page and the 404. It is
+  read off the same page map as the sidebar and the sitemap, so a page cannot
+  be in the navigation and absent from its own trail.
+
+  It invents no URLs, and that is the whole of the design. Google requires
+  `item` on every element of a `BreadcrumbList` except the last, so a section
+  with no page of its own is left out of the trail rather than pointed at an
+  address that 404s. When this landed, seven of the site's eleven sections
+  were folders with no `index.mdx` and most pages carried two crumbs as a
+  result; the section hubs below close that, and the trails deepened with no
+  change to the component, because the trail is read off the page map rather
+  than a list kept beside it.
+
+  `check-seo.mjs` gates it: one `BreadcrumbList` per page, positions in
+  order, the trail starting at the site root and ending at the page, and
+  every crumb a page the sitemap lists — which is the assertion that matters,
+  since a crumb pointing at a section with no page would hand a crawler a
+  link to a 404 dressed up as navigation.
+
+- **`project/discoverability.mdx`.** What the site tells a crawler, in one
+  place: `robots.txt`, the sitemap, the address each page claims in
+  `rel=canonical` and `og:url`, the breadcrumb and the sections it has to skip,
+  the prose published for models, the identifiers that say which Ligase this
+  is, where a verification token would go, everything `npm run seo` fails on —
+  and the three things no gate in this repository can check, which are whether
+  anything is indexed, whether anything links in, and whether a language model
+  recommends it.
+
 - **The documentation site is measured, and the measurement defaults to
   denied.** One Google Tag Manager container loads on the deployed site — the
   only third party it talks to — with all four Consent Mode signals defaulted

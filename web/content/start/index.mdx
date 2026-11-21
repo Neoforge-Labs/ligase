@@ -1,0 +1,52 @@
+---
+title: "Getting Ligase running"
+description: "Install the package and get a pipeline type-checked, run and cached in about five minutes. Two pages, in order, with no aligner required for either."
+---
+
+# Getting Ligase running
+
+<Lede>
+Two pages, meant to be read in order. The first gets the package onto your
+machine; the second gets a pipeline checked, run and cached, using files small
+enough that nothing needs installing beyond Ligase itself.
+</Lede>
+
+## Install it
+
+`pip install ligase-bio` — one name worth noting, because the distribution is
+called **ligase-bio** on PyPI while the package you import is `ligase`. Wheels
+are published for Linux, macOS and Windows, so there is no Rust toolchain to
+set up even though the engine is Rust.
+
+[Installation →](/start/installation/)
+
+## Run something
+
+The quickstart inspects two files before writing anything, provokes a type
+error and reads it, then runs a real pipeline and watches the second run skip
+the work. No aligner, no reference genome download, no cluster.
+
+Every command and every piece of output on that page is captured from a real
+run of the CLI in a temporary directory on every docs build, so what you read
+is what your terminal will say.
+
+[Quickstart →](/start/quickstart/)
+
+## Where to go next
+
+Which way you turn from here depends on what brought you:
+
+- A bug you are chasing, or one you suspect — the
+  [silent failures](/silent-failures/) are indexed by symptom rather than by
+  mechanism, because the symptom is what you have.
+- A pipeline to build — the [guides](/guide/) take one task at a time, starting
+  with [inspecting files you have](/guide/inspecting-files/) and
+  [building a pipeline](/guide/building-a-pipeline/).
+- The reasoning — [concepts](/concepts/) explains why dimensions are in the
+  type system rather than in a validation step.
+
+<Note kind="note" title="Pre-alpha">
+Ligase is pre-alpha and has no outside users. The API is not yet stable, and
+the parts that are deliberately out of scope for v0.1 are named in
+[the milestones](/project/milestones/).
+</Note>

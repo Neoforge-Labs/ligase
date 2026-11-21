@@ -1,0 +1,89 @@
+---
+title: "Why Ligase works this way"
+description: "The reasoning behind the design: what a dimension is, how a graph is built from functions nobody has called, what a cache key is made of, and why identifier spaces, assembled sources and molecular standardisation are dimensions too."
+---
+
+# Why Ligase works this way
+
+<Lede>
+These pages explain the reasoning rather than the usage. Nothing here is needed
+to run a pipeline — [the guides](/guide/) are for that — but everything here is
+needed to predict what Ligase will refuse, and why.
+</Lede>
+
+The one idea underneath all of it: biological data carries **dimensions** —
+organism, reference build, coordinate system, sample set — and connecting two
+steps whose dimensions disagree is the shape of nearly every silent failure in
+computational biology. Ligase puts those dimensions in the type system, where a
+mismatch is a build error rather than a plausible number.
+
+## Start here
+
+- [Types and dimensions](/concepts/types-and-dimensions/) — why a file path is
+  not enough to know whether two files belong together, and what a dimension
+  actually is. Read this one first.
+- [Pipelines and the graph](/concepts/pipelines/) — how a graph is built from
+  functions nobody has called, which is what makes checking before computing
+  possible at all.
+
+## What gets run, and what does not
+
+- [Running, and not running](/concepts/caching/) — what the cache key is made
+  of, and why a changed input does not always propagate downstream.
+- [What a file means, and what bytes it holds](/concepts/semantic-hashing/) —
+  why two files with different bytes can be the same result, and what is
+  dropped before an output is hashed.
+- [Steps that draw on randomness](/concepts/stochastic-steps/) — an audit can
+  tell you two runs agreed; only the step can tell you whether that was luck.
+- [Sharing a cache](/concepts/remote-store/) — a local store with a bucket
+  behind it, and why every object is checked on arrival.
+- [Running on more than one machine](/concepts/cluster-execution/) — several
+  machines, one pipeline, no coordinator and no lock, because a step key is a
+  content hash.
+
+## What a step is allowed to be
+
+- [What a curated step is](/concepts/step-library/) — why `ligase.steps` is a
+  library with an entrance exam rather than a bag of wrappers, and what the
+  criterion has already kept out.
+
+## Dimensions beyond the genome
+
+Each of these is a dimension that earned its place because its mismatch is a
+documented silent failure, not because the file format was convenient to parse.
+
+- [Identifier spaces](/concepts/identifiers/) — why the space a gene list's
+  names live in is a dimension, and why there is no alias table.
+- [Assembled data](/concepts/knowledge-graphs/) — why the evidence sources a
+  knowledge graph was built from are a dimension, read off the graph rather
+  than asked for.
+- [What a molecule's name means](/concepts/molecules/) — why two compound sets
+  standardised differently are two different sets of names for the same
+  substances.
+- [Where the data came from](/concepts/remotes/) — the fetch at the top of
+  nearly every pipeline, pinned or recorded, and replayable either way.
+- [Recording a live answer](/concepts/record-and-replay/) — what a recorded
+  query promises that a live one cannot.
+
+## Answering for a result afterwards
+
+- [How was this produced?](/concepts/provenance/) — why the record of how a
+  result was made cannot be recomputed, and what is written down while it still
+  can be.
+- [A number in a paper](/concepts/claims/) — provenance answers how a result
+  was produced; a claim asks what is behind the number you published.
+- [What a result rests on](/concepts/notes/) — why the engine reports an
+  assumption instead of refusing the run or quietly fixing it.
+
+## The one part that interprets
+
+- [Resistance interpretation](/concepts/resistance-interpretation/) — the one
+  component that interprets rather than checks, and why its rules are hashed by
+  content instead of named by version.
+
+<Note kind="tip" title="Reading these against the failures">
+Each concept here exists because of a specific bug. If a page feels abstract,
+[the silent failures](/silent-failures/) are the same material from the other
+end: the symptom first, then the mechanism, then the diagnostic the engine
+prints for it.
+</Note>
