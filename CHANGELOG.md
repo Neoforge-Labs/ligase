@@ -167,47 +167,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **Every page on the docs site told crawlers it was the homepage.** The root
-  layout declared `openGraph.url` as the literal origin, so all 110 exported
-  pages carried `og:url` of `https://ligase.neoforgelabs.tech/`. `rel=canonical`
-  was right on every one of them, which is why nine checks and a link crawl
-  passed and nothing looked wrong: the defect lived entirely in the address a
-  page claims where `rel=canonical` is not what gets read. Every docs link
-  pasted into Slack, LinkedIn or a mail client previewed as the front page
-  rather than the page sent, and a crawler that takes `og:url` as a page's
-  identity — several of the AI crawlers `robots.txt` goes out of its way to
-  name — saw one URL where there are a hundred and nine. `og:url` is now
-  relative, resolved against `metadataBase` and the route like the canonical
-  beside it, and `app/not-found.tsx` overrides it to `/404/` for the same
-  reason it already overrode the canonical, because the route Next renders
-  there is the internal `/_not-found`.
+- **A fetch survives being refused by a rate-limited archive.** The HIV-1
+  demo's CI job had been failing with a 403 from `ftp.sra.ebi.ac.uk` on a
+  different pinned run each time — `SRR32217714` one run, `SRR32217715` the
+  next — which is the signature of a rate limit or a flaky edge rather than
+  an object that has been removed. The transport retried a 429 and a 5xx but
+  took a 403 as final, so the demo could not fetch inputs that were there
+  all along, and the job failed for a reason that had nothing to do with the
+  code under test.
 
-- **Two pages shared a title with two others.** `reference/api/resistance/`
-  and `concepts/resistance-interpretation/` were both
-  `Resistance interpretation — Ligase`, and `reference/api/errors/` and
-  `reference/errors/` were both `Errors — Ligase`. A duplicate `<title>`
-  leaves a search engine to choose which of the pair it shows for the phrase,
-  and it chooses one; the collisions were between a concept and the API group
-  of the same name, which are the two a reader most needs told apart.
-  `generate_api.py` now writes the document title as `API: <group>`. The
-  sidebar label and the `h1` are unchanged — the label comes from the
-  generated `_meta.ts`, not the frontmatter.
-
-  `scripts/check-seo.mjs` grew the two assertions that would have caught
-  both: `og:url` is compared against the page it sits on, exactly as the
-  canonical already was, and no two exported pages may share a `<title>`.
-  Redirect stubs are exempt from both, since they carry no OpenGraph tags and
-  deliberately share one title.
-
-- **Neither published package linked its own documentation.** `pyproject.toml`
-  listed only the repository and the changelog, so pypi.org — one of the very
-  few high-authority pages that will ever point at the docs site — linked
-  past it to GitHub, and `Cargo.toml` declared no `homepage` at all, so the
-  crates.io page did the same. PyPI's project page now carries `Homepage` and
-  `Documentation`, and the crate carries `homepage`. `documentation` is left
-  unset on the crate on purpose: crates.io defaults it to docs.rs, which is
-  where a reader after the Rust API should land. Both take effect at the next
-  release, not before.
+  A 403 now joins 408, 429 and the 5xx range in the retried set, each wait
+  jittered so that runners refused together do not come back together. A 404
+  is still retried zero times: an object that is gone will not arrive on the
+  sixth ask, and retrying one spends a budget the next real request needs.
+  Retrying is bounded by attempts (now six) and by how long the waiting
+  between them may add up to (two minutes), whichever comes first, so a
+  refusal that never lets up still fails while someone is watching. The
+  second bound governs the sleeping rather than the asking: an attempt that
+  hangs is bounded by the per-attempt timeout, which stays generous because
+  a pinned SRA run is legitimately gigabytes. The failure it ends with says how
+  many times the URL was asked and what it answered the last time, and keeps
+  the underlying failure reachable through `source()` and a new
+  `FetchError::status()`; a request that was never retried is still reported
+  as itself. No pinned accession, digest or version moved — the demo's
+  scientific inputs are what they were.
 
 - **The analytics page names the container the site actually loads.** It
   opened with `GTM-KBSX44GX` throughout while `web/components/Analytics.tsx`

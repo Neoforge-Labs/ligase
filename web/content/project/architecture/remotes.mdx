@@ -101,9 +101,31 @@ same resolution path as any other, minus the fetch.
 
 Restraint, not speed:
 
-- **A 404 is retried zero times**; a 503 or 429 is retried with backoff.
-  Retrying something that will not change wastes time and, against a
-  rate-limited archive, spends a budget the next real request needs.
+- **A 404 is retried zero times**; a 503, 429 or 403 is retried with
+  backoff and jitter. Retrying something that will not change wastes time
+  and, against a rate-limited archive, spends a budget the next real request
+  needs.
+
+  A 403 among the retried looks wrong, and is there because of what ENA
+  actually does: it refuses an automated client it has had enough of for the
+  moment with a 403 rather than a 429, on a different file each time. A file
+  that is genuinely not yours answers 403 to every attempt and is then
+  reported with its status, so the price of being wrong about one is a wait;
+  the price of the other mistake was a demo that could not fetch its own
+  pinned inputs. Jitter is for the shape of the client rather than the
+  server: a CI matrix refused in the same second and backing off in lockstep
+  arrives back in the same second.
+- **Retrying is bounded twice**: by a number of attempts, and by how long
+  all the waiting *between* attempts may add up to. The second bound exists
+  because attempts alone cannot stop a doubling backoff from turning a dead
+  URL into an hour of silence. It governs the sleeping and not the asking —
+  an attempt that hangs is bounded by the per-attempt `timeout` instead,
+  which is generous on purpose, since a pinned SRA run is legitimately
+  gigabytes and a fetch that is still arriving is not a fetch to abandon.
+  Whichever bound is reached first ends the fetch, and the failure says how
+  many times it asked and what it was told last — the two facts a CI log needs to tell a flake from a file that is
+  gone. A failure that was never retried is reported as itself, so "gave up
+  after six attempts" is never said about one attempt.
 - **A redirect is followed, bounded, and the URL that answered is recorded
   separately from the locator.** Two different facts: the locator is what you
   asked for and belongs in a methods paragraph; the final URL is what replied
